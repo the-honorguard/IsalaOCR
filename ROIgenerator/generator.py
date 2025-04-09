@@ -260,11 +260,7 @@ class CropImageApp(QMainWindow):
             QMessageBox.information(self, "Geen ROIs", "Er zijn geen ROIs om op te slaan.")
             return
 
-        # Maak een nieuwe configuratie om alleen de ROIs op te slaan
-        self.config.remove_section('ROI')  # Verwijder de oude ROIs
-        self.config.add_section('ROI')
-
-        # Voeg nieuwe ROIs toe aan de configuratie
+        # Bijwerken van de 'rois' sectie in het INI-bestand
         for index, (label, (x1, y1, x2, y2)) in enumerate(self.rois):
             self.config.set('ROI', f'roi_{index + 1}', f'{label}:{x1},{y1},{x2},{y2}')
 
@@ -309,6 +305,12 @@ class CropImageApp(QMainWindow):
 
             config.add_section('modules')
             config.set('modules', 'enabled', 'delete_results, select_region, adaptive_threshold, preread_image_display')
+
+            # Voeg de ROIs toe aan de 'ROI' sectie van de nieuwe config
+            if self.rois:
+                config.add_section('ROI')  # Voeg de ROI sectie toe
+                for index, (label, (x1, y1, x2, y2)) in enumerate(self.rois):
+                    config.set('ROI', f'roi_{index + 1}', f'{label}:{x1},{y1},{x2},{y2}')
 
             # Sla het nieuwe config-bestand op
             with open(file_path, 'w') as configfile:
