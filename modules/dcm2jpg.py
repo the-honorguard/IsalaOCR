@@ -50,7 +50,7 @@ def dcm_to_jpg(dcm_path, output_dir):
 if __name__ == "__main__":
     # Definieer de locatie van het DICOM-bestand en de uitvoermap
     dcm_path = '/home/isala/ocr/IsalaOCR/dcm_in/EE352F8D'  # Geef het pad naar het DICOM-bestand op
-    output_dir = '/home/isala/ocr/IsalaOCR/jpg_out'  # Geef de uitvoermap op
+    output_dir = '/home/isala/ocr/IsalaOCR/processing/jpg_out'  # Geef de uitvoermap op
 
     # Zorg ervoor dat de uitvoermap bestaat, anders maken we die aan
     os.makedirs(output_dir, exist_ok=True)
