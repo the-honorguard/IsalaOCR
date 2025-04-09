@@ -1,0 +1,13 @@
+opencv-python
+pydicom
+easyocr
+tqdm
+screeninfo
+pillow
+SimpleITK
+pyautogui
+PySide6
+
+
+# apt install
+# orthanc
