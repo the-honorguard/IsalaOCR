@@ -48,6 +48,21 @@ def dcm_to_jpg(dcm_path, output_dir):
     except Exception as e:
         print(f"Fout bij het converteren van DICOM naar JPG: {e}")
 
+def process_dicom_folder(input_dir, output_dir):
+    """
+    Doorzoek een map naar DICOM-bestanden en converteer ze allemaal naar JPG.
+    
+    Parameters:
+    - input_dir: de map waar de DICOM-bestanden zich bevinden.
+    - output_dir: de map waar de gegenereerde JPG-bestanden moeten worden opgeslagen.
+    """
+    for root, _, files in os.walk(input_dir):
+        for file in files:
+            if file.endswith('.dcm'):
+                dcm_path = os.path.join(root, file)
+                print(f"Verwerken van bestand: {dcm_path}")
+                dcm_to_jpg(dcm_path, output_dir)
+
 if __name__ == "__main__":
     # Laad de configuratie
     config = configparser.ConfigParser()
@@ -55,11 +70,11 @@ if __name__ == "__main__":
     config.read(config_path)
 
     # Haal de paden op uit de configuratie
-    dcm_path = os.path.join('/home/isala/ocr/IsalaOCR', 'dcm_in', 'EE352F8D')  # Dit kan ook uit de config gehaald worden indien nodig
-    output_dir = os.path.join('/home/isala/ocr/IsalaOCR', config['paths']['image_folder'])
+    input_dir = config['paths']['dcm_folder']  # Map met DICOM-bestanden
+    output_dir = config['paths']['image_folder']  # Map voor de uitvoer van JPG-bestanden
 
     # Zorg ervoor dat de uitvoermap bestaat, anders maken we die aan
     os.makedirs(output_dir, exist_ok=True)
 
-    # Converteer het DICOM-bestand naar JPG
-    dcm_to_jpg(dcm_path, output_dir)
+    # Verwerk alle DICOM-bestanden in de map
+    process_dicom_folder(input_dir, output_dir)

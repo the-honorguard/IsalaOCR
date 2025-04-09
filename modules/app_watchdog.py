@@ -15,7 +15,8 @@ class DCMFileHandler(FileSystemEventHandler):
         print(f"on_created aangeroepen voor: {event.src_path}")
         if event.is_directory:
             return
-        if event.src_path.endswith('.dcm'):
+        # Controleer op bestanden die eindigen op .dcm of geen extensie hebben
+        if event.src_path.endswith('.dcm') or '.' not in os.path.basename(event.src_path):
             print(f"Nieuw DICOM-bestand gedetecteerd: {event.src_path}")
             self.log_detected_file(event.src_path)
             self.run_script(event.src_path)
