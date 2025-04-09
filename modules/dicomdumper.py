@@ -49,8 +49,8 @@ def dicom_to_json(dcm_path, output_dir):
         full_dict = dicom_dataset_to_dict(ds)
 
         # Haal PatientName en PatientID op voor de bestandsnaam
-        patient_name = getattr(ds, "PatientName", "UNKNOWN").replace("^", "_").replace(" ", "_")
-        patient_id = getattr(ds, "PatientID", "UNKNOWN")
+        patient_name = str(getattr(ds, "PatientName", "UNKNOWN")).replace("^", "_").replace(" ", "_")
+        patient_id = str(getattr(ds, "PatientID", "UNKNOWN"))
         json_filename = f"{patient_name}_{patient_id}.json"
         json_path = os.path.join(output_dir, json_filename)
 
