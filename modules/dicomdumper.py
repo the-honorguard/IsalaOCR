@@ -5,7 +5,7 @@ import configparser
 import argparse
 
 # === PAD NAAR CONFIG BESTAND ===
-config_file_path = "C:/pad/naar/mainconfig.ini"  # Zet hier het pad naar je config bestand
+config_file_path = "/home/isala/ocr/IsalaOCR/config/mainconfig.ini"  # Zet hier het pad naar je config bestand
 
 # === CONFIG INLEZEN uit INI bestand (specifieke sectie dicomdumper) ===
 config = configparser.ConfigParser()
