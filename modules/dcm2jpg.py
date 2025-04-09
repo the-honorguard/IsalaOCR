@@ -1,4 +1,5 @@
 import os
+import configparser
 import SimpleITK as sitk
 from PIL import Image
 import numpy as np
@@ -48,9 +49,14 @@ def dcm_to_jpg(dcm_path, output_dir):
         print(f"Fout bij het converteren van DICOM naar JPG: {e}")
 
 if __name__ == "__main__":
-    # Definieer de locatie van het DICOM-bestand en de uitvoermap
-    dcm_path = '/home/isala/ocr/IsalaOCR/dcm_in/EE352F8D'  # Geef het pad naar het DICOM-bestand op
-    output_dir = '/home/isala/ocr/IsalaOCR/processing/jpg_out'  # Geef de uitvoermap op
+    # Laad de configuratie
+    config = configparser.ConfigParser()
+    config_path = '/home/isala/ocr/IsalaOCR/config/mainconfig.ini'
+    config.read(config_path)
+
+    # Haal de paden op uit de configuratie
+    dcm_path = os.path.join('/home/isala/ocr/IsalaOCR', 'dcm_in', 'EE352F8D')  # Dit kan ook uit de config gehaald worden indien nodig
+    output_dir = os.path.join('/home/isala/ocr/IsalaOCR', config['paths']['image_folder'])
 
     # Zorg ervoor dat de uitvoermap bestaat, anders maken we die aan
     os.makedirs(output_dir, exist_ok=True)
