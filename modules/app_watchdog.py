@@ -12,7 +12,7 @@ class DCMFileHandler(FileSystemEventHandler):
         self.script_to_run = script_to_run
 
     def on_created(self, event):
-        # Controleer of het een bestand is en of het de extensie .dcm heeft
+        print(f"on_created aangeroepen voor: {event.src_path}")
         if event.is_directory:
             return
         if event.src_path.endswith('.dcm'):
