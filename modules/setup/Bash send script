@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Configuratie
+AETITLE_CALLING="MySender"
+AETITLE_CALLED="StorenodeB"
+HOST="127.0.0.1"
+PORT="4242"
+WATCHDIR="/pad/naar/dicom_map"
+
+# Loop door alle DICOM-bestanden in de map
+for file in "$WATCHDIR"/*.dcm; do
+    if [ -f "$file" ]; then
+        echo "Versturen van: $file"
+        storescu -v -aec "$AETITLE_CALLED" -aet "$AETITLE_CALLING" "$HOST" "$PORT" "$file"
+    fi
+done
