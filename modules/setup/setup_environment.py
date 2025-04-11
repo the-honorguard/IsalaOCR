@@ -22,7 +22,4 @@ if __name__ == "__main__":
     setup_virtualenv()
 
     # Installeer vereisten
-    install_requirements()
-
-    # Voer het OCR-script uit
-    #run_ocr_script()
+    install_requirements()  
