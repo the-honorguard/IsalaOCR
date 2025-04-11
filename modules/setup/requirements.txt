@@ -7,3 +7,4 @@ pillow
 SimpleITK
 pyautogui
 PyQt5
+watchdog
