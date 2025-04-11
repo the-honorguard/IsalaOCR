@@ -6,4 +6,4 @@ screeninfo
 pillow
 SimpleITK
 pyautogui
-PySide6
+PyQt5
