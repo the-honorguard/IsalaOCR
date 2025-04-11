@@ -7,7 +7,3 @@ pillow
 SimpleITK
 pyautogui
 PySide6
-
-
-# apt install
-# orthanc
