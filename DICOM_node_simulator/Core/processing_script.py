@@ -3,9 +3,12 @@ import os
 from datetime import datetime
 import subprocess
 
-# Pad naar je logbestand (bijgewerkt naar de nieuwe structuur)
-LOGFILE = "/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/python_script_output.log"
-RUN_SCRIPT = "/home/isala/ocr/IsalaOCR/modules/run.py"  # Pad naar run.py
+# Dynamisch de hoofdmap bepalen
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+
+# Pad naar je logbestand
+LOGFILE = os.path.join(BASE_DIR, "DICOM_node_simulator/Logfiles/python_script_output.log")
+RUN_SCRIPT = os.path.join(BASE_DIR, "modules/run.py")
 
 def log_received_file(file_path):
     # Haal de huidige tijd op
@@ -14,16 +17,17 @@ def log_received_file(file_path):
     # Open het logbestand en voeg een regel toe
     with open(LOGFILE, 'a') as log:
         log.write(f"{current_time} - Bestanden succesvol ontvangen: {file_path}\n")
-        log.write(f"{current_time} - Het is je gelukt topper!\n")  # Extra regel toegevoegd
+        log.write(f"{current_time} - Het is je gelukt topper!\n")
 
 def process_file_with_run_script(file_path):
     """
     Voer het run.py script uit om het bestand te verwerken.
     """
     try:
-        print(f"Start run.py voor bestand: {file_path}")
-        subprocess.run(['/home/isala/ocr/venv/bin/python', RUN_SCRIPT, file_path], check=True)
-        print(f"run.py succesvol uitgevoerd voor bestand: {file_path}")
+        absolute_file_path = os.path.abspath(file_path)  # Zet het bestandspad om naar een absoluut pad
+        print(f"Start run.py voor bestand: {absolute_file_path}")
+        subprocess.run([sys.executable, RUN_SCRIPT, absolute_file_path], check=True)
+        print(f"run.py succesvol uitgevoerd voor bestand: {absolute_file_path}")
     except subprocess.CalledProcessError as e:
         print(f"Fout bij uitvoeren van run.py: {e}")
     except Exception as e:

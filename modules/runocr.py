@@ -7,23 +7,25 @@ import configparser
 from tqdm import tqdm
 import numpy as np
 
-# ========== CONFIG LOADING ==========
-import configparser
+# Dynamisch de hoofdmap bepalen
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
+# ========== CONFIG LOADING ==========
 # Config inladen
 config = configparser.ConfigParser()
-config.read('config.ini')
+config.read(os.path.join(BASE_DIR, 'config/mainconfig.ini'))
 
 # Waarden uitlezen
-image_folder = config['paths']['image_folder']
-output_file = config['paths']['output_file']
-modules_folder = config['paths']['modules_folder']
-preread_folder = config['paths']['preread_folder']  # Lees de map voor preread images
+image_folder = os.path.join(BASE_DIR, config['paths']['jpg_out_folder'])
+output_file = os.path.join(BASE_DIR, config['paths']['output_folder'])
+modules_folder = os.path.join(BASE_DIR, config['paths']['modules_folder'])
+preread_folder = os.path.join(BASE_DIR, config['paths']['preread_folder'])
 
 ocr_language = config['ocr']['language']
 generate_image = config.getboolean('ocr', 'generate_image')
+
 # ========== MODULE LOADER ==========
-def modules_loadorder(config_path='config.ini'):
+def modules_loadorder(config_path='/home/isala/ocr/IsalaOCR/config/mainconfig.ini'):
     config = configparser.ConfigParser()
     config.read(config_path)
 
@@ -72,7 +74,7 @@ def perform_ocr(img_data):
 def save_ocr_results(results, image_path, used_modules):
     try:
         base_filename = os.path.splitext(os.path.basename(image_path))[0]
-        output_file_path = f"{base_filename}_ocr_results.txt"
+        output_file_path = os.path.join(output_file, f"{base_filename}_ocr_results.txt")
 
         with open(output_file_path, 'a') as f:
             f.write(f"Resultaten voor afbeelding: {image_path}\n")

@@ -1,22 +1,2 @@
-[2025-04-14 13:11:40] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/dcm_in
-[2025-04-14 13:11:40] Verwerken van bestand: /home/isala/ocr/IsalaOCR/dcm_in/EE8DE7D8
-[2025-04-14 13:11:40] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Draaijer-Dijkslag_J.____2000076058.json
-[2025-04-14 13:11:40] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
-[2025-04-14 13:14:30] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/dcm_in
-[2025-04-14 13:14:30] Verwerken van bestand: /home/isala/ocr/IsalaOCR/dcm_in/EE8DE7D8
-[2025-04-14 13:14:30] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Draaijer-Dijkslag_J.____2000076058.json
-[2025-04-14 13:14:30] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
-[2025-04-14 13:16:56] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
-[2025-04-14 13:16:56] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
-[2025-04-14 13:52:58] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
-[2025-04-14 13:52:58] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
-[2025-04-14 13:53:13] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
-[2025-04-14 13:53:13] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
-[2025-04-14 13:56:07] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
-[2025-04-14 13:56:07] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
-[2025-04-14 13:56:56] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
-[2025-04-14 13:56:56] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
-[2025-04-14 14:01:15] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
-[2025-04-14 14:01:15] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
-[2025-04-14 14:01:15] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
-[2025-04-14 14:01:15] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
+[2025-04-14 15:28:50] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-14 15:28:50] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/IsalaOCR/processing/dicom_dump

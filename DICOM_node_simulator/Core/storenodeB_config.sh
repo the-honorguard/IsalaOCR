@@ -1,7 +1,11 @@
 #!/bin/bash
 
+# Dynamisch de hoofdmap bepalen
+BASE_DIR=$(dirname "$(dirname "$(realpath "$0")")")  # Bepaal de hoofdmap IsalaOCR
+VENV_PYTHON="$BASE_DIR/venv/bin/python"  # Verwijs naar de Python-interpreter in de virtuele omgeving
+
 # Laad configuratie uit mainconfig.ini
-CONFIG_FILE="/home/isala/ocr/IsalaOCR/config/mainconfig.ini"
+CONFIG_FILE="$BASE_DIR/config/mainconfig.ini"  # Correct pad naar de configuratie
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "[$(date)] Configuratiebestand niet gevonden: $CONFIG_FILE"
     exit 1
@@ -25,6 +29,12 @@ LOGDIR=$(get_config_value "paths" "log_folder")
 PROCESS_SCRIPT=$(get_config_value "paths" "modules_folder")/processing_script.py
 
 LOGFILE="$LOGDIR/storenodeB.log"
+
+# Zet paden om naar absolute paden
+WATCHDIR="$BASE_DIR/$WATCHDIR"
+QUEUE_DIR="$BASE_DIR/$QUEUE_DIR"
+LOGDIR="$BASE_DIR/$LOGDIR"
+PROCESS_SCRIPT="$BASE_DIR/$PROCESS_SCRIPT"
 
 # Controleer of de logmap bestaat, maak deze aan als dat niet zo is
 if [ ! -d "$LOGDIR" ]; then
@@ -91,9 +101,9 @@ while true; do
                 # Maak een lock-bestand aan
                 touch "$LOCKFILE"
 
-                # Verwerk het bestand
+                # Verwerk het bestand met de virtuele omgeving
                 echo "[$(date)] Verwerken gestart: $file" | tee -a "$LOGFILE"
-                python3 "$PROCESS_SCRIPT" "$file" >> "$LOGFILE" 2>&1
+                "$VENV_PYTHON" "$PROCESS_SCRIPT" "$file" >> "$LOGFILE" 2>&1
                 if [ $? -eq 0 ]; then
                     echo "[$(date)] Verwerking succesvol: $file" | tee -a "$LOGFILE"
                     rm -f "$file"
