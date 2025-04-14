@@ -8,6 +8,7 @@ PORT="4242"  # Poort waarop StorenodeB luistert
 SENDDIR="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Send"  # Map met bestanden die verzonden moeten worden
 LOGDIR="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles"  # Map voor logbestanden
 LOGFILE="$LOGDIR/sendnodeA.log"  # Logbestand
+DCM2JPG_SCRIPT="/home/isala/ocr/IsalaOCR/modules/dcm2jpg.py"  # Pad naar dcm2jpg.py
 
 # Controleer of de logmap bestaat, maak deze aan als dat niet zo is
 if [ ! -d "$LOGDIR" ]; then
@@ -65,6 +66,15 @@ inotifywait -m -e close_write,create,delete,modify,move "$SENDDIR" 2>&1 | while 
                 # Verwijder het bestand na succesvolle verzending
                 rm -f "$file"
                 echo "[$(date)] Bestand verwijderd: $file" | tee -a "$LOGFILE"
+
+                # Start dcm2jpg.py met het bestandspad
+                echo "[$(date)] Start dcm2jpg.py voor bestand: $file" | tee -a "$LOGFILE"
+                python3 "$DCM2JPG_SCRIPT" "$file" >> "$LOGFILE" 2>&1
+                if [ $? -eq 0 ]; then
+                    echo "[$(date)] dcm2jpg.py succesvol uitgevoerd voor bestand: $file" | tee -a "$LOGFILE"
+                else
+                    echo "[$(date)] Fout bij uitvoeren van dcm2jpg.py voor bestand: $file" | tee -a "$LOGFILE"
+                fi
             else
                 echo "[$(date)] Fout bij verzenden: $file" | tee -a "$LOGFILE"
                 echo "[$(date)] Debug: storescu commando: storescu --aetitle $AETITLE_CALLING --call $AETITLE_CALLED $HOST $PORT $file" | tee -a "$LOGFILE"
