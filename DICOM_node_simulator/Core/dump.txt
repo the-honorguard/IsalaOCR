@@ -1,27 +1,3 @@
-#!/bin/bash
-
-# Dynamisch de hoofdmap bepalen
-BASE_DIR=$(dirname "$(dirname "$(realpath "$0")")")  # Bepaal de hoofdmap IsalaOCR
-GRANDPARENT_DIR=$(dirname "$(dirname "$BASE_DIR")")  # Bepaal de map twee niveaus boven IsalaOCR
-VENV_PYTHON="$GRANDPARENT_DIR/.venv/bin/python"  # Verwijs naar de Python-interpreter in de virtuele omgeving
-
-# Controleer of de virtuele omgeving bestaat
-if [ ! -f "$VENV_PYTHON" ]; then
-    echo "[$(date)] Virtuele omgeving niet gevonden: $VENV_PYTHON"
-    exit 1
-fi
-
-# Log de gebruikte Python-interpreter
-echo "[$(date)] Gebruikte Python-interpreter: $VENV_PYTHON"
-
-# Laad configuratie uit mainconfig.ini
-CONFIG_FILE="$GRANDPARENT_DIR/IsalaOCR/config/mainconfig.ini"  # Correct pad naar de configuratie
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "[$(date)] Configuratiebestand niet gevonden: $CONFIG_FILE"
-    exit 1
-else
-    echo "[$(date)] Configuratiebestand geladen: $CONFIG_FILE"
-fi
 
 # Functie om een configuratiewaarde op te halen
 get_config_value() {
@@ -38,30 +14,19 @@ get_config_value() {
 WATCHDIR=$(get_config_value "paths" "dcm_in_folder")
 QUEUE_DIR=$(get_config_value "paths" "queue_folder")
 LOGDIR=$(get_config_value "paths" "log_folder")
-MODULES_FOLDER=$(get_config_value "paths" "modules_folder")
+PROCESS_SCRIPT=$(get_config_value "paths" "modules_folder")/processing_script.py
 
-# Zet paden om naar absolute paden gebaseerd op GRANDPARENT_DIR
-WATCHDIR="$GRANDPARENT_DIR/$WATCHDIR"
-QUEUE_DIR="$GRANDPARENT_DIR/$QUEUE_DIR"
-LOGDIR="$GRANDPARENT_DIR/$LOGDIR"
-PROCESS_SCRIPT="$GRANDPARENT_DIR/processing_script.py"
-
-# Log de absolute paden
-echo "[$(date)] Absolute paden:"
-echo "  WATCHDIR: $WATCHDIR"
-echo "  QUEUE_DIR: $QUEUE_DIR"
-echo "  LOGDIR: $LOGDIR"
-echo "  PROCESS_SCRIPT: $PROCESS_SCRIPT"
+# Zet paden om naar absolute paden
+WATCHDIR="$BASE_DIR/$WATCHDIR"
+QUEUE_DIR="$BASE_DIR/$QUEUE_DIR"
+LOGDIR="$BASE_DIR/$LOGDIR"
+PROCESS_SCRIPT="$BASE_DIR/$PROCESS_SCRIPT"
 
 # Controleer of de logmap bestaat, maak deze aan als dat niet zo is
 if [ ! -d "$LOGDIR" ]; then
     mkdir -p "$LOGDIR"
     echo "[$(date)] Logmap aangemaakt: $LOGDIR"
 fi
-
-# Stel het logbestand in
-LOGFILE="$LOGDIR/storenodeB.log"
-echo "[$(date)] Logbestand ingesteld: $LOGFILE"
 
 # Maak het logbestand aan of leeg het als het al bestaat
 > "$LOGFILE"

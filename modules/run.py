@@ -58,6 +58,9 @@ def main():
 
     log_message("Script gestart.")
 
+    # Log de gebruikte Python-interpreter (optioneel)
+    print(f"✅ Gebruikte Python-interpreter: {sys.executable}")
+
     # Controleer of de inputmap bestaat
     if not os.path.isdir(DCM_IN_FOLDER):
         log_message(f"❌ Input pad is geen geldige map: {DCM_IN_FOLDER}")

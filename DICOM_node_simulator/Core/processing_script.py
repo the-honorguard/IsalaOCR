@@ -9,6 +9,7 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 # Pad naar je logbestand
 LOGFILE = os.path.join(BASE_DIR, "DICOM_node_simulator/Logfiles/python_script_output.log")
 RUN_SCRIPT = os.path.join(BASE_DIR, "modules/run.py")
+PROCESS_SCRIPT = os.path.join(BASE_DIR, "$(get_config_value 'paths' 'modules_folder')/processing_script.py")
 
 def log_received_file(file_path):
     # Haal de huidige tijd op
