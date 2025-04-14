@@ -1,15 +1,30 @@
 #!/bin/bash
 
-# Aangepaste configuratie voor StorenodeB (ontvanger)
-AETITLE_CALLING="ZendnodeA"  # De zendnode
-AETITLE_CALLED="StorenodeB"  # De ontvangende node (StorenodeB)
-HOST="127.0.0.1"  # IP-adres van StorenodeB (zelfde machine)
-PORT="4242"  # Poort waarop StorenodeB luistert
-WATCHDIR="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive"  # Pad naar de ontvangstmappen voor de DICOM-bestanden
-QUEUE_DIR="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Queue"  # Wachtrijmap voor bestanden
-LOGDIR="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles"  # Map voor logbestanden
-LOGFILE="$LOGDIR/storenodeB.log"  # Logbestand
-PROCESS_SCRIPT="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py"  # Verwerkingsscript
+# Laad configuratie uit mainconfig.ini
+CONFIG_FILE="/home/isala/ocr/IsalaOCR/config/mainconfig.ini"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "[$(date)] Configuratiebestand niet gevonden: $CONFIG_FILE"
+    exit 1
+fi
+
+# Functie om een configuratiewaarde op te halen
+get_config_value() {
+    local section=$1
+    local key=$2
+    awk -F '=' -v section="[$section]" -v key="$key" '
+        $0 == section { in_section = 1; next }
+        /^\[.*\]/ { in_section = 0 }
+        in_section && $1 == key { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit }
+    ' "$CONFIG_FILE"
+}
+
+# Haal paden op uit de configuratie
+WATCHDIR=$(get_config_value "paths" "dcm_in_folder")
+QUEUE_DIR=$(get_config_value "paths" "queue_folder")
+LOGDIR=$(get_config_value "paths" "log_folder")
+PROCESS_SCRIPT=$(get_config_value "paths" "modules_folder")/processing_script.py
+
+LOGFILE="$LOGDIR/storenodeB.log"
 
 # Controleer of de logmap bestaat, maak deze aan als dat niet zo is
 if [ ! -d "$LOGDIR" ]; then
@@ -37,14 +52,14 @@ fi
 
 # Start de DICOM-server met storescp
 echo "[$(date)] Start de DICOM-server met storescp..." | tee -a "$LOGFILE"
-nohup storescp --aetitle "$AETITLE_CALLED" --output-directory "$WATCHDIR" "$PORT" >> "$LOGFILE" 2>&1 &
+nohup storescp --aetitle "StorenodeB" --output-directory "$WATCHDIR" 4242 >> "$LOGFILE" 2>&1 &
 STORESCP_PID=$!
 echo "[$(date)] DICOM-server gestart met PID: $STORESCP_PID" | tee -a "$LOGFILE"
 
 # Controleer of storescp correct is gestart
 sleep 2
 if ps -p $STORESCP_PID > /dev/null; then
-    echo "[$(date)] storescp draait correct op poort $PORT" | tee -a "$LOGFILE"
+    echo "[$(date)] storescp draait correct op poort 4242" | tee -a "$LOGFILE"
 else
     echo "[$(date)] Fout: storescp kon niet worden gestart" | tee -a "$LOGFILE"
     exit 1
@@ -65,16 +80,30 @@ while true; do
                 echo "[$(date)] Bestandseigenaar: $(stat -c%U "$file")" | tee -a "$LOGFILE"
                 echo "[$(date)] Bestandstype: $(file "$file")" | tee -a "$LOGFILE"
 
-                # Voer het verwerkingsscript uit
-                echo "[$(date)] Start verwerkingsscript: python3 $PROCESS_SCRIPT $file" | tee -a "$LOGFILE"
+                LOCKFILE="$file.lock"
+
+                # Controleer of er al een lock-bestand bestaat
+                if [ -f "$LOCKFILE" ]; then
+                    echo "[$(date)] Bestand is in gebruik, overslaan: $file" | tee -a "$LOGFILE"
+                    continue
+                fi
+
+                # Maak een lock-bestand aan
+                touch "$LOCKFILE"
+
+                # Verwerk het bestand
+                echo "[$(date)] Verwerken gestart: $file" | tee -a "$LOGFILE"
                 python3 "$PROCESS_SCRIPT" "$file" >> "$LOGFILE" 2>&1
                 if [ $? -eq 0 ]; then
-                    echo "[$(date)] Verwerkingsscript succesvol uitgevoerd voor: $file" | tee -a "$LOGFILE"
+                    echo "[$(date)] Verwerking succesvol: $file" | tee -a "$LOGFILE"
                     rm -f "$file"
                 else
-                    echo "[$(date)] Fout bij uitvoeren van verwerkingsscript voor: $file, bestand verplaatst naar wachtrij." | tee -a "$LOGFILE"
+                    echo "[$(date)] Verwerking mislukt, bestand verplaatst naar wachtrij: $file" | tee -a "$LOGFILE"
                     mv "$file" "$QUEUE_DIR/"
                 fi
+
+                # Verwijder het lock-bestand
+                rm -f "$LOCKFILE"
             fi
         done
     else

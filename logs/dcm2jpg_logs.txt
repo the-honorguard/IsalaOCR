@@ -1,0 +1,5 @@
+[2025-04-14 13:56:52] Logbestand aangemaakt.
+[2025-04-14 13:56:52] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-14 13:56:52] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/jpg_out
+[2025-04-14 14:01:15] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-14 14:01:15] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/jpg_out

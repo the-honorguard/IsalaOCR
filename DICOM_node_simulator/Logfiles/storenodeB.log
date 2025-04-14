@@ -1,38 +1,24 @@
-[Thu Apr 10 04:36:23 PM CEST 2025] Controleer of de ontvangstmappen en wachtrijmap bestaan...
-[Thu Apr 10 04:36:23 PM CEST 2025] Ontvangstmappen gecontroleerd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
-[Thu Apr 10 04:36:23 PM CEST 2025] Wachtrijmap gecontroleerd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Queue
-[Thu Apr 10 04:36:23 PM CEST 2025] Verwerkingsscript gevonden: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py
-[Thu Apr 10 04:36:23 PM CEST 2025] Start de DICOM-server met storescp...
-[Thu Apr 10 04:36:23 PM CEST 2025] DICOM-server gestart met PID: 1409
-[Thu Apr 10 04:36:25 PM CEST 2025] storescp draait correct op poort 4242
-[Thu Apr 10 04:36:25 PM CEST 2025] Start monitoring en verwerking...
-[Thu Apr 10 04:39:45 PM CEST 2025] Bestanden gedetecteerd in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive, start verwerking...
-[Thu Apr 10 04:39:45 PM CEST 2025] Nieuw bestand gedetecteerd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.2.840.113850.105175183204054083081213010209029004128144174045
-[Thu Apr 10 04:39:45 PM CEST 2025] Bestandsgrootte: 904472 bytes
-[Thu Apr 10 04:39:45 PM CEST 2025] Bestandseigenaar: isala
-[Thu Apr 10 04:39:45 PM CEST 2025] Bestandstype: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.2.840.113850.105175183204054083081213010209029004128144174045: DICOM medical imaging data
-[Thu Apr 10 04:39:45 PM CEST 2025] Start verwerkingsscript: python3 /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.2.840.113850.105175183204054083081213010209029004128144174045
-Bestand /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.2.840.113850.105175183204054083081213010209029004128144174045 succesvol gelogd.
-[Thu Apr 10 04:39:45 PM CEST 2025] Verwerkingsscript succesvol uitgevoerd voor: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.2.840.113850.105175183204054083081213010209029004128144174045
-[Mon Apr 14 09:31:04 AM CEST 2025] Bestanden gedetecteerd in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive, start verwerking...
-[Mon Apr 14 09:31:04 AM CEST 2025] Nieuw bestand gedetecteerd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2
-[Mon Apr 14 09:31:04 AM CEST 2025] Bestandsgrootte: 3080160 bytes
-[Mon Apr 14 09:31:04 AM CEST 2025] Bestandseigenaar: isala
-[Mon Apr 14 09:31:04 AM CEST 2025] Bestandstype: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2: DICOM medical imaging data
-[Mon Apr 14 09:31:04 AM CEST 2025] Start verwerkingsscript: python3 /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2
-python3: can't open file '/home/isala/ocr/IsalaOCR/modules/setup/run.py': [Errno 2] No such file or directory
-Bestand /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2 succesvol gelogd.
-Start run.py voor bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2
-Fout bij uitvoeren van run.py: Command '['python3', '/home/isala/ocr/IsalaOCR/modules/setup/run.py', '/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2']' returned non-zero exit status 2.
-[Mon Apr 14 09:31:04 AM CEST 2025] Verwerkingsscript succesvol uitgevoerd voor: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2
-[Mon Apr 14 09:31:14 AM CEST 2025] Bestanden gedetecteerd in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive, start verwerking...
-[Mon Apr 14 09:31:14 AM CEST 2025] Nieuw bestand gedetecteerd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2
-[Mon Apr 14 09:31:14 AM CEST 2025] Bestandsgrootte: 3080160 bytes
-[Mon Apr 14 09:31:14 AM CEST 2025] Bestandseigenaar: isala
-[Mon Apr 14 09:31:14 AM CEST 2025] Bestandstype: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2: DICOM medical imaging data
-[Mon Apr 14 09:31:14 AM CEST 2025] Start verwerkingsscript: python3 /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2
-python3: can't open file '/home/isala/ocr/IsalaOCR/modules/setup/run.py': [Errno 2] No such file or directory
-Bestand /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2 succesvol gelogd.
-Start run.py voor bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2
-Fout bij uitvoeren van run.py: Command '['python3', '/home/isala/ocr/IsalaOCR/modules/setup/run.py', '/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2']' returned non-zero exit status 2.
-[Mon Apr 14 09:31:14 AM CEST 2025] Verwerkingsscript succesvol uitgevoerd voor: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2
+[Mon Apr 14 01:00:35 PM CEST 2025] Bestanden gedetecteerd in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive, start verwerking...
+[Mon Apr 14 01:00:35 PM CEST 2025] Nieuw bestand gedetecteerd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
+[Mon Apr 14 01:00:35 PM CEST 2025] Bestandsgrootte: 3080158 bytes
+[Mon Apr 14 01:00:35 PM CEST 2025] Bestandseigenaar: isala
+[Mon Apr 14 01:00:35 PM CEST 2025] Bestandstype: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1: DICOM medical imaging data
+[Mon Apr 14 01:00:35 PM CEST 2025] Start verwerkingsscript: python3 /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
+[2025-04-14 13:00:36] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-14 13:00:36] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
+[2025-04-14 13:00:36] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Suryapranata-Spiegelaere_de_G.M.____2004409527.json
+[2025-04-14 13:00:36] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
+[2025-04-14 13:00:36] Script gestart.
+[2025-04-14 13:00:36] Start dicomdumper...
+[2025-04-14 13:00:36] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
+[2025-04-14 13:00:36] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
+[2025-04-14 13:00:36] dicomdumper gestopt.
+[2025-04-14 13:00:36] Start dcm2jpg...
+[2025-04-14 13:00:36] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
+[2025-04-14 13:00:36] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/jpg_out
+[2025-04-14 13:00:36] dcm2jpg gestopt.
+[2025-04-14 13:00:36] Script geëindigd.
+Bestand /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1 succesvol gelogd.
+Start run.py voor bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
+run.py succesvol uitgevoerd voor bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
+[Mon Apr 14 01:00:36 PM CEST 2025] Verwerkingsscript succesvol uitgevoerd voor: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1

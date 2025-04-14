@@ -5,7 +5,7 @@ import subprocess
 
 # Pad naar je logbestand (bijgewerkt naar de nieuwe structuur)
 LOGFILE = "/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/python_script_output.log"
-RUN_SCRIPT = "/home/isala/ocr/IsalaOCR/modules/setup/run.py"  # Pad naar run.py
+RUN_SCRIPT = "/home/isala/ocr/IsalaOCR/modules/run.py"  # Pad naar run.py
 
 def log_received_file(file_path):
     # Haal de huidige tijd op
@@ -22,7 +22,7 @@ def process_file_with_run_script(file_path):
     """
     try:
         print(f"Start run.py voor bestand: {file_path}")
-        subprocess.run(['python3', RUN_SCRIPT, file_path], check=True)
+        subprocess.run(['/home/isala/ocr/venv/bin/python', RUN_SCRIPT, file_path], check=True)
         print(f"run.py succesvol uitgevoerd voor bestand: {file_path}")
     except subprocess.CalledProcessError as e:
         print(f"Fout bij uitvoeren van run.py: {e}")

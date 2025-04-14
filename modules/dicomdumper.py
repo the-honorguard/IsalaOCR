@@ -3,6 +3,7 @@ import json
 import os
 import configparser
 import argparse
+from datetime import datetime
 
 # === PAD NAAR CONFIG BESTAND ===
 config_file_path = "/home/isala/ocr/IsalaOCR/config/mainconfig.ini"  # Zet hier het pad naar je config bestand
@@ -11,10 +12,23 @@ config_file_path = "/home/isala/ocr/IsalaOCR/config/mainconfig.ini"  # Zet hier 
 config = configparser.ConfigParser()
 config.read(config_file_path)
 
-input_path = config['dicomdumper']['input_path']
-output_path = config['dicomdumper']['output_path']
+dcm_in_folder = config['paths']['dcm_in_folder']  # Gebruik dcm_in_folder in plaats van input_folder
+output_folder = config['paths']['dicomdumper_output_folder']
+
+# Pad naar het logbestand
+LOGFILE = "/home/isala/ocr/IsalaOCR/logs/dicomdumper_logs.txt"
 
 # === FUNCTIES ===
+
+def log_message(message):
+    """
+    Log een bericht naar zowel de terminal als het logbestand.
+    """
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    log_entry = f"[{current_time}] {message}"
+    print(log_entry)  # Print naar de terminal
+    with open(LOGFILE, 'a') as log:
+        log.write(log_entry + "\n")  # Schrijf naar het logbestand
 
 def dicom_dataset_to_dict(ds):
     """Recursieve omzetting van pydicom Dataset naar JSON-serialiseerbare dict."""
@@ -57,10 +71,10 @@ def dicom_to_json(dcm_path, output_dir):
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(full_dict, f, indent=4, ensure_ascii=False)
 
-        print(f"✅ DICOM header succesvol als JSON opgeslagen: {json_path}")
+        log_message(f"✅ DICOM header succesvol als JSON opgeslagen: {json_path}")
 
     except Exception as e:
-        print(f"❌ Fout bij verwerken van DICOM-bestand: {e}")
+        log_message(f"❌ Fout bij verwerken van DICOM-bestand: {e}")
 
 def is_dicom_file(filepath):
     """Controleer of een bestand een geldig DICOM-bestand is."""
@@ -72,19 +86,24 @@ def is_dicom_file(filepath):
         return False
 
 def process_dicom_directory(input_dir, output_dir):
-    """Verwerkt alle DICOM-bestanden in een map en slaat ze op als JSON."""
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-
+    """
+    Verwerk een map met DICOM-bestanden.
+    """
+    log_message(f"Start verwerking van DICOM-bestanden in {input_dir}")
+    os.makedirs(output_dir, exist_ok=True)
     for root, _, files in os.walk(input_dir):
         for file in files:
             dcm_path = os.path.join(root, file)
             if is_dicom_file(dcm_path):  # Controleer of het een geldig DICOM-bestand is
+                log_message(f"Verwerken van bestand: {dcm_path}")
                 dicom_to_json(dcm_path, output_dir)
+            else:
+                log_message(f"Bestand overgeslagen (geen DICOM): {file}")
+    log_message(f"Verwerking voltooid. Output opgeslagen in {output_dir}")
 
 # === SCRIPT UITVOERING ===
 
-if os.path.isdir(input_path):
-    process_dicom_directory(input_path, output_path)
+if os.path.isdir(dcm_in_folder):  # Gebruik dcm_in_folder in plaats van input_folder
+    process_dicom_directory(dcm_in_folder, output_folder)
 else:
-    print(f"❌ Input pad is geen geldige map: {input_path}")
+    print(f"❌ Input pad is geen geldige map: {dcm_in_folder}")
