@@ -1,0 +1,26 @@
+/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/start_dicom_services.sh: line 16: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+tee: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+[Tue Apr 15 07:57:37 AM CEST 2025] Start storenodeB_config.sh...
+/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/start_dicom_services.sh: line 21: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+tee: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+[Tue Apr 15 07:57:37 AM CEST 2025] storenodeB_config.sh gestart.
+tee: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+[Tue Apr 15 07:57:37 AM CEST 2025] Start sendnodeA_config.sh...
+/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/start_dicom_services.sh: line 30: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+tee: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+[Tue Apr 15 07:57:37 AM CEST 2025] sendnodeA_config.sh gestart.
+tee: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+[Tue Apr 15 07:57:37 AM CEST 2025] Alle DICOM-services zijn gestart.
+/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/start_dicom_services.sh: line 16: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+tee: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+[Tue Apr 15 09:01:44 AM CEST 2025] Start storenodeB_config.sh...
+/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/start_dicom_services.sh: line 21: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+tee: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+[Tue Apr 15 09:01:44 AM CEST 2025] storenodeB_config.sh gestart.
+tee: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+[Tue Apr 15 09:01:44 AM CEST 2025] Start sendnodeA_config.sh...
+/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/start_dicom_services.sh: line 30: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+tee: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+[Tue Apr 15 09:01:44 AM CEST 2025] sendnodeA_config.sh gestart.
+tee: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles/startup.log: Permission denied
+[Tue Apr 15 09:01:44 AM CEST 2025] Alle DICOM-services zijn gestart.
