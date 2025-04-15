@@ -1,8 +1,0 @@
-[Mon 14 Apr 2025 04:40:52 PM CEST] Controleer of de ontvangstmappen en wachtrijmap bestaan...
-[Mon 14 Apr 2025 04:40:52 PM CEST] Ontvangstmappen gecontroleerd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/
-[Mon 14 Apr 2025 04:40:52 PM CEST] Wachtrijmap gecontroleerd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/
-[Mon 14 Apr 2025 04:40:52 PM CEST] Verwerkingsscript gevonden: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py
-[Mon 14 Apr 2025 04:40:52 PM CEST] Start de DICOM-server met storescp...
-[Mon 14 Apr 2025 04:40:52 PM CEST] DICOM-server gestart met PID: 57662
-E: cannot create network: 0006:031c TCP Initialization Error: Address already in use
-[Mon 14 Apr 2025 04:40:54 PM CEST] Fout: storescp kon niet worden gestart

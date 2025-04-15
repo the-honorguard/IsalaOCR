@@ -1,7 +1,0 @@
-[2025-04-14 15:28:50] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
-[2025-04-14 15:28:50] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/IsalaOCR/processing/jpg_out
-[2025-04-15 09:03:40] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
-[2025-04-15 09:03:40] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C
-[2025-04-15 09:03:40] SOP Instance UID: 1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2
-[2025-04-15 09:03:40] Slice 1 opgeslagen als /home/isala/ocr/IsalaOCR/processing/jpg_out/1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2_slice_1.jpg
-[2025-04-15 09:03:40] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/jpg_out
