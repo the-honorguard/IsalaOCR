@@ -16,16 +16,14 @@ config = configparser.ConfigParser()
 config.read(os.path.join(BASE_DIR, 'config/mainconfig.ini'))
 
 # Waarden uitlezen
-image_folder = os.path.join(BASE_DIR, config['paths']['jpg_out_folder'])
+image_folder = os.path.join(BASE_DIR, config['paths']['cropped_roi_folder'])
 output_file = os.path.join(BASE_DIR, config['paths']['output_folder'])
 modules_folder = os.path.join(BASE_DIR, config['paths']['modules_folder'])
-preread_folder = os.path.join(BASE_DIR, config['paths']['preread_folder'])
-
 ocr_language = config['ocr']['language']
 generate_image = config.getboolean('ocr', 'generate_image')
 
 # ========== MODULE LOADER ==========
-def modules_loadorder(config_path='/home/isala/ocr/IsalaOCR/config/mainconfig.ini'):
+def modules_loadorder(config_path=os.path.join(BASE_DIR, 'config/mainconfig.ini')):
     config = configparser.ConfigParser()
     config.read(config_path)
 
