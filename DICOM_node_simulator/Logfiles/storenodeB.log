@@ -1,17 +1,9 @@
-[Tue 15 Apr 2025 11:54:41 AM CEST] Controleer of de ontvangstmappen en wachtrijmap bestaan...
-[Tue 15 Apr 2025 11:54:41 AM CEST] Ontvangstmappen gecontroleerd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
-[Tue 15 Apr 2025 11:54:41 AM CEST] Wachtrijmap gecontroleerd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Queue
-[Tue 15 Apr 2025 11:54:41 AM CEST] Verwerkingsscript gevonden: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py
-[Tue 15 Apr 2025 11:54:41 AM CEST] Start de DICOM-server met storescp...
-[Tue 15 Apr 2025 11:54:41 AM CEST] DICOM-server gestart met PID: 14895
-[Tue 15 Apr 2025 11:54:43 AM CEST] storescp draait correct op poort 4242
-[Tue 15 Apr 2025 11:54:43 AM CEST] Start monitoring en verwerking...
-[Tue 15 Apr 2025 11:55:03 AM CEST] Bestanden gedetecteerd in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive, start verwerking...
-[Tue 15 Apr 2025 11:55:03 AM CEST] Nieuw bestand gedetecteerd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
-[Tue 15 Apr 2025 11:55:03 AM CEST] Bestandsgrootte: 3080158 bytes
-[Tue 15 Apr 2025 11:55:03 AM CEST] Bestandseigenaar: isala
-[Tue 15 Apr 2025 11:55:03 AM CEST] Bestandstype: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1: DICOM medical imaging data
-[Tue 15 Apr 2025 11:55:03 AM CEST] Bestand herkend als geldig DICOM-bestand.
-[Tue 15 Apr 2025 11:55:03 AM CEST] Start verwerkingsscript: python3 /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
-Bestand /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1 succesvol gelogd.
-[Tue 15 Apr 2025 11:55:04 AM CEST] Verwerkingsscript succesvol uitgevoerd voor: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
+[Tue 15 Apr 2025 02:10:55 PM CEST] Verwerkingsscript gevonden: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/wachtrijtester.py
+[Tue 15 Apr 2025 02:10:55 PM CEST] Start de DICOM-server op poort 4242...
+[Tue 15 Apr 2025 02:10:57 PM CEST] storescp draait met PID 21991
+[Tue 15 Apr 2025 02:10:57 PM CEST] Start monitoring van /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive...
+[Tue 15 Apr 2025 02:11:17 PM CEST] Verwerking van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.2.840.113850.11104200058071211064249050181048061187216199219
+[Tue 15 Apr 2025 02:11:17 PM CEST] Grootte: 1915066 bytes
+[Tue 15 Apr 2025 02:11:17 PM CEST] Eigenaar: isala
+[Tue 15 Apr 2025 02:11:17 PM CEST] Type: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.2.840.113850.11104200058071211064249050181048061187216199219: DICOM medical imaging data
+[Tue 15 Apr 2025 02:11:17 PM CEST] Geldig DICOM-bestand gedetecteerd.
