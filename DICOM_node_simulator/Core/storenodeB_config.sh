@@ -1,16 +1,15 @@
-@ -0,0 +1,88 @@
 #!/bin/bash
 
 # Aangepaste configuratie voor StorenodeB (ontvanger)
-AETITLE_CALLING="ZendnodeA"  # De zendnode
-AETITLE_CALLED="StorenodeB"  # De ontvangende node (StorenodeB)
-HOST="127.0.0.1"  # IP-adres van StorenodeB (zelfde machine)
-PORT="4242"  # Poort waarop StorenodeB luistert
-WATCHDIR="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive"  # Pad naar de ontvangstmappen voor de DICOM-bestanden
-QUEUE_DIR="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Queue"  # Wachtrijmap voor bestanden
-LOGDIR="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles"  # Map voor logbestanden
-LOGFILE="$LOGDIR/storenodeB.log"  # Logbestand
-PROCESS_SCRIPT="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py"  # Verwerkingsscript
+AETITLE_CALLING="ZendnodeA"
+AETITLE_CALLED="StorenodeB"
+HOST="127.0.0.1"
+PORT="4242"
+WATCHDIR="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive"
+QUEUE_DIR="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Queue"
+LOGDIR="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Logfiles"
+LOGFILE="$LOGDIR/storenodeB.log"
+PROCESS_SCRIPT="/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py"
 
 # Controleer of de logmap bestaat, maak deze aan als dat niet zo is
 if [ ! -d "$LOGDIR" ]; then
@@ -54,36 +53,41 @@ fi
 # Start een oneindige lus om bestanden te verwerken
 echo "[$(date)] Start monitoring en verwerking..." | tee -a "$LOGFILE"
 while true; do
-    # Controleer of de Receive-map leeg is
     if [ "$(ls -A "$WATCHDIR")" ]; then
         echo "[$(date)] Bestanden gedetecteerd in $WATCHDIR, start verwerking..." | tee -a "$LOGFILE"
         for file in "$WATCHDIR"/*; do
             if [[ -f "$file" ]]; then
                 echo "[$(date)] Nieuw bestand gedetecteerd: $file" | tee -a "$LOGFILE"
                 
-                # Log details over het bestand
+                # Log bestanddetails
                 echo "[$(date)] Bestandsgrootte: $(stat -c%s "$file") bytes" | tee -a "$LOGFILE"
                 echo "[$(date)] Bestandseigenaar: $(stat -c%U "$file")" | tee -a "$LOGFILE"
                 echo "[$(date)] Bestandstype: $(file "$file")" | tee -a "$LOGFILE"
 
-                # Voer het verwerkingsscript uit
-                echo "[$(date)] Start verwerkingsscript: python3 $PROCESS_SCRIPT $file" | tee -a "$LOGFILE"
-                python3 "$PROCESS_SCRIPT" "$file" >> "$LOGFILE" 2>&1
-                if [ $? -eq 0 ]; then
-                    echo "[$(date)] Verwerkingsscript succesvol uitgevoerd voor: $file" | tee -a "$LOGFILE"
-                    rm -f "$file"
+                # Controleer of het bestand een DICOM-bestand is
+                if head -c 132 "$file" | tail -c 4 | grep -q "DICM"; then
+                    echo "[$(date)] Bestand herkend als geldig DICOM-bestand." | tee -a "$LOGFILE"
+
+                    # Voer het verwerkingsscript uit
+                    echo "[$(date)] Start verwerkingsscript: python3 $PROCESS_SCRIPT $file" | tee -a "$LOGFILE"
+                    python3 "$PROCESS_SCRIPT" "$file" >> "$LOGFILE" 2>&1
+                    if [ $? -eq 0 ]; then
+                        echo "[$(date)] Verwerkingsscript succesvol uitgevoerd voor: $file" | tee -a "$LOGFILE"
+                        rm -f "$file"
+                    else
+                        echo "[$(date)] Fout bij uitvoeren van verwerkingsscript voor: $file, bestand verplaatst naar wachtrij." | tee -a "$LOGFILE"
+                        mv "$file" "$QUEUE_DIR/"
+                    fi
                 else
-                    echo "[$(date)] Fout bij uitvoeren van verwerkingsscript voor: $file, bestand verplaatst naar wachtrij." | tee -a "$LOGFILE"
-                    mv "$file" "$QUEUE_DIR/"
+                    echo "[$(date)] Bestand is geen geldig DICOM-bestand (DICM-tag ontbreekt), bestand wordt overgeslagen: $file" | tee -a "$LOGFILE"
                 fi
             fi
         done
     else
-        # Verplaats bestanden uit de wachtrij naar de Receive-map als deze leeg is
         if [ "$(ls -A "$QUEUE_DIR")" ]; then
             echo "[$(date)] Wachtrij bevat bestanden, verplaats naar $WATCHDIR..." | tee -a "$LOGFILE"
             mv "$QUEUE_DIR"/* "$WATCHDIR/"
         fi
     fi
-    sleep 5  # Wacht 5 seconden voordat de lus opnieuw wordt uitgevoerd
+    sleep 5
 done

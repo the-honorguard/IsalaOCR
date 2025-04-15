@@ -1,0 +1,12 @@
+[2025-04-15 11:41:13] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-15 11:41:13] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
+[2025-04-15 11:41:13] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Suryapranata-Spiegelaere_de_G.M.____2004409527.json
+[2025-04-15 11:41:13] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
+[2025-04-15 11:55:04] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-15 11:55:04] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
+[2025-04-15 11:55:04] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Suryapranata-Spiegelaere_de_G.M.____2004409527.json
+[2025-04-15 11:55:04] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
+[2025-04-15 11:55:04] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-15 11:55:04] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407111731.303881.1.1
+[2025-04-15 11:55:04] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Suryapranata-Spiegelaere_de_G.M.____2004409527.json
+[2025-04-15 11:55:04] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump

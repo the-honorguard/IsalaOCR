@@ -1,0 +1,17 @@
+[Tue 15 Apr 2025 11:54:41 AM CEST] Monitoring map: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Send
+[Tue 15 Apr 2025 11:54:41 AM CEST] inotifywait gestart, wacht op wijzigingen...
+[Tue 15 Apr 2025 11:54:41 AM CEST] Event gedetecteerd: up op bestand: watches. in map: Setting
+[Tue 15 Apr 2025 11:54:41 AM CEST] Geen geldig bestand om te verzenden: Settingwatches.
+[Tue 15 Apr 2025 11:54:41 AM CEST] Waarschuwing: geen geldig bestandsnaamveld gedetecteerd in regel: Watches established.
+[Tue 15 Apr 2025 11:54:57 AM CEST] Event gedetecteerd: CLOSE_WRITE,CLOSE op bestand: EE7D7268 in map: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Send/
+[Tue 15 Apr 2025 11:54:57 AM CEST] Nieuw bestand gedetecteerd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Send/EE7D7268
+[Tue 15 Apr 2025 11:54:57 AM CEST] Bestandsgrootte: 3080142 bytes
+[Tue 15 Apr 2025 11:54:57 AM CEST] Bestandseigenaar: isala
+[Tue 15 Apr 2025 11:54:57 AM CEST] Bestandstype: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Send/EE7D7268: DICOM medical imaging data
+[Tue 15 Apr 2025 11:54:59 AM CEST] Bestand is geldig DICOM-bestand en volledig.
+[Tue 15 Apr 2025 11:54:59 AM CEST] Controleer of 127.0.0.1:4242 bereikbaar is...
+Connection to 127.0.0.1 4242 port [tcp/*] succeeded!
+[Tue 15 Apr 2025 11:54:59 AM CEST] Ontvangende node is online: 127.0.0.1:4242
+[Tue 15 Apr 2025 11:54:59 AM CEST] Verzenden gestart: storescu --aetitle ZendnodeA --call StorenodeB 127.0.0.1 4242 /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Send/EE7D7268
+[Tue 15 Apr 2025 11:54:59 AM CEST] Succesvol verzonden: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Send/EE7D7268
+[Tue 15 Apr 2025 11:54:59 AM CEST] Bestand verwijderd: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Send/EE7D7268
