@@ -1,2 +1,10 @@
 [2025-04-14 15:28:50] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
 [2025-04-14 15:28:50] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/IsalaOCR/processing/dicom_dump
+[2025-04-15 09:03:40] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-15 09:03:40] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C
+[2025-04-15 09:03:40] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Ling_van_H.G.F.____2002425716.json
+[2025-04-15 09:03:40] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
+[2025-04-15 09:03:40] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-15 09:03:40] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C
+[2025-04-15 09:03:40] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Ling_van_H.G.F.____2002425716.json
+[2025-04-15 09:03:40] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump

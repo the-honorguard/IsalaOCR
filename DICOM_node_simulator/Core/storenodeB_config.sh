@@ -1,21 +1,17 @@
 #!/bin/bash
 
-# Dynamisch de hoofdmap bepalen
-BASE_DIR=$(dirname "$(dirname "$(realpath "$0")")")  # Bepaal de hoofdmap IsalaOCR
-GRANDPARENT_DIR=$(dirname "$(dirname "$BASE_DIR")")  # Bepaal de map twee niveaus boven IsalaOCR
-VENV_PYTHON="$GRANDPARENT_DIR/.venv/bin/python"  # Verwijs naar de Python-interpreter in de virtuele omgeving
+BASE_DIR=$(dirname "$(dirname "$(realpath "$0")")")
+GRANDPARENT_DIR=$(dirname "$(dirname "$BASE_DIR")")
+VENV_PYTHON="$GRANDPARENT_DIR/.venv/bin/python"
 
-# Controleer of de virtuele omgeving bestaat
 if [ ! -f "$VENV_PYTHON" ]; then
     echo "[$(date)] Virtuele omgeving niet gevonden: $VENV_PYTHON"
     exit 1
 fi
 
-# Log de gebruikte Python-interpreter
 echo "[$(date)] Gebruikte Python-interpreter: $VENV_PYTHON"
 
-# Laad configuratie uit mainconfig.ini
-CONFIG_FILE="$GRANDPARENT_DIR/IsalaOCR/config/mainconfig.ini"  # Correct pad naar de configuratie
+CONFIG_FILE="$GRANDPARENT_DIR/IsalaOCR/config/mainconfig.ini"
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "[$(date)] Configuratiebestand niet gevonden: $CONFIG_FILE"
     exit 1
@@ -23,57 +19,33 @@ else
     echo "[$(date)] Configuratiebestand geladen: $CONFIG_FILE"
 fi
 
-# Functie om een configuratiewaarde op te halen
 get_config_value() {
-    local section=$1
-    local key=$2
-    awk -F '=' -v section="[$section]" -v key="$key" '
-        $0 == section { in_section = 1; next }
-        /^\[.*\]/ { in_section = 0 }
-        in_section && $1 == key { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit }
-    ' "$CONFIG_FILE"
+    $VENV_PYTHON -c "import configparser; import sys; c=configparser.ConfigParser(); c.read('$CONFIG_FILE'); print(c.get('$1', '$2', fallback=''))" 2>/dev/null
 }
 
-# Haal paden op uit de configuratie
-WATCHDIR=$(get_config_value "paths" "dcm_in_folder")
-QUEUE_DIR=$(get_config_value "paths" "queue_folder")
-LOGDIR=$(get_config_value "paths" "log_folder")
-MODULES_FOLDER=$(get_config_value "paths" "modules_folder")
+WATCHDIR=$(get_config_value paths receive_folder)
+QUEUE_DIR=$(get_config_value paths queue_folder)
+LOGDIR=$(get_config_value paths log_folder)
+PROCESS_SCRIPT="$BASE_DIR/Core/processing_script.py"
+LOGFILE="$LOGDIR/storenodeB.log"
 
-# Zet paden om naar absolute paden gebaseerd op GRANDPARENT_DIR
-WATCHDIR="$GRANDPARENT_DIR/$WATCHDIR"
-QUEUE_DIR="$GRANDPARENT_DIR/$QUEUE_DIR"
-LOGDIR="$GRANDPARENT_DIR/$LOGDIR"
-PROCESS_SCRIPT="$GRANDPARENT_DIR/processing_script.py"
+AETITLE_CALLING="ZendnodeA"
+AETITLE_CALLED="StorenodeB"
+HOST="127.0.0.1"
+PORT="4242"
 
-# Log de absolute paden
-echo "[$(date)] Absolute paden:"
-echo "  WATCHDIR: $WATCHDIR"
-echo "  QUEUE_DIR: $QUEUE_DIR"
-echo "  LOGDIR: $LOGDIR"
-echo "  PROCESS_SCRIPT: $PROCESS_SCRIPT"
-
-# Controleer of de logmap bestaat, maak deze aan als dat niet zo is
 if [ ! -d "$LOGDIR" ]; then
     mkdir -p "$LOGDIR"
     echo "[$(date)] Logmap aangemaakt: $LOGDIR"
 fi
-
-# Stel het logbestand in
-LOGFILE="$LOGDIR/storenodeB.log"
-echo "[$(date)] Logbestand ingesteld: $LOGFILE"
-
-# Maak het logbestand aan of leeg het als het al bestaat
 > "$LOGFILE"
 
-# Maak de ontvangstmappen en wachtrijmap als ze nog niet bestaan
-echo "[$(date)] Controleer of de ontvangstmappen en wachtrijmap bestaan..." | tee -a "$LOGFILE"
+echo "[$(date)] Controleer mappen..." | tee -a "$LOGFILE"
 mkdir -p "$WATCHDIR"
 mkdir -p "$QUEUE_DIR"
-echo "[$(date)] Ontvangstmappen gecontroleerd: $WATCHDIR" | tee -a "$LOGFILE"
-echo "[$(date)] Wachtrijmap gecontroleerd: $QUEUE_DIR" | tee -a "$LOGFILE"
+echo "[$(date)] Ontvangstmappen: $WATCHDIR" | tee -a "$LOGFILE"
+echo "[$(date)] Wachtrijmap: $QUEUE_DIR" | tee -a "$LOGFILE"
 
-# Controleer of het verwerkingsscript bestaat
 if [ ! -f "$PROCESS_SCRIPT" ]; then
     echo "[$(date)] Verwerkingsscript niet gevonden: $PROCESS_SCRIPT" | tee -a "$LOGFILE"
     exit 1
@@ -81,68 +53,44 @@ else
     echo "[$(date)] Verwerkingsscript gevonden: $PROCESS_SCRIPT" | tee -a "$LOGFILE"
 fi
 
-# Start de DICOM-server met storescp
-echo "[$(date)] Start de DICOM-server met storescp..." | tee -a "$LOGFILE"
-nohup storescp --aetitle "StorenodeB" --output-directory "$WATCHDIR" 4242 >> "$LOGFILE" 2>&1 &
+echo "[$(date)] Start storescp..." | tee -a "$LOGFILE"
+nohup storescp --fork --aetitle "$AETITLE_CALLED" --output-directory "$WATCHDIR" "$PORT" >> "$LOGFILE" 2>&1 &
 STORESCP_PID=$!
-echo "[$(date)] DICOM-server gestart met PID: $STORESCP_PID" | tee -a "$LOGFILE"
-
-# Controleer of storescp correct is gestart
 sleep 2
+
 if ps -p $STORESCP_PID > /dev/null; then
-    echo "[$(date)] storescp draait correct op poort 4242" | tee -a "$LOGFILE"
+    echo "[$(date)] storescp draait correct (PID: $STORESCP_PID)" | tee -a "$LOGFILE"
 else
-    echo "[$(date)] Fout: storescp kon niet worden gestart" | tee -a "$LOGFILE"
+    echo "[$(date)] Fout bij starten storescp" | tee -a "$LOGFILE"
+    tail -n 20 "$LOGFILE"
     exit 1
 fi
 
-# Start een oneindige lus om bestanden te verwerken
 echo "[$(date)] Start monitoring en verwerking..." | tee -a "$LOGFILE"
 while true; do
-    # Controleer of de Receive-map leeg is
-    if [ "$(ls -A "$WATCHDIR")" ]; then
-        echo "[$(date)] Bestanden gedetecteerd in $WATCHDIR, start verwerking..." | tee -a "$LOGFILE"
+    if [ "$(ls -A "$WATCHDIR" 2>/dev/null)" ]; then
+        echo "[$(date)] Bestanden gedetecteerd in $WATCHDIR..." | tee -a "$LOGFILE"
         for file in "$WATCHDIR"/*; do
             if [[ -f "$file" ]]; then
-                echo "[$(date)] Nieuw bestand gedetecteerd: $file" | tee -a "$LOGFILE"
-                
-                # Log details over het bestand
-                echo "[$(date)] Bestandsgrootte: $(stat -c%s "$file") bytes" | tee -a "$LOGFILE"
-                echo "[$(date)] Bestandseigenaar: $(stat -c%U "$file")" | tee -a "$LOGFILE"
-                echo "[$(date)] Bestandstype: $(file "$file")" | tee -a "$LOGFILE"
+                echo "[$(date)] Nieuw bestand: $file" | tee -a "$LOGFILE"
+                echo "[$(date)] Grootte: $(stat -c%s "$file") bytes" | tee -a "$LOGFILE"
+                echo "[$(date)] Eigenaar: $(stat -c%U "$file")" | tee -a "$LOGFILE"
+                echo "[$(date)] Type: $(file "$file")" | tee -a "$LOGFILE"
 
-                LOCKFILE="$file.lock"
-
-                # Controleer of er al een lock-bestand bestaat
-                if [ -f "$LOCKFILE" ]; then
-                    echo "[$(date)] Bestand is in gebruik, overslaan: $file" | tee -a "$LOGFILE"
-                    continue
-                fi
-
-                # Maak een lock-bestand aan
-                touch "$LOCKFILE"
-
-                # Verwerk het bestand met de virtuele omgeving
-                echo "[$(date)] Verwerken gestart: $file" | tee -a "$LOGFILE"
-                "$VENV_PYTHON" "$PROCESS_SCRIPT" "$file" >> "$LOGFILE" 2>&1
+                echo "[$(date)] Start verwerking met $VENV_PYTHON $PROCESS_SCRIPT $file" | tee -a "$LOGFILE"
+                $VENV_PYTHON "$PROCESS_SCRIPT" "$file" >> "$LOGFILE" 2>&1
                 if [ $? -eq 0 ]; then
                     echo "[$(date)] Verwerking succesvol: $file" | tee -a "$LOGFILE"
                     rm -f "$file"
                 else
-                    echo "[$(date)] Verwerking mislukt, bestand verplaatst naar wachtrij: $file" | tee -a "$LOGFILE"
+                    echo "[$(date)] Fout: bestand naar wachtrij verplaatst: $file" | tee -a "$LOGFILE"
                     mv "$file" "$QUEUE_DIR/"
                 fi
-
-                # Verwijder het lock-bestand
-                rm -f "$LOCKFILE"
             fi
         done
-    else
-        # Verplaats bestanden uit de wachtrij naar de Receive-map als deze leeg is
-        if [ "$(ls -A "$QUEUE_DIR")" ]; then
-            echo "[$(date)] Wachtrij bevat bestanden, verplaats naar $WATCHDIR..." | tee -a "$LOGFILE"
-            mv "$QUEUE_DIR"/* "$WATCHDIR/"
-        fi
+    elif [ "$(ls -A "$QUEUE_DIR" 2>/dev/null)" ]; then
+        echo "[$(date)] Wachtrij bevat bestanden, verplaats naar $WATCHDIR..." | tee -a "$LOGFILE"
+        mv "$QUEUE_DIR"/* "$WATCHDIR/"
     fi
-    sleep 5  # Wacht 5 seconden voordat de lus opnieuw wordt uitgevoerd
+    sleep 5
 done

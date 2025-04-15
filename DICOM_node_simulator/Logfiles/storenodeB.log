@@ -1,0 +1,37 @@
+[Tue 15 Apr 2025 09:02:42 AM CEST] Controleer mappen...
+[Tue 15 Apr 2025 09:02:42 AM CEST] Ontvangstmappen: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[Tue 15 Apr 2025 09:02:42 AM CEST] Wachtrijmap: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Queue
+[Tue 15 Apr 2025 09:02:42 AM CEST] Verwerkingsscript gevonden: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py
+[Tue 15 Apr 2025 09:02:42 AM CEST] Start storescp...
+[Tue 15 Apr 2025 09:02:44 AM CEST] storescp draait correct (PID: 4230)
+[Tue 15 Apr 2025 09:02:44 AM CEST] Start monitoring en verwerking...
+[Tue 15 Apr 2025 09:03:40 AM CEST] Bestanden gedetecteerd in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive...
+[Tue 15 Apr 2025 09:03:40 AM CEST] Nieuw bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C
+[Tue 15 Apr 2025 09:03:40 AM CEST] Grootte: 3080144 bytes
+[Tue 15 Apr 2025 09:03:40 AM CEST] Eigenaar: isala
+[Tue 15 Apr 2025 09:03:40 AM CEST] Type: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C: DICOM medical imaging data
+[Tue 15 Apr 2025 09:03:40 AM CEST] Start verwerking met /home/isala/ocr/.venv/bin/python /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Core/processing_script.py /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C
+[2025-04-15 09:03:40] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-15 09:03:40] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C
+[2025-04-15 09:03:40] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Ling_van_H.G.F.____2002425716.json
+[2025-04-15 09:03:40] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
+[2025-04-15 09:03:40] Script gestart.
+✅ Gebruikte Python-interpreter: /home/isala/ocr/.venv/bin/python
+[2025-04-15 09:03:40] Start dicomdumper...
+[2025-04-15 09:03:40] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-15 09:03:40] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C
+[2025-04-15 09:03:40] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Ling_van_H.G.F.____2002425716.json
+[2025-04-15 09:03:40] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
+[2025-04-15 09:03:40] dicomdumper gestopt.
+[2025-04-15 09:03:40] Start dcm2jpg...
+[2025-04-15 09:03:40] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-15 09:03:40] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C
+[2025-04-15 09:03:40] SOP Instance UID: 1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2
+[2025-04-15 09:03:40] Slice 1 opgeslagen als /home/isala/ocr/IsalaOCR/processing/jpg_out/1.3.6.1.4.1.49282.99.1.20250407105329.303882.1.1.2_slice_1.jpg
+[2025-04-15 09:03:40] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/jpg_out
+[2025-04-15 09:03:40] dcm2jpg gestopt.
+[2025-04-15 09:03:40] Script geëindigd.
+Bestand /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C succesvol gelogd.
+Start run.py voor bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C
+run.py succesvol uitgevoerd voor bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C
+[Tue 15 Apr 2025 09:03:41 AM CEST] Verwerking succesvol: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/EE6ADC3C
