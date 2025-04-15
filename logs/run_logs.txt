@@ -1,0 +1,7 @@
+[2025-04-15 10:36:32] Logbestand aangemaakt.
+[2025-04-15 10:36:32] Script gestart.
+[2025-04-15 10:36:32] Start dicomdumper...
+[2025-04-15 10:36:32] dicomdumper gestopt.
+[2025-04-15 10:36:32] Start dcm2jpg...
+[2025-04-15 10:36:32] dcm2jpg gestopt.
+[2025-04-15 10:36:32] Script geëindigd.
