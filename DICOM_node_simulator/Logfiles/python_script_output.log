@@ -25,3 +25,56 @@ Tue Apr 15 11:55:03 UTC 2025 - Het is je gelukt topper!
 [2025-04-15 11:55:04] dcm2jpg gestopt.
 [2025-04-15 11:55:04] Script geëindigd.
 
+Wed Apr 16 07:44:32 UTC 2025 - Bestanden succesvol ontvangen: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/PSg.1.2.840.113850.153216154076132066245251048012154132221079092124
+Wed Apr 16 07:44:32 UTC 2025 - Het is je gelukt topper!
+2025-04-16 07:44:33.795756 - run.py uitgevoerd met output:
+[2025-04-16 07:44:32] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-16 07:44:32] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/PSg.1.2.840.113850.153216154076132066245251048012154132221079092124
+[2025-04-16 07:44:33] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Draaijer-Dijkslag_J.____2000076058.json
+[2025-04-16 07:44:33] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407084522.303882.1.1
+[2025-04-16 07:44:33] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Draaijer-Dijkslag_J.____2000076058.json
+[2025-04-16 07:44:33] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
+[2025-04-16 07:44:33] Script gestart.
+[2025-04-16 07:44:33] Start dicomdumper...
+[2025-04-16 07:44:33] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-16 07:44:33] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/PSg.1.2.840.113850.153216154076132066245251048012154132221079092124
+[2025-04-16 07:44:33] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Draaijer-Dijkslag_J.____2000076058.json
+[2025-04-16 07:44:33] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407084522.303882.1.1
+[2025-04-16 07:44:33] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Draaijer-Dijkslag_J.____2000076058.json
+[2025-04-16 07:44:33] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
+[2025-04-16 07:44:33] dicomdumper gestopt.
+[2025-04-16 07:44:33] Start dcm2jpg...
+[2025-04-16 07:44:33] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-16 07:44:33] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/PSg.1.2.840.113850.153216154076132066245251048012154132221079092124
+[2025-04-16 07:44:33] Fout bij het converteren van DICOM naar JPG: Exception thrown in SimpleITK ImageFileReader_Execute: /tmp/SimpleITK/Code/IO/src/sitkImageReaderBase.cxx:99:
+sitk::ERROR: Unable to determine ImageIO reader for "/home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/PSg.1.2.840.113850.153216154076132066245251048012154132221079092124"
+[2025-04-16 07:44:33] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407084522.303882.1.1
+[2025-04-16 07:44:33] SOP Instance UID: 1.3.6.1.4.1.49282.99.1.20250407084522.303882.1.1
+[2025-04-16 07:44:33] Slice 1 opgeslagen als /home/isala/ocr/IsalaOCR/processing/jpg_out/1.3.6.1.4.1.49282.99.1.20250407084522.303882.1.1_slice_1.jpg
+[2025-04-16 07:44:33] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/jpg_out
+[2025-04-16 07:44:33] dcm2jpg gestopt.
+[2025-04-16 07:44:33] Script geëindigd.
+
+Wed Apr 16 07:44:34 UTC 2025 - Bestanden succesvol ontvangen: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407084522.303882.1.1
+Wed Apr 16 07:44:34 UTC 2025 - Het is je gelukt topper!
+2025-04-16 07:44:34.793142 - run.py uitgevoerd met output:
+[2025-04-16 07:44:34] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-16 07:44:34] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407084522.303882.1.1
+[2025-04-16 07:44:34] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Draaijer-Dijkslag_J.____2000076058.json
+[2025-04-16 07:44:34] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
+[2025-04-16 07:44:34] Script gestart.
+[2025-04-16 07:44:34] Start dicomdumper...
+[2025-04-16 07:44:34] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-16 07:44:34] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407084522.303882.1.1
+[2025-04-16 07:44:34] ✅ DICOM header succesvol als JSON opgeslagen: /home/isala/ocr/IsalaOCR/processing/dicom_dump/Draaijer-Dijkslag_J.____2000076058.json
+[2025-04-16 07:44:34] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/dicom_dump
+[2025-04-16 07:44:34] dicomdumper gestopt.
+[2025-04-16 07:44:34] Start dcm2jpg...
+[2025-04-16 07:44:34] Start verwerking van DICOM-bestanden in /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive
+[2025-04-16 07:44:34] Verwerken van bestand: /home/isala/ocr/IsalaOCR/DICOM_node_simulator/Receive/SC.1.3.6.1.4.1.49282.99.1.20250407084522.303882.1.1
+[2025-04-16 07:44:34] SOP Instance UID: 1.3.6.1.4.1.49282.99.1.20250407084522.303882.1.1
+[2025-04-16 07:44:34] Slice 1 opgeslagen als /home/isala/ocr/IsalaOCR/processing/jpg_out/1.3.6.1.4.1.49282.99.1.20250407084522.303882.1.1_slice_1.jpg
+[2025-04-16 07:44:34] Verwerking voltooid. Output opgeslagen in /home/isala/ocr/IsalaOCR/processing/jpg_out
+[2025-04-16 07:44:34] dcm2jpg gestopt.
+[2025-04-16 07:44:34] Script geëindigd.
+
