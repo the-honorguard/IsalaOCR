@@ -1,0 +1,4 @@
+Send2|/home/isalaocrsandbox/isala/ocr/IsalaOCR/DICOM_node_simulator/Send2/send_node.py|running|40479
+Store2|/home/isalaocrsandbox/isala/ocr/IsalaOCR/DICOM_node_simulator/Store2/store_node.py|running|40483
+Send1|/home/isalaocrsandbox/isala/ocr/IsalaOCR/DICOM_node_simulator/Sendnode/send_node.py|running|40487
+Store1|/home/isalaocrsandbox/isala/ocr/IsalaOCR/DICOM_node_simulator/Storenode/store_node.py|stopped|

@@ -7,3 +7,5 @@ pillow
 SimpleITK
 pyautogui
 PyQt5
+inotify
+Pipx
