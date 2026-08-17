@@ -1,0 +1,17 @@
+schema_version: 1
+use_case_id: generic_document
+name: Generic document / custom schema
+description: >-
+  Leeg starttemplate voor een nieuwe use-case. Veldschema, mappings, localization-model
+  en outputdefinitie worden binnen het project opgebouwd.
+localization:
+  class_names: [field_roi]
+  project_specific: true
+  unreviewed_policy: ignore
+  rejection_reason_required: false
+mapping:
+  seed_profile: null
+recognition:
+  may_share_models: true
+output:
+  schema: custom

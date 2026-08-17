@@ -1,0 +1,15 @@
+.git
+.venv
+__pycache__
+.pytest_cache
+.ruff_cache
+input
+output
+models
+training/workspace
+training/registry
+*.zip
+*.dcm
+*.dicom
+*.sqlite3
+*.log

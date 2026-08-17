@@ -1,0 +1,102 @@
+profile: profiles/philips_cmr_volume.yaml
+ocr:
+  provider: paddle
+  version: PP-OCRv6
+  detection_model: PP-OCRv6_small_det
+  recognition_model: PP-OCRv6_small_rec
+  active_recognition_model_dir: /models/active-recognition
+  recognition_batch_size: 16
+  device: cpu
+  inference_engine: paddle_static
+  cpu_threads: 8
+  enable_mkldnn: true
+  recognition_threshold: 0.0
+  minimum_confidence: 0.55
+  model_root: /models/paddlex
+  allow_downloads: false
+  use_doc_orientation_classify: false
+  use_doc_unwarping: false
+  use_textline_orientation: false
+  tesseract:
+    executable: tesseract
+    language: eng
+    page_segmentation_mode: 7
+    timeout_seconds: 30
+preprocessing:
+  verify_anchors: true
+  padding_pixels: 2
+  upscale_factor: 4.0
+  variants:
+  - grayscale_upscale
+  - clahe_upscale
+  - binary_inverted
+  - inverted_lanczos
+  - clahe_lanczos
+dicom:
+  frame_selection: first
+  frame_index: 0
+output:
+  save_overlay: true
+  include_candidates: true
+privacy:
+  include_source_filename: false
+  dump_dicom_headers: false
+  log_patient_identifiers: false
+training:
+  workspace: /training/workspace
+  registry: /training/registry
+  collection:
+    flow: generic_mapping
+    padding_pixels: 2
+    recognition_model: PP-OCRv6_small_rec
+    locator: dynamic
+    locator_recognition_model: PP-OCRv6_small_rec
+    table_structure:
+      enabled: true
+      fail_open: true
+      provider: ppstructurev3
+      # PP-StructureV3 performs layout + table/cell recognition. Model names are
+      # intentionally left to the PaddleOCR 3.x defaults so model preparation
+      # follows the exact versions bundled with the installed PaddleOCR release.
+  localization:
+    # v3.11: first evaluate PP-Structure table/cell geometry on its own.
+    # The loose field/PicoDet detector is intentionally parked as a later fallback.
+    strategy: table_first
+    table_first:
+      include_broad_cells: true
+      preprocessing_benchmark: true
+      panel_mode: manual
+      auto_panel_crop: false  # only bootstrap/suggestion logic; saved user panels are authoritative
+      preprocessing_variants: [original, grayscale, clahe, invert_clahe, adaptive]
+      enable_active_field_detector_fallback: false
+      minimum_direct_coverage: 0.95
+      maximum_false_candidate_rate: 0.10
+      maximum_adjustment_rate: 0.25
+    detector_model: PicoDet-S
+    epochs: 80
+    confidence_threshold: 0.25
+    fusion_iou_threshold: 0.55
+    fusion_containment_threshold: 0.92
+    gate:
+      minimum_recall: 0.95
+      minimum_precision: 0.90
+      minimum_auto_accept_rate: 0.85
+      maximum_false_positives_per_image: 1.0
+      minimum_test_images: 3
+      minimum_test_rois: 10
+  dataset:
+    train_ratio: 0.7
+    validation_ratio: 0.15
+    test_ratio: 0.15
+    augmentations_per_train_sample: 2
+    split_salt: isala-ocr-v1
+    minimum_samples: 32
+    label_policy: verbatim_no_normalization
+  model:
+    default: PP-OCRv6_medium_rec
+    epochs: 50
+    batch_size_gpu: 32
+    batch_size_cpu: 4
+    learning_rate: 0.0001
+  activation:
+    minimum_exact_match: 0.95

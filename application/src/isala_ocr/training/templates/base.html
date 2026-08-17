@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% block title %}IsalaOCR{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static',filename='app.css',v=app_version) }}">
+  {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<aside class="sidebar">
+  <a class="brand" href="/">
+    <span class="brand-mark">I</span>
+    <span><strong>IsalaOCR</strong><small>v{{ app_version }}</small></span>
+  </a>
+  <section class="project-switcher">
+    <span class="project-switcher-label">Project</span>
+    <form method="post" action="/projects/switch" id="project-switch-form">
+      <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+      <select name="project_id" id="project-switch-select" aria-label="Actief project">
+        {% for item in available_projects %}<option value="{{ item.project_id }}" {% if active_project and item.project_id == active_project.project_id %}selected{% endif %}>{{ item.name }}</option>{% endfor %}
+      </select>
+    </form>
+  </section>
+  <nav class="process-nav">
+    <a href="/" class="{% if request.path=='/' %}active{% endif %}">Overzicht</a>
+    <div class="nav-section nav-pipeline-a">{% if localization_strategy == 'table_first' %}TABLE DETECTIE & CROPS{% else %}DETECTIE & CROPS{% endif %}</div>
+    {% for step in process_steps if step.group == 'detection' %}
+    <a href="/process/{{ step.key }}" class="process-tab {% if request.path == '/process/' ~ step.key or (step.key == 'detection-review' and request.path.startswith('/detection-review')) %}active{% endif %}">
+      <span class="process-tab-number">{{ step.index }}</span><span>{{ step.title }}</span>
+    </a>
+    {% endfor %}
+    <div class="nav-gate {{ 'gate-open' if pipeline_gate_global.ready else 'gate-closed' }}">
+      <strong>{{ pipeline_gate_global.gate_label or 'PIPELINE A CHECK' }}</strong><span>{{ 'OPEN' if pipeline_gate_global.ready else 'GESLOTEN' }}</span>
+    </div>
+    <div class="nav-section nav-pipeline-b">WAARDEN & OCR</div>
+    {% for step in process_steps if step.group == 'value' %}
+    <a href="/process/{{ step.key }}" class="process-tab {% if request.path == '/process/' ~ step.key or (step.key == 'mapping' and request.path.startswith('/mapping')) %}active{% endif %} {% if not pipeline_gate_global.ready %}blocked{% endif %}"{% if not pipeline_gate_global.ready %} title="Niet beschikbaar: {{ pipeline_gate_global.reason }} Volgende stap: {{ pipeline_gate_global.next_step or 'rond Pipeline A af.' }}"{% endif %}>
+      <span class="process-tab-number">{{ step.index }}</span><span>{{ step.title }}</span>{% if not pipeline_gate_global.ready %}<span class="lock-mark">🔒</span>{% endif %}
+    </a>
+    {% endfor %}
+    {% if localization_strategy == 'table_first' %}
+    <div class="nav-section nav-fallback">GEPARKEERD · BOX DETECTOR</div>
+    {% for step in process_steps if step.group == 'fallback' %}
+    <a href="/process/{{ step.key }}" class="process-tab fallback-tab {% if request.path == '/process/' ~ step.key %}active{% endif %}" title="Niet onderdeel van de huidige table-first hoofdflow; alleen als fallback gebruiken.">
+      <span class="process-tab-number">↪</span><span>{{ step.title }}</span>
+    </a>
+    {% endfor %}
+    {% endif %}
+    <div class="nav-section">SYSTEEM</div>
+    {% for step in process_steps if step.group == 'system' and step.key != 'artifacts' %}
+    <a href="/process/{{ step.key }}" class="process-tab {% if request.path == '/process/' ~ step.key %}active{% endif %}">
+      <span>{{ step.title }}</span>
+    </a>
+    {% endfor %}
+    <div class="nav-section">BEHEER</div>
+    <a href="/manage" class="{% if request.path == '/manage' or request.path == '/projects' or request.path == '/process/artifacts' %}active{% endif %}">Projecten & modellen</a>
+    <a href="/jobs/manage" class="{% if request.path.startswith('/jobs/manage') %}active{% endif %}">Wachtrij</a>
+  </nav>
+  <div class="sidebar-foot" id="active-model-summary">
+    <span class="dot {% if active_model %}ok{% endif %}"></span>{{ active_model.model_id if active_model else 'Geen actief model' }}
+  </div>
+</aside>
+<main class="shell">
+  <header class="topbar">
+    <div><h1>{% block heading %}IsalaOCR{% endblock %}</h1><p>{% block subtitle %}Lokale DICOM OCR workflow{% endblock %}</p></div>
+    {% if header_counts is defined and header_counts %}
+    {% set visible_counts = header_counts %}
+    <div class="header-counts">
+      <span>{{ visible_counts.total }} {{ header_total_label|default('blokken') }}</span>
+      <span class="warn">{{ visible_counts.pending }} {{ header_pending_label|default('te reviewen') }}</span>
+      <span class="ok">{{ visible_counts.accepted }} {{ header_accepted_label|default('goedgekeurd') }}</span>
+    </div>
+    {% endif %}
+  </header>
+  {% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="notice {{ category }}">{{ message }}</div>{% endfor %}{% endwith %}
+  <section class="content">{% block content %}{% endblock %}</section>
+</main>
+
+<section class="activity-dock collapsed" id="activity-dock" aria-label="Taakuitvoer">
+  <button type="button" class="activity-summary" id="activity-toggle" aria-expanded="false">
+    <span class="activity-worker"><span class="dot" id="worker-dot"></span><span id="worker-label">Worker controleren…</span></span>
+    <span class="activity-current">
+      <strong id="activity-title">Geen actieve taak</strong>
+      <span class="muted" id="activity-subtitle">Klik op een taak om de voortgang hier te volgen.</span>
+    </span>
+    <span class="activity-mini-progress"><span id="activity-mini-bar"></span></span>
+    <span class="activity-status" id="activity-status">Gereed</span>
+    <span class="activity-chevron" aria-hidden="true">⌃</span>
+  </button>
+  <div class="activity-body">
+    <div class="activity-toolbar">
+      <label>Taak
+        <select id="activity-job-select"><option value="">Geen taken</option></select>
+      </label>
+      <div class="activity-progress-wrap">
+        <div class="activity-progress-label"><span id="activity-progress-text">0%</span><span id="activity-progress-detail">Geen taak geselecteerd</span></div>
+        <div class="progress large activity-progress"><span id="activity-progress-bar" style="--value:0%"></span></div>
+      </div>
+      <button type="button" class="ghost" id="activity-refresh">Vernieuwen</button>
+      <button type="button" class="ghost" id="activity-collapse">Inklappen</button>
+    </div>
+    <div class="activity-terminal-wrap">
+      <div class="activity-log-tabs" role="tablist" aria-label="Taakuitvoer stream">
+        <button type="button" class="activity-log-tab active" data-activity-log-stream="stdout" role="tab" aria-selected="true">Live / STDOUT</button>
+        <button type="button" class="activity-log-tab" data-activity-log-stream="stderr" role="tab" aria-selected="false">STDERR <span class="activity-log-badge" id="activity-stderr-badge" hidden>nieuw</span></button>
+        <button type="button" class="activity-log-tab" data-activity-log-stream="worker" role="tab" aria-selected="false">Worker</button>
+        <button type="button" class="activity-log-tab" data-activity-log-stream="overview" role="tab" aria-selected="false">Overzicht</button>
+      </div>
+      <pre class="log activity-terminal" id="activity-terminal">Nog geen taakuitvoer.</pre>
+      <button type="button" class="activity-follow-live" id="activity-follow-live" hidden>Naar live output ↓</button>
+    </div>
+  </div>
+</section>
+
+<script>window.ISALA_ACTION_DURATION_ESTIMATES={{ action_duration_estimates|tojson }};</script>
+<script src="{{ url_for('static',filename='app.js',v=app_version) }}"></script>
+<script>document.getElementById('project-switch-select')?.addEventListener('change',()=>document.getElementById('project-switch-form').submit());</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

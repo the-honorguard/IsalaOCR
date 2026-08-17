@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2018",
+    "module": "none",
+    "lib": ["DOM", "ES2018"],
+    "strict": false,
+    "skipLibCheck": true,
+    "removeComments": false,
+    "outFile": "../application/src/isala_ocr/training/static/react/localization-quality.js"
+  },
+  "files": ["src/localization-quality.ts"]
+}

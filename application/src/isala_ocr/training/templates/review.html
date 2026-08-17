@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block title %}Waarden beoordelen · IsalaOCR{% endblock %}
+{% block heading %}Waarden beoordelen{% endblock %}
+{% block subtitle %}Beoordeel uitsluitend de zichtbare tekst in ROI's die in stap 4 definitief zijn goedgekeurd{% endblock %}
+{% block content %}
+<div class="grid cols-4">
+  <section class="card"><span class="muted">Beschikbare waarden</span><div class="metric">{{ value_counts.total }}</div><p class="muted">Alleen uit goedgekeurde ROI's.</p></section>
+  <section class="card"><span class="muted">Te beoordelen</span><div class="metric warn">{{ value_counts.pending }}</div><p class="muted">Nog geen waardebeslissing.</p></section>
+  <section class="card"><span class="muted">Goedgekeurd</span><div class="metric ok">{{ value_counts.accepted }}</div><p class="muted">Exacte tekst opgeslagen.</p></section>
+  <section class="card"><span class="muted">Geen waarde / onbruikbaar</span><div class="metric">{{ value_counts.no_value + value_counts.unreadable + value_counts.excluded }}</div><p class="muted">Inhoudelijk afgehandeld zonder trainingslabel.</p></section>
+</div>
+
+<div class="grid cols-3" style="margin-top:18px">
+  <section class="card">
+    <h3>Veilige OCR-selectie</h3>
+    <div class="metric">{{ smart_count }}</div>
+    <p class="muted">Waarden met hoge OCR-confidence en een numerieke waarde binnen het geconfigureerde veldbereik. Een steekproef blijft handmatig.</p>
+    <form method="post" action="/review/smart-apply" class="compact-form">
+      <label>OCR-drempel<input name="threshold" type="number" min="0.8" max="1" step="0.01" value="0.995"></label>
+      <label>Steekproef %<input name="qa_percent" type="number" min="0" max="50" value="20"></label>
+      <button class="good">Veilige waarden goedkeuren</button>
+    </form>
+  </section>
+  <section class="card">
+    <h3>Pixel-identieke waarden</h3>
+    <p class="muted">Neem een eerdere waardebeslissing alleen over wanneer cropbytes én veld exact gelijk zijn.</p>
+    <form method="post" action="/review/duplicates-apply"><button>Identieke waarden overnemen</button></form>
+  </section>
+  <section class="card">
+    <h3>Waardewachtrij</h3>
+    <p class="muted">Filter op OCR-confidence, lege modeluitvoer of een specifiek veld. ROI-gegevens en ROI-acties worden hier niet getoond.</p>
+    <a class="button primary" href="/review/queue">Open waardewachtrij</a>
+  </section>
+</div>
+
+<section class="card" style="margin-top:18px">
+  <div class="toolbar">
+    <div><h3>Waarden per DICOM</h3><p class="muted">Iedere rij bevat uitsluitend de waarden uit definitief goedgekeurde ROI's.</p></div>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Bron-ID</th><th>Waarden</th><th>Voortgang</th><th>Onleesbaar / uitgesloten</th><th></th></tr>
+    {% for s in sources %}
+    <tr>
+      <td class="mono">{{ s.source_id }}</td>
+      <td>{{ s.sample_count }}</td>
+      <td>{{ s.accepted }}/{{ s.sample_count }} goedgekeurd · <span class="warn">{{ s.pending }} open</span><div class="progress"><span style="--value:{{ ((s.sample_count-s.pending)/s.sample_count*100) if s.sample_count else 0 }}%"></span></div></td>
+      <td class="{% if s.problems %}bad{% endif %}">{{ s.problems }}</td>
+      <td><a class="button primary" href="/review/document/{{ s.source_id }}">Waarden beoordelen</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5">Nog geen waarden beschikbaar. Rond eerst de ROI-beoordeling af.</td></tr>
+    {% endfor %}
+  </table></div>
+</section>
+{% endblock %}

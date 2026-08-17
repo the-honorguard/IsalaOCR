@@ -1,0 +1,338 @@
+{% extends 'base.html' %}
+{% block title %}Stap {{ step.index }} · {{ step.title }} · IsalaOCR{% endblock %}
+{% block heading %}Stap {{ step.index }} · {{ step.title }}{% endblock %}
+{% block subtitle %}{{ step.subtitle }}{% endblock %}
+{% block content %}
+{% if not comparison.ready %}
+<section class="gate-banner gate-banner-closed">
+  <div>
+    <span class="gate-kicker">{% if comparison.detection_stale %}NIEUW MODEL ACTIEF · OUDE DETECTIE{% else %}MODELVERGELIJKING{% endif %}</span>
+    <h2>{% if comparison.detection_stale %}Eerst opnieuw detecteren{% else %}Nog geen vergelijkbare detectierun{% endif %}</h2>
+    <p>{{ comparison.reason }}</p>
+    {% if comparison.detection_stale %}<p><strong>Actief:</strong> {{ comparison.active_model.model_id }} · <strong>laatste detectie:</strong> {{ comparison.detection_context.model_id }}. Stap 7 neemt oude oordelen nooit over naar het nieuwe model.</p>{% endif %}
+  </div>
+  <div class="actions">
+    <a class="button" href="/process/table-model">Stap 6 · Tabelmodel</a>
+    <a class="button primary" href="/process/detect-candidates">Stap 3 · Detecteren</a>
+  </div>
+</section>
+{% if comparison.dataset %}
+<section class="card section-gap"><h3>Vaste Ground Truth</h3><p><strong>{{ comparison.dataset.dataset_id }}</strong></p><p class="muted">{{ comparison.dataset.annotation_count or 0 }} GT-cellen · {{ comparison.dataset.panel_count or 0 }} panelcrops. Stap 7 wijzigt deze snapshot niet automatisch.</p></section>
+{% endif %}
+{% if comparison.history %}
+<section class="card section-gap"><h3>Vorige detectieruns · historie</h3><p class="muted">Deze runs blijven bewaard voor audit en vergelijking, maar zijn geen actieve review meer.</p><div class="table-wrap"><table><tr><th>Run</th><th>Model</th><th>Dataset</th><th>Review</th><th>F1</th></tr>{% for run in comparison.history %}<tr><td class="mono">{{ run.run_id }}</td><td>{{ run.model_id }}</td><td class="mono">{{ run.dataset_id }}</td><td>{{ run.reviewed_issue_count }}/{{ run.issue_count }} · {{ run.open_issue_count }} open</td><td>{{ '%.1f%%'|format(((run.metrics or {}).f1 or 0)*100) }}</td></tr>{% endfor %}</table></div></section>
+{% endif %}
+{% else %}
+{% set ref = comparison.reference %}
+{% set cur = comparison.candidate %}
+{% set rm = ref.metrics or {} %}
+{% set cm = cur.metrics or {} %}
+{% set delta = comparison.delta or {} %}
+<section class="gate-banner {{ 'gate-banner-closed' if comparison.history_mode else 'gate-banner-open' }}">
+  <div>
+    <span class="gate-kicker">{% if comparison.history_mode %}HISTORISCHE RUN · ALLEEN LEZEN{% else %}ACTIEVE DETECTIERUN{% endif %}</span>
+    <h2>{{ cur.label }}</h2>
+    <p>{% if comparison.history_mode %}Je bekijkt een oude run. De predictions worden waar mogelijk opnieuw tegen de huidige canonieke GT gemeten, maar de review is vergrendeld.{% else %}Dit is uitsluitend de nieuwste complete Stap-3-output van <strong>{{ comparison.detection_context.model_id }}</strong>, vergeleken met de <strong>bevroren Stap-4 Ground Truth</strong>. Oude predictions en oude reviewbeslissingen zijn niet in deze actieve review gemengd.{% endif %}</p>
+  </div>
+  <div class="comparison-gt-summary">
+    <span>Ground Truth</span>
+    <strong>{{ comparison.dataset.dataset_id }}</strong>
+    <small>{{ cm.gt_total or 0 }} cellen · {{ cm.panel_count or 0 }} panelen</small>
+  </div>
+</section>
+
+<section class="card section-gap compare-run-selector">
+  <div class="toolbar">
+    <div><h3>Actieve run en historie</h3><p class="muted">Standaard beoordeel je alleen de nieuwste Stap-3-run. Oudere runs kun je hier bewust openen als read-only historie; als de GT is gewijzigd worden hun bevroren predictions opnieuw tegen de huidige GT gemeten.</p></div>
+  </div>
+  <form method="get" class="comparison-select-grid">
+    <label>Referentie / vorig model
+      <select name="reference" onchange="this.form.submit()">
+        {% for run in comparison.runs %}<option value="{{ run.run_id }}" {% if run.run_id == ref.run_id %}selected{% endif %}>{{ run.label }} · F1 {{ '%.1f%%'|format((run.metrics.f1 or 0)*100) }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Te beoordelen run
+      <select name="candidate" onchange="this.form.submit()">
+        {% for run in comparison.runs if run.source != 'initial_step4_reviews' %}<option value="{{ run.run_id }}" {% if run.run_id == cur.run_id %}selected{% endif %}>{{ run.label }} · F1 {{ '%.1f%%'|format((run.metrics.f1 or 0)*100) }}</option>{% endfor %}
+      </select>
+    </label>
+  </form>
+</section>
+
+<div class="compare-summary-grid section-gap">
+  <section class="card compare-score-card"><span class="muted">Precision</span><div class="metric">{{ '%.1f%%'|format((cm.precision or 0)*100) }}</div><small class="{{ 'ok' if (delta.precision or 0) >= 0 else 'bad' }}">{{ '%+.1f'|format((delta.precision or 0)*100) }} pp vs vorig</small></section>
+  <section class="card compare-score-card"><span class="muted">Recall</span><div class="metric">{{ '%.1f%%'|format((cm.recall or 0)*100) }}</div><small class="{{ 'ok' if (delta.recall or 0) >= 0 else 'bad' }}">{{ '%+.1f'|format((delta.recall or 0)*100) }} pp vs vorig</small></section>
+  <section class="card compare-score-card"><span class="muted">F1</span><div class="metric">{{ '%.1f%%'|format((cm.f1 or 0)*100) }}</div><small class="{{ 'ok' if (delta.f1 or 0) >= 0 else 'bad' }}">{{ '%+.1f'|format((delta.f1 or 0)*100) }} pp vs vorig</small></section>
+  <section class="card compare-score-card"><span class="muted">Vervolg-review</span><div id="comparison-open-count" class="metric {{ 'ok' if comparison.open_issue_count == 0 else 'warn' }}">{{ comparison.open_issue_count }}</div><small><span id="comparison-reviewed-count">{{ comparison.reviewed_issue_count }}</span>/<span id="comparison-issue-count">{{ comparison.issue_count }}</span> afwijkingen beoordeeld</small></section>
+</div>
+
+<section class="card section-gap">
+  <div class="toolbar"><div><h3>Vorige run → nieuwe run</h3><p class="muted">TP/FP/FN gebruiken IoU ≥ {{ '%.0f%%'|format((cur.iou_threshold or 0.5)*100) }}. “Direct correct” vereist IoU ≥ {{ '%.0f%%'|format((cur.geometry_iou or 0.75)*100) }}.</p></div></div>
+  <div class="table-wrap"><table class="comparison-matrix">
+    <tr><th>Metriek</th><th>{{ ref.label }}</th><th>{{ cur.label }}</th><th>Verschil</th></tr>
+    <tr><td>GT-cellen</td><td>{{ rm.gt_total or 0 }}</td><td>{{ cm.gt_total or 0 }}</td><td>—</td></tr>
+    <tr><td>Direct correct gevonden</td><td>{{ rm.direct_correct or 0 }}</td><td>{{ cm.direct_correct or 0 }}</td><td class="{{ 'ok' if (delta.direct_correct or 0) >= 0 else 'bad' }}">{{ '%+d'|format(delta.direct_correct|int) }}</td></tr>
+    <tr><td>Geometrie afwijkend</td><td>{{ rm.geometry_mismatch or 0 }}</td><td>{{ cm.geometry_mismatch or 0 }}</td><td class="{{ 'ok' if (delta.geometry_mismatch or 0) <= 0 else 'bad' }}">{{ '%+d'|format(delta.geometry_mismatch|int) }}</td></tr>
+    <tr><td>Gemist (FN)</td><td>{{ rm.fn or 0 }}</td><td>{{ cm.fn or 0 }}</td><td class="{{ 'ok' if (delta.fn or 0) <= 0 else 'bad' }}">{{ '%+d'|format(delta.fn|int) }}</td></tr>
+    <tr><td>Extra detecties (FP)</td><td>{{ rm.fp or 0 }}</td><td>{{ cm.fp or 0 }}</td><td class="{{ 'ok' if (delta.fp or 0) <= 0 else 'bad' }}">{{ '%+d'|format(delta.fp|int) }}</td></tr>
+    <tr><td>Merged-cell voorspellingen</td><td>{{ rm.merged or 0 }}</td><td>{{ cm.merged or 0 }}</td><td class="{{ 'ok' if (delta.merged or 0) <= 0 else 'bad' }}">{{ '%+d'|format(delta.merged|int) }}</td></tr>
+    <tr><td>Totaal afwijkingen</td><td>{{ rm.review_needed or 0 }}</td><td>{{ cm.review_needed or 0 }}</td><td class="{{ 'ok' if (delta.review_needed or 0) <= 0 else 'bad' }}">{{ '%+d'|format(delta.review_needed|int) }}</td></tr>
+  </table></div>
+</section>
+
+{% if comparison.review_complete and not comparison.history_mode %}
+<section class="gate-banner gate-banner-open section-gap"><div><span class="gate-kicker">REVIEWRONDE AFGESLOTEN</span><h2>0 open afwijkingen</h2><p>{{ (comparison.training_report or {}).get('correct',0) }} direct correct · {{ (comparison.training_report or {}).get('functional_ok',0) }} functioneel correct · {{ (comparison.training_report or {}).get('model_error',0) }} modelmisser(s) · {{ (comparison.training_report or {}).get('gt_correction',0) }} GT-correctie(s).</p><p>Deze run wordt nu trainingsfeedback voor de volgende dataset. Functioneel correcte predictions worden niet bestraft; expliciete modelmissers worden als hard examples meegenomen.</p></div><div class="actions"><a class="button primary" href="/process/table-model">Stap 6 · Volgende trainingsronde</a></div></section>
+{% endif %}
+{% if comparison.gt_worklist and not comparison.history_mode %}
+<section class="card section-gap"><div class="toolbar"><div><span class="eyebrow">GT-WERKLIJST</span><h3>{{ comparison.gt_worklist|length }} geval(len) naar Ground Truth-beheer</h3><p class="muted">Deze punten zijn in deze prediction-run gemarkeerd als “GT controleren”. Ze wijzigen de canonieke GT niet automatisch en worden niet als modelmisser getraind.</p></div><a class="button" href="/detection-review">Stap 4 · Ground Truth beheren</a></div><div class="table-wrap"><table><thead><tr><th>Bron</th><th>Panel</th><th>Type</th><th>Run</th></tr></thead><tbody>{% for item in comparison.gt_worklist %}<tr><td class="mono">{{ item.source_id }}</td><td>{{ item.panel_name or item.panel_id }}</td><td>{{ item.label or item.type }}</td><td class="mono">{{ item.run_id }}</td></tr>{% endfor %}</tbody></table></div></section>
+{% endif %}
+<section class="card section-gap">
+  <div class="toolbar">
+    <div><h3>Vervolg-review · alleen verschillen</h3><p class="muted">Groen = canonieke GT · blauw = nieuwe prediction · rood/oranje/geel = afwijking die aandacht nodig heeft. Beweeg over een afwijking rechts om het bijbehorende kader links te highlighten, of klik links op een afwijkingskader om de gekoppelde afwijking rechts vast te markeren. Bij geometrie toont Stap 7 naast IoU ook hoeveel van de GT is afgedekt en hoeveel van de prediction buiten de GT valt. Een prediction met lage IoU die ≥95% van één GT-cel omsluit wordt niet langer dubbel als FP + FN getoond, maar als één geometrie-afwijking. Zo kun je een ruimer maar bruikbaar kader als <strong>Functioneel correct</strong> afsluiten zonder de strakke Ground Truth te wijzigen.</p></div>
+    <label class="compare-filter">Filter
+      <select id="comparison-issue-filter"><option value="all">Alle afwijkingen</option><option value="fn">Gemist (FN)</option><option value="fp">Extra (FP)</option><option value="geometry">Geometrie</option><option value="merged">Merged cells</option><option value="open">Alleen open</option></select>
+    </label>
+  </div>
+  <div id="comparison-inline-status" class="comparison-inline-status" role="status" aria-live="polite"></div>
+  {% if comparison.issue_panels %}
+  <div class="comparison-panel-list">
+    {% for panel in comparison.issue_panels %}
+    <article class="comparison-panel-card">
+      <div class="comparison-panel-head">
+        <div><strong>{{ panel.panel_name }}</strong><small class="mono">{{ panel.source_id }} · {{ panel.split|upper }}</small></div>
+        <span class="pill warn">{{ panel.issues|length }} afwijking(en)</span>
+      </div>
+      <div class="comparison-panel-body">
+        <div class="comparison-image-stage" style="--aspect:{{ panel.width }}/{{ panel.height }}">
+          <img src="/table-cell-dataset-image/{{ comparison.dataset.dataset_id }}/{{ panel.file_name }}" alt="{{ panel.panel_name }}" loading="lazy">
+          {% for gt in panel.ground_truth %}{% set b=gt.box %}<span class="compare-box gt-box" style="left:{{ b[0]/panel.width*100 }}%;top:{{ b[1]/panel.height*100 }}%;width:{{ (b[2]-b[0])/panel.width*100 }}%;height:{{ (b[3]-b[1])/panel.height*100 }}%"></span>{% endfor %}
+          {% for pred in panel.predictions %}{% set b=pred.box %}<span class="compare-box prediction-box" style="left:{{ b[0]/panel.width*100 }}%;top:{{ b[1]/panel.height*100 }}%;width:{{ (b[2]-b[0])/panel.width*100 }}%;height:{{ (b[3]-b[1])/panel.height*100 }}%"></span>{% endfor %}
+          {% for issue in panel.issues %}
+            {% if issue.prediction_box %}{% set b=issue.prediction_box %}<span class="compare-box issue-box issue-{{ issue.type }} comparison-clickable-box" data-compare-issue-id="{{ issue.issue_id }}" role="button" tabindex="0" aria-pressed="false" aria-label="Toon gekoppelde afwijking {{ issue.label }}" title="Klik om de gekoppelde afwijking rechts te markeren" style="left:{{ b[0]/panel.width*100 }}%;top:{{ b[1]/panel.height*100 }}%;width:{{ (b[2]-b[0])/panel.width*100 }}%;height:{{ (b[3]-b[1])/panel.height*100 }}%"></span>{% endif %}
+            {% for b in issue.gt_boxes %}<span class="compare-box issue-gt issue-{{ issue.type }} comparison-clickable-box" data-compare-issue-id="{{ issue.issue_id }}" role="button" tabindex="0" aria-pressed="false" aria-label="Toon gekoppelde afwijking {{ issue.label }}" title="Klik om de gekoppelde afwijking rechts te markeren" style="left:{{ b[0]/panel.width*100 }}%;top:{{ b[1]/panel.height*100 }}%;width:{{ (b[2]-b[0])/panel.width*100 }}%;height:{{ (b[3]-b[1])/panel.height*100 }}%"></span>{% endfor %}
+          {% endfor %}
+        </div>
+        <div class="comparison-issue-list">
+          {% for issue in panel.issues %}
+          {% set decision = issue.review.decision or '' %}
+          <div class="comparison-issue-row" data-issue-id="{{ issue.issue_id }}" data-issue-type="{{ issue.type }}" data-issue-open="{{ '1' if not decision or decision == 'deferred' else '0' }}" data-issue-decision="{{ decision }}">
+            <div class="comparison-issue-copy">
+              <div><span class="issue-dot issue-dot-{{ issue.type }}"></span><strong>{{ issue.label }}</strong>{% if issue.containment_recovered %}<span class="pill comparison-containment-hint" title="Deze prediction en GT zouden op IoU alleen als losse FP + FN eindigen. Omdat de prediction minstens 95% van precies één GT-cel afdekt, zijn ze als één geometrie-afwijking gekoppeld.">FP+FN gekoppeld</span>{% endif %}{% if issue.type == 'geometry' and issue.functional_candidate %}<span class="pill comparison-functional-hint ok" title="Indicatie: GT-dekking ≥ 95% en maximaal 30% van de prediction ligt buiten de GT. Dit is geen automatische goedkeuring.">waarschijnlijk bruikbaar</span>{% endif %}{% if decision %}<span class="pill comparison-decision-pill {{ 'ok' if decision in ['model_error','functional_ok','gt_added'] else 'warn' }}">{{ {'model_error':'model fout bevestigd','functional_ok':'functioneel correct','gt_check':'GT controleren','gt_added':'aan GT toegevoegd','deferred':'uitgesteld'}.get(decision,decision) }}</span>{% endif %}</div>
+              <small>{% if issue.iou %}IoU {{ '%.1f%%'|format(issue.iou*100) }} · {% endif %}{% if issue.type == 'geometry' %}GT gedekt {{ '%.1f%%'|format((issue.gt_coverage or 0)*100) }} · extra prediction {{ '%.1f%%'|format((issue.prediction_excess or 0)*100) }} · {% endif %}{% if issue.confidence %}confidence {{ '%.1f%%'|format(issue.confidence*100) }} · {% endif %}{{ issue.issue_id }}</small>
+            </div>
+            <div class="comparison-issue-actions">
+              {% if not comparison.review_writable %}
+                <span class="pill">Historie · alleen lezen</span>
+                <a class="button ghost" href="/detection-review/{{ panel.source_id }}">Open huidige GT</a>
+              {% elif decision == 'gt_added' %}
+                <button class="success ghost" disabled title="Deze prediction is al rechtstreeks aan de canonieke Ground Truth toegevoegd.">Aan GT toegevoegd ✓</button>
+                <a class="button ghost" href="/detection-review/{{ panel.source_id }}" title="Open Stap 4 om deze Ground Truth-cel te bekijken, aan te passen of weer te verwijderen.">Open Stap 4</a>
+              {% else %}
+                {% if issue.type == 'fp' and issue.prediction_box %}
+                <form method="post" class="comparison-issue-form"><input type="hidden" name="comparison_action" value="add_prediction_to_gt"><input type="hidden" name="run_id" value="{{ cur.run_id }}"><input type="hidden" name="issue_id" value="{{ issue.issue_id }}"><input type="hidden" name="reference_run_id" value="{{ ref.run_id }}"><input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}"><button class="success" title="Neem exact dit prediction-kader direct over in de canonieke Ground Truth. De trainingsdataset wordt daarna bewust als verouderd gezien.">+ Toevoegen aan GT</button></form>
+                {% endif %}
+                {% if issue.type == 'geometry' %}
+                <form method="post" class="comparison-issue-form"><input type="hidden" name="comparison_action" value="review_issue"><input type="hidden" name="run_id" value="{{ cur.run_id }}"><input type="hidden" name="issue_id" value="{{ issue.issue_id }}"><input type="hidden" name="decision" value="functional_ok"><input type="hidden" name="reference_run_id" value="{{ ref.run_id }}"><input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}"><button class="good ghost" title="De prediction wijkt geometrisch af van de strakke GT, maar bevat de volledige functionele cel zonder schadelijke extra inhoud. De Ground Truth blijft ongewijzigd en dit oordeel wordt niet als modelmisser opgeslagen.">Functioneel correct ✓</button></form>
+                {% endif %}
+                <form method="post" class="comparison-issue-form"><input type="hidden" name="comparison_action" value="review_issue"><input type="hidden" name="run_id" value="{{ cur.run_id }}"><input type="hidden" name="issue_id" value="{{ issue.issue_id }}"><input type="hidden" name="decision" value="model_error"><input type="hidden" name="reference_run_id" value="{{ ref.run_id }}"><input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}"><button class="success ghost" title="De Ground Truth klopt; dit is een fout van het nieuwe model.">Model fout ✓</button></form>
+                <form method="post" class="comparison-issue-form"><input type="hidden" name="comparison_action" value="review_issue"><input type="hidden" name="run_id" value="{{ cur.run_id }}"><input type="hidden" name="issue_id" value="{{ issue.issue_id }}"><input type="hidden" name="decision" value="gt_check"><input type="hidden" name="reference_run_id" value="{{ ref.run_id }}"><input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}"><button class="warning ghost" title="Markeer deze afwijking omdat de canonieke Ground Truth mogelijk moet worden aangepast.">GT controleren</button></form>
+                <a class="button ghost" href="/detection-review/{{ panel.source_id }}" title="Open de oorspronkelijke bron in Stap 4 om Ground Truth bewust te corrigeren.">Open Stap 4</a>
+                {% if decision %}<form method="post" class="comparison-issue-form"><input type="hidden" name="comparison_action" value="review_issue"><input type="hidden" name="run_id" value="{{ cur.run_id }}"><input type="hidden" name="issue_id" value="{{ issue.issue_id }}"><input type="hidden" name="decision" value="clear"><input type="hidden" name="reference_run_id" value="{{ ref.run_id }}"><input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}"><button class="ghost">Wis oordeel</button></form>{% endif %}
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="notice success"><strong>Geen afwijkingen.</strong> Deze detectierun matcht de canonieke Ground Truth binnen de ingestelde IoU-grenzen.</div>
+  {% endif %}
+</section>
+
+<section class="notice info section-gap"><strong>Ground Truth blijft bewust beheerd.</strong> Bij geometrie betekent <strong>Functioneel correct ✓</strong>: de prediction is niet strak genoeg om als geometrisch correct te tellen, maar is voor de downstream uitlezing bruikbaar. Dit sluit de review af zonder de GT te verruimen en zonder het oordeel als modelmisser vast te leggen. De badge <strong>FP+FN gekoppeld</strong> betekent dat lage IoU is hersteld via ≥95% GT-dekking; dit is nog géén inhoudelijke goedkeuring. De groene indicatie <strong>waarschijnlijk bruikbaar</strong> verschijnt alleen bij ≥95% GT-dekking en ≤30% extra prediction-oppervlak; de inhoud blijft altijd een menselijke beoordeling. Bij een echte extra tabelcel kun je een FP met <strong>+ Toevoegen aan GT</strong> overnemen. Voor verwijderen of geometrie aanpassen open je Stap 4.</section>
+
+<style>
+.comparison-gt-summary{display:grid;gap:3px;min-width:260px}.comparison-gt-summary span,.comparison-gt-summary small{color:var(--muted)}.comparison-gt-summary strong{overflow-wrap:anywhere}.comparison-select-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.comparison-select-grid label{display:grid;gap:6px}.compare-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.compare-score-card small{display:block;margin-top:5px}.comparison-matrix td:not(:first-child),.comparison-matrix th:not(:first-child){text-align:right}.comparison-panel-list{display:grid;gap:16px}.comparison-panel-card{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel2)}.comparison-panel-head{display:flex;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line)}.comparison-panel-head>div{display:grid;gap:3px}.comparison-panel-body{display:grid;grid-template-columns:minmax(420px,1.15fr) minmax(360px,.85fr);gap:0}.comparison-image-stage{position:relative;align-self:start;background:#071018;overflow:hidden}.comparison-image-stage img{display:block;width:100%;height:auto}.compare-box{position:absolute;box-sizing:border-box;pointer-events:none}.gt-box{border:1px solid rgba(64,210,135,.55)}.prediction-box{border:1px solid rgba(77,163,255,.42)}.issue-box{z-index:3;border-width:3px;border-style:solid}.issue-gt{z-index:4;border-width:2px;border-style:dashed}.issue-fp{border-color:#ff6378}.issue-fn{border-color:#f0a84a}.issue-geometry{border-color:#f0d34a}.issue-merged{border-color:#c284ff}.comparison-issue-list{padding:12px;display:grid;gap:9px;align-content:start;max-height:680px;overflow:auto}.comparison-issue-row{border:1px solid var(--line);border-radius:9px;padding:10px;display:grid;gap:9px;transition:border-color .12s ease,background .12s ease,box-shadow .12s ease}.comparison-issue-row.is-hovered{border-color:rgba(255,255,255,.65);background:rgba(255,255,255,.035);box-shadow:0 0 0 1px rgba(255,255,255,.12)}.comparison-issue-row.is-selected{border-color:rgba(255,255,255,.92);background:rgba(255,255,255,.075);box-shadow:0 0 0 2px rgba(255,255,255,.28)}.compare-box.is-hovered{z-index:30!important;box-shadow:0 0 0 3px rgba(255,255,255,.95),0 0 18px 6px rgba(255,255,255,.35);background:rgba(255,255,255,.12)}.compare-box.is-selected{z-index:31!important;box-shadow:0 0 0 4px rgba(255,255,255,.98),0 0 22px 8px rgba(255,255,255,.42);background:rgba(255,255,255,.16)}.comparison-clickable-box{pointer-events:auto;cursor:pointer}.comparison-clickable-box:focus-visible{outline:3px solid rgba(255,255,255,.95);outline-offset:2px}.comparison-inline-status{min-height:0;margin:0 0 10px;color:var(--muted);font-size:13px}.comparison-inline-status:not(:empty){min-height:auto;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}.comparison-inline-status.ok{border-color:#2a7653}.comparison-inline-status.bad{border-color:#a94d57}.comparison-issue-copy>div{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.comparison-issue-copy small{color:var(--muted)}.comparison-functional-hint,.comparison-containment-hint{padding:3px 7px;font-size:11px}.comparison-functional-hint{border-color:#2a7653}.comparison-containment-hint{border-color:#6c7d91;color:var(--muted)}.issue-dot{width:9px;height:9px;border-radius:50%;display:inline-block}.issue-dot-fp{background:#ff6378}.issue-dot-fn{background:#f0a84a}.issue-dot-geometry{background:#f0d34a}.issue-dot-merged{background:#c284ff}.comparison-issue-actions{display:flex;gap:6px;flex-wrap:wrap}.comparison-issue-actions form{margin:0}.comparison-issue-actions button,.comparison-issue-actions .button{padding:6px 9px;font-size:12px}.compare-filter{display:flex;align-items:center;gap:8px}.comparison-issue-row.is-filtered,.comparison-panel-card.is-filtered{display:none}@media(max-width:1100px){.compare-summary-grid{grid-template-columns:repeat(2,1fr)}.comparison-panel-body{grid-template-columns:1fr}.comparison-select-grid{grid-template-columns:1fr}}@media(max-width:700px){.compare-summary-grid{grid-template-columns:1fr}}
+</style>
+<script>
+(()=>{
+  const filter=document.getElementById('comparison-issue-filter');
+  const status=document.getElementById('comparison-inline-status');
+  const openCount=document.getElementById('comparison-open-count');
+  const reviewedCount=document.getElementById('comparison-reviewed-count');
+  const issueCount=document.getElementById('comparison-issue-count');
+  const decisionLabels={model_error:'model fout bevestigd',functional_ok:'functioneel correct',gt_check:'GT controleren',gt_added:'aan GT toegevoegd',deferred:'uitgesteld'};
+
+  const setStatus=(message,ok=true)=>{
+    if(!status)return;
+    status.textContent=message||'';
+    status.classList.toggle('ok',Boolean(message)&&ok);
+    status.classList.toggle('bad',Boolean(message)&&!ok);
+  };
+
+  const matchesFilter=(row,value)=>value==='all'||(value==='open'&&row.dataset.issueOpen==='1')||row.dataset.issueType===value;
+
+  const applyFilter=()=>{
+    if(!filter)return;
+    const value=filter.value;
+    document.querySelectorAll('.comparison-panel-card').forEach(panel=>{
+      let visible=0;
+      panel.querySelectorAll('.comparison-issue-row').forEach(row=>{
+        const show=matchesFilter(row,value);
+        row.classList.toggle('is-filtered',!show);
+        if(show)visible++;
+      });
+      panel.classList.toggle('is-filtered',visible===0);
+    });
+  };
+
+  const boxesForIssue=(issueId)=>Array.from(document.querySelectorAll('[data-compare-issue-id]')).filter(box=>box.dataset.compareIssueId===issueId);
+  const rowsForIssue=(issueId)=>Array.from(document.querySelectorAll('.comparison-issue-row')).filter(row=>row.dataset.issueId===issueId);
+  let selectedIssueId='';
+
+  const clearSelectedIssue=()=>{
+    if(!selectedIssueId)return;
+    rowsForIssue(selectedIssueId).forEach(row=>row.classList.remove('is-selected'));
+    boxesForIssue(selectedIssueId).forEach(box=>{box.classList.remove('is-selected');box.setAttribute('aria-pressed','false');});
+    selectedIssueId='';
+    applyFilter();
+  };
+
+  const selectIssue=(issueId)=>{
+    if(!issueId)return;
+    if(selectedIssueId&&selectedIssueId!==issueId){
+      rowsForIssue(selectedIssueId).forEach(row=>row.classList.remove('is-selected'));
+      boxesForIssue(selectedIssueId).forEach(box=>{box.classList.remove('is-selected');box.setAttribute('aria-pressed','false');});
+    }
+    selectedIssueId=issueId;
+    const rows=rowsForIssue(issueId);
+    rows.forEach(row=>row.classList.add('is-selected'));
+    boxesForIssue(issueId).forEach(box=>{box.classList.add('is-selected');box.setAttribute('aria-pressed','true');});
+    if(filter&&rows.length&&!rows.some(row=>matchesFilter(row,filter.value)))filter.value='all';
+    applyFilter();
+    const row=rows[0];
+    if(row)row.scrollIntoView({behavior:'smooth',block:'nearest'});
+  };
+
+  document.querySelectorAll('.comparison-clickable-box').forEach(box=>{
+    const activate=event=>{
+      event.preventDefault();
+      event.stopPropagation();
+      selectIssue(box.dataset.compareIssueId||'');
+    };
+    box.addEventListener('click',activate);
+    box.addEventListener('keydown',event=>{
+      if(event.key==='Enter'||event.key===' '){activate(event);}
+      else if(event.key==='Escape'){clearSelectedIssue();box.blur();}
+    });
+  });
+
+  document.querySelectorAll('.comparison-issue-row').forEach(row=>{
+    const toggle=(active)=>{
+      row.classList.toggle('is-hovered',active);
+      boxesForIssue(row.dataset.issueId||'').forEach(box=>box.classList.toggle('is-hovered',active));
+    };
+    row.addEventListener('pointerenter',()=>toggle(true));
+    row.addEventListener('pointerleave',()=>toggle(false));
+    row.addEventListener('focusin',()=>toggle(true));
+    row.addEventListener('focusout',event=>{if(!row.contains(event.relatedTarget))toggle(false);});
+  });
+
+  const ensureDecisionPill=(row,decision)=>{
+    let pill=row.querySelector('.comparison-decision-pill');
+    if(!decision||decision==='clear'){
+      pill?.remove();
+      return;
+    }
+    if(!pill){
+      pill=document.createElement('span');
+      pill.className='pill comparison-decision-pill';
+      row.querySelector('.comparison-issue-copy>div')?.appendChild(pill);
+    }
+    pill.textContent=decisionLabels[decision]||decision;
+    pill.classList.toggle('ok',['model_error','functional_ok','gt_added'].includes(decision));
+    pill.classList.toggle('warn',!['model_error','functional_ok','gt_added'].includes(decision));
+  };
+
+  const ensureClearButton=(row)=>{
+    const actions=row.querySelector('.comparison-issue-actions');
+    if(!actions||actions.querySelector('form[data-clear-review="1"]'))return;
+    const anyForm=actions.querySelector('.comparison-issue-form');
+    if(!anyForm)return;
+    const form=anyForm.cloneNode(true);
+    form.dataset.clearReview='1';
+    form.querySelector('input[name="comparison_action"]').value='review_issue';
+    let decision=form.querySelector('input[name="decision"]');
+    if(!decision){decision=document.createElement('input');decision.type='hidden';decision.name='decision';form.appendChild(decision);}
+    decision.value='clear';
+    const button=form.querySelector('button');
+    button.className='ghost';
+    button.textContent='Wis oordeel';
+    button.removeAttribute('title');
+    actions.appendChild(form);
+    bindIssueForm(form);
+  };
+
+  const renderGtAddedActions=(row)=>{
+    const actions=row.querySelector('.comparison-issue-actions');
+    if(!actions)return;
+    const openLink=actions.querySelector('a[href^="/detection-review/"]')?.cloneNode(true);
+    actions.innerHTML='';
+    const done=document.createElement('button');
+    done.type='button';done.className='success ghost';done.disabled=true;done.textContent='Aan GT toegevoegd ✓';
+    actions.appendChild(done);
+    if(openLink)actions.appendChild(openLink);
+  };
+
+  const updateCounts=(payload)=>{
+    const counts=payload?.counts||{};
+    if(openCount&&Number.isFinite(Number(counts.open_issue_count))){
+      const value=Number(counts.open_issue_count);openCount.textContent=String(value);openCount.classList.toggle('ok',value===0);openCount.classList.toggle('warn',value!==0);
+    }
+    if(reviewedCount&&Number.isFinite(Number(counts.reviewed_issue_count)))reviewedCount.textContent=String(Number(counts.reviewed_issue_count));
+    if(issueCount&&Number.isFinite(Number(counts.issue_count)))issueCount.textContent=String(Number(counts.issue_count));
+  };
+
+  async function submitIssueForm(form){
+    const row=form.closest('.comparison-issue-row');
+    if(!row)return;
+    const button=form.querySelector('button');
+    const original=button?.textContent||'';
+    if(button){button.disabled=true;button.textContent='Opslaan…';}
+    setStatus('');
+    try{
+      const response=await fetch(form.action||window.location.href,{method:'POST',body:new FormData(form),headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'},cache:'no-store'});
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok||payload.ok===false)throw new Error(payload.error||`HTTP ${response.status}`);
+      const decision=String(payload.decision||'');
+      row.dataset.issueDecision=decision;
+      row.dataset.issueOpen=decision===''||decision==='deferred'||decision==='clear'?'1':'0';
+      ensureDecisionPill(row,decision);
+      if(decision==='gt_added')renderGtAddedActions(row);
+      else if(decision&&decision!=='clear')ensureClearButton(row);
+      else row.querySelector('form[data-clear-review="1"]')?.remove();
+      updateCounts(payload);
+      setStatus(payload.message||'Vervolg-review opgeslagen.',true);
+      applyFilter();
+    }catch(error){
+      setStatus(`Opslaan mislukt: ${error}`,false);
+    }finally{
+      if(button&&button.isConnected){button.disabled=false;button.textContent=original;}
+    }
+  }
+
+  function bindIssueForm(form){
+    if(form.dataset.ajaxBound==='1')return;
+    form.dataset.ajaxBound='1';
+    form.addEventListener('submit',event=>{event.preventDefault();submitIssueForm(form);});
+  }
+  document.querySelectorAll('.comparison-issue-form').forEach(bindIssueForm);
+  filter?.addEventListener('change',applyFilter);
+  applyFilter();
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,788 @@
+from __future__ import annotations
+
+import hashlib
+import math
+from dataclasses import dataclass
+from typing import Any, Iterable, Sequence
+
+import numpy as np
+
+from ..models import Box, OCRToken
+from .paddle import PaddleEngine
+from .paddlex_runtime import prepare_paddlex_runtime
+
+TABLE_ENGINE_VERSION = "ppstructurev3-table-v3"
+
+
+@dataclass(frozen=True)
+class TableCell:
+    table_id: str
+    cell_id: str
+    row_index: int
+    column_index: int
+    box: Box
+    text: str
+    confidence: float
+    row_span: int = 1
+    column_span: int = 1
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "table_id": self.table_id,
+            "cell_id": self.cell_id,
+            "row_index": self.row_index,
+            "column_index": self.column_index,
+            "row_span": self.row_span,
+            "column_span": self.column_span,
+            "text": self.text,
+            "confidence": float(self.confidence),
+            "x1": self.box.x1,
+            "y1": self.box.y1,
+            "x2": self.box.x2,
+            "y2": self.box.y2,
+        }
+
+
+@dataclass(frozen=True)
+class TableRegion:
+    table_id: str
+    box: Box
+    confidence: float
+    cells: tuple[TableCell, ...]
+    html: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "table_id": self.table_id,
+            "confidence": float(self.confidence),
+            "x1": self.box.x1,
+            "y1": self.box.y1,
+            "x2": self.box.x2,
+            "y2": self.box.y2,
+            "html": self.html,
+            "cells": [cell.as_dict() for cell in self.cells],
+        }
+
+
+def _json_data(result: Any) -> dict[str, Any]:
+    data = getattr(result, "json", result)
+    if callable(data):
+        data = data()
+    if not isinstance(data, dict):
+        return {}
+    nested = data.get("res")
+    return nested if isinstance(nested, dict) else data
+
+
+def _box_from_any(value: Any) -> Box | None:
+    if value is None:
+        return None
+    array = np.asarray(value)
+    if array.size < 4:
+        return None
+    try:
+        if array.ndim == 1 and array.size >= 4:
+            values = [int(round(float(item))) for item in array[:4]]
+            x1, y1, x2, y2 = values
+        else:
+            points = array.reshape(-1, 2)
+            xs = [float(point[0]) for point in points]
+            ys = [float(point[1]) for point in points]
+            x1, y1, x2, y2 = (
+                int(math.floor(min(xs))), int(math.floor(min(ys))),
+                int(math.ceil(max(xs))), int(math.ceil(max(ys))),
+            )
+    except (TypeError, ValueError):
+        return None
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return Box(x1, y1, x2, y2)
+
+
+def _center(box: Box) -> tuple[float, float]:
+    return ((box.x1 + box.x2) / 2.0, (box.y1 + box.y2) / 2.0)
+
+
+def _box_union(boxes: Sequence[Box]) -> Box:
+    return Box(
+        min(box.x1 for box in boxes), min(box.y1 for box in boxes),
+        max(box.x2 for box in boxes), max(box.y2 for box in boxes),
+    )
+
+
+def _inside(center: tuple[float, float], box: Box, guard: int = 2) -> bool:
+    x, y = center
+    return box.x1 - guard <= x <= box.x2 + guard and box.y1 - guard <= y <= box.y2 + guard
+
+
+
+
+def _intersection_area(left: Box, right: Box) -> int:
+    width = max(0, min(left.x2, right.x2) - max(left.x1, right.x1))
+    height = max(0, min(left.y2, right.y2) - max(left.y1, right.y1))
+    return width * height
+
+
+
+
+def _box_iou(left: Box, right: Box) -> float:
+    intersection = _intersection_area(left, right)
+    if intersection <= 0:
+        return 0.0
+    union = left.width * left.height + right.width * right.height - intersection
+    return intersection / max(1, union)
+
+
+def _panel_suggestions_from_variant_results(
+    results: dict[str, list[TableRegion]], image_width: int, image_height: int
+) -> list[dict[str, Any]]:
+    """Keep plausible table regions from *all* preprocessing variants.
+
+    The structurally best full-image run is still used as detector output, but Panel
+    Setup must not lose a second table merely because another contrast variant won
+    the global benchmark. Suggestions are therefore deduplicated across variants.
+    """
+    candidates: list[dict[str, Any]] = []
+    image_area = max(1, image_width * image_height)
+    for variant, regions in results.items():
+        for region in regions:
+            box = region.box.clamp(image_width, image_height)
+            area_fraction = (box.width * box.height) / image_area
+            cell_count = len(region.cells)
+            if box.width < 24 or box.height < 24 or area_fraction < 0.01 or area_fraction > 0.80:
+                continue
+            metrics = score_table_structure([region])
+            score = float(metrics.get("score") or 0.0) + min(12.0, cell_count * 0.35)
+            candidates.append({
+                "box": box, "variant": variant, "score": score,
+                "cell_count": cell_count, "confidence": float(region.confidence or 0.0),
+            })
+
+    groups: list[dict[str, Any]] = []
+    for item in sorted(candidates, key=lambda value: float(value["score"]), reverse=True):
+        box = item["box"]
+        matched = None
+        for group in groups:
+            rep = group["box"]
+            overlap_smaller = _table_overlap_ratio(box, rep)
+            if _box_iou(box, rep) >= 0.45 or overlap_smaller >= 0.80:
+                matched = group
+                break
+        if matched is None:
+            groups.append({
+                "box": box, "best": item, "variants": {str(item["variant"])}, "support": 1,
+            })
+        else:
+            matched["variants"].add(str(item["variant"]))
+            matched["support"] += 1
+            if float(item["score"]) > float(matched["best"]["score"]):
+                matched["box"] = box
+                matched["best"] = item
+
+    suggestions: list[dict[str, Any]] = []
+    for index, group in enumerate(groups[:12], start=1):
+        box = group["box"]
+        best = group["best"]
+        suggestions.append({
+            "suggestion_id": f"benchmark-{index}",
+            "kind": "benchmark_table_region",
+            "x1": box.x1, "y1": box.y1, "x2": box.x2, "y2": box.y2,
+            "variant": str(best["variant"]),
+            "support": int(group["support"]),
+            "variants": sorted(group["variants"]),
+            "cell_count": int(best["cell_count"]),
+            "confidence": float(best["confidence"]),
+            "score": round(float(best["score"]), 2),
+        })
+    return suggestions
+
+
+def _assign_tokens_to_cells(tokens: Sequence[OCRToken], cell_boxes: Sequence[Box]) -> dict[int, list[OCRToken]]:
+    """Assign every OCR token to at most one cell using geometric overlap.
+
+    Centre-only assignment duplicates text when Paddle cell boxes overlap and can
+    miss slightly shifted OCR boxes. Token coverage is the primary signal; the
+    centre point is only a small tie-breaker.
+    """
+    assigned: dict[int, list[OCRToken]] = {index: [] for index in range(len(cell_boxes))}
+    for token in tokens:
+        if token.box is None or not str(token.text or "").strip():
+            continue
+        token_area = max(1, token.box.width * token.box.height)
+        best_index: int | None = None
+        best_score = 0.0
+        center = _center(token.box)
+        for index, cell_box in enumerate(cell_boxes):
+            intersection = _intersection_area(token.box, cell_box)
+            coverage = intersection / token_area
+            center_inside = _inside(center, cell_box, guard=2)
+            if coverage < 0.30 and not center_inside:
+                continue
+            cell_area = max(1, cell_box.width * cell_box.height)
+            cell_coverage = intersection / cell_area
+            score = 0.75 * coverage + 0.10 * min(1.0, cell_coverage) + (0.15 if center_inside else 0.0)
+            if score > best_score:
+                best_index = index
+                best_score = score
+        if best_index is not None:
+            assigned[best_index].append(token)
+    return assigned
+
+def _weighted_text(tokens: Sequence[OCRToken]) -> tuple[str, float]:
+    ordered = sorted(
+        (token for token in tokens if token.box is not None and str(token.text or "").strip()),
+        key=lambda token: (token.box.x1, token.box.y1),
+    )
+    if not ordered:
+        return "", 0.0
+    text = " ".join(str(token.text).strip() for token in ordered)
+    weights = [max(1, len(str(token.text).strip())) for token in ordered]
+    confidence = sum(float(token.confidence) * weight for token, weight in zip(ordered, weights, strict=True)) / sum(weights)
+    return text, confidence
+
+
+def _tokens_from_table_ocr(table: dict[str, Any]) -> list[OCRToken]:
+    ocr = table.get("table_ocr_pred")
+    if not isinstance(ocr, dict):
+        return []
+    texts = list(ocr.get("rec_texts") or [])
+    scores = list(ocr.get("rec_scores") or [])
+    boxes = list(ocr.get("rec_boxes") or ocr.get("rec_polys") or [])
+    tokens: list[OCRToken] = []
+    for index, text in enumerate(texts):
+        box = _box_from_any(boxes[index]) if index < len(boxes) else None
+        score = float(scores[index]) if index < len(scores) else 0.0
+        if box is not None and str(text or "").strip():
+            tokens.append(OCRToken(str(text), score, box))
+    return tokens
+
+
+def _cluster_rows(cell_boxes: Sequence[Box]) -> list[list[int]]:
+    if not cell_boxes:
+        return []
+    heights = sorted(max(1, box.height) for box in cell_boxes)
+    median_height = heights[len(heights) // 2]
+    tolerance = max(4.0, median_height * 0.55)
+    indices = sorted(range(len(cell_boxes)), key=lambda idx: (_center(cell_boxes[idx])[1], cell_boxes[idx].x1))
+    rows: list[list[int]] = []
+    row_centers: list[float] = []
+    for index in indices:
+        cy = _center(cell_boxes[index])[1]
+        best = None
+        best_distance = float("inf")
+        for row_index, center in enumerate(row_centers):
+            distance = abs(cy - center)
+            if distance <= tolerance and distance < best_distance:
+                best = row_index
+                best_distance = distance
+        if best is None:
+            rows.append([index])
+            row_centers.append(cy)
+        else:
+            rows[best].append(index)
+            row_centers[best] = sum(_center(cell_boxes[idx])[1] for idx in rows[best]) / len(rows[best])
+    ordered_rows = sorted(zip(row_centers, rows), key=lambda item: item[0])
+    return [sorted(row, key=lambda idx: cell_boxes[idx].x1) for _, row in ordered_rows]
+
+
+def parse_ppstructure_tables(
+    data: dict[str, Any],
+    *,
+    source_id: str,
+    fallback_tokens: Sequence[OCRToken] = (),
+    image_width: int | None = None,
+    image_height: int | None = None,
+) -> list[TableRegion]:
+    """Convert PP-StructureV3 output to stable table/cell records.
+
+    Paddle supplies the cell geometry. Row/column indexes are reconstructed from
+    that geometry. Full-page OCR is preferred for cell text so recognition stays
+    consistent with the rest of IsalaOCR; when it has no token for a particular
+    cell, PP-Structure's own table OCR is used for that cell only.
+    """
+    raw_tables = data.get("table_res_list") or []
+    if not isinstance(raw_tables, list):
+        return []
+    regions: list[TableRegion] = []
+    for table_index, raw in enumerate(raw_tables):
+        if not isinstance(raw, dict):
+            continue
+        raw_cells = list(raw.get("cell_box_list") or raw.get("bbox") or [])
+        boxes = [box for value in raw_cells if (box := _box_from_any(value)) is not None]
+        if len(boxes) < 4:
+            continue
+        if image_width is not None and image_height is not None:
+            boxes = [box.clamp(image_width, image_height) for box in boxes]
+        rows = _cluster_rows(boxes)
+        if len(rows) < 2 or max((len(row) for row in rows), default=0) < 2:
+            continue
+        union = _box_union(boxes)
+        signature = f"{source_id}|{table_index}|{union.to_list()}".encode("utf-8")
+        table_id = hashlib.sha256(signature).hexdigest()[:24]
+
+        # Assign each token to one best-fitting cell. This avoids duplicated text
+        # when adjacent Paddle cells overlap by a few pixels. A per-cell fallback
+        # to PP-Structure OCR prevents otherwise empty cells when the full-page OCR
+        # misses a region.
+        primary_tokens = list(fallback_tokens)
+        internal_tokens = _tokens_from_table_ocr(raw)
+        primary_by_cell = _assign_tokens_to_cells(primary_tokens, boxes)
+        internal_by_cell = _assign_tokens_to_cells(internal_tokens, boxes)
+
+        score = raw.get("structure_score")
+        if score is None:
+            score = raw.get("table_score")
+        if score is None:
+            score = 0.85
+        cells: list[TableCell] = []
+        for row_index, row in enumerate(rows):
+            for column_index, box_index in enumerate(row):
+                box = boxes[box_index]
+                in_cell = primary_by_cell.get(box_index) or internal_by_cell.get(box_index) or []
+                text, confidence = _weighted_text(in_cell)
+                cell_id = hashlib.sha256(
+                    f"{table_id}|{row_index}|{column_index}|{box.to_list()}".encode("utf-8")
+                ).hexdigest()[:28]
+                cells.append(
+                    TableCell(
+                        table_id=table_id,
+                        cell_id=cell_id,
+                        row_index=row_index,
+                        column_index=column_index,
+                        box=box,
+                        text=text,
+                        confidence=confidence,
+                    )
+                )
+        regions.append(
+            TableRegion(
+                table_id=table_id,
+                box=union,
+                confidence=float(score or 0.0),
+                cells=tuple(cells),
+                html=str(raw.get("pred_html") or ""),
+            )
+        )
+    return regions
+
+
+def _preprocess_table_image(image: np.ndarray, variant: str) -> np.ndarray:
+    """Create conservative preprocessing variants for dark GUI-style tables.
+
+    Every variant keeps the same pixel geometry so detected boxes remain directly
+    comparable. The benchmark intentionally avoids destructive morphology; the
+    goal is to learn whether contrast polarity is the limiting factor before any
+    table model is fine-tuned.
+    """
+    import cv2
+
+    if variant == "original":
+        return image.copy()
+    if image.ndim == 2:
+        gray = image.copy()
+    else:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    if variant == "grayscale":
+        prepared = gray
+    elif variant == "clahe":
+        prepared = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+    elif variant == "invert_clahe":
+        enhanced = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+        prepared = cv2.bitwise_not(enhanced)
+    elif variant == "adaptive":
+        enhanced = cv2.createCLAHE(clipLimit=1.8, tileGridSize=(8, 8)).apply(gray)
+        min_dim = min(enhanced.shape[:2])
+        block_size = min(31, min_dim if min_dim % 2 == 1 else min_dim - 1)
+        if block_size >= 3:
+            prepared = cv2.adaptiveThreshold(
+                enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, block_size, 7
+            )
+        else:
+            _, prepared = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    else:
+        raise ValueError(f"Unknown table preprocessing variant: {variant}")
+    return cv2.cvtColor(prepared, cv2.COLOR_GRAY2BGR)
+
+
+def _table_overlap_ratio(left: Box, right: Box) -> float:
+    intersection = _intersection_area(left, right)
+    if intersection <= 0:
+        return 0.0
+    smaller = max(1, min(left.width * left.height, right.width * right.height))
+    return intersection / smaller
+
+
+def _translate_table_regions(regions: Sequence[TableRegion], dx: int, dy: int) -> list[TableRegion]:
+    if dx == 0 and dy == 0:
+        return list(regions)
+    translated: list[TableRegion] = []
+    for region in regions:
+        region_box = Box(region.box.x1 + dx, region.box.y1 + dy, region.box.x2 + dx, region.box.y2 + dy)
+        cells = tuple(
+            TableCell(
+                table_id=cell.table_id, cell_id=cell.cell_id, row_index=cell.row_index,
+                column_index=cell.column_index,
+                box=Box(cell.box.x1 + dx, cell.box.y1 + dy, cell.box.x2 + dx, cell.box.y2 + dy),
+                text=cell.text, confidence=cell.confidence, row_span=cell.row_span, column_span=cell.column_span,
+            )
+            for cell in region.cells
+        )
+        translated.append(TableRegion(region.table_id, region_box, region.confidence, cells, region.html))
+    return translated
+
+
+def _panel_crop_from_regions(regions: Sequence[TableRegion], image_width: int, image_height: int) -> Box | None:
+    if not regions:
+        return None
+    union = _box_union([region.box for region in regions]).clamp(image_width, image_height)
+    image_area = max(1, image_width * image_height)
+    fraction = (union.width * union.height) / image_area
+    # Do not trust a tiny accidental table or a region that is effectively the whole screenshot.
+    if fraction < 0.06 or fraction > 0.82:
+        return None
+    pad_x = max(8, int(round(union.width * 0.06)))
+    pad_y = max(8, int(round(union.height * 0.05)))
+    return Box(union.x1 - pad_x, union.y1 - pad_y, union.x2 + pad_x, union.y2 + pad_y).clamp(image_width, image_height)
+
+
+def score_table_structure(regions: Sequence[TableRegion]) -> dict[str, float | int]:
+    """Score table output using geometry only, never recognized text.
+
+    The score is deliberately heuristic and advisory. It rewards repeated rows,
+    stable column positions and non-overlapping cells, which are the properties
+    needed by the later row/column reconstruction stage.
+    """
+    cells = [cell for region in regions for cell in region.cells]
+    if not cells:
+        return {
+            "score": 0.0, "table_count": 0, "cell_count": 0, "row_count": 0,
+            "multi_cell_rows": 0, "row_regularity": 0.0, "column_alignment": 0.0,
+            "overlap_penalty": 0.0,
+        }
+    row_count = 0
+    multi_rows = 0
+    row_regularity_parts: list[float] = []
+    column_alignment_parts: list[float] = []
+    overlap_pairs = 0
+    overlap_bad = 0
+    for region in regions:
+        rows: dict[int, list[TableCell]] = {}
+        for cell in region.cells:
+            rows.setdefault(int(cell.row_index), []).append(cell)
+        row_count += len(rows)
+        multi_rows += sum(1 for items in rows.values() if len(items) >= 2)
+        counts = [len(items) for items in rows.values() if items]
+        if counts:
+            from collections import Counter
+            mode_count = Counter(counts).most_common(1)[0][0]
+            row_regularity_parts.append(sum(1 for count in counts if count == mode_count) / len(counts))
+        columns: dict[int, list[TableCell]] = {}
+        for cell in region.cells:
+            columns.setdefault(int(cell.column_index), []).append(cell)
+        for items in columns.values():
+            if len(items) < 2:
+                continue
+            centers = [(_center(cell.box)[0]) for cell in items]
+            widths = [max(1, cell.box.width) for cell in items]
+            span = max(1.0, sum(widths) / len(widths))
+            mean = sum(centers) / len(centers)
+            deviation = sum(abs(value - mean) for value in centers) / len(centers)
+            column_alignment_parts.append(max(0.0, 1.0 - min(1.0, deviation / span)))
+        region_cells = list(region.cells)
+        for i, left in enumerate(region_cells):
+            for right in region_cells[i + 1:]:
+                if left.row_index != right.row_index:
+                    continue
+                overlap_pairs += 1
+                if _table_overlap_ratio(left.box, right.box) > 0.35:
+                    overlap_bad += 1
+    row_regularity = sum(row_regularity_parts) / len(row_regularity_parts) if row_regularity_parts else 0.0
+    column_alignment = sum(column_alignment_parts) / len(column_alignment_parts) if column_alignment_parts else 0.0
+    overlap_penalty = overlap_bad / overlap_pairs if overlap_pairs else 0.0
+    row_density = min(1.0, multi_rows / max(1.0, row_count * 0.75))
+    cell_density = min(1.0, len(cells) / 30.0)
+    confidence = sum(float(region.confidence or 0.0) for region in regions) / max(1, len(regions))
+    score = 100.0 * (
+        0.27 * row_density
+        + 0.23 * row_regularity
+        + 0.23 * column_alignment
+        + 0.15 * cell_density
+        + 0.12 * max(0.0, min(1.0, confidence))
+        - 0.20 * overlap_penalty
+    )
+    return {
+        "score": round(max(0.0, score), 2),
+        "table_count": len(regions),
+        "cell_count": len(cells),
+        "row_count": row_count,
+        "multi_cell_rows": multi_rows,
+        "row_regularity": round(row_regularity, 4),
+        "column_alignment": round(column_alignment, 4),
+        "overlap_penalty": round(overlap_penalty, 4),
+    }
+
+
+
+class PPStructureTableEngine:
+    """Lazy PP-StructureV3 wrapper used only for table/layout geometry."""
+
+    def __init__(self, settings: dict[str, Any], table_settings: dict[str, Any] | None = None):
+        self.settings = dict(settings)
+        self.table_settings = dict(table_settings or {})
+        self._pipeline = None
+        self._version = "unknown"
+        self._load_error: Exception | None = None
+
+    def _load(self):
+        if self._pipeline is not None:
+            return self._pipeline
+        if self._load_error is not None:
+            raise RuntimeError("PP-StructureV3 initialization previously failed") from self._load_error
+        prepare_paddlex_runtime(self.settings)
+        try:
+            import paddleocr
+            from paddleocr import PPStructureV3
+        except Exception as exc:
+            self._load_error = exc
+            raise RuntimeError("PP-StructureV3 is unavailable in the installed PaddleOCR package") from exc
+        self._version = getattr(paddleocr, "__version__", "unknown")
+        kwargs: dict[str, Any] = {
+            "use_doc_orientation_classify": False,
+            "use_doc_unwarping": False,
+            "use_textline_orientation": False,
+            "use_seal_recognition": False,
+            "use_table_recognition": True,
+            "use_formula_recognition": False,
+            "use_chart_recognition": False,
+            "use_region_detection": True,
+            "device": str(self.settings.get("device", "cpu")),
+            "engine": self.settings.get("inference_engine", "paddle_static"),
+        }
+        passthrough = {
+            "layout_detection_model_name": "layout_detection_model",
+            "table_classification_model_name": "table_classification_model",
+            "wired_table_structure_recognition_model_name": "wired_structure_model",
+            "wireless_table_structure_recognition_model_name": "wireless_structure_model",
+            "wired_table_cells_detection_model_name": "wired_cells_model",
+            "wireless_table_cells_detection_model_name": "wireless_cells_model",
+            "wired_table_cells_detection_model_dir": "wired_cells_model_dir",
+            "wireless_table_cells_detection_model_dir": "wireless_cells_model_dir",
+        }
+        for paddle_key, config_key in passthrough.items():
+            value = self.table_settings.get(config_key)
+            if value:
+                kwargs[paddle_key] = value
+        try:
+            self._pipeline = PPStructureV3(**kwargs)
+        except Exception as exc:
+            self._load_error = exc
+            message = str(exc)
+            if "dependency error occurred during pipeline creation" in message.lower():
+                raise RuntimeError(
+                    "PP-StructureV3 could not start because its document-parser dependencies "
+                    "are unavailable. The runtime image must include the PaddleOCR "
+                    "'doc-parser' extra (paddleocr[doc-parser]==3.7.0). Open Stap 1 · Voorbereiding and rebuild the runtime/model cache "
+                    "with the current release."
+                ) from exc
+            raise
+        return self._pipeline
+
+    def warmup(self) -> None:
+        self._load()
+
+    def _detect_once(self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()) -> list[TableRegion]:
+        pipeline = self._load()
+        prepared = PaddleEngine._prepare_image(image)
+        results = list(
+            pipeline.predict(
+                prepared,
+                use_table_orientation_classify=False,
+                use_ocr_results_with_table_cells=True,
+                use_e2e_wireless_table_rec_model=False,
+                use_e2e_wired_table_rec_model=False,
+            )
+        )
+        if not results:
+            return []
+        data = _json_data(results[0])
+        height, width = prepared.shape[:2]
+        return parse_ppstructure_tables(
+            data, source_id=source_id, fallback_tokens=fallback_tokens,
+            image_width=width, image_height=height,
+        )
+
+    def detect_with_benchmark(
+        self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()
+    ) -> tuple[list[TableRegion], dict[str, Any]]:
+        """Run several geometry-preserving preprocessing variants and select the best.
+
+        Selection uses only structural geometry, so OCR text cannot accidentally
+        bias localization. The original image always participates and therefore
+        remains the safe fallback when contrast preprocessing hurts.
+        """
+        variants = self.table_settings.get("preprocessing_variants") or [
+            "original", "grayscale", "clahe", "invert_clahe", "adaptive"
+        ]
+        allowed = {"original", "grayscale", "clahe", "invert_clahe", "adaptive"}
+        variants = [str(item) for item in variants if str(item) in allowed]
+        if "original" not in variants:
+            variants.insert(0, "original")
+        runs: list[dict[str, Any]] = []
+        best_regions: list[TableRegion] = []
+        best_score = -1.0
+        best_variant = "original"
+        best_scope = "full"
+
+        # Benchmark every preprocessing variant on the full screenshot first.
+        # This lets a contrast variant discover a table that the untouched image
+        # missed; cropping is therefore never based solely on the weakest pass.
+        full_results: dict[str, list[TableRegion]] = {}
+        for variant in variants:
+            prepared = _preprocess_table_image(image, variant)
+            regions = self._detect_once(prepared, source_id=source_id, fallback_tokens=fallback_tokens if variant == "original" else ())
+            full_results[variant] = regions
+            metrics = score_table_structure(regions)
+            runs.append({"variant": variant, "scope": "full", **metrics})
+            numeric_score = float(metrics.get("score") or 0.0)
+            if numeric_score > best_score:
+                best_regions = regions
+                best_score = numeric_score
+                best_variant = variant
+                best_scope = "full"
+
+        # A second pass on only the likely table/result panel removes MRI images,
+        # charts and other GUI noise. To keep runtime bounded we only retry the
+        # structurally best full-image variant (plus original when different).
+        height, width = image.shape[:2]
+        panel_box = _panel_crop_from_regions(best_regions, width, height) if bool(self.table_settings.get("auto_panel_crop", True)) else None
+        if panel_box is not None:
+            panel_image = image[panel_box.y1:panel_box.y2, panel_box.x1:panel_box.x2]
+            panel_variants = [best_variant]
+            if best_variant != "original":
+                panel_variants.append("original")
+            for variant in panel_variants:
+                prepared = _preprocess_table_image(panel_image, variant)
+                local_regions = self._detect_once(prepared, source_id=source_id, fallback_tokens=())
+                regions = _translate_table_regions(local_regions, panel_box.x1, panel_box.y1)
+                metrics = score_table_structure(regions)
+                runs.append({"variant": variant, "scope": "panel", **metrics})
+                numeric_score = float(metrics.get("score") or 0.0)
+                if numeric_score > best_score:
+                    best_regions = regions
+                    best_score = numeric_score
+                    best_variant = variant
+                    best_scope = "panel"
+        panel_suggestions = _panel_suggestions_from_variant_results(full_results, width, height)
+        return best_regions, {
+            "enabled": True,
+            "selected_variant": best_variant,
+            "selected_scope": best_scope,
+            "selected_score": round(max(0.0, best_score), 2),
+            "panel_crop": panel_box.to_list() if panel_box is not None else None,
+            "panel_suggestions": panel_suggestions,
+            "runs": runs,
+            "selection_rule": "row regularity + column alignment + usable cell density - overlap penalty",
+        }
+
+    def detect_panels_with_benchmark(
+        self,
+        image: np.ndarray,
+        *,
+        source_id: str,
+        panels: Sequence[dict[str, Any]],
+    ) -> tuple[list[TableRegion], dict[str, Any]]:
+        """Benchmark preprocessing independently inside user-defined table panels.
+
+        Manual panel geometry is authoritative: no automatic crop is allowed to
+        discard a second table. Each panel chooses its own best preprocessing
+        variant and all selected table/cell geometry is translated back to the
+        full source image.
+        """
+        variants = self.table_settings.get("preprocessing_variants") or [
+            "original", "grayscale", "clahe", "invert_clahe", "adaptive"
+        ]
+        allowed = {"original", "grayscale", "clahe", "invert_clahe", "adaptive"}
+        variants = [str(item) for item in variants if str(item) in allowed]
+        if "original" not in variants:
+            variants.insert(0, "original")
+
+        all_regions: list[TableRegion] = []
+        panel_results: list[dict[str, Any]] = []
+        all_runs: list[dict[str, Any]] = []
+        height, width = image.shape[:2]
+        for panel_index, panel in enumerate(panels):
+            box = panel.get("box")
+            if not isinstance(box, Box):
+                continue
+            box = box.clamp(width, height)
+            if box.width < 20 or box.height < 20:
+                continue
+            panel_id = str(panel.get("panel_id") or f"panel-{panel_index + 1}")
+            panel_name = str(panel.get("name") or f"Panel {panel_index + 1}")
+            crop = image[box.y1:box.y2, box.x1:box.x2]
+            best_regions: list[TableRegion] = []
+            best_score = -1.0
+            best_variant = "original"
+            panel_runs: list[dict[str, Any]] = []
+            for variant in variants:
+                prepared = _preprocess_table_image(crop, variant)
+                local_source_id = f"{source_id}:{panel_id}"
+                local_regions = self._detect_once(prepared, source_id=local_source_id, fallback_tokens=())
+                translated = _translate_table_regions(local_regions, box.x1, box.y1)
+                metrics = score_table_structure(translated)
+                run = {
+                    "panel_id": panel_id, "panel_name": panel_name,
+                    "variant": variant, "scope": "manual_panel",
+                    "panel_box": box.to_list(), **metrics,
+                }
+                panel_runs.append(run); all_runs.append(run)
+                numeric_score = float(metrics.get("score") or 0.0)
+                if numeric_score > best_score:
+                    best_regions = translated
+                    best_score = numeric_score
+                    best_variant = variant
+            all_regions.extend(best_regions)
+            panel_results.append({
+                "panel_id": panel_id, "panel_name": panel_name, "panel_box": box.to_list(),
+                "selected_variant": best_variant,
+                "selected_score": round(max(0.0, best_score), 2),
+                "table_count": len(best_regions),
+                "cell_count": sum(len(region.cells) for region in best_regions),
+                "runs": panel_runs,
+            })
+        selected_score = (
+            sum(float(item["selected_score"]) for item in panel_results) / len(panel_results)
+            if panel_results else 0.0
+        )
+        return all_regions, {
+            "enabled": True,
+            "panel_mode": "manual",
+            "selected_scope": "manual_panels",
+            "selected_variant": "per-panel",
+            "selected_score": round(selected_score, 2),
+            "panel_count": len(panel_results),
+            "panels": panel_results,
+            "runs": all_runs,
+            "selection_rule": "best preprocessing variant per user-defined panel",
+        }
+
+    def detect(self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()) -> list[TableRegion]:
+        if bool(self.table_settings.get("preprocessing_benchmark", False)):
+            regions, _ = self.detect_with_benchmark(image, source_id=source_id, fallback_tokens=fallback_tokens)
+            return regions
+        return self._detect_once(image, source_id=source_id, fallback_tokens=fallback_tokens)
+
+    def smoke_test(self, image: np.ndarray) -> dict[str, Any]:
+        regions = self.detect(image, source_id="model-smoke-test")
+        return {"table_count": len(regions), "cell_count": sum(len(table.cells) for table in regions)}
+
+    def info(self) -> dict[str, Any]:
+        return {
+            "provider": "paddleocr",
+            "pipeline": "PP-StructureV3",
+            "package_version": self._version,
+            "engine_version": TABLE_ENGINE_VERSION,
+            "device": self.settings.get("device", "cpu"),
+            "inference_engine": self.settings.get("inference_engine", "paddle_static"),
+            "cell_geometry_required": True,
+        }

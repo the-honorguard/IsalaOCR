@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Wachtrij · IsalaOCR{% endblock %}
+{% block heading %}Wachtrijbeheer{% endblock %}
+{% block subtitle %}Taken bekijken, opnieuw uitvoeren en veilige opruimacties uitvoeren{% endblock %}
+{% block content %}
+<div class="grid cols-4 queue-summary">
+  {% for key,label in [('pending','In wachtrij'),('running','Actief'),('completed','Voltooid'),('failed','Mislukt')] %}
+  <a class="card queue-stat {% if status_filter==key %}selected{% endif %}" href="/jobs/manage?status={{ key }}">
+    <span class="muted">{{ label }}</span><strong class="metric">{{ queue_counts[key] }}</strong>
+  </a>
+  {% endfor %}
+</div>
+<section class="card" style="margin-top:18px">
+  <div class="toolbar">
+    <div>
+      <h3 style="margin-bottom:4px">PowerShell-worker</h3>
+      <span class="pill {{ 'ok' if worker.online else 'bad' }}">{{ 'Online' if worker.online else 'Niet bereikbaar' }}</span>
+      <span class="muted">{{ worker.state or 'onbekend' }}{% if worker.current_job_id %} · {{ worker.current_job_id }}{% endif %}</span>
+    </div>
+    <div class="actions">
+      <a class="button" href="/jobs/manage">Alle taken</a>
+      <form method="post" action="/jobs/clear" onsubmit="return confirm('Alle voltooide taken en bijbehorende logs verwijderen?')"><input type="hidden" name="status" value="completed"><button class="ghost">Voltooide wissen</button></form>
+      <form method="post" action="/jobs/clear" onsubmit="return confirm('Alle mislukte taken en bijbehorende logs verwijderen?')"><input type="hidden" name="status" value="failed"><button class="ghost">Mislukte wissen</button></form>
+      <form method="post" action="/jobs/clear" onsubmit="return confirm('Alle nog niet gestarte wachtrijtaken verwijderen?')"><input type="hidden" name="status" value="pending"><button class="danger">Wachtrij leegmaken</button></form>
+    </div>
+  </div>
+  <div class="table-wrap"><table class="queue-table">
+    <tr><th>Status</th><th>Taak</th><th>Aangemaakt</th><th>Voortgang</th><th>Taak-ID</th><th>Bediening</th></tr>
+    {% for job in jobs %}
+    <tr>
+      <td><span class="job-status {{ job.status }}">{{ {'pending':'In wachtrij','running':'Bezig','completed':'Voltooid','failed':'Mislukt'}.get(job.status,job.status) }}</span></td>
+      <td><strong>{{ job.action_name }}</strong></td>
+      <td>{{ job.created_at or '-' }}</td>
+      <td style="min-width:220px">
+        <div class="progress {% if job.progress_mode == 'indeterminate' %}indeterminate{% endif %}"><span style="--value:{{ job.progress_percent or 0 }}%"></span></div>
+        <small class="muted">{% if job.progress_mode == 'determinate' %}{{ '%.0f'|format(job.progress_percent or 0) }}% · {% endif %}{{ job.progress_label or '' }}</small>
+      </td>
+      <td class="mono">{{ job.job_id }}</td>
+      <td><div class="actions">
+        <button type="button" class="ghost" onclick="window.localStorage.setItem('isala-active-job','{{ job.job_id }}');document.getElementById('activity-dock').classList.remove('collapsed');window.location.href='/jobs/manage?job_id={{ job.job_id }}'">Terminal</button>
+        {% if job.status != 'running' %}
+        <form method="post" action="/jobs/{{ job.job_id }}/retry"><button>Opnieuw</button></form>
+        <form method="post" action="/jobs/{{ job.job_id }}/delete" onsubmit="return confirm('Taak en logbestanden definitief verwijderen?')"><button class="danger">Verwijderen</button></form>
+        {% else %}<span class="muted">Actieve taak beveiligd</span>{% endif %}
+      </div></td>
+    </tr>
+    {% else %}<tr><td colspan="6">Geen taken in deze selectie.</td></tr>{% endfor %}
+  </table></div>
+</section>
+{% endblock %}

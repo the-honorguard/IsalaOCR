@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from isala_ocr.training.table_cell_ground_truth import (
+    add_ground_truth_cell,
+    ground_truth_path,
+    ground_truth_review_state,
+    list_ground_truth_sources,
+    set_ground_truth_source_review_completed,
+    update_ground_truth_cell,
+)
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _write_legacy_gt(workspace: Path) -> None:
+    path = ground_truth_path(workspace)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "type": "canonical_table_cell_ground_truth",
+        "base_dataset_id": "dataset-v1",
+        "base_review_fingerprint": "abc",
+        "created_at": "2026-08-14T10:00:00+00:00",
+        "updated_at": "2026-08-14T10:00:00+00:00",
+        "revision": 1,
+        "sources": {
+            "source-a": {
+                "source_id": "source-a",
+                "split": "train",
+                "cells": [{
+                    "gt_id": "gt-1", "source_id": "source-a",
+                    "x1": 10, "y1": 10, "x2": 40, "y2": 30,
+                }],
+            }
+        },
+    }), encoding="utf-8")
+
+
+def test_legacy_canonical_gt_is_migrated_as_already_reviewed(tmp_path: Path) -> None:
+    _write_legacy_gt(tmp_path)
+    source = list_ground_truth_sources(tmp_path)[0]
+    assert source["review_completed"] is True
+    state = ground_truth_review_state(tmp_path)
+    assert state["ready"] is True
+    assert state["completed_source_count"] == 1
+    assert state["open_source_count"] == 0
+
+
+def test_gt_geometry_edit_reopens_only_that_source_and_reapproval_does_not_change_geometry_revision(tmp_path: Path) -> None:
+    _write_legacy_gt(tmp_path)
+    before = json.loads(ground_truth_path(tmp_path).read_text(encoding="utf-8"))
+    update_ground_truth_cell(tmp_path, "source-a", "gt-1", (12, 10, 42, 30))
+    state = ground_truth_review_state(tmp_path)
+    assert state["ready"] is False
+    assert state["open_source_count"] == 1
+
+    after_edit = json.loads(ground_truth_path(tmp_path).read_text(encoding="utf-8"))
+    assert after_edit["revision"] == before["revision"] + 1
+
+    set_ground_truth_source_review_completed(tmp_path, "source-a", True)
+    state = ground_truth_review_state(tmp_path)
+    assert state["ready"] is True
+    after_review = json.loads(ground_truth_path(tmp_path).read_text(encoding="utf-8"))
+    assert after_review["revision"] == after_edit["revision"]
+
+
+def test_new_gt_cell_reopens_source(tmp_path: Path) -> None:
+    _write_legacy_gt(tmp_path)
+    add_ground_truth_cell(tmp_path, "source-a", (50, 10, 80, 30))
+    source = list_ground_truth_sources(tmp_path)[0]
+    assert source["review_completed"] is False
+    assert source["gt_count"] == 2
+
+
+def test_gt_studio_exposes_persistent_source_check_and_model_predictions_stay_in_step7() -> None:
+    studio = (ROOT / "application/src/isala_ocr/training/templates/detection_review_studio.html").read_text(encoding="utf-8")
+    quality = (ROOT / "application/src/isala_ocr/training/templates/table_quality.html").read_text(encoding="utf-8")
+    webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
+
+    assert "GT-afbeelding gecontroleerd" in studio
+    assert "sourceDone.onclick=finishSource" in studio
+    assert "markGtSourceDirty" in studio
+    assert "set_ground_truth_source_review_completed" in webui
+    assert "Nieuwe modelpredictions tellen hier niet als open kandidaten" in webui
+    assert "Nieuwe predictions horen niet meer in Stap 4" in quality
+    assert "Stap 7 · Model vergelijken" in quality

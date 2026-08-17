@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/isala-ocr/result.schema.json",
+  "title": "IsalaOCR extraction result",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "source_id",
+    "status",
+    "engine",
+    "image",
+    "profile",
+    "fields"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "2.0"
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 16
+    },
+    "source_file": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "review_required",
+        "profile_mismatch",
+        "failed"
+      ]
+    },
+    "engine": {
+      "type": "object"
+    },
+    "image": {
+      "type": "object",
+      "required": [
+        "width",
+        "height"
+      ],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "safe_dicom_metadata": {
+      "type": "object"
+    },
+    "profile": {
+      "type": "string"
+    },
+    "anchors": {
+      "type": "array"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "value",
+          "confidence",
+          "valid",
+          "roi"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "valid": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "consistency": {
+      "type": "array"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "study_info": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Structured fields parsed from the on-screen Study info line.",
+      "properties": {
+        "detected": {
+          "type": "boolean"
+        },
+        "raw_text": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "roi": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "heart_rate_bpm": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "bsa_m2": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "bsa_method": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "height_m": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "weight_kg": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "gender": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "raw_values": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "field_confidence": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "valid": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "detected",
+        "raw_text",
+        "confidence",
+        "heart_rate_bpm",
+        "bsa_m2",
+        "bsa_method",
+        "height_m",
+        "weight_kg",
+        "gender"
+      ]
+    }
+  }
+}

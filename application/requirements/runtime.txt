@@ -1,0 +1,16 @@
+# Runtime dependencies for the reusable IsalaOCR Docker image.
+# Keep this file stable unless a dependency actually changes; Docker uses it
+# as the cache key for the expensive dependency-install layer.
+numpy>=1.26,<3
+opencv-python-headless>=4.10,<5
+pydicom>=3.0,<4
+PyYAML>=6,<7
+Pillow>=10,<13
+rapidfuzz>=3,<4
+Flask>=3.1,<4
+waitress>=3,<4
+paddleocr[doc-parser]==3.7.0
+paddlepaddle==3.2.0
+pylibjpeg>=2,<3
+pylibjpeg-libjpeg>=2,<3
+pylibjpeg-openjpeg>=2,<3

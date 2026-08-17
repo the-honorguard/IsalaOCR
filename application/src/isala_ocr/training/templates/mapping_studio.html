@@ -1,0 +1,316 @@
+{% extends 'base.html' %}
+{% block title %}Mappingstudio · {{ source_id }}{% endblock %}
+{% block heading %}Mappingstudio{% endblock %}
+{% block subtitle %}<span class="mono">{{ source_id }}</span> · detecties koppelen aan functionele outputvelden{% endblock %}
+{% block content %}
+<div class="toolbar mapping-toolbar">
+  <div class="actions">
+    <a class="button" href="/detections/{{ source_id }}">← Detectieweergave</a>
+    <a class="button" href="/field-schema">Veldschema</a>
+    <a class="button" href="/mapping-profiles">Profielen</a>
+  </div>
+  <form method="get" action="/mapping" class="inline-form"><label>Bron
+    <select name="source_id" onchange="this.form.submit()">{% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id==source_id %}selected{% endif %}>{{ item.source_id }}</option>{% endfor %}</select>
+  </label></form>
+</div>
+
+<div class="mapping-summary grid cols-4">
+  <section class="card"><span class="muted">Relatievoorstellen</span><div class="metric">{{ relations|length }}</div></section>
+  <section class="card"><span class="muted">Tabelrelaties</span><div class="metric">{{ relations|selectattr('relation_type','equalto','table_cell')|list|length }}</div></section>
+  <section class="card"><span class="muted">Bevestigd</span><div class="metric ok">{{ mappings|selectattr('status','equalto','confirmed')|list|length }}</div></section>
+  <section class="card"><span class="muted">Automatisch voorgesteld</span><div class="metric warn">{{ mappings|selectattr('status','equalto','suggested')|list|length }}</div></section>
+</div>
+
+{% if hidden_relation_count %}<div class="notice">{{ hidden_relation_count }} detectierelatie(s) zijn verborgen omdat ze geen relevante, beoordeelde Pipeline-A ROI hebben. Technisch correcte maar <strong>niet relevante</strong> velden komen hier bewust niet terecht.</div>{% endif %}
+
+<div class="notice mapping-feedback-learning">
+  <strong>Feedbackleren actief</strong> · <span id="mapping-feedback-total">{{ feedback_stats.total }}</span> voorbeelden
+  (<span id="mapping-feedback-accepted">{{ feedback_stats.accepted }}</span> bevestigd,
+  <span id="mapping-feedback-rejected">{{ feedback_stats.rejected }}</span> afgekeurd).
+  Een afkeuring wordt direct uit de voorzet gehaald en vergelijkbare relaties beïnvloeden volgende voorstellen.
+  <small>Dit traint de IsalaOCR relatie-/mappinglaag; PaddleOCR zelf wordt hiermee niet rechtstreeks gefinetuned.</small>
+</div>
+
+{% set suggested = mappings|selectattr('status','equalto','suggested')|list %}
+{% if suggested %}
+<section class="card" style="margin-top:18px">
+  <form method="post"><input type="hidden" name="mapping_action" value="confirm_suggestions">
+    <div class="toolbar">
+      <div><h3>Automatische voorzet</h3><p class="muted">Alleen sterke voorstellen zijn vooraf aangevinkt. Bevestigen blijft een semantische keuze van de gebruiker.</p></div>
+      <button class="primary">Aangevinkte bevestigen</button>
+    </div>
+    <div class="mapping-suggestion-list">
+      {% for item in suggested %}
+      <label class="mapping-suggestion" data-relation-id="{{ item.relation_id }}">
+        <input type="checkbox" name="mapping_id" value="{{ item.mapping_id }}" {% if item.mapping_confidence >= 0.82 %}checked{% endif %}>
+        <span><strong>{{ item.display_name }}</strong><small>{{ item.label_text or 'Geen label' }} → {{ item.value_text }}</small><small class="muted">{{ '%.0f%%'|format(item.mapping_confidence*100) }}{% if item.relation_type=='table_cell' %} · Paddle tabel · rij {{ item.row_index + 1 }} · kolom {{ item.value_column_index + 1 }}{% else %} · OCR-relatie{% endif %}</small></span>
+      </label>
+      {% endfor %}
+    </div>
+  </form>
+</section>
+{% endif %}
+
+<div class="mapping-workbench">
+  <section class="card mapping-relations-card">
+    <form method="post" id="relation-mapping-form">
+      <div class="toolbar mapping-action-toolbar">
+        <div><h3>Relaties mappen</h3><p class="muted">Paddle-tabelcellen krijgen voorrang. Secundaire waarden zijn meestal referentiegrenzen en staan standaard verborgen.</p></div>
+        <div class="actions">
+          <button name="mapping_action" value="suggest">Voorstellen herberekenen</button>
+          <button class="primary mapping-save-button" name="mapping_action" value="save">Mappings opslaan</button>
+          <button class="primary mapping-save-button" name="mapping_action" value="save_apply">Opslaan + ROI's maken</button>
+        </div>
+      </div>
+
+      <div class="mapping-filterbar">
+        <label>Zoeken<input type="search" id="mapping-filter-text" placeholder="label, waarde of veld…"></label>
+        <label>Bron<select id="mapping-filter-type"><option value="all">Alles</option><option value="table">Paddle tabel</option><option value="ocr">OCR-relaties</option></select></label>
+        <label>Status<select id="mapping-filter-status"><option value="all">Alles</option><option value="open">Niet gemapt</option><option value="suggested">Voorgesteld</option><option value="confirmed">Bevestigd</option><option value="rejected">Afgekeurd</option></select></label>
+        <label>Confidence<select id="mapping-filter-confidence"><option value="all">Alles</option><option value="strong">Sterk ≥ 85%</option><option value="review">Controleren 70–85%</option><option value="low">Laag &lt; 70%</option></select></label>
+        <label class="mapping-checkbox"><input type="checkbox" id="mapping-show-secondary"> Secundaire / referentiewaarden tonen</label>
+      </div>
+      <div id="mapping-duplicate-warning" class="notice error mapping-inline-warning" hidden></div>
+      <div class="mapping-visible-count"><span id="mapping-visible-count">{{ relations|length }}</span> van {{ relations|length }} relaties zichtbaar</div>
+
+      <div class="mapping-relation-list">
+      {% for relation in relations %}
+        {% set current = mappings_by_relation.get(relation.relation_id) %}
+        {% set feedback = feedback_by_relation.get(relation.relation_id) %}
+        {% set relation_rejected = (feedback and feedback.verdict=='rejected') or relation.status=='rejected' %}
+        {% set mapping_status = 'rejected' if relation_rejected else (current.status if current else 'open') %}
+        {% set feedback_reason_label = feedback_reasons.get(feedback.reason_code, feedback.reason_code) if feedback else '' %}
+        <article class="mapping-relation-row {% if relation.relation_type=='table_cell' %}table-relation{% endif %} {% if current and current.status=='confirmed' and not relation_rejected %}mapped{% endif %} {% if relation_rejected %}mapping-rejected{% endif %}" data-relation-id="{{ relation.relation_id }}" data-relation-type="{{ 'table' if relation.relation_type=='table_cell' else 'ocr' }}" data-rank="{{ relation.rank }}" data-confidence="{{ relation.confidence }}" data-status="{{ mapping_status }}" data-search="{{ (relation.label_text ~ ' ' ~ relation.value_text ~ ' ' ~ (current.display_name if current else '') ~ ' ' ~ (current.field_key if current else '') ~ ' ' ~ feedback_reason_label)|lower|e }}">
+          <input type="hidden" name="relation_id" value="{{ relation.relation_id }}">
+          <div class="mapping-detected-side">
+            <div class="mapping-relation-badges">
+              {% if relation.relation_type=='table_cell' %}<span class="pill ok">Paddle tabel</span><span class="pill">Rij {{ relation.row_index + 1 }}</span><span class="pill">Waarde C{{ relation.value_column_index + 1 }}</span>{% else %}<span class="pill warn">OCR-relatie</span>{% endif %}
+              {% if relation.rank > 1 %}<span class="pill warn">Secundair #{{ relation.rank }}</span>{% else %}<span class="pill">Primair</span>{% endif %}
+              <span class="pill">{{ '%.0f%%'|format(relation.confidence*100) }}</span>
+              {% if relation.pipeline_a_roi_ready %}<span class="pill ok">Pipeline-A ROI</span>{% else %}<span class="pill bad">Geen Pipeline-A ROI</span>{% endif %}
+            </div>
+            <div class="mapping-crop-pair">
+              <div><span>Label</span>{% if relation.label_block_id %}<img src="/detected-block/{{ relation.label_block_id }}" alt="{{ relation.label_text }}" loading="lazy" decoding="async"><strong>{{ relation.label_text }}</strong>{% else %}<em>Geen label</em>{% endif %}</div>
+              <b>→</b>
+              <div><span>Waarde · finale cropgeometrie</span>{% if relation.pipeline_a_roi_ready %}<img src="/detected-block/{{ relation.value_block_id }}?mode=roi" alt="{{ relation.value_text }}" loading="lazy" decoding="async"><strong>{{ relation.value_text }}</strong><small class="muted">{{ relation.pipeline_a_geometry_source }}</small>{% else %}<div class="mapping-missing-roi">Geen betrouwbare crop uit Pipeline A. Corrigeer eerst Detection Review.</div><strong>{{ relation.value_text }}</strong>{% endif %}</div>
+            </div>
+            {% if relation.context_text %}<small class="muted">Context: {{ relation.context_text }}</small>{% endif %}
+          </div>
+          <div class="mapping-field-side">
+            <label>Functioneel veld
+              <select class="mapping-field-select" data-relation-id="{{ relation.relation_id }}" data-original-value="{{ current.field_key if current and not relation_rejected else '' }}" name="field_{{ relation.relation_id }}" {% if relation_rejected or not relation.pipeline_a_roi_ready %}disabled{% endif %}>
+                <option value="">— niet mappen —</option>
+                {% for group in fields|groupby('group_name') %}
+                <optgroup label="{{ group.grouper or 'Overig' }}">
+                  {% for field in group.list %}<option value="{{ field.field_key }}" {% if current and not relation_rejected and current.field_key==field.field_key %}selected{% endif %}>{{ field.display_name }} [{{ field.field_key }}]</option>{% endfor %}
+                </optgroup>
+                {% endfor %}
+              </select>
+            </label>
+            <label>Notitie<input class="mapping-notes-input" name="notes_{{ relation.relation_id }}" value="{{ current.mapping_notes if current and not relation_rejected else '' }}" placeholder="optioneel" {% if relation_rejected or not relation.pipeline_a_roi_ready %}disabled{% endif %}></label>
+            <div class="mapping-row-status">
+              <span class="pill mapping-status-pill {{ 'ok' if mapping_status=='confirmed' else 'bad' if mapping_status=='rejected' else 'warn' if mapping_status=='suggested' else '' }}">{{ 'bevestigd' if mapping_status=='confirmed' else 'voorgesteld' if mapping_status=='suggested' else 'afgekeurd' if mapping_status=='rejected' else 'open' }}</span>
+              <span class="mapping-dirty-label" hidden>gewijzigd</span>
+            </div>
+            <div class="mapping-feedback-summary" {% if not relation_rejected %}hidden{% endif %}>
+              <strong>Afgekeurd{% if feedback_reason_label %}: {{ feedback_reason_label }}{% endif %}</strong>
+              <small class="mapping-feedback-detail">{{ feedback.reason_detail if feedback else '' }}</small>
+            </div>
+            <div class="mapping-feedback-actions">
+              <button type="button" class="danger ghost mapping-reject-button" data-relation-id="{{ relation.relation_id }}" {% if relation_rejected %}hidden{% endif %}>Afkeuren…</button>
+              <button type="button" class="ghost mapping-restore-button" data-relation-id="{{ relation.relation_id }}" {% if not relation_rejected %}hidden{% endif %}>Afkeuring herstellen</button>
+            </div>
+          </div>
+        </article>
+      {% else %}<p class="muted">Geen relatievoorstellen gevonden. Gebruik onderaan een handmatige blokmapping.</p>{% endfor %}
+      </div>
+    </form>
+  </section>
+
+  <aside class="card mapping-output-preview" id="mapping-output-preview">
+    <div class="toolbar mapping-preview-head">
+      <div><h3>Output-preview</h3><p class="muted">Live voorbeeld van de geselecteerde relatie en het gekozen functionele veld.</p></div>
+      <span class="pill" id="mapping-preview-source">Geen selectie</span>
+    </div>
+    <div class="actions mapping-preview-nav"><button type="button" class="ghost" id="mapping-preview-prev">← Vorige</button><button type="button" class="ghost" id="mapping-preview-next">Volgende →</button><small class="muted">Alt+↑/↓</small></div>
+    <div class="mapping-source-preview">
+      <div class="mapping-source-stage" data-source-width="{{ source.image_width }}" data-source-height="{{ source.image_height }}">
+        <img src="/source-render/{{ source_id }}.png" alt="Bronbeeld" decoding="async" fetchpriority="high">
+        <span class="mapping-source-box label" id="preview-label-box" hidden></span>
+        <span class="mapping-source-box value" id="preview-value-box" hidden></span>
+      </div>
+      <small class="muted">Blauw = label · groen = geselecteerde waarde</small>
+    </div>
+    <div class="mapping-preview-meta">
+      <div><span>Gedetecteerd label</span><strong id="preview-label">—</strong></div>
+      <div><span>Gedetecteerde waarde</span><strong id="preview-value">—</strong></div>
+      <div><span>Functioneel veld</span><strong id="preview-field">—</strong></div>
+      <div><span>Structuur</span><strong id="preview-structure">—</strong></div>
+      <div><span>JSON-pad</span><strong class="mono" id="preview-path">—</strong></div>
+    </div>
+    <div id="mapping-preview-warning" class="notice mapping-preview-warning" hidden></div>
+    <div class="toolbar compact"><strong>Verwachte output</strong><button type="button" class="ghost" id="mapping-copy-preview">JSON kopiëren</button></div>
+    <pre class="mapping-json-preview" id="mapping-json-preview">{{ (initial_preview or {'measurements': {}})|tojson(indent=2) }}</pre>
+    <p class="muted compact">Dit gebruikt de huidige detectietekst. Definitieve OCR vindt pas plaats na Mapping toepassen → ROI beoordelen → Waarden uitlezen.</p>
+  </aside>
+</div>
+
+<section class="card" style="margin-top:18px">
+  <h3>Handmatige blokmapping</h3><p class="muted">Gebruik dit alleen wanneer tabelstructuur en de generieke detector het juiste label-/waardepaar niet voorstellen.</p>
+  <form method="post" class="mapping-custom-form"><input type="hidden" name="mapping_action" value="custom">
+    <label>Functioneel veld<select name="custom_field_key" required><option value="">Kies veld</option>{% for group in fields|groupby('group_name') %}<optgroup label="{{ group.grouper or 'Overig' }}">{% for field in group.list %}<option value="{{ field.field_key }}">{{ field.display_name }}</option>{% endfor %}</optgroup>{% endfor %}</select></label>
+    <label>Labelblok<select name="custom_label_block_id"><option value="">Geen label</option>{% for block in label_blocks %}<option value="{{ block.block_id }}">{{ block.text }}{% if block.table_id %} · tabel rij {{ block.row_index + 1 }}{% endif %}</option>{% endfor %}</select></label>
+    <label>Waardeblok<select name="custom_value_block_id" required><option value="">Kies waarde</option>{% for block in value_blocks %}<option value="{{ block.block_id }}">{{ block.text }}{% if block.table_id %} · tabel r{{ block.row_index + 1 }} c{{ block.column_index + 1 }}{% endif %}</option>{% endfor %}</select></label>
+    <button class="primary">Handmatige mapping opslaan</button>
+  </form>
+</section>
+
+<dialog id="mapping-reject-dialog" class="mapping-feedback-dialog">
+  <form method="dialog">
+    <div class="toolbar compact"><div><h3>Relatie afkeuren</h3><p class="muted" id="mapping-reject-summary">Geef aan wat er fout is aan deze detectie.</p></div><button value="cancel" class="ghost" aria-label="Sluiten">×</button></div>
+    <p class="notice">Kies de oorzaak zo specifiek mogelijk. Als alleen het <strong>functionele veld</strong> verkeerd is voorgesteld maar label en waarde wél bij elkaar horen, keur de relatie dan niet af; kies gewoon het juiste veld.</p>
+    <label>Reden
+      <select id="mapping-reject-reason" required>
+        <option value="">Kies een reden…</option>
+        {% for code, label in feedback_reasons.items() %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Toelichting <span class="muted">(optioneel)</span><textarea id="mapping-reject-detail" rows="3" placeholder="Bijv. ES Volume en ED Volume/BSA zijn als één label samengevoegd."></textarea></label>
+    <div id="mapping-reject-error" class="notice error" hidden></div>
+    <div class="actions end"><button value="cancel">Annuleren</button><button type="button" class="danger" id="mapping-reject-confirm">Afkeuren & leren</button></div>
+  </form>
+</dialog>
+
+{% set confirmed = mappings|selectattr('status','equalto','confirmed')|list %}
+{% if confirmed %}
+<section class="card" style="margin-top:18px"><h3>Bevestigde mappings</h3><div class="table-wrap"><table><tr><th>Functioneel veld</th><th>Label</th><th>Waarde</th><th>Bronstructuur</th><th>Confidence</th><th></th></tr>{% for item in confirmed %}<tr><td><strong>{{ item.display_name }}</strong><small class="mono muted">{{ item.field_key }}</small></td><td>{{ item.label_text or '—' }}</td><td>{{ item.value_text }}</td><td>{% if item.relation_type=='table_cell' %}Tabel · rij {{ item.row_index + 1 }} · kolom {{ item.value_column_index + 1 }}{% else %}{{ item.relation_type or 'handmatig' }}{% endif %}</td><td>{{ '%.1f%%'|format(item.mapping_confidence*100) }}</td><td><form method="post"><input type="hidden" name="mapping_action" value="delete"><input type="hidden" name="mapping_id_single" value="{{ item.mapping_id }}"><button class="danger ghost">Verwijderen</button></form></td></tr>{% endfor %}</table></div></section>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="mapping-relations-data">{{ preview_relations|tojson }}</script>
+<script type="application/json" id="mapping-fields-data">{{ preview_fields|tojson }}</script>
+<script>
+(() => {
+  const relations = JSON.parse(document.getElementById('mapping-relations-data').textContent || '{}');
+  const fields = JSON.parse(document.getElementById('mapping-fields-data').textContent || '{}');
+  const sourceWidth = Number({{ source.image_width|tojson }});
+  const sourceHeight = Number({{ source.image_height|tojson }});
+  const preview = document.getElementById('mapping-json-preview');
+  const sourceBadge = document.getElementById('mapping-preview-source');
+  const labelOut = document.getElementById('preview-label');
+  const valueOut = document.getElementById('preview-value');
+  const fieldOut = document.getElementById('preview-field');
+  const structureOut = document.getElementById('preview-structure');
+  const pathOut = document.getElementById('preview-path');
+  const previewWarning = document.getElementById('mapping-preview-warning');
+  const labelBox = document.getElementById('preview-label-box');
+  const valueBox = document.getElementById('preview-value-box');
+  const rows = [...document.querySelectorAll('.mapping-relation-row')];
+  const selects = [...document.querySelectorAll('.mapping-field-select')];
+  const rejectDialog = document.getElementById('mapping-reject-dialog');
+  const rejectReason = document.getElementById('mapping-reject-reason');
+  const rejectDetail = document.getElementById('mapping-reject-detail');
+  const rejectSummary = document.getElementById('mapping-reject-summary');
+  const rejectError = document.getElementById('mapping-reject-error');
+  let rejectRelationId = '';
+
+  function normalizeUnit(value){return String(value || '').toLowerCase().replace(/²/g,'2').replace(/[\s()]/g,'').replace(/·/g,'*');}
+  function parseValue(raw, field){
+    const text=String(raw || ''); const dataType=field.data_type || 'text';
+    const result={raw_text:text,data_type:dataType,parsed_value:null,parsed_unit:field.preferred_unit || '',parse_status:'ok',range_valid:null};
+    if(['text','code','date','boolean'].includes(dataType)){
+      const stripped=text.trim();
+      if(dataType==='boolean'){const n=stripped.toLowerCase();if(['yes','ja','true','1'].includes(n)) result.parsed_value=true;else if(['no','nee','false','0'].includes(n)) result.parsed_value=false;else result.parse_status='unparsed';}
+      else {result.parsed_value=stripped || null;if(!stripped) result.parse_status='empty';}
+      return result;
+    }
+    const match=text.match(/[-+]?\d+(?:[.,]\d+)?/); if(!match){result.parse_status='unparsed';return result;}
+    const number=Number(match[0].replace(',','.'));
+    if(dataType==='integer'){if(!Number.isInteger(number)) result.parse_status='non_integer';result.parsed_value=Math.round(number);} else result.parsed_value=number;
+    const trailing=text.slice((match.index || 0)+match[0].length).replace(/^[\s:;,.()\[\]]+|[\s:;,.()\[\]]+$/g,''); if(trailing) result.parsed_unit=trailing;
+    if(field.minimum_value !== null || field.maximum_value !== null){result.range_valid=(field.minimum_value===null || number>=Number(field.minimum_value)) && (field.maximum_value===null || number<=Number(field.maximum_value));}
+    return result;
+  }
+  function setBox(element, x1, y1, x2, y2){
+    if(!(x2>x1 && y2>y1 && sourceWidth>0 && sourceHeight>0)){element.hidden=true;return;}
+    element.hidden=false; element.style.left=`${x1/sourceWidth*100}%`; element.style.top=`${y1/sourceHeight*100}%`; element.style.width=`${(x2-x1)/sourceWidth*100}%`; element.style.height=`${(y2-y1)/sourceHeight*100}%`;
+  }
+  function show(relationId, fieldKey){
+    const relation=relations[relationId]; const field=fields[fieldKey];
+    const activeRow=rows.find(row=>row.dataset.relationId===relationId);
+    rows.forEach(row=>row.classList.toggle('preview-active',row===activeRow));
+    if(!relation) return;
+    labelOut.textContent=relation.label_text || '—'; valueOut.textContent=relation.value_text || '—';
+    structureOut.textContent=relation.relation_type==='table_cell' ? `Paddle tabel · rij ${relation.row_index+1} · waardekolom ${relation.value_column_index+1}` : (relation.relation_type || 'OCR-relatie');
+    sourceBadge.textContent=relation.relation_type==='table_cell' ? 'Paddle tabel' : 'OCR-relatie';
+    setBox(labelBox,relation.label_x1,relation.label_y1,relation.label_x2,relation.label_y2);
+    if(relation.pipeline_a_roi_ready && Array.isArray(relation.pipeline_a_roi) && relation.pipeline_a_roi.length===4){setBox(valueBox,...relation.pipeline_a_roi);}else{valueBox.hidden=true;}
+    const warnings=[];
+    if(!relation.pipeline_a_roi_ready) warnings.push('Geen Pipeline-A cropgeometrie gevonden. Deze relatie kan niet worden bevestigd totdat Field Detection is gecorrigeerd.');
+    if(activeRow?.dataset.status==='rejected'){const feedback=activeRow.querySelector('.mapping-feedback-summary strong')?.textContent?.trim() || 'Deze relatie is afgekeurd';warnings.push(`${feedback}. Deze relatie wordt niet gebruikt voor automatische mapping.`);}
+    if(!field){fieldOut.textContent='— niet gemapt —';pathOut.textContent='—';preview.textContent=JSON.stringify({measurements:{}},null,2);previewWarning.textContent=warnings.join(' ');previewWarning.hidden=!warnings.length;return;}
+    fieldOut.textContent=`${field.group_name ? field.group_name + ' · ' : ''}${field.display_name}`; pathOut.textContent=`measurements.${field.field_key}`;
+    const parsed=parseValue(relation.value_text,field); const payload={measurements:{}};
+    payload.measurements[field.field_key]={display_name:field.display_name,group:field.group_name || '',...parsed,mapping_confidence:Number(Number(relation.confidence || 0).toFixed(4)),label_text:relation.label_text || '',roi:relation.pipeline_a_roi || [],source:{relation_type:relation.relation_type || '',table_id:relation.table_id || '',row_index:relation.row_index,column_index:relation.value_column_index,geometry_source:relation.pipeline_a_geometry_source || '',pipeline_a_match_score:Number(Number(relation.pipeline_a_match_score || 0).toFixed(4))}};
+    preview.textContent=JSON.stringify(payload,null,2);
+    if(parsed.parse_status!=='ok') warnings.push(`Waarde kan niet schoon worden geïnterpreteerd (${parsed.parse_status}).`); if(parsed.range_valid===false) warnings.push('Waarde valt buiten de ingestelde validatiegrenzen.');
+    if(field.preferred_unit && parsed.parsed_unit && normalizeUnit(field.preferred_unit)!==normalizeUnit(parsed.parsed_unit)) warnings.push(`Eenheid wijkt af: verwacht ${field.preferred_unit}, gedetecteerd ${parsed.parsed_unit}.`);
+    if(Number(relation.confidence || 0)<0.70) warnings.push('Relatiescore is laag; controleer label, waarde en context extra.');
+    previewWarning.textContent=warnings.join(' ');previewWarning.hidden=!warnings.length;
+  }
+  function validateDuplicates(){
+    const used=new Map(); selects.forEach(select=>{if(select.disabled)return;const key=select.value;if(!key)return;if(!used.has(key))used.set(key,[]);used.get(key).push(select);});
+    rows.forEach(row=>row.classList.remove('mapping-duplicate')); const duplicates=[...used.entries()].filter(([,items])=>items.length>1);
+    duplicates.forEach(([,items])=>items.forEach(select=>select.closest('.mapping-relation-row')?.classList.add('mapping-duplicate')));
+    const warning=document.getElementById('mapping-duplicate-warning'); const buttons=document.querySelectorAll('.mapping-save-button');
+    if(duplicates.length){const names=duplicates.map(([key])=>fields[key]?.display_name || key);warning.textContent=`Hetzelfde functionele veld is meerdere keren geselecteerd: ${names.join(', ')}. Kies per veld één relatie.`;warning.hidden=false;buttons.forEach(button=>button.disabled=true);}else{warning.hidden=true;buttons.forEach(button=>button.disabled=false);}
+  }
+  function markDirty(select){const row=select.closest('.mapping-relation-row');const dirty=select.value!==select.dataset.originalValue;row?.classList.toggle('mapping-dirty',dirty);const tag=row?.querySelector('.mapping-dirty-label');if(tag)tag.hidden=!dirty;}
+  function updateFeedbackStats(stats){
+    if(!stats)return;
+    const total=document.getElementById('mapping-feedback-total');const accepted=document.getElementById('mapping-feedback-accepted');const rejected=document.getElementById('mapping-feedback-rejected');
+    if(total)total.textContent=String(stats.total ?? 0);if(accepted)accepted.textContent=String(stats.accepted ?? 0);if(rejected)rejected.textContent=String(stats.rejected ?? 0);
+  }
+  function setFeedbackState(row,data){
+    if(!row)return;
+    const rejected=data.status==='rejected';const select=row.querySelector('.mapping-field-select');const notes=row.querySelector('.mapping-notes-input');const pill=row.querySelector('.mapping-status-pill');const summary=row.querySelector('.mapping-feedback-summary');const summaryStrong=summary?.querySelector('strong');const summaryDetail=summary?.querySelector('.mapping-feedback-detail');const rejectButton=row.querySelector('.mapping-reject-button');const restoreButton=row.querySelector('.mapping-restore-button');
+    row.dataset.status=rejected?'rejected':'open';row.classList.toggle('mapping-rejected',rejected);row.classList.remove('mapped','mapping-dirty');
+    if(select){select.value='';select.dataset.originalValue='';select.disabled=rejected;}if(notes){notes.value='';notes.disabled=rejected;}if(pill){pill.textContent=rejected?'afgekeurd':'open';pill.classList.toggle('bad',rejected);pill.classList.remove('ok','warn');}
+    if(summary){summary.hidden=!rejected;}if(summaryStrong)summaryStrong.textContent=rejected?`Afgekeurd${data.reason_label ? ': '+data.reason_label : ''}`:'';if(summaryDetail)summaryDetail.textContent=rejected?(data.reason_detail || ''):'';
+    if(rejectButton)rejectButton.hidden=rejected;if(restoreButton)restoreButton.hidden=!rejected;
+    if(rejected){document.querySelectorAll(`.mapping-suggestion[data-relation-id="${row.dataset.relationId}"]`).forEach(item=>{const checkbox=item.querySelector('input[type="checkbox"]');if(checkbox)checkbox.checked=false;item.hidden=true;});}
+    updateFeedbackStats(data.stats);validateDuplicates();applyFilters();show(row.dataset.relationId,'');
+  }
+  async function sendFeedback(relationId,payload){
+    const response=await fetch(`/mapping/{{ source_id }}/relation-feedback`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({relation_id:relationId,...payload})});
+    const data=await response.json().catch(()=>({ok:false,error:'Ongeldig serverantwoord'}));if(!response.ok||!data.ok)throw new Error(data.error || `HTTP ${response.status}`);return data;
+  }
+  function openRejectDialog(row){
+    if(!row||!rejectDialog)return;rejectRelationId=row.dataset.relationId;const relation=relations[rejectRelationId] || {};rejectReason.value='';rejectDetail.value='';rejectError.hidden=true;rejectError.textContent='';rejectSummary.textContent=`${relation.label_text || 'Geen label'} → ${relation.value_text || 'geen waarde'}`;rejectDialog.showModal();
+  }
+  async function restoreFeedback(row){
+    if(!row)return;const button=row.querySelector('.mapping-restore-button');if(button)button.disabled=true;try{const data=await sendFeedback(row.dataset.relationId,{action:'restore'});setFeedbackState(row,data);}catch(error){alert(`Afkeuring herstellen mislukt: ${error.message}`);}finally{if(button)button.disabled=false;}
+  }
+  function applyFilters(){
+    const query=document.getElementById('mapping-filter-text').value.trim().toLowerCase(); const type=document.getElementById('mapping-filter-type').value; const status=document.getElementById('mapping-filter-status').value; const confidence=document.getElementById('mapping-filter-confidence').value; const showSecondary=document.getElementById('mapping-show-secondary').checked; let visible=0;
+    rows.forEach(row=>{const score=Number(row.dataset.confidence || 0);const matchesText=!query || row.dataset.search.includes(query);const matchesType=type==='all'||row.dataset.relationType===type;const matchesStatus=status==='all'||row.dataset.status===status;const matchesRank=showSecondary||Number(row.dataset.rank)<=1;const matchesConfidence=confidence==='all'||(confidence==='strong'&&score>=0.85)||(confidence==='review'&&score>=0.70&&score<0.85)||(confidence==='low'&&score<0.70);const show=matchesText&&matchesType&&matchesStatus&&matchesRank&&matchesConfidence;row.hidden=!show;if(show)visible++;}); document.getElementById('mapping-visible-count').textContent=String(visible);
+  }
+  function visibleRows(){return rows.filter(row=>!row.hidden);}
+  function selectRow(row){if(!row)return;const select=row.querySelector('.mapping-field-select');show(row.dataset.relationId,select ? select.value : '');row.scrollIntoView({behavior:'smooth',block:'center'});}
+  function moveSelection(offset){const visible=visibleRows();if(!visible.length)return;let index=visible.findIndex(row=>row.classList.contains('preview-active'));if(index<0)index=offset>0?-1:0;index=(index+offset+visible.length)%visible.length;selectRow(visible[index]);}
+  selects.forEach(select=>{select.addEventListener('change',()=>{markDirty(select);validateDuplicates();show(select.dataset.relationId,select.value);});select.addEventListener('focus',()=>show(select.dataset.relationId,select.value));markDirty(select);});
+  rows.forEach(row=>row.addEventListener('click',event=>{if(event.target.closest('select,input,button,a'))return;const select=row.querySelector('.mapping-field-select');show(row.dataset.relationId,select ? select.value : '');}));
+  document.querySelectorAll('.mapping-reject-button').forEach(button=>button.addEventListener('click',()=>openRejectDialog(button.closest('.mapping-relation-row'))));
+  document.querySelectorAll('.mapping-restore-button').forEach(button=>button.addEventListener('click',()=>restoreFeedback(button.closest('.mapping-relation-row'))));
+  document.getElementById('mapping-reject-confirm')?.addEventListener('click',async()=>{
+    const reason=rejectReason.value;if(!reason){rejectError.textContent='Kies eerst een reden voor de afkeuring.';rejectError.hidden=false;return;}const row=rows.find(item=>item.dataset.relationId===rejectRelationId);const confirmButton=document.getElementById('mapping-reject-confirm');confirmButton.disabled=true;rejectError.hidden=true;try{const data=await sendFeedback(rejectRelationId,{action:'reject',reason_code:reason,reason_detail:rejectDetail.value});setFeedbackState(row,data);rejectDialog.close();moveSelection(1);}catch(error){rejectError.textContent=error.message;rejectError.hidden=false;}finally{confirmButton.disabled=false;}
+  });
+  ['mapping-filter-text','mapping-filter-type','mapping-filter-status','mapping-filter-confidence','mapping-show-secondary'].forEach(id=>document.getElementById(id).addEventListener('input',applyFilters));
+  document.getElementById('mapping-copy-preview').addEventListener('click',async event=>{try{await navigator.clipboard.writeText(preview.textContent || '');event.currentTarget.textContent='Gekopieerd';setTimeout(()=>event.currentTarget.textContent='JSON kopiëren',1200);}catch(_){event.currentTarget.textContent='Kopiëren mislukt';}});
+  document.getElementById('mapping-preview-prev').addEventListener('click',()=>moveSelection(-1)); document.getElementById('mapping-preview-next').addEventListener('click',()=>moveSelection(1));
+  document.addEventListener('keydown',event=>{if(!event.altKey||!['ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();moveSelection(event.key==='ArrowDown'?1:-1);});
+  validateDuplicates(); applyFilters();
+  const firstSelected=selects.find(item=>item.value) || selects.find(item=>Number(item.closest('.mapping-relation-row')?.dataset.rank || 1)===1) || selects[0]; if(firstSelected) show(firstSelected.dataset.relationId,firstSelected.value);
+})();
+</script>
+{% endblock %}

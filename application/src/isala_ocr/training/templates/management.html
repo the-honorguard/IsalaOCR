@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% block title %}Beheer · IsalaOCR{% endblock %}
+{% block heading %}Beheer{% endblock %}
+{% block subtitle %}Projecten, datasets, modellen en evaluaties{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='react/localization-artifacts.css', v=app_version) }}">{% endblock %}
+{% block content %}
+<nav class="management-tabs" aria-label="Beheeronderdelen">
+  <button type="button" class="management-tab{% if active_tab != 'models' %} active{% endif %}" data-management-tab="projects">Projecten</button>
+  <button type="button" class="management-tab{% if active_tab == 'models' %} active{% endif %}" data-management-tab="models">Data & modellen</button>
+</nav>
+
+<section class="management-panel" data-management-panel="projects" {% if active_tab == 'models' %}hidden{% endif %}>
+  <div class="project-grid section-gap">
+    <section class="card">
+      <h3>Nieuw project</h3>
+      <form method="post" action="/projects/create" class="stacked-form">
+        <label>Naam<input name="name" required placeholder="Bijv. CMR testcase augustus"></label>
+        <label>Project-ID <small class="muted">optioneel; automatisch uit naam</small><input name="project_id" placeholder="cmr_testcase_augustus"></label>
+        <label>Use-case<select name="use_case_id">{% for item in use_cases %}<option value="{{ item.use_case_id }}">{{ item.name }}</option>{% endfor %}</select></label>
+        <label>Startpunt<select name="duplicate_from"><option value="">Leeg project</option>{% for item in projects if not item.archived %}<option value="{{ item.project_id }}">Dupliceer {{ item.name }}</option>{% endfor %}</select></label>
+        <label>Inputpad <small class="muted">optioneel; standaard /input/projects/&lt;project-id&gt;</small><input name="input_path" placeholder="/input/projects/cmr_testcase_augustus"></label>
+        <label>Beschrijving<textarea name="description" rows="3" placeholder="Doel / experiment / documenttype"></textarea></label>
+        <button class="primary" type="submit">Project aanmaken en openen</button>
+      </form>
+    </section>
+    <section class="card project-list-card">
+      <div class="toolbar"><div><h3>Bestaande projecten</h3></div></div>
+      <div class="project-list">
+      {% for item in projects %}
+        <article class="project-card {% if item.active %}active{% endif %} {% if item.archived %}archived{% endif %}">
+          <div class="project-card-head"><div><strong>{{ item.name }}</strong><small class="mono">{{ item.project_id }}</small></div>{% if item.active %}<span class="pill ok">ACTIEF</span>{% elif item.archived %}<span class="pill">ARCHIEF</span>{% endif %}</div>
+          <div class="project-meta"><span>{{ item.source_count }} bronnen</span><span>{{ item.positive_count }} positief</span><span>{{ item.open_count }} open</span><span>{{ item.localization_model_count }} detector(en)</span></div>
+          <div class="project-gate {{ 'ok' if item.gate.ready else 'warn' }}">Detection gate: <b>{{ 'OPEN' if item.gate.ready else 'GESLOTEN' }}</b>{% if item.active_localization_model %} · {{ item.active_localization_model.model_id }}{% endif %}</div>
+          <div class="actions">
+            {% if not item.active and not item.archived %}<form method="post" action="/projects/switch"><input type="hidden" name="project_id" value="{{ item.project_id }}"><input type="hidden" name="next" value="/manage"><button type="submit" class="primary">Open project</button></form>{% endif %}
+            {% if not item.archived %}<form method="post" action="/projects/{{ item.project_id }}/rename" class="inline-rename"><input name="name" value="{{ item.name }}" aria-label="Nieuwe projectnaam"><button type="submit">Hernoemen</button></form>{% endif %}
+            {% if not item.active and not item.archived %}<form method="post" action="/projects/{{ item.project_id }}/archive" onsubmit="return confirm('Project archiveren? Data wordt niet verwijderd.');"><button type="submit" class="ghost">Archiveren</button></form>{% endif %}
+            {% if item.archived %}<form method="post" action="/projects/{{ item.project_id }}/restore"><button type="submit" class="ghost">Herstellen</button></form>{% endif %}
+          </div>
+        </article>
+      {% endfor %}
+      </div>
+    </section>
+  </div>
+</section>
+
+<section class="management-panel" data-management-panel="models" {% if active_tab != 'models' %}hidden{% endif %}>
+  <div id="react-localization-artifacts" aria-live="polite"><section class="card"><h3>Laden…</h3></section></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='react-vendor/react.production.min.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='react-vendor/react-dom.production.min.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='react/localization-artifacts.js', v=app_version) }}"></script>
+<script>
+(() => {
+  const tabs = Array.from(document.querySelectorAll('[data-management-tab]'));
+  const panels = Array.from(document.querySelectorAll('[data-management-panel]'));
+  const setTab = (name, updateUrl = true) => {
+    tabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.managementTab === name));
+    panels.forEach((panel) => { panel.hidden = panel.dataset.managementPanel !== name; });
+    if (updateUrl && window.history && window.history.replaceState) {
+      const url = new URL(window.location.href);
+      url.pathname = '/manage';
+      url.searchParams.set('tab', name);
+      window.history.replaceState({}, '', url);
+    }
+  };
+  tabs.forEach((tab) => tab.addEventListener('click', () => setTab(tab.dataset.managementTab || 'projects')));
+})();
+</script>
+{% endblock %}

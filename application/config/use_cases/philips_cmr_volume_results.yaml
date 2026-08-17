@@ -1,0 +1,17 @@
+schema_version: 1
+use_case_id: philips_cmr_volume_results
+name: Philips CMR Volume Results
+description: >-
+  Specifieke testcase voor Philips CMR-resultaatschermen. De IsalaOCR-tooling blijft
+  generiek; localization data, mappings, modellen en output zijn projectspecifiek.
+localization:
+  class_names: [field_roi]
+  project_specific: true
+  unreviewed_policy: ignore
+  rejection_reason_required: false
+mapping:
+  seed_profile: philips_cmr_volume
+recognition:
+  may_share_models: true
+output:
+  schema: cardiac_measurements

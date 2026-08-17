@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block title %}Generieke detectie · {{ source_id }}{% endblock %}
+{% block heading %}Generieke detectie{% endblock %}
+{% block subtitle %}<span class="mono">{{ source_id }}</span> · wat is visueel gevonden, vóór functionele mapping{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div class="actions"><a class="button" href="/detections">← Bronnen</a><a class="button primary" href="/mapping/{{ source_id }}">Naar mappingstudio</a></div>
+  <form method="get" class="inline-form"><label>Weergave <select name="role" onchange="this.form.submit()"><option value="candidates" {% if role_filter=='candidates' %}selected{% endif %}>Mappingkandidaten</option><option value="semantic" {% if role_filter=='semantic' %}selected{% endif %}>Alle semantische blokken</option><option value="table" {% if role_filter=='table' %}selected{% endif %}>Paddle tabelstructuur</option><option value="all" {% if role_filter=='all' %}selected{% endif %}>Alle OCR-blokken</option><option value="label" {% if role_filter=='label' %}selected{% endif %}>Labels</option><option value="value" {% if role_filter=='value' %}selected{% endif %}>Waarden</option><option value="header" {% if role_filter=='header' %}selected{% endif %}>Koppen</option><option value="unit" {% if role_filter=='unit' %}selected{% endif %}>Eenheden</option><option value="unknown" {% if role_filter=='unknown' %}selected{% endif %}>Onbekend</option></select></label></form>
+</div>
+<div class="generic-detection-layout">
+  <section class="viewer image-viewer generic-source-viewer">
+    <div class="image-overlay-stage" data-source-width="{{ source.image_width }}" data-source-height="{{ source.image_height }}">
+      <img src="/source-render/{{ source_id }}.png" alt="Bronrender" decoding="async" fetchpriority="high" width="{{ source.image_width }}" height="{{ source.image_height }}">
+      {% for block in blocks %}<button type="button" class="generic-overlay role-{{ block.role }}" data-block="{{ block.block_id }}" title="{{ block.role }} · {{ block.text }}" style="left:{{ block.display_x1/source.image_width*100 }}%;top:{{ block.display_y1/source.image_height*100 }}%;width:{{ (block.display_x2-block.display_x1)/source.image_width*100 }}%;height:{{ (block.display_y2-block.display_y1)/source.image_height*100 }}%"></button>{% endfor %}
+    </div>
+  </section>
+  <aside class="card generic-detection-panel">
+    <div class="detected-block-head"><div><h3>Gevonden blokken</h3><p class="muted">Klik op een crop om het corresponderende kader te isoleren.</p></div><span class="pill">{{ blocks|length }}</span></div>
+    <div class="generic-block-list">
+      {% for block in blocks %}
+      <article class="generic-block-card role-{{ block.role }}" data-block="{{ block.block_id }}" tabindex="0">
+        <button type="button" class="generic-block-crop" data-block="{{ block.block_id }}">{% if block.crop_exists %}<img src="/detected-block/{{ block.block_id }}{% if block.role=='value' and block.block_type in ['semantic','table_cell'] %}?mode=roi{% endif %}" alt="Crop {{ block.text }}" loading="lazy" decoding="async">{% else %}<span>Geen crop</span>{% endif %}</button>
+        <div><div class="field-row-title"><strong>{{ block.text or 'Leeg blok' }}</strong><span class="method-badge">{{ block.role }}</span></div><small class="mono muted">{{ block.block_type }} · {{ '%.1f%%'|format(block.confidence*100) }}{% if block.role=='value' and block.block_type in ['semantic','table_cell'] %} · ROI: {{ block.geometry_source }}{% endif %}{% if block.table_id %} · tabel rij {{ block.row_index + 1 }}, kolom {{ block.column_index + 1 }}{% endif %}</small>{% if block.context_text %}<p class="muted compact">Context: {{ block.context_text }}</p>{% endif %}<small class="mono muted">{{ block.x1 }},{{ block.y1 }} → {{ block.x2 }},{{ block.y2 }}</small></div>
+      </article>
+      {% else %}<p class="muted">Geen blokken voor dit filter.</p>{% endfor %}
+    </div>
+  </aside>
+</div>
+<section class="card" style="margin-top:18px">
+  <div class="toolbar"><div><h3>Mogelijke label-waarderelaties</h3><p class="muted">Dit zijn ruimtelijke voorstellen. De betekenis wordt pas in de Mappingstudio bevestigd.</p></div><span class="pill">{{ relations|length }}</span></div>
+  <div class="relation-preview-grid">
+  {% for relation in relations %}
+    <article class="relation-preview-card">
+      <div class="relation-side"><span class="muted">Mogelijk label</span>{% if relation.label_block_id %}<img src="/detected-block/{{ relation.label_block_id }}" alt="Label" loading="lazy" decoding="async"><strong>{{ relation.label_text }}</strong>{% else %}<em>Geen label gevonden</em>{% endif %}</div>
+      <div class="relation-arrow">→<small>{{ '%.0f%%'|format(relation.confidence*100) }} · #{{ relation.rank }}{% if relation.relation_type=='table_cell' %}<br>tabel r{{ relation.row_index + 1 }} c{{ relation.value_column_index + 1 }}{% endif %}</small></div>
+      <div class="relation-side"><span class="muted">Mogelijke waarde · ROI-voorstel</span><img src="/detected-block/{{ relation.value_block_id }}?mode=roi" alt="Waarde" loading="lazy" decoding="async"><strong>{{ relation.value_text }}</strong></div>
+      {% if relation.context_text %}<p class="relation-context">Context: {{ relation.context_text }}</p>{% endif %}
+    </article>
+  {% else %}<p class="muted">Geen relaties voorgesteld.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script>
+function selectBlock(id){document.querySelectorAll('.generic-overlay,.generic-block-card').forEach(el=>el.classList.toggle('active',el.dataset.block===id));}
+document.querySelectorAll('[data-block]').forEach(el=>el.addEventListener('click',event=>{event.stopPropagation();selectBlock(el.dataset.block);}));
+</script>{% endblock %}

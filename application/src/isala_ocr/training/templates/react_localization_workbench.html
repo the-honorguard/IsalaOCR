@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block title %}{{ step.index }} · {{ step.title }} · IsalaOCR{% endblock %}
+{% block heading %}{{ step.index }} · {{ step.title }}{% endblock %}
+{% block subtitle %}Bouw en valideer de dataset en train daarna een detector.{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='react/localization-workbench.css', v=app_version) }}">
+{% endblock %}
+{% block content %}
+<div id="react-localization-workbench" aria-live="polite"><section class="card"><h3>Laden…</h3></section></div>
+<noscript><div class="notice error">JavaScript is vereist voor dit scherm.</div></noscript>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='react-vendor/react.production.min.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='react-vendor/react-dom.production.min.js', v=app_version) }}"></script>
+<script src="{{ url_for('static', filename='react/localization-workbench.js', v=app_version) }}"></script>
+{% endblock %}

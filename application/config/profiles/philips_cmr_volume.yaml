@@ -1,0 +1,331 @@
+name: philips_cmr_volume_result_v1
+description: Philips CMR ventricular result tables with dynamic label-row location;
+  fixed ROIs are fallback only.
+reference_size:
+  width: 1636
+  height: 836
+anchors:
+- name: left_panel_title
+  expected: Left ventricle Volume Result
+  roi:
+  - 115
+  - 0
+  - 365
+  - 31
+  minimum_similarity: 0.62
+- name: right_panel_title
+  expected: Right ventricle Volume Result
+  roi:
+  - 115
+  - 458
+  - 380
+  - 489
+  minimum_similarity: 0.62
+fields:
+- key: lv_ed_volume
+  label: Left ventricle ED Volume
+  roi:
+  - 190
+  - 80
+  - 315
+  - 104
+  unit: ml
+  range:
+  - 0
+  - 500
+  decimals: 1
+  whitelist: 0123456789., ml
+  panel: lv
+  screen_labels: &id001
+  - ED Volume
+- key: lv_es_volume
+  label: Left ventricle ES Volume
+  roi:
+  - 190
+  - 104
+  - 315
+  - 129
+  unit: ml
+  range:
+  - 0
+  - 400
+  decimals: 1
+  whitelist: 0123456789., ml
+  panel: lv
+  screen_labels: &id002
+  - ES Volume
+- key: lv_ejection_fraction
+  label: Left ventricle Ejection Fraction
+  roi:
+  - 190
+  - 129
+  - 285
+  - 154
+  unit: '%'
+  range:
+  - 0
+  - 100
+  decimals: 0
+  whitelist: 0123456789., %
+  panel: lv
+  screen_labels: &id003
+  - Ejection Fraction
+- key: lv_stroke_volume
+  label: Left ventricle Stroke Volume
+  roi:
+  - 190
+  - 154
+  - 315
+  - 179
+  unit: ml
+  range:
+  - 0
+  - 300
+  decimals: 1
+  whitelist: 0123456789., ml
+  panel: lv
+  screen_labels: &id004
+  - Stroke Volume
+- key: lv_cardiac_output
+  label: Left ventricle Cardiac Output
+  roi:
+  - 190
+  - 179
+  - 325
+  - 204
+  unit: L/min
+  range:
+  - 0
+  - 30
+  decimals: 1
+  whitelist: 0123456789., L/min
+  panel: lv
+  screen_labels: &id005
+  - Cardiac Output
+- key: lv_ed_volume_bsa
+  label: Left ventricle ED Volume/BSA
+  roi:
+  - 190
+  - 203
+  - 330
+  - 228
+  unit: ml/m²
+  range:
+  - 0
+  - 300
+  decimals: 1
+  whitelist: 0123456789., ml/m²*'
+  panel: lv
+  screen_labels: &id006
+  - ED Volume/BSA
+  - ED Volume BSA
+- key: lv_es_volume_bsa
+  label: Left ventricle ES Volume/BSA
+  roi:
+  - 190
+  - 227
+  - 330
+  - 252
+  unit: ml/m²
+  range:
+  - 0
+  - 250
+  decimals: 1
+  whitelist: 0123456789., ml/m²*'
+  panel: lv
+  screen_labels: &id007
+  - ES Volume/BSA
+  - ES Volume BSA
+- key: lv_ed_wall_mass
+  label: Left ventricle ED Wall Mass
+  roi:
+  - 195
+  - 251
+  - 245
+  - 276
+  unit: g
+  range:
+  - 0
+  - 500
+  decimals: 1
+  allow_missing: true
+  whitelist: 0123456789.,- gr
+  panel: lv
+  screen_labels: &id008
+  - ED Wall Mass
+- key: rv_ed_volume
+  label: Right ventricle ED Volume
+  roi:
+  - 190
+  - 538
+  - 325
+  - 563
+  unit: ml
+  range:
+  - 0
+  - 600
+  decimals: 1
+  whitelist: 0123456789., ml
+  panel: rv
+  screen_labels: *id001
+- key: rv_es_volume
+  label: Right ventricle ES Volume
+  roi:
+  - 190
+  - 563
+  - 325
+  - 588
+  unit: ml
+  range:
+  - 0
+  - 500
+  decimals: 1
+  whitelist: 0123456789., ml
+  panel: rv
+  screen_labels: *id002
+- key: rv_ejection_fraction
+  label: Right ventricle Ejection Fraction
+  roi:
+  - 190
+  - 588
+  - 290
+  - 613
+  unit: '%'
+  range:
+  - 0
+  - 100
+  decimals: 0
+  whitelist: 0123456789., %
+  panel: rv
+  screen_labels: *id003
+- key: rv_stroke_volume
+  label: Right ventricle Stroke Volume
+  roi:
+  - 190
+  - 613
+  - 325
+  - 638
+  unit: ml
+  range:
+  - 0
+  - 350
+  decimals: 1
+  whitelist: 0123456789., ml
+  panel: rv
+  screen_labels: *id004
+- key: rv_cardiac_output
+  label: Right ventricle Cardiac Output
+  roi:
+  - 190
+  - 638
+  - 330
+  - 663
+  unit: L/min
+  range:
+  - 0
+  - 30
+  decimals: 1
+  whitelist: 0123456789., L/min
+  panel: rv
+  screen_labels: *id005
+- key: rv_ed_volume_bsa
+  label: Right ventricle ED Volume/BSA
+  roi:
+  - 190
+  - 663
+  - 330
+  - 688
+  unit: ml/m²
+  range:
+  - 0
+  - 350
+  decimals: 1
+  whitelist: 0123456789., ml/m²*'
+  panel: rv
+  screen_labels: *id006
+- key: rv_es_volume_bsa
+  label: Right ventricle ES Volume/BSA
+  roi:
+  - 190
+  - 688
+  - 330
+  - 713
+  unit: ml/m²
+  range:
+  - 0
+  - 300
+  decimals: 1
+  whitelist: 0123456789., ml/m²*'
+  panel: rv
+  screen_labels: *id007
+- key: rv_ed_wall_mass
+  label: Right ventricle ED Wall Mass
+  roi:
+  - 195
+  - 713
+  - 245
+  - 738
+  unit: g
+  range:
+  - 0
+  - 500
+  decimals: 1
+  allow_missing: true
+  whitelist: 0123456789.,- gr
+  panel: rv
+  screen_labels: *id008
+consistency_rules:
+- name: lv_stroke_equals_ed_minus_es
+  kind: difference
+  target: lv_stroke_volume
+  left: lv_ed_volume
+  right: lv_es_volume
+  absolute_tolerance: 4.0
+  relative_tolerance: 0.08
+- name: lv_ef_matches_stroke_over_ed
+  kind: ratio_percent
+  target: lv_ejection_fraction
+  left: lv_stroke_volume
+  right: lv_ed_volume
+  absolute_tolerance: 5.0
+  relative_tolerance: 0.08
+- name: rv_stroke_equals_ed_minus_es
+  kind: difference
+  target: rv_stroke_volume
+  left: rv_ed_volume
+  right: rv_es_volume
+  absolute_tolerance: 4.0
+  relative_tolerance: 0.08
+- name: rv_ef_matches_stroke_over_ed
+  kind: ratio_percent
+  target: rv_ejection_fraction
+  left: rv_stroke_volume
+  right: rv_ed_volume
+  absolute_tolerance: 5.0
+  relative_tolerance: 0.08
+dynamic_extraction:
+  enabled: true
+  right_panel_titles:
+  - Right ventricle Volume Result
+  value_headers:
+  - Endo Volume
+  normal_headers:
+  - Normal Values
+  panel_search_x2: 650
+  header_search_x1: 130
+  header_search_x2: 650
+  fallback_label_column:
+  - 0
+  - 175
+  fallback_value_column:
+  - 175
+  - 390
+  fallback_panel_divider: 0.55
+  panel_title_threshold: 0.68
+  header_match_threshold: 0.62
+  label_match_threshold: 0.72
+  header_left_padding: 35
+  normal_column_gap: 15
+  row_half_height: 13
+  value_padding: 5
+  fallback_to_fixed_roi: true

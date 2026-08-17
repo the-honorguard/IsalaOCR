@@ -1,0 +1,15 @@
+ISALA_APP_UID=10001
+ISALA_APP_GID=10001
+ISALA_LABEL_PORT=8088
+PADDLEX_CPU_IMAGE=ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlex/paddlex:paddlex3.3.11-paddlepaddle3.2.0-cpu
+PADDLEX_GPU_IMAGE=ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlex/paddlex:paddlex3.3.11-paddlepaddle3.2.0-gpu-cuda11.8-cudnn8.9-trt8.6
+PADDLEX_SOURCE_VERSION=3.7.2
+PADDLEX_SOURCE_URL=https://files.pythonhosted.org/packages/dd/96/1e86d4056ffc1e494c53aebab7e2faf08dcf8b929180f9872ae46632e9bd/paddlex-3.7.2.tar.gz
+PADDLEX_SOURCE_SHA256=6a60b4595e2d51460f7f51326672adca86b89ff9ecfd02ac348fb69739e0093c
+PADDLE_CPU_PACKAGE=paddlepaddle==3.2.2
+PADDLE_CPU_INDEX_URL=https://www.paddlepaddle.org.cn/packages/stable/cpu/
+PADDLE_GPU_PACKAGE=paddlepaddle-gpu==3.2.2
+PADDLE_GPU_INDEX_URL=https://www.paddlepaddle.org.cn/packages/stable/cu118/
+
+# Reusable heavy training image revision. Kept separate from the app release.
+ISALA_TRAINING_IMAGE_VERSION=3.8.4

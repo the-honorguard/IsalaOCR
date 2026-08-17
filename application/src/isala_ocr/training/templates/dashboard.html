@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Waardewachtrij · IsalaOCR{% endblock %}
+{% block heading %}Waardewachtrij{% endblock %}
+{% block subtitle %}Beoordeel uitsluitend OCR-tekst van definitief goedgekeurde ROI's{% endblock %}
+{% block content %}
+<section class="card" style="margin-bottom:18px">
+  <div class="quick-filters">
+    <a class="button primary" href="/review/queue?status=pending&max_confidence=0.8&ocr_content=text">Onzekere waarden &lt;80%</a>
+    <a class="button" href="/review/queue?status=pending&ocr_content=blank_or_missing">Lege modeluitvoer</a>
+    <a class="button" href="/review/queue?status=pending">Alle wachtende waarden</a>
+    <a class="button" href="/review/queue?status=pending&min_confidence=0.8&ocr_content=text">Steekproef ≥80%</a>
+    <a class="button" href="/review/queue?status=accepted">Goedgekeurde waarden</a>
+  </div>
+  <p class="muted" style="margin:12px 0 0">Alleen de crop, modeluitvoer en uiteindelijke tekstwaarde worden in deze stap getoond.</p>
+</section>
+
+<section class="card" style="margin-bottom:18px">
+  <form method="get" class="filter-grid value-filter-grid">
+    <label>Status
+      <select name="status">
+        <option value="">Alle</option>
+        {% for value, label in [
+          ('pending','Te beoordelen'),
+          ('accepted','Goedgekeurd'),
+          ('no_value','Geen waarde'),
+          ('unreadable','Onleesbaar'),
+          ('excluded','Uitgesloten')
+        ] %}
+          <option value="{{ value }}" {% if selected_status==value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Veld
+      <select name="field">
+        <option value="">Alle</option>
+        {% for field in fields %}
+          <option value="{{ field.field_key }}" {% if selected_field==field.field_key %}selected{% endif %}>{{ field.field_label }} ({{ field.accepted }}/{{ field.count }})</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>OCR-inhoud
+      <select name="ocr_content">
+        {% for value, label in [
+          ('all','Alles'),
+          ('text','Tekst/waarde aanwezig'),
+          ('blank','Modeluitvoer leeg'),
+          ('missing','Ontbrekend-teken (-)'),
+          ('blank_or_missing','Leeg of ontbrekend')
+        ] %}
+          <option value="{{ value }}" {% if selected_ocr_content==value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Minimale OCR-confidence (0–100%)
+      <input name="min_confidence_pct" type="number" min="0" max="100" step="1"
+             value="{{ ('%.0f'|format((selected_min_confidence|float) * 100)) if selected_min_confidence else '' }}"
+             data-confidence-target="min_confidence">
+      <input type="hidden" name="min_confidence" value="{{ selected_min_confidence or '' }}">
+    </label>
+    <label>Maximale OCR-confidence (0–100%)
+      <input name="max_confidence_pct" type="number" min="0" max="100" step="1"
+             value="{{ ('%.0f'|format((selected_max_confidence|float) * 100)) if selected_max_confidence else '' }}"
+             data-confidence-target="max_confidence">
+      <input type="hidden" name="max_confidence" value="{{ selected_max_confidence or '' }}">
+    </label>
+    <div class="filter-action"><button class="primary">Filter toepassen</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <div class="table-wrap"><table>
+    <thead><tr><th>Crop</th><th>Veld</th><th>Modeluitvoer</th><th>OCR-confidence</th><th>Waardestatus</th><th></th></tr></thead>
+    <tbody>
+    {% for item in samples %}
+      <tr>
+        <td><img src="/crop/{{ item.sample_id }}" alt="Waarde-crop" class="queue-crop" loading="lazy" decoding="async"></td>
+        <td><span class="mono">{{ item.field_key }}</span><br><span class="muted">{{ item.field_label }}</span></td>
+        <td class="mono">{{ item.raw_ocr if item.raw_ocr|trim else '∅ leeg' }}</td>
+        <td class="confidence-text {% if item.raw_confidence < 0.8 %}warn{% else %}ok{% endif %}">{{ '%.1f%%'|format(item.raw_confidence * 100) }}</td>
+        <td class="status-{{ item.status }}">{{ item.status }}{% if item.exact_label is not none %}<br><span class="mono">{{ item.exact_label }}</span>{% endif %}</td>
+        <td><a class="button primary" href="/sample/{{ item.sample_id }}?status={{ selected_status or '' }}&field={{ selected_field or '' }}&min_confidence={{ selected_min_confidence or '' }}&max_confidence={{ selected_max_confidence or '' }}&ocr_content={{ selected_ocr_content or 'all' }}">Waarde beoordelen</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6">Geen waarden voor dit filter.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <div class="actions pager-actions">
+    {% if page > 1 %}<a class="button" href="?status={{ selected_status or '' }}&field={{ selected_field or '' }}&min_confidence={{ selected_min_confidence or '' }}&max_confidence={{ selected_max_confidence or '' }}&ocr_content={{ selected_ocr_content or 'all' }}&page={{ page - 1 }}">← Vorige pagina</a>{% endif %}
+    <a class="button" href="?status={{ selected_status or '' }}&field={{ selected_field or '' }}&min_confidence={{ selected_min_confidence or '' }}&max_confidence={{ selected_max_confidence or '' }}&ocr_content={{ selected_ocr_content or 'all' }}&page={{ page + 1 }}">Volgende pagina →</a>
+  </div>
+</section>
+{% endblock %}
+{% block head %}
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[data-confidence-target]').forEach((percentInput) => {
+    const hidden = document.querySelector(`input[name="${percentInput.dataset.confidenceTarget}"]`);
+    const sync = () => {
+      if (percentInput.value === '') hidden.value = '';
+      else hidden.value = Math.max(0, Math.min(100, Number(percentInput.value))) / 100;
+    };
+    percentInput.addEventListener('input', sync);
+    percentInput.closest('form').addEventListener('submit', sync);
+  });
+});
+</script>
+{% endblock %}

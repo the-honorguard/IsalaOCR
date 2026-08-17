@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}Overzicht · IsalaOCR{% endblock %}
+{% block heading %}Workflow-overzicht{% endblock %}
+{% block subtitle %}{% if localization_strategy == 'table_first' %}Eerst PP-Structure tabel/celgeometrie meten; de losse box-detector staat geparkeerd{% else %}Generieke detectie, functionele mapping, ROI-controle en modeltraining als afzonderlijke processtappen{% endif %}{% endblock %}
+{% block content %}
+<section class="card workflow-map">
+  <div class="toolbar"><div><h3>Proces</h3><p class="muted">{% if localization_strategy == 'table_first' %}Stap 2 meet uitsluitend PP-Structure table-cell boxes. Pas na review en de TABLE-FIRST CHECK gaat de flow naar Mapping Studio.{% else %}Eerst wordt alleen waargenomen wat op het beeld staat. Functionele betekenis wordt pas in de Mappingstudio toegekend.{% endif %}</p></div><span class="pill">{{ stages|selectattr('complete')|list|length }}/{{ stages|length }} gereed</span></div>
+  <div class="stage-rail process-stage-rail">
+    {% for s in stages %}
+    <a href="/process/{{ s.key }}" class="stage {% if s.complete %}complete{% endif %}">
+      <div class="stage-index">{{ s.index }}</div><strong>{{ s.name }}</strong><div class="muted">{{ s.detail }}</div>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+<div class="grid cols-4" style="margin-top:18px">
+  <section class="card"><h3>Generieke detectie</h3><div class="metric">{{ generic.detection_sources|length }}</div><p class="muted">{{ generic.mapping.relations }} mogelijke label-waarderelaties gevonden.</p><a class="button primary" href="/detections">Detecties bekijken</a></section>
+  <section class="card"><h3>Functionele mapping</h3><div class="metric">{{ generic.mapping.confirmed }}</div><p class="muted">{{ generic.mapping.suggested }} automatische voorstellen wachten op controle.</p><a class="button primary" href="/mapping">Mappingstudio openen</a></section>
+  <section class="card"><h3>ROI-beoordeling</h3><div class="metric">{{ roi_counts.correct }}/{{ roi_counts.total }}</div><div class="progress"><span style="--value:{{ (roi_counts.correct/roi_counts.total*100) if roi_counts.total else 0 }}%"></span></div><p class="muted">{{ roi_counts.pending + roi_counts.deferred }} ROI's nog niet definitief afgerond.</p><a class="button" href="/process/roi-review">ROI-stap openen</a></section>
+  <section class="card"><h3>Waardenbeoordeling</h3><div class="metric">{{ value.accepted }}/{{ value.total }}</div><div class="progress"><span style="--value:{{ (value.accepted/value.total*100) if value.total else 0 }}%"></span></div><p class="muted">{{ value.pending }} uitgelezen waarden nog te beoordelen.</p><a class="button" href="/process/value-review">Waardenstap openen</a></section>
+</div>
+<div class="grid cols-2" style="margin-top:18px">
+  <section class="card"><div class="toolbar"><h3>Recent gedetecteerde bronnen</h3><a href="/process/detect">Nieuwe detectie</a></div><div class="table-wrap"><table><tr><th>Bron-ID</th><th>Blokken</th><th>Relaties</th><th>Mapping</th></tr>{% for s in generic.detection_sources[:8] %}<tr><td><a class="mono" href="/detections/{{ s.source_id }}">{{ s.source_id }}</a></td><td>{{ s.block_count }}</td><td>{{ s.relation_count }}</td><td>{{ s.confirmed_mapping_count or 0 }} bevestigd</td></tr>{% else %}<tr><td colspan="4">Nog geen bronnen generiek geanalyseerd.</td></tr>{% endfor %}</table></div></section>
+  <section class="card"><div class="toolbar"><h3>Recente taken</h3><a href="/jobs/manage">Wachtrij</a></div>{% for j in jobs %}<div class="job"><span>{{ j.action_name }}</span><span class="job-status {{ j.status }}">{{ j.status }}</span></div>{% else %}<p class="muted">Nog geen webtaken.</p>{% endfor %}</section>
+</div>
+{% endblock %}

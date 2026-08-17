@@ -1,0 +1,427 @@
+# syntax=docker/dockerfile:1.7
+# The legacy official image is retained only as a known-good OS/CUDA base.
+# PaddlePaddle and PaddleX are upgraded below to the PP-OCRv6-capable versions.
+ARG BASE_IMAGE=ccr-2vdh3abv-pub.cnc.bj.baidubce.com/paddlex/paddlex:paddlex3.3.11-paddlepaddle3.2.0-cpu
+FROM ${BASE_IMAGE}
+
+ARG PADDLEX_SOURCE_VERSION=3.7.2
+ARG PADDLEX_SOURCE_URL=https://files.pythonhosted.org/packages/dd/96/1e86d4056ffc1e494c53aebab7e2faf08dcf8b929180f9872ae46632e9bd/paddlex-3.7.2.tar.gz
+ARG PADDLEX_SOURCE_SHA256=6a60b4595e2d51460f7f51326672adca86b89ff9ecfd02ac348fb69739e0093c
+ARG PADDLE_PACKAGE=paddlepaddle==3.2.2
+ARG PADDLE_INDEX_URL=https://www.paddlepaddle.org.cn/packages/stable/cpu/
+ARG INSTALL_PADDLEDETECTION=1
+ARG PADDLEOCR_SOURCE_COMMIT=2661c7c0ef5c613e8f93c6e93b2e052399f0f854
+ARG PADDLEOCR_DICT_URL=https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/2661c7c0ef5c613e8f93c6e93b2e052399f0f854/ppocr/utils/dict/ppocrv6_dict.txt
+ARG PADDLEOCR_DICT_GIT_BLOB_SHA1=270082aa29aec1ff3ac74d0d575c90399216f74d
+ARG APP_UID=10001
+ARG APP_GID=10001
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PADDLE_PDX_CACHE_HOME=/models/paddlex \
+    ISALA_PADDLEX_SOURCE_ROOT=/opt/paddlex-source \
+    ISALA_PPOCRV6_DICTIONARY=/opt/isala-training-resources/ppocrv6_dict.txt \
+    ISALA_PADDLEX_SOURCE_VERSION=${PADDLEX_SOURCE_VERSION} \
+    PADDLE_PACKAGE=${PADDLE_PACKAGE} \
+    HOME=/tmp \
+    TMPDIR=/tmp
+
+# PaddleX 3.3.11 predates PP-OCRv6 and does not contain the
+# PP-OCRv6_medium_rec training configuration. Fetch the official source
+# distribution, verify its published SHA-256 digest and copy it into the image.
+RUN --mount=type=cache,id=isalaocr-paddlex-source-cache,target=/root/.cache/isalaocr-paddlex,sharing=locked \
+    python3 - <<'PYSOURCE'
+import hashlib
+import os
+import shutil
+import tarfile
+import tempfile
+import urllib.request
+from pathlib import Path
+
+url = os.environ["PADDLEX_SOURCE_URL"]
+expected_sha256 = os.environ["PADDLEX_SOURCE_SHA256"]
+destination = Path("/opt/paddlex-source")
+cache_directory = Path("/root/.cache/isalaocr-paddlex")
+cache_directory.mkdir(parents=True, exist_ok=True)
+archive = cache_directory / f"paddlex-{os.environ['PADDLEX_SOURCE_VERSION']}.tar.gz"
+
+if not archive.is_file():
+    temporary = archive.with_suffix(archive.suffix + ".part")
+    with urllib.request.urlopen(url, timeout=180) as response, temporary.open("wb") as handle:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            handle.write(chunk)
+    temporary.replace(archive)
+
+actual_sha256 = hashlib.sha256(archive.read_bytes()).hexdigest()
+if actual_sha256.lower() != expected_sha256.lower():
+    archive.unlink(missing_ok=True)
+    raise SystemExit(
+        f"PaddleX source digest mismatch: expected {expected_sha256}, got {actual_sha256}"
+    )
+
+extract_root = Path(tempfile.mkdtemp(prefix="paddlex-extract-"))
+with tarfile.open(archive, "r:gz") as package:
+    root = extract_root.resolve()
+    for member in package.getmembers():
+        target = (extract_root / member.name).resolve()
+        if target != root and root not in target.parents:
+            raise SystemExit(f"Unsafe path in PaddleX source archive: {member.name}")
+    package.extractall(extract_root)
+
+roots = [path for path in extract_root.iterdir() if path.is_dir()]
+source = roots[0] if len(roots) == 1 else extract_root
+if destination.exists():
+    shutil.rmtree(destination)
+shutil.copytree(source, destination)
+
+config_directory = destination / "paddlex" / "configs" / "modules" / "text_recognition"
+config_candidates = [
+    config_directory / "PP-OCRv6_medium_rec.yaml",
+    config_directory / "PP-OCRv6_medium_rec.yml",
+]
+if not any(path.is_file() for path in config_candidates):
+    raise SystemExit(
+        "Pinned PaddleX source does not contain PP-OCRv6_medium_rec training configuration"
+    )
+if not (destination / "main.py").is_file():
+    raise SystemExit("Pinned PaddleX source does not contain main.py")
+PYSOURCE
+
+# Pin PaddlePaddle explicitly. CPU services receive the CPU wheel; the GPU
+# service overrides these build arguments with the CUDA 11.8 GPU wheel.
+#
+# Keep the heavyweight package installation in its own stable Docker layer.
+# Verification intentionally happens in the next layer, so a future change to
+# diagnostics or validation does not download/install the 1.3 GB GPU wheel and
+# the complete PaddleX dependency set again.
+RUN --mount=type=cache,id=isalaocr-paddlex-pip-cache,target=/root/.cache/pip,sharing=locked \
+    python3 -m pip install --upgrade pip "setuptools<81" wheel \
+    && python3 -m pip install --upgrade "${PADDLE_PACKAGE}" -i "${PADDLE_INDEX_URL}" \
+    && python3 -m pip install --upgrade "/opt/paddlex-source[ocr]"
+
+# PaddleDetection is only required by the field-localization detector. The
+# recognition-only GPU image deliberately skips it, so a detector dependency
+# cannot block OCR-recognition training. PaddleDetection/develop still lists
+# the deprecated `sklearn==0.0` shim even though it also lists scikit-learn.
+# PyPI intentionally rejects new installs of that shim. PaddleX supports
+# dependency replacement, so omit only that obsolete alias and keep the real
+# scikit-learn dependency.
+#
+# IMPORTANT: PaddleX 3.7.2 calls install_external_deps() after installing the
+# paddledet wheel. That helper imports `paddle` unconditionally before deciding
+# whether to compile PaddleDetection's optional rotated-detection CUDA op. A
+# normal Docker/BuildKit build does not receive the host NVIDIA driver library
+# libcuda.so.1, so a GPU PaddlePaddle import must not happen here. Patch the
+# pinned PaddleX source with a narrowly-scoped opt-out and use it only for this
+# build-time installation. PicoDet-S does not use the rotated-detection custom
+# operator. CUDA/Paddle itself is validated later in a started GPU container.
+RUN python3 - <<'PYPDXPATCH'
+from pathlib import Path
+
+path = Path("/opt/paddlex-source/paddlex/repo_manager/utils.py")
+text = path.read_text(encoding="utf-8")
+marker = 'def install_external_deps(repo_name, repo_root):'
+start = text.find(marker)
+if start < 0:
+    raise SystemExit(f"PaddleX install_external_deps() not found in {path}")
+import_pos = text.find("    import paddle\n", start)
+if import_pos < 0:
+    raise SystemExit(f"PaddleX build-time paddle import not found in {path}")
+insert = (
+    '    if os.environ.get("PADDLE_PDX_SKIP_EXTERNAL_DEPS", "0") == "1":\n'
+    '        logging.warning("Skipping Paddle repository external-deps hook during image build.")\n'
+    '        return\n'
+)
+if "PADDLE_PDX_SKIP_EXTERNAL_DEPS" not in text[start:import_pos]:
+    text = text[:import_pos] + insert + text[import_pos:]
+    path.write_text(text, encoding="utf-8")
+print("Patched PaddleX external-deps hook for GPU-safe image builds:", path)
+PYPDXPATCH
+
+RUN --mount=type=cache,id=isalaocr-paddlex-pip-cache,target=/root/.cache/pip,sharing=locked \
+    if [ "${INSTALL_PADDLEDETECTION}" = "1" ]; then \
+        PADDLE_PDX_EAGER_INIT=False PADDLE_PDX_SKIP_EXTERNAL_DEPS=1 PYTHONPATH=/opt/paddlex-source \
+            paddlex --install PaddleDetection \
+            --deps_to_replace PaddleDetection.sklearn=None \
+        && test -f /opt/paddlex-source/paddlex/repo_manager/repos/PaddleDetection/.installed; \
+    else \
+        echo "Skipping PaddleDetection plugin (recognition-only training image)."; \
+    fi
+
+RUN python3 - <<'PYVERIFY'
+from pathlib import Path
+import importlib.metadata
+import importlib.util
+import os
+
+# Do not import PaddlePaddle during a GPU image build. libcuda.so.1 is a host
+# driver library injected by the NVIDIA container runtime only when the built
+# container is started with GPU access; it is intentionally unavailable to an
+# ordinary Docker build step. Verify installed distributions and package files
+# without loading libpaddle.so.
+def distribution_versions(*names: str) -> list[tuple[str, str, str]]:
+    expected = {name.lower().replace("_", "-") for name in names}
+    matches: list[tuple[str, str, str]] = []
+    for distribution in importlib.metadata.distributions():
+        raw_name = str(distribution.metadata.get("Name", ""))
+        canonical = raw_name.lower().replace("_", "-")
+        if canonical in expected:
+            location = str(getattr(distribution, "_path", "unknown"))
+            matches.append((raw_name, str(distribution.version), location))
+    return matches
+
+paddle_distributions = distribution_versions("paddlepaddle-gpu", "paddlepaddle")
+configured_package = os.environ.get("PADDLE_PACKAGE", "paddlepaddle==3.2.2")
+expected_paddle_version = configured_package.rsplit("==", 1)[-1].strip()
+if not any(version == expected_paddle_version for _, version, _ in paddle_distributions):
+    raise SystemExit(
+        f"Configured PaddlePaddle {expected_paddle_version} distribution was not found. "
+        f"Candidates: {paddle_distributions}"
+    )
+
+# The legacy PaddleX base image can expose stale 3.3.11 distribution metadata
+# through a second site-packages location even after pip installs 3.7.2. The
+# training entry point is deliberately executed from the checksum-pinned source
+# tree at /opt/paddlex-source, so that tree is authoritative. Enumerate metadata
+# for diagnostics, but do not let an unrelated stale dist-info record reject an
+# otherwise valid source overlay.
+paddlex_distributions = distribution_versions("paddlex")
+
+paddle_spec = importlib.util.find_spec("paddle")
+if paddle_spec is None or not paddle_spec.submodule_search_locations:
+    raise SystemExit("Installed PaddlePaddle package could not be located")
+paddle_root = Path(next(iter(paddle_spec.submodule_search_locations)))
+libpaddle_candidates = list(paddle_root.glob("**/libpaddle.so"))
+if not libpaddle_candidates:
+    raise SystemExit(f"PaddlePaddle native runtime libpaddle.so not found below {paddle_root}")
+
+source = Path("/opt/paddlex-source")
+config_dir = source / "paddlex" / "configs" / "modules" / "text_recognition"
+assert any((config_dir / name).is_file() for name in (
+    "PP-OCRv6_medium_rec.yaml",
+    "PP-OCRv6_medium_rec.yml",
+)), "PP-OCRv6 medium recognition config missing after installation"
+assert (source / "main.py").is_file(), "PaddleX main.py missing after installation"
+assert (source / "paddlex").is_dir(), "Pinned PaddleX package tree missing"
+object_detection_dir = source / "paddlex" / "configs" / "modules" / "object_detection"
+assert any(object_detection_dir.glob("PicoDet-S*.y*ml")), "PicoDet-S object-detection config missing"
+table_cell_dir = source / "paddlex" / "configs" / "modules" / "table_cells_detection"
+assert any(table_cell_dir.glob("RT-DETR-L_wireless_table_cell_det*.y*ml")), "Wireless table-cell training config missing"
+print("PaddlePaddle distribution candidates:", paddle_distributions)
+print("PaddlePaddle native runtime:", libpaddle_candidates[0])
+print("PaddlePaddle import verification: deferred to container runtime")
+print("PaddleX distribution metadata candidates:", paddlex_distributions)
+print("PaddleX authoritative source overlay version:", os.environ["ISALA_PADDLEX_SOURCE_VERSION"])
+print("PaddleX authoritative source overlay path:", source)
+PYVERIFY
+
+# The legacy vendor image can retain Shapely 1.x. The pinned PaddleOCR source
+# imports the vectorized top-level `shapely.intersection` API introduced in
+# Shapely 2.x. Install this small compatibility wheel in its own layer after the
+# heavyweight PaddlePaddle/PaddleX layer so BuildKit can reuse the CUDA and
+# PaddlePaddle downloads from training image 3.3.11.
+ARG SHAPELY_VERSION=2.1.2
+RUN --mount=type=cache,id=isalaocr-paddlex-pip-cache,target=/root/.cache/pip,sharing=locked \
+    python3 -m pip install --upgrade "shapely==${SHAPELY_VERSION}"
+
+RUN python3 - <<'PYSHAPELY'
+import importlib.metadata
+
+import shapely
+from shapely import intersection
+
+version = importlib.metadata.version("shapely")
+if version != "2.1.2":
+    raise SystemExit(f"Unexpected Shapely version: {version}")
+if not callable(intersection):
+    raise SystemExit("Shapely top-level intersection API is unavailable")
+print("Shapely PaddleOCR compatibility:", version, shapely.__file__)
+PYSHAPELY
+
+# PaddleX 3.7.2 registers PP-OCRv6 models through its PaddleOCR repository
+# adapter, but the vendor base image does not contain a complete PaddleOCR
+# training checkout. Fetch an immutable PaddleOCR source revision after the
+# heavyweight PaddlePaddle/PaddleX package layer and cache the archive between
+# builds. This adds only a small source layer and does not invalidate or
+# redownload the CUDA base image or PaddlePaddle GPU wheel.
+ARG PADDLEOCR_SOURCE_COMMIT=b03f46425e8ff4442b268ce449e3eef758146cd4
+ENV ISALA_PADDLEOCR_ROOT=/opt/isala-paddleocr \
+    PADDLE_PDX_PADDLEOCR_PATH=/opt/isala-paddleocr
+
+RUN --mount=type=cache,id=isalaocr-paddleocr-source-cache,target=/root/.cache/isalaocr-paddleocr-source,sharing=locked \
+    APP_UID="${APP_UID}" APP_GID="${APP_GID}" python3 - <<'PYOCRROOT'
+import os
+import shutil
+import tarfile
+import tempfile
+import urllib.request
+from pathlib import Path
+
+commit = os.environ.get("PADDLEOCR_SOURCE_COMMIT", "b03f46425e8ff4442b268ce449e3eef758146cd4")
+url = f"https://github.com/PaddlePaddle/PaddleOCR/archive/{commit}.tar.gz"
+cache_dir = Path("/root/.cache/isalaocr-paddleocr-source")
+cache_dir.mkdir(parents=True, exist_ok=True)
+archive = cache_dir / f"PaddleOCR-{commit}.tar.gz"
+destination = Path(os.environ["ISALA_PADDLEOCR_ROOT"])
+
+if not archive.is_file():
+    temporary = archive.with_suffix(archive.suffix + ".part")
+    with urllib.request.urlopen(url, timeout=300) as response, temporary.open("wb") as handle:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            handle.write(chunk)
+    temporary.replace(archive)
+
+extract_root = Path(tempfile.mkdtemp(prefix="paddleocr-extract-"))
+try:
+    with tarfile.open(archive, "r:gz") as package:
+        root = extract_root.resolve()
+        for member in package.getmembers():
+            target = (extract_root / member.name).resolve()
+            if target != root and root not in target.parents:
+                raise SystemExit(f"Unsafe path in PaddleOCR source archive: {member.name}")
+        package.extractall(extract_root)
+
+    roots = [path for path in extract_root.iterdir() if path.is_dir()]
+    source = roots[0] if len(roots) == 1 else extract_root
+    if source.name != f"PaddleOCR-{commit}":
+        raise SystemExit(
+            f"Unexpected PaddleOCR archive root: {source.name}; expected PaddleOCR-{commit}"
+        )
+    if not (source / "tools" / "train.py").is_file() or not (source / "ppocr").is_dir():
+        raise SystemExit(
+            "Pinned PaddleOCR source does not contain tools/train.py and the ppocr package"
+        )
+    if not any(source.glob("configs/rec/**/PP-OCRv6*medium*rec*.yml")):
+        raise SystemExit("Pinned PaddleOCR source does not contain a PP-OCRv6 medium recognition config")
+
+    if destination.exists():
+        if destination.is_symlink() or destination.is_file():
+            destination.unlink()
+        else:
+            shutil.rmtree(destination)
+    shutil.copytree(source, destination)
+finally:
+    shutil.rmtree(extract_root, ignore_errors=True)
+
+uid = int(os.environ["APP_UID"])
+gid = int(os.environ["APP_GID"])
+for root, directories, files in os.walk(destination):
+    os.chown(root, uid, gid)
+    for name in directories:
+        os.chown(Path(root) / name, uid, gid)
+    for name in files:
+        os.chown(Path(root) / name, uid, gid)
+
+print(f"PaddleOCR source commit: {commit}")
+print(f"PaddleOCR training repository: {destination}")
+print(f"PaddleOCR runtime identity: {uid}:{gid}")
+PYOCRROOT
+
+# PaddleX dataset checking creates preview images and lazily downloads a font
+# when no local font is configured. Training services run with network_mode:none,
+# so bake Matplotlib's bundled DejaVu Sans into the image and direct every
+# PaddleX Font instance to it. This keeps dataset validation fully offline and
+# avoids the unrelated PingFang-SC-Regular.ttf runtime download.
+RUN python3 - <<'PYFONT'
+from pathlib import Path
+import shutil
+
+from PIL import ImageFont
+import matplotlib
+
+source = Path(matplotlib.get_data_path()) / "fonts" / "ttf" / "DejaVuSans.ttf"
+destination = Path("/opt/isala-training-resources/DejaVuSans.ttf")
+if not source.is_file():
+    raise SystemExit(f"Matplotlib bundled font not found: {source}")
+destination.parent.mkdir(parents=True, exist_ok=True)
+shutil.copyfile(source, destination)
+
+# Verify that the copied font is readable and covers the characters used in
+# IsalaOCR numeric/unit labels, including the superscript two.
+font = ImageFont.truetype(str(destination), 24, encoding="utf-8")
+for text in ("0123456789", ".,/%", "ml/m²"):
+    if font.getbbox(text) is None:
+        raise SystemExit(f"Local PaddleX font could not render: {text!r}")
+print("PaddleX offline font:", destination)
+PYFONT
+
+# Set this after the heavyweight PaddleX/PaddlePaddle layer so introducing or
+# changing the offline font configuration does not invalidate that cache.
+ENV ISALA_PADDLEX_FONT=/opt/isala-training-resources/DejaVuSans.ttf \
+    PADDLE_PDX_LOCAL_FONT_FILE_PATH=/opt/isala-training-resources/DejaVuSans.ttf
+
+# PaddleX's source distribution contains the PP-OCRv6 model configuration but
+# not the PaddleOCR repository dictionary referenced by that configuration.
+# Bake the exact official dictionary into the image once at build time. The
+# pinned Git blob SHA verifies the complete bytes without relying on a mutable
+# branch or an unverified runtime download.
+RUN --mount=type=cache,id=isalaocr-ppocrv6-dict-cache,target=/root/.cache/isalaocr-paddleocr,sharing=locked \
+    python3 - <<'PYDICT'
+import hashlib
+import os
+import urllib.request
+from pathlib import Path
+
+url = os.environ["PADDLEOCR_DICT_URL"]
+expected_blob_sha1 = os.environ["PADDLEOCR_DICT_GIT_BLOB_SHA1"].lower()
+cache_dir = Path("/root/.cache/isalaocr-paddleocr")
+cache_dir.mkdir(parents=True, exist_ok=True)
+cache_file = cache_dir / "ppocrv6_dict.txt"
+destination = Path(os.environ["ISALA_PPOCRV6_DICTIONARY"])
+
+if not cache_file.is_file():
+    temporary = cache_file.with_suffix(".txt.part")
+    with urllib.request.urlopen(url, timeout=180) as response, temporary.open("wb") as handle:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            handle.write(chunk)
+    temporary.replace(cache_file)
+
+data = cache_file.read_bytes()
+git_blob = b"blob " + str(len(data)).encode("ascii") + b"\0" + data
+actual_blob_sha1 = hashlib.sha1(git_blob).hexdigest()
+if actual_blob_sha1 != expected_blob_sha1:
+    cache_file.unlink(missing_ok=True)
+    raise SystemExit(
+        f"PaddleOCR dictionary Git blob mismatch: expected {expected_blob_sha1}, "
+        f"got {actual_blob_sha1}"
+    )
+
+entries = data.decode("utf-8").splitlines()
+required = {"0", "9", ".", ",", "%", "m", "l", "/", "²"}
+missing = sorted(required.difference(entries))
+if missing:
+    raise SystemExit(f"Pinned PP-OCRv6 dictionary misses required entries: {missing}")
+if len(entries) < 10000:
+    raise SystemExit(f"Pinned PP-OCRv6 dictionary is unexpectedly small: {len(entries)} entries")
+
+destination.parent.mkdir(parents=True, exist_ok=True)
+destination.write_bytes(data)
+print("PP-OCRv6 dictionary:", destination)
+print("PP-OCRv6 dictionary entries:", len(entries))
+print("PP-OCRv6 dictionary Git blob SHA-1:", actual_blob_sha1)
+PYDICT
+
+COPY automation/training_runtime /opt/isala-training
+
+# All other IsalaOCR containers write the bind-mounted training workspace as
+# UID/GID 10001. Run the PaddleX training image with the same numeric identity
+# so existing datasets, reviews and run directories remain writable without
+# weakening the host directory permissions or running training as root.
+RUN set -eux; \
+    mkdir -p /workspace /models /training /tmp; \
+    chown -R "${APP_UID}:${APP_GID}" /workspace /models /training /opt/isala-training /opt/isala-training-resources /tmp
+
+WORKDIR /workspace
+USER ${APP_UID}:${APP_GID}
+ENTRYPOINT ["python3", "/opt/isala-training/paddlex_runner.py"]
+CMD ["--help"]

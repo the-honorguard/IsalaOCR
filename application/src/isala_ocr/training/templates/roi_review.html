@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}ROI's beoordelen · IsalaOCR{% endblock %}
+{% block heading %}ROI's beoordelen{% endblock %}
+{% block subtitle %}Controleer uitsluitend of ieder kader op de juiste plek staat en de juiste uitsnede bevat{% endblock %}
+{% block content %}
+<div class="grid cols-5">
+  <a class="card queue-stat {% if selected_status=='all' %}selected{% endif %}" href="/roi-review?status=all"><span>Alle ROI's</span><strong class="metric">{{ roi_counts.total }}</strong></a>
+  <a class="card queue-stat {% if selected_status=='pending' %}selected{% endif %}" href="/roi-review?status=pending"><span>Nog opslaan</span><strong class="metric warn">{{ roi_counts.pending }}</strong></a>
+  <a class="card queue-stat {% if selected_status=='correct' %}selected{% endif %}" href="/roi-review?status=correct"><span>Positie correct</span><strong class="metric ok">{{ roi_counts.correct }}</strong></a>
+  <a class="card queue-stat {% if selected_status=='incorrect' %}selected{% endif %}" href="/roi-review?status=incorrect"><span>Positie fout</span><strong class="metric bad">{{ roi_counts.incorrect }}</strong></a>
+  <a class="card queue-stat {% if selected_status=='deferred' %}selected{% endif %}" href="/roi-review?status=deferred"><span>Later beoordelen</span><strong class="metric warn">{{ roi_counts.deferred }}</strong></a>
+</div>
+<section class="card" style="margin-top:18px">
+  <div class="toolbar"><div><h3>ROI's per DICOM</h3><p class="muted">Nieuwe ROI's staan standaard op OK. Pas alleen foutieve kaders aan en sla daarna de beoordeling op.</p></div></div>
+  <div class="table-wrap"><table>
+    <tr><th>Bron-ID</th><th>ROI-voortgang</th><th>Positie fout</th><th>Later</th><th></th></tr>
+    {% for s in sources %}{% set rc=s.roi_counts %}{% if selected_status=='all' or rc[selected_status]>0 %}
+    <tr>
+      <td class="mono">{{ s.source_id }}</td>
+      <td>{{ rc.correct+rc.incorrect+rc.deferred }}/{{ s.sample_count }} beoordeeld · {{ rc.pending }} niet opgeslagen<div class="progress"><span style="--value:{{ ((rc.correct+rc.incorrect+rc.deferred)/s.sample_count*100) if s.sample_count else 0 }}%"></span></div></td>
+      <td class="{% if rc.incorrect %}bad{% endif %}">{{ rc.incorrect }}</td>
+      <td class="{% if rc.deferred %}warn{% endif %}">{{ rc.deferred }}</td>
+      <td><a class="button primary" href="/roi-review/{{ s.source_id }}">ROI's beoordelen</a></td>
+    </tr>
+    {% endif %}{% else %}
+    <tr><td colspan="5">Geen ROI's voor dit filter.</td></tr>
+    {% endfor %}
+  </table></div>
+</section>
+{% endblock %}

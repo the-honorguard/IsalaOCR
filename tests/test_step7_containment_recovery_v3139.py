@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from isala_ocr.training.db import TrainingDatabase
+from isala_ocr.training.table_model_comparison import (
+    _evaluate_panel,
+    review_comparison_issue,
+    table_cell_comparison_state,
+)
+
+
+def _panel(*gt_boxes: list[float]) -> dict:
+    return {
+        "source_id": "source-a",
+        "panel_id": "rv",
+        "panel_name": "Right ventricle Volume Result",
+        "split": "train",
+        "file_name": "source-a__rv.png",
+        "panel_box": [0, 0, 200, 100],
+        "width": 200,
+        "height": 100,
+        "ground_truth": [
+            {"gt_id": f"gt-{index}", "box": box}
+            for index, box in enumerate(gt_boxes, start=1)
+        ],
+    }
+
+
+def test_low_iou_prediction_that_contains_one_gt_is_one_geometry_issue() -> None:
+    panel = _panel([70, 20, 120, 35])
+    predictions = [{
+        "prediction_id": "oversized-title",
+        "box": [0, 10, 190, 45],
+        "confidence": 0.967,
+    }]
+
+    result = _evaluate_panel(panel, predictions, iou_threshold=0.50, geometry_iou=0.75)
+
+    assert result["tp"] == 1
+    assert result["fp"] == 0
+    assert result["fn"] == 0
+    assert result["geometry_mismatch"] == 1
+    assert len(result["issues"]) == 1
+    issue = result["issues"][0]
+    assert issue["type"] == "geometry"
+    assert issue["containment_recovered"] is True
+    assert issue["match_reason"] == "gt_coverage"
+    assert issue["gt_coverage"] == pytest.approx(1.0)
+    assert issue["prediction_excess"] > 0.30
+    assert issue["functional_candidate"] is False
+    assert len(issue["legacy_issue_ids"]) == 2
+
+
+def test_containment_recovery_does_not_turn_multi_gt_prediction_into_single_geometry() -> None:
+    panel = _panel([20, 20, 50, 35], [70, 20, 100, 35])
+    predictions = [{
+        "prediction_id": "merged-row",
+        "box": [10, 10, 110, 45],
+        "confidence": 0.91,
+    }]
+
+    result = _evaluate_panel(panel, predictions, iou_threshold=0.50, geometry_iou=0.75)
+
+    assert any(issue["type"] == "merged" for issue in result["issues"])
+    assert not any(issue.get("containment_recovered") for issue in result["issues"])
+
+
+def _write_json(path: Path, payload) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _seed_legacy_run(root: Path) -> str:
+    dataset_id = "table-cells-containment"
+    base = root / "table_cell_datasets" / dataset_id
+    (base / "images").mkdir(parents=True)
+    _write_json(base / "manifest.json", {
+        "schema_version": 1,
+        "dataset_id": dataset_id,
+        "type": "table_cell_detection",
+        "path": f"table_cell_datasets/{dataset_id}",
+        "created_at": "2026-08-14T09:00:00+00:00",
+        "panel_profile_updated_at": "2026-08-14T07:00:00+00:00",
+        "annotation_count": 1,
+        "panel_count": 1,
+        "panels": [{
+            "source_id": "source-a", "panel_id": "rv", "panel_name": "RV", "split": "train",
+            "file_name": "source-a__rv.png", "box": [0, 0, 200, 100], "annotation_count": 1,
+        }],
+    })
+    empty = {"images": [], "annotations": [], "categories": [{"id": 1, "name": "table_cell"}]}
+    _write_json(base / "annotations" / "instance_val.json", empty)
+    _write_json(base / "annotations" / "instance_test.json", empty)
+    _write_json(base / "annotations" / "instance_train.json", {
+        "images": [{"id": 1, "file_name": "source-a__rv.png", "width": 200, "height": 100}],
+        "annotations": [{"id": 1, "image_id": 1, "category_id": 1, "bbox": [70, 20, 50, 15], "area": 750, "iscrowd": 0}],
+        "categories": [{"id": 1, "name": "table_cell"}],
+    })
+    (root / "table_cell_datasets" / "latest.txt").write_text(dataset_id + "\n", encoding="ascii")
+
+    db = TrainingDatabase(root / "samples.sqlite3")
+    with db.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO detection_sources(source_id,image_width,image_height,render_path,detector_version,
+                token_count,block_count,relation_count,detected_at,updated_at,review_completed)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            ("source-a", 200, 100, "source_renders/source-a.png", "ppstructure", 0, 1, 0,
+             "2026-08-14T10:00:00+00:00", "2026-08-14T10:00:00+00:00", 0),
+        )
+
+    run_id = "detect-legacy-containment"
+    legacy_panel = _panel([70, 20, 120, 35])
+    legacy_prediction = {"prediction_id": "oversized-title", "box": [0, 10, 190, 45], "confidence": 0.967}
+    # This is intentionally evaluator-v1 output: one FP + one FN for the same logical object.
+    legacy_panel.update({
+        "predictions": [legacy_prediction],
+        "matches": [],
+        "issues": [
+            {
+                "type": "fp", "label": "Extra detectie (FP)", "prediction_box": legacy_prediction["box"],
+                "gt_boxes": [], "confidence": 0.967, "iou": 0.0,
+                "issue_id": "legacy-fp",
+            },
+            {
+                "type": "fn", "label": "GT-cel gemist (FN)", "prediction_box": None,
+                "gt_boxes": [[70, 20, 120, 35]], "confidence": 0.0, "iou": 0.0,
+                "issue_id": "legacy-fn",
+            },
+        ],
+        "tp": 0, "fp": 1, "fn": 1, "direct_correct": 0, "geometry_mismatch": 0, "merged": 0,
+    })
+    _write_json(root / "table_cell_comparisons" / "runs" / f"{run_id}.json", {
+        "schema_version": 1,
+        "run_id": run_id,
+        "label": "legacy run",
+        "model_id": "model-legacy",
+        "model_name": "legacy",
+        "dataset_id": dataset_id,
+        "source": "step3_localization_diagnostics",
+        "created_at": "2026-08-14T10:00:00+00:00",
+        "iou_threshold": 0.50,
+        "geometry_iou": 0.75,
+        "metrics": {"gt_total": 1, "prediction_total": 1, "tp": 0, "fp": 1, "fn": 1, "precision": 0.0, "recall": 0.0, "f1": 0.0, "direct_correct": 0, "geometry_mismatch": 0, "merged": 0, "review_needed": 2, "panel_count": 1},
+        "panels": [legacy_panel],
+    })
+    return run_id
+
+
+def test_existing_v1_run_is_reclassified_without_redetect_and_can_be_functional_ok(tmp_path: Path) -> None:
+    run_id = _seed_legacy_run(tmp_path)
+    state = table_cell_comparison_state(tmp_path, candidate_run_id=run_id)
+
+    assert state["candidate"]["schema_version"] == 2
+    assert state["candidate"]["evaluation_upgraded_from_schema"] == 1
+    assert state["candidate"]["metrics"]["tp"] == 1
+    assert state["candidate"]["metrics"]["fp"] == 0
+    assert state["candidate"]["metrics"]["fn"] == 0
+    assert state["candidate"]["metrics"]["geometry_mismatch"] == 1
+    issues = [issue for panel in state["issue_panels"] for issue in panel["issues"]]
+    assert len(issues) == 1
+    assert issues[0]["type"] == "geometry"
+    assert issues[0]["containment_recovered"] is True
+
+    review_comparison_issue(tmp_path, run_id, issues[0]["issue_id"], "functional_ok")
+    reviewed = table_cell_comparison_state(tmp_path, candidate_run_id=run_id)
+    issue = reviewed["issue_panels"][0]["issues"][0]
+    assert issue["review"]["decision"] == "functional_ok"
+    assert reviewed["open_issue_count"] == 0
+
+
+def test_step7_ui_explains_containment_recovery() -> None:
+    root = Path(__file__).resolve().parents[1]
+    template = (root / "application/src/isala_ocr/training/templates/table_model_comparison.html").read_text(encoding="utf-8")
+    comparison = (root / "application/src/isala_ocr/training/table_model_comparison.py").read_text(encoding="utf-8")
+    assert "FP+FN gekoppeld" in template
+    assert "≥95% van één GT-cel" in template
+    assert '"match_reason": "gt_coverage"' in comparison
+    assert '"containment_recovered"' in comparison
+    assert "EVALUATION_SCHEMA_VERSION = 2" in comparison

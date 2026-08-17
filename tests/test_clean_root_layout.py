@@ -1,0 +1,44 @@
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_project_root_contains_only_start_cmd_as_a_file() -> None:
+    files = sorted(path.name for path in ROOT.iterdir() if path.is_file())
+    assert files == ["START.cmd"]
+
+
+def test_operational_content_is_grouped_into_directories() -> None:
+    expected = {
+        "application",
+        "automation",
+        "documentation",
+        "infrastructure",
+        "project",
+        "tests",
+        "input",
+        "output",
+        "models",
+        "training",
+    }
+    directories = {path.name for path in ROOT.iterdir() if path.is_dir()}
+    assert expected.issubset(directories)
+
+
+def test_no_secondary_cmd_wrappers_exist() -> None:
+    assert list(ROOT.glob("*.cmd")) == [ROOT / "START.cmd"]
+
+
+def test_launcher_runs_safe_legacy_layout_migration_first() -> None:
+    launcher = (ROOT / "automation" / "powershell" / "launcher.ps1").read_text(encoding="utf-8")
+    migration_pos = launcher.index("layout-migration.ps1")
+    preflight_pos = launcher.index("preflight.ps1")
+    assert migration_pos < preflight_pos
+
+    migration = (ROOT / "automation" / "powershell" / "layout-migration.ps1").read_text(encoding="utf-8")
+    assert '"scripts", "src", "config", "schemas", "training_runtime"' in migration
+    assert 'foreach ($file in @(Get-ChildItem' in migration
+    assert 'if ($file.Name -eq "START.cmd")' in migration
+    assert 'User data directories are never touched' in migration
+    for protected in ("input", "output", "models", "training"):
+        assert f'"{protected}"' not in migration.split('foreach ($name in @("scripts"', 1)[1].split(')) {', 1)[0]

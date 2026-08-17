@@ -1,0 +1,54 @@
+FROM python:3.11-slim-bookworm
+
+ARG APP_UID=10001
+ARG APP_GID=10001
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HOME=/tmp \
+    PYTHONPATH=/app/src
+
+RUN groupadd --gid "${APP_GID}" isalaocr \
+    && useradd --uid "${APP_UID}" --gid "${APP_GID}" --no-create-home --shell /usr/sbin/nologin isalaocr \
+    && python -m pip install --no-cache-dir "Flask>=3.1,<4" "waitress>=3,<4" "PyYAML>=6,<7"
+
+WORKDIR /app
+
+# The labeling UI only needs the database and web modules. Deliberately do not
+# install PaddleOCR, PaddlePaddle, OpenCV, pydicom or compressed-DICOM codecs.
+# This keeps the image small and prevents a simple web UI from rebuilding the
+# multi-gigabyte OCR runtime.
+COPY application/src/isala_ocr/__init__.py /app/src/isala_ocr/__init__.py
+COPY application/src/isala_ocr/config.py /app/src/isala_ocr/config.py
+COPY application/src/isala_ocr/models.py /app/src/isala_ocr/models.py
+COPY application/src/isala_ocr/geometry.py /app/src/isala_ocr/geometry.py
+COPY application/src/isala_ocr/training/__init__.py /app/src/isala_ocr/training/__init__.py
+COPY application/src/isala_ocr/training/db.py /app/src/isala_ocr/training/db.py
+COPY application/src/isala_ocr/training/localization_dataset.py /app/src/isala_ocr/training/localization_dataset.py
+COPY application/src/isala_ocr/training/detection_gate.py /app/src/isala_ocr/training/detection_gate.py
+COPY application/src/isala_ocr/training/table_quality.py /app/src/isala_ocr/training/table_quality.py
+COPY application/src/isala_ocr/training/table_panels.py /app/src/isala_ocr/training/table_panels.py
+COPY application/src/isala_ocr/training/table_cell_training.py /app/src/isala_ocr/training/table_cell_training.py
+COPY application/src/isala_ocr/training/table_cell_ground_truth.py /app/src/isala_ocr/training/table_cell_ground_truth.py
+COPY application/src/isala_ocr/training/table_model_comparison.py /app/src/isala_ocr/training/table_model_comparison.py
+COPY application/src/isala_ocr/training/dynamic_locator.py /app/src/isala_ocr/training/dynamic_locator.py
+COPY application/src/isala_ocr/training/header_normalization.py /app/src/isala_ocr/training/header_normalization.py
+COPY application/src/isala_ocr/training/generic_detection.py /app/src/isala_ocr/training/generic_detection.py
+COPY application/src/isala_ocr/training/mapping.py /app/src/isala_ocr/training/mapping.py
+COPY application/src/isala_ocr/training/relation_feedback.py /app/src/isala_ocr/training/relation_feedback.py
+COPY application/src/isala_ocr/training/projects.py /app/src/isala_ocr/training/projects.py
+COPY application/src/isala_ocr/training/labeler.py /app/src/isala_ocr/training/labeler.py
+COPY application/src/isala_ocr/training/labeler_server.py /app/src/isala_ocr/training/labeler_server.py
+COPY application/src/isala_ocr/training/webui.py /app/src/isala_ocr/training/webui.py
+COPY application/src/isala_ocr/training/webui_server.py /app/src/isala_ocr/training/webui_server.py
+COPY application/src/isala_ocr/training/templates /app/src/isala_ocr/training/templates
+COPY application/src/isala_ocr/training/static /app/src/isala_ocr/training/static
+
+RUN mkdir -p /training/workspace /tmp \
+    && chown -R "${APP_UID}:${APP_GID}" /training /tmp
+
+USER ${APP_UID}:${APP_GID}
+
+ENTRYPOINT ["python", "-m", "isala_ocr.training.webui_server"]
+CMD ["--workspace", "/training/workspace", "--host", "0.0.0.0", "--port", "8088"]

@@ -1,0 +1,96 @@
+{
+  "model_id": "isala-rec-20260806T093433Z-1p0000",
+  "activated_at": "2026-08-06T11:21:48.701484+00:00",
+  "path": "/models/active-recognition",
+  "metrics": {
+    "samples": 32,
+    "exact_matches": 32,
+    "exact_match_accuracy": 1.0,
+    "total_edit_distance": 0,
+    "expected_characters": 211,
+    "character_error_rate": 0.0,
+    "per_field": {
+      "lv_cardiac_output": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "lv_ed_volume": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "lv_ed_volume_bsa": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "lv_ed_wall_mass": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "lv_ejection_fraction": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "lv_es_volume": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "lv_es_volume_bsa": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "lv_stroke_volume": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "rv_cardiac_output": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "rv_ed_volume": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "rv_ed_volume_bsa": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "rv_ed_wall_mass": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "rv_ejection_fraction": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "rv_es_volume": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "rv_es_volume_bsa": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      },
+      "rv_stroke_volume": {
+        "samples": 2,
+        "exact_match_accuracy": 1.0,
+        "character_error_rate": 0.0
+      }
+    },
+    "confusion_pairs": []
+  }
+}

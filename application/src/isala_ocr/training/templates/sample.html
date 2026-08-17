@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Waarde beoordelen · {{ sample.field_label }}{% endblock %}
+{% block heading %}Waarde beoordelen{% endblock %}
+{% block subtitle %}{{ sample.field_label }} · beoordeel uitsluitend de exact zichtbare tekst{% endblock %}
+{% block head %}
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+  const label = document.getElementById('exact_label');
+  label.focus();
+  label.select();
+  document.addEventListener('keydown', (event) => {
+    if (event.ctrlKey && event.key === 'Enter') document.getElementById('value-save').click();
+    if (event.altKey && event.key.toLowerCase() === 'g') document.getElementById('value-correct').click();
+    if (event.altKey && event.key.toLowerCase() === 'p') document.getElementById('placeholder').click();
+    if (event.altKey && event.key.toLowerCase() === 'o') document.getElementById('unreadable').click();
+    if (event.altKey && event.key.toLowerCase() === 'l') document.getElementById('no-value').click();
+  });
+});
+</script>
+{% endblock %}
+{% block content %}
+<div class="value-review-detail">
+  <section class="card value-crop-card">
+    <div class="muted">{{ sample.field_label }}</div>
+    <h2 class="mono">{{ sample.field_key }}</h2>
+    <img class="crop value-crop-large" src="/crop/{{ sample.sample_id }}" alt="Waarde-crop" decoding="async">
+    <div class="value-meta stacked">
+      <span>Modeluitvoer: <b class="mono">{{ sample.raw_ocr if sample.raw_ocr|trim else '∅ leeg' }}</b></span>
+      <span>OCR-confidence: {{ '%.1f%%'|format(sample.raw_confidence * 100) }}</span>
+      <span>Bron: <span class="mono">{{ sample.source_id }}</span></span>
+    </div>
+  </section>
+  <section class="card">
+    <form method="post">
+      <input type="hidden" name="status_filter" value="{{ filters.status or '' }}">
+      <input type="hidden" name="field_filter" value="{{ filters.field or '' }}">
+      <input type="hidden" name="min_confidence_filter" value="{{ filters.min_confidence or '' }}">
+      <input type="hidden" name="max_confidence_filter" value="{{ filters.max_confidence or '' }}">
+      <input type="hidden" name="ocr_content_filter" value="{{ filters.ocr_content or 'all' }}">
+      <label>Exact zichtbare tekst
+        <input id="exact_label" name="exact_label" class="mono value-input" value="{{ sample.exact_label if sample.exact_label is not none else sample.raw_ocr }}" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="muted">De tekst wordt letterlijk opgeslagen. Punten, komma's, eenheden, hoofdletters en spaties worden niet aangepast.</p>
+      <label>Opmerking over de waarde
+        <textarea name="notes" rows="3">{{ sample.notes }}</textarea>
+      </label>
+      <h3>Waarde aanwezig</h3>
+      <div class="actions value-actions">
+        <button id="value-correct" name="action" value="value_correct" class="good">Modeluitvoer exact goed (Alt+G)</button>
+        <button id="value-save" name="action" value="value_save" class="primary">Gecorrigeerde tekst opslaan (Ctrl+Enter)</button>
+        <button id="placeholder" name="action" value="placeholder">Zichtbare placeholder (Alt+P)</button>
+      </div>
+      <h3>Geen bruikbare tekstwaarde</h3>
+      <div class="actions value-actions">
+        <button id="no-value" name="action" value="no_value">Geen zichtbare waarde (Alt+L)</button>
+        <button id="unreadable" name="action" value="unreadable" class="warning">Waarde onleesbaar (Alt+O)</button>
+        <button name="action" value="excluded">Waarde uitsluiten</button>
+        <button name="action" value="pending">Terug naar wachtend</button>
+      </div>
+    </form>
+    <p class="muted">Dit scherm bevat uitsluitend de beoordeling van de zichtbare tekstwaarde.</p>
+    <div class="actions detail-navigation">
+      {% set filter_query = 'status=' ~ (filters.status or '') ~ '&field=' ~ (filters.field or '') ~ '&min_confidence=' ~ (filters.min_confidence or '') ~ '&max_confidence=' ~ (filters.max_confidence or '') ~ '&ocr_content=' ~ (filters.ocr_content or 'all') %}
+      {% if previous_id %}<a class="button" href="/sample/{{ previous_id }}?{{ filter_query }}">← Vorige</a>{% endif %}
+      {% if next_id %}<a class="button" href="/sample/{{ next_id }}?{{ filter_query }}">Volgende →</a>{% endif %}
+      <a class="button" href="/review/queue?{{ filter_query }}">Waardewachtrij</a>
+    </div>
+  </section>
+</div>
+{% endblock %}

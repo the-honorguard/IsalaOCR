@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block title %}Mapping geblokkeerd · IsalaOCR{% endblock %}
+{% block heading %}Mapping Studio geblokkeerd{% endblock %}
+{% block subtitle %}Pipeline B start pas nadat cropgeometrie aantoonbaar voldoende is{% endblock %}
+{% block content %}
+<section class="gate-banner gate-banner-closed"><div><span class="gate-kicker">{{ gate.gate_label or 'PIPELINE A CHECK' }}</span><h2>Pipeline A is nog niet afgerond</h2><p>{{ gate.reason }}</p>{% if gate.next_step %}<p><strong>Volgende stap:</strong> {{ gate.next_step }}</p>{% endif %}{% if gate.evaluation_id %}<p class="mono muted">{{ gate.evaluation_id }}</p>{% endif %}</div><a class="button primary" href="{{ '/process/table-quality' if localization_strategy == 'table_first' else '/process/detection-report' }}">Naar geometriekwaliteit</a></section>
+<section class="card section-gap"><h3>Waarom deze blokkade?</h3>{% if localization_strategy == 'table_first' %}<p>Mapping en waarde-OCR mogen geen fouten in cropgeometrie maskeren. In de huidige proef moet PP-Structure eerst aantoonbaar voldoende van de gewenste table-cellen leveren; handmatig toegevoegde cellen laten zien hoeveel fallback nog nodig is.</p><a class="button" href="/detection-review">Tabelcellen reviewen</a>{% else %}<p>Mapping en waarde-OCR mogen geen fouten in cropgeometrie maskeren. Eerst moeten detector en reviewset voldoende precision, recall en IoU halen.</p><a class="button" href="/detection-review">Detection Review Studio</a>{% endif %}</section>
+{% endblock %}

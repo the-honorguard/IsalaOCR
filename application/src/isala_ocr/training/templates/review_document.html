@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Waarden beoordelen · {{ source_id }}{% endblock %}
+{% block heading %}Waarden beoordelen{% endblock %}
+{% block subtitle %}<span class="mono">{{ source_id }}</span> · corrigeer uitsluitend de exact zichtbare tekst{% endblock %}
+{% block content %}
+<form method="post">
+  <div class="toolbar">
+    <div class="actions"><a class="button" href="/review">← Waardenoverzicht</a></div>
+    <div class="actions">
+      <button name="global_action" value="accept_all_ocr">Alle wachtende modelwaarden overnemen</button>
+      <button class="primary">Alle keuzes opslaan</button>
+    </div>
+  </div>
+  <div class="review-grid">
+  {% for s in samples %}
+    <article class="review-card {{ 'high' if s.raw_confidence>=0.98 else 'low' if s.raw_confidence<0.8 else '' }}">
+      <img src="/crop/{{ s.sample_id }}" alt="Waarde-uitsnede van {{ s.field_label }}" loading="lazy" decoding="async">
+      <div class="review-card-body">
+        <div><strong>{{ s.field_label }}</strong><div class="muted mono">{{ s.field_key }}</div></div>
+        <label>Exact zichtbare tekst
+          <input class="mono" name="label_{{ s.sample_id }}" value="{{ s.exact_label if s.exact_label is not none else s.raw_ocr }}" spellcheck="false" autocomplete="off">
+        </label>
+        <label>Waardebeoordeling
+          <select name="status_{{ s.sample_id }}">
+            <option value="keep">Ongewijzigd ({{ s.status }})</option>
+            <option value="accepted">Waarde goed / correctie opslaan</option>
+            <option value="placeholder">Zichtbare placeholder</option>
+            <option value="no_value">Geen zichtbare waarde</option>
+            <option value="unreadable">Waarde onleesbaar</option>
+            <option value="excluded">Waarde uitsluiten</option>
+            <option value="pending">Terug naar wachtend</option>
+          </select>
+        </label>
+        <div class="value-meta"><span>Modeluitvoer: <b class="mono">{{ s.raw_ocr if s.raw_ocr|trim else '∅ leeg' }}</b></span><span>OCR-confidence {{ '%.1f%%'|format(s.raw_confidence*100) }}</span></div>
+      </div>
+    </article>
+  {% endfor %}
+  </div>
+  <div class="actions" style="margin-top:18px;justify-content:flex-end"><button class="primary">Alle keuzes opslaan</button></div>
+</form>
+{% endblock %}

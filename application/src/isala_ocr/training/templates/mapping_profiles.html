@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block title %}Mappingprofielen · IsalaOCR{% endblock %}
+{% block heading %}Mappingprofielen{% endblock %}
+{% block subtitle %}Bevestigde mappings hergebruiken zonder de detector specifiek te maken{% endblock %}
+{% block content %}
+<div class="grid cols-2">
+<section class="card"><h3>Profiel maken uit een gecontroleerde bron</h3><form method="post" class="stack"><input type="hidden" name="profile_action" value="save"><label>Bron<select name="source_id" required>{% for source in sources %}<option value="{{ source.source_id }}">{{ source.source_id }} · {{ source.confirmed_mapping_count or 0 }} bevestigd</option>{% endfor %}</select></label><label>Profiel-ID<input name="profile_id" required placeholder="philips-cmr-volume-v1"></label><label>Naam<input name="name" required placeholder="Philips CMR Volume Results"></label><label>Beschrijving<textarea name="description" rows="3"></textarea></label><button class="primary">Profiel opslaan</button></form></section>
+<section class="card"><h3>Profiel toepassen op een bron</h3><form method="post" class="stack"><input type="hidden" name="profile_action" value="apply"><label>Profiel<select name="profile_id" required>{% for profile in profiles %}<option value="{{ profile.profile_id }}">{{ profile.name }} · {{ profile.rule_count }} regels</option>{% endfor %}</select></label><label>Doelbron<select name="source_id" required>{% for source in sources %}<option value="{{ source.source_id }}">{{ source.source_id }}</option>{% endfor %}</select></label><button class="primary">Mappingvoorstellen maken</button></form><p class="muted">Toepassen maakt alleen voorstellen. De gebruiker bevestigt ze daarna in de Mappingstudio.</p></section>
+</div>
+<section class="card" style="margin-top:18px"><h3>Opgeslagen profielen</h3><div class="table-wrap"><table><tr><th>Profiel</th><th>Regels</th><th>Bron</th><th>Bijgewerkt</th></tr>{% for profile in profiles %}<tr><td><strong>{{ profile.name }}</strong><small class="mono muted">{{ profile.profile_id }}</small><small>{{ profile.description }}</small></td><td>{{ profile.rule_count }}</td><td class="mono">{{ profile.source_id or '—' }}</td><td>{{ profile.updated_at }}</td></tr>{% else %}<tr><td colspan="4">Nog geen mappingprofielen.</td></tr>{% endfor %}</table></div></section>
+{% endblock %}

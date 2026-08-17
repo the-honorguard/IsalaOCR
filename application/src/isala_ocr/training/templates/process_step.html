@@ -1,0 +1,320 @@
+{% extends 'base.html' %}
+{% block title %}{% if step.index %}Stap {{ step.index }} · {% endif %}{{ step.title }} · IsalaOCR{% endblock %}
+{% block heading %}{% if step.index %}Stap {{ step.index }} · {% endif %}{{ step.title }}{% endblock %}
+{% block subtitle %}{{ step.subtitle }}{% endblock %}
+{% block content %}
+{% if step.group == 'value' and not detection_gate.ready %}
+<section class="gate-banner gate-banner-closed">
+  <div><span class="gate-kicker">{{ detection_gate.gate_label or 'PIPELINE A CHECK' }}</span><h2>Pipeline B is vergrendeld</h2><p>{{ detection_gate.reason }}</p><p><strong>Volgende stap:</strong> {{ detection_gate.next_step or 'Rond eerst de cropgeometrie af.' }}</p></div>
+  <a class="button" href="{{ '/process/table-quality' if localization_strategy == 'table_first' else '/process/detection-report' }}">Bekijk geometriekwaliteit</a>
+</section>
+{% elif step.group == 'value' %}
+<section class="gate-banner gate-banner-open"><div><span class="gate-kicker">{{ detection_gate.gate_label or 'PIPELINE A CHECK' }}</span><strong>PASS · Mapping & OCR beschikbaar</strong><p>{{ detection_gate.reason }}</p></div></section>
+{% endif %}
+{% if step.group == 'fallback' %}
+<section class="notice info"><strong>Geparkeerde fallback.</strong> Deze pagina hoort niet bij de huidige table-first hoofdflow. Bestaande box-detectorfunctionaliteit blijft beschikbaar om later alleen de gaten op te vullen als Stap 5 daar aanleiding toe geeft.</section>
+{% endif %}
+
+{% if step.key != 'detection-models' %}
+<div class="process-step-header">
+  <section class="card"><h3>Benodigd</h3>{% if step.requirements %}<ul class="requirements-list">{% for item in step.requirements %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}<p class="muted">Geen aanvullende vereisten.</p>{% endif %}</section>
+  <section class="card"><h3>Uitvoeren</h3>
+    {% if step.key == 'detection-models' %}
+    <div class="process-actions preparation-primary-actions">
+      <form method="post" action="/jobs"><input type="hidden" name="action_id" value="14"><button class="primary"><strong>Table pipeline voorbereiden</strong><span>Inference OCR + PP-Structure modellen downloaden/installeren</span></button></form>
+      <form method="post" action="/jobs"><input type="hidden" name="action_id" value="30"><button><strong>Table modellen downloaden</strong><span>Alleen de lokale inference/table modelcache vullen</span></button></form>
+      <form method="post" action="/jobs"><input type="hidden" name="action_id" value="35"><button><strong>Inference runtime installeren</strong><span>Runtime voor PP-OCRv6 + PP-Structure bouwen</span></button></form>
+      <form method="post" action="/jobs"><input type="hidden" name="action_id" value="42"><button><strong>Table pipeline controleren</strong><span>Offline inference/table runtime valideren</span></button></form>
+      <form method="post" action="/jobs"><input type="hidden" name="action_id" value="19"><button><strong>Status verversen</strong><span>Alleen actuele bestanden/images inventariseren</span></button></form>
+    </div>
+    {% elif step.key == 'detect-candidates' %}
+    <div class="process-actions">
+      {% if panel_state and panel_state.configured %}
+      <form method="post" action="/jobs" class="table-detection-form"><input type="hidden" name="action_id" value="2"><label>Model voor deze detectierun<select name="table_model_id"><option value="generic-ppstructure" {% if not table_model.active_model %}selected{% endif %}>PP-Structure baseline · generiek</option>{% for model in table_model.models or [] %}<option value="{{ model.model_id }}" {% if model.active %}selected{% endif %}>{{ model.model_name or model.model_id }}{% if model.active %} · ACTIEF{% endif %} · {{ model.dataset_id or 'dataset onbekend' }}</option>{% endfor %}</select><small class="muted">De keuze wordt alleen aan deze nieuwe prediction-run gekoppeld; het actieve model verandert niet.</small></label><button class="primary"><strong>Table pipeline per panel uitvoeren</strong><span>{{ panel_state.panel_count }} opgeslagen panel(en) · preprocessing wordt per panel gekozen</span></button></form>
+      {% else %}
+      <button class="primary" disabled title="Niet beschikbaar: er is nog geen panelprofiel. Volgende stap: open Stap 2 en teken minimaal één resultaatpanel."><strong>Table pipeline per panel uitvoeren</strong><span>Niet beschikbaar · panelprofiel ontbreekt</span></button>
+      <a class="button" href="/process/panel-setup">Stap 2 · Panelen instellen</a>
+      {% endif %}
+    </div>
+    {% elif step.key == 'detection-review' %}
+      {% if panel_state and not panel_state.detection_current %}<div class="actions"><button class="primary" disabled title="Niet beschikbaar: de cell-detectie hoort niet bij het actuele panelprofiel. Voer Stap 3 opnieuw uit.">Table Cell Review openen</button><a class="button" href="/process/detect-candidates">Stap 3 opnieuw uitvoeren</a></div>{% else %}<a class="button primary" href="/detection-review">Table Cell Review Studio openen</a>{% endif %}
+    {% elif step.key == 'localization-dataset' %}
+    <div class="process-actions localization-flow-actions">
+      <form method="post" action="/jobs"><input type="hidden" name="action_id" value="5"><button class="primary" {% if localization_preview.totals.ready_sources == 0 %}disabled{% endif %}><strong>1 · Dataset bouwen</strong><span>{{ localization_preview.totals.ready_sources }} afgeronde afbeeldingen meenemen</span></button></form>
+      <form method="post" action="/jobs"><input type="hidden" name="action_id" value="6"><button {% if not localization_dataset %}disabled{% endif %}><strong>2 · Dataset valideren</strong><span>IsalaOCR + PaddleX/PaddleDetection</span></button></form>
+      <form method="post" action="/jobs"><input type="hidden" name="action_id" value="7"><button class="primary" {% if not localization_training_ready %}disabled{% endif %}><strong>3 · GPU trainen</strong><span>PicoDet-S op NVIDIA GPU</span></button></form>
+      <form method="post" action="/jobs"><input type="hidden" name="action_id" value="8"><button {% if not localization_training_ready %}disabled{% endif %}><strong>CPU trainen</strong><span>Langzamer alternatief</span></button></form>
+    </div>
+    {% elif step.key == 'mapping' %}<div class="actions"><a class="button primary {% if not detection_gate.ready %}disabled{% endif %}" href="/mapping"{% if not detection_gate.ready %} title="Niet beschikbaar: {{ detection_gate.reason }} Volgende stap: {{ detection_gate.next_step or ('rond de TABLE-FIRST CHECK af.' if localization_strategy == 'table_first' else 'open Detectiekwaliteit en haal de Detection Gate.') }}"{% endif %}>Mapping Studio openen</a>{% if detection_gate.ready %}<form method="post" action="/jobs"><input type="hidden" name="action_id" value="20"><button>Mappingvoorstellen opnieuw opbouwen</button></form>{% endif %}</div>
+    {% elif step.key == 'value-review' %}<a class="button primary {% if not detection_gate.ready %}disabled{% endif %}" href="/review"{% if not detection_gate.ready %} title="Niet beschikbaar: {{ detection_gate.reason }} Volgende stap: {{ detection_gate.next_step or ('rond de TABLE-FIRST CHECK af.' if localization_strategy == 'table_first' else 'open Detectiekwaliteit en haal de Detection Gate.') }}"{% endif %}>Waardenreview openen</a>
+    {% elif step.key == 'recognition-train' %}<div class="process-actions"><form method="post" action="/jobs"><input type="hidden" name="action_id" value="26"><input type="hidden" name="device" value="gpu"><button class="primary"><strong>GPU</strong> Recognition-model trainen</button></form><form method="post" action="/jobs"><input type="hidden" name="action_id" value="26"><input type="hidden" name="device" value="cpu"><button><strong>CPU</strong> Recognition-model trainen</button></form></div>
+    {% elif actions %}<div class="process-actions">{% for id,name in actions.items() %}<form method="post" action="/jobs"><input type="hidden" name="action_id" value="{{ id }}"><button class="primary" {% if step.group == 'value' and not detection_gate.ready %}disabled title="Niet beschikbaar: {{ detection_gate.reason }} Volgende stap: {{ detection_gate.next_step or ('rond de TABLE-FIRST CHECK af.' if localization_strategy == 'table_first' else 'open Detectiekwaliteit en haal de Detection Gate.') }}"{% endif %}>{{ name }}</button></form>{% endfor %}</div>
+    {% elif step.key == 'system-checks' %}<a class="button primary" href="/jobs/manage">Wachtrij en worker controleren</a>
+    {% elif step.key == 'maintenance' %}<a class="button" href="/jobs/manage">Veilige wachtrijacties</a>
+    {% else %}<p class="muted">Deze stap is interactief; gebruik het bijbehorende scherm.</p>{% endif %}
+  </section>
+</div>
+{% endif %}
+
+{% if step.key == 'detection-models' %}
+{% set inference = preparation.components[0] if preparation.components else none %}
+<div id="preparation-overview">
+  <section class="card preparation-readiness-hero {{ 'ready' if preparation.all_ready else 'incomplete' }}">
+    <div class="preparation-readiness-copy">
+      <span class="eyebrow">TABLE PIPELINE</span>
+      <div class="preparation-readiness-title-row">
+        <h2 data-prep-main-status>{{ 'GEREED' if preparation.all_ready else 'NIET GEREED' }}</h2>
+        <span class="preparation-readiness-icon" data-prep-main-icon>{{ '✓' if preparation.all_ready else '!' }}</span>
+      </div>
+      <p data-prep-main-message>
+        {% if preparation.all_ready %}
+          PP-StructureV3, de OCR-runtime en alle benodigde table/cell-modellen zijn lokaal aanwezig en offline gevalideerd. Je hoeft hier niets meer te installeren.
+        {% elif not inference %}
+          De actuele table-pipeline status kon niet worden bepaald. Controleer de voorbereiding opnieuw.
+        {% elif inference.download.state == 'missing' %}
+          De lokale table/cell-modelcache ontbreekt nog. Download eerst de benodigde PP-Structure/OCR-modellen.
+        {% elif inference.download.state == 'unknown' %}
+          De modelcache is nog niet actueel gecontroleerd. Vernieuw eerst de status.
+        {% elif inference.install.state == 'missing' %}
+          De modellen zijn aanwezig, maar de inference-runtime is nog niet geïnstalleerd of gevalideerd.
+        {% else %}
+          De bestanden lijken aanwezig, maar de offline runtimecheck ontbreekt nog of is verouderd.
+        {% endif %}
+      </p>
+      <div class="preparation-readiness-meta">
+        <span data-prep-counts>Modellen {{ preparation.download_ready_count }}/{{ preparation.component_count }} · Runtime {{ preparation.install_ready_count }}/{{ preparation.component_count }}</span>
+        <span data-prep-checked-at>{% if preparation.status_checked_at %}Laatst gecontroleerd: {{ preparation.status_checked_at }}{% else %}Nog niet gecontroleerd{% endif %}</span>
+      </div>
+    </div>
+
+    <div class="preparation-readiness-action">
+      <a class="button primary preparation-next-step" href="/process/panel-setup" data-prep-ready-action {% if not preparation.all_ready %}hidden{% endif %}>
+        Ga naar Stap 2 · Panelen instellen
+      </a>
+      <form method="post" action="/jobs" data-prep-repair-action {% if preparation.all_ready %}hidden{% endif %}>
+        <input type="hidden" name="action_id" data-prep-repair-action-id value="{% if not inference or inference.download.state == 'unknown' %}19{% elif inference.download.state == 'missing' %}30{% elif inference.install.state == 'missing' %}35{% else %}42{% endif %}">
+        <button class="primary preparation-repair-button">
+          <strong data-prep-repair-title>{% if not inference or inference.download.state == 'unknown' %}Status opnieuw controleren{% elif inference.download.state == 'missing' %}Table modellen downloaden{% elif inference.install.state == 'missing' %}Inference runtime installeren{% else %}Table pipeline controleren{% endif %}</strong>
+          <span data-prep-repair-detail>{% if not inference or inference.download.state == 'unknown' %}Bepaal opnieuw wat lokaal aanwezig is{% elif inference.download.state == 'missing' %}Vul de lokale PP-Structure/OCR modelcache{% elif inference.install.state == 'missing' %}Bouw de PP-OCRv6 + PP-Structure runtime{% else %}Voer de offline runtime-validatie uit{% endif %}</span>
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <div class="notice warning section-gap" data-prep-warning {% if not preparation.unknown_count %}hidden{% endif %}>{{ preparation.unknown_count }} controle(s) zijn niet actueel. Vernieuw de status voordat je verdergaat.</div>
+
+  <section class="card section-gap panel-definition-setup" id="panel-name-setup">
+    <div class="toolbar">
+      <div>
+        <span class="eyebrow">EENMALIGE PROJECTSETUP</span>
+        <h3>Welke tabelpanelen gebruikt dit project?</h3>
+        <p class="muted">Voer de namen hier één keer in. Stap 2 gebruikt daarna precies deze namen bij het tekenen en snappen; je hoeft ze daar niet opnieuw te typen.</p>
+      </div>
+      <span class="pill" id="panel-definition-count">{{ panel_state.definition_count or 0 }} panel(en)</span>
+    </div>
+    <div id="panel-definition-list" class="panel-definition-list"></div>
+    <div class="actions">
+      <button type="button" id="panel-definition-add">+ Panelnaam</button>
+      <button type="button" id="panel-definition-cmr">CMR LV/RV standaardnamen</button>
+      <button type="button" id="panel-definition-save" class="primary">Panelnamen opslaan</button>
+    </div>
+    <div id="panel-definition-message" class="inline-status"></div>
+    {% if panel_state.panel_count %}<p class="muted compact">Er zijn al {{ panel_state.panel_count }} kader(s) ingesteld. Alleen een naamswijziging behoudt de geometrie; verwijder je een panelnaam, dan wordt het bijbehorende kader ook uit het profiel verwijderd.</p>{% endif %}
+  </section>
+
+  <script>
+  (()=>{
+    const list=document.getElementById('panel-definition-list'), count=document.getElementById('panel-definition-count'), msg=document.getElementById('panel-definition-message');
+    const addBtn=document.getElementById('panel-definition-add'), cmrBtn=document.getElementById('panel-definition-cmr'), saveBtn=document.getElementById('panel-definition-save');
+    let definitions={{ (panel_state.profile.definitions or [])|tojson }}.map((item,i)=>({panel_id:item.panel_id||'',name:item.name||`Panel ${i+1}`}));
+    function escapeHtml(v){const d=document.createElement('div');d.textContent=String(v);return d.innerHTML}
+    function escapeAttr(v){return escapeHtml(v).replace(/\"/g,'&quot;')}
+    function render(){
+      list.innerHTML='';count.textContent=`${definitions.length} panel(en)`;
+      definitions.forEach((item,i)=>{
+        const row=document.createElement('div');row.className='panel-definition-row';
+        row.innerHTML=`<span class="panel-definition-number">${i+1}</span><label>Panelnaam<input type="text" value="${escapeAttr(item.name)}" placeholder="Bijv. Left ventricle Volume Result"></label><button type="button" class="small-button" data-remove>Verwijder</button>`;
+        row.querySelector('input').addEventListener('input',e=>{definitions[i].name=e.target.value});
+        row.querySelector('[data-remove]').addEventListener('click',()=>{definitions.splice(i,1);render()});
+        list.appendChild(row);
+      });
+      if(!definitions.length){const note=document.createElement('div');note.className='notice info';note.textContent='Nog geen panelnamen ingesteld. Voor dit CMR-project zijn meestal twee panelen voldoende: LV en RV Volume Result.';list.appendChild(note)}
+    }
+    addBtn.addEventListener('click',()=>{definitions.push({panel_id:'',name:`Panel ${definitions.length+1}`});render();list.querySelectorAll('input')[definitions.length-1]?.focus()});
+    cmrBtn.addEventListener('click',()=>{
+      const existingByName=new Set(definitions.map(x=>String(x.name||'').toLowerCase()));
+      const defaults=['Left ventricle Volume Result','Right ventricle Volume Result'];
+      defaults.forEach(name=>{if(!existingByName.has(name.toLowerCase()))definitions.push({panel_id:'',name})});render();
+    });
+    saveBtn.addEventListener('click',async()=>{
+      const clean=definitions.map(x=>({panel_id:x.panel_id||'',name:String(x.name||'').trim()})).filter(x=>x.name);
+      if(!clean.length){msg.textContent='Voer minimaal één panelnaam in.';msg.className='inline-status error';return}
+      msg.textContent='Panelnamen opslaan…';msg.className='inline-status';
+      try{
+        const res=await fetch('/api/table-panel-definitions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({definitions:clean})});
+        const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);
+        definitions=data.profile.definitions||clean;msg.textContent=data.message;msg.className='inline-status ok';render();
+      }catch(err){msg.textContent=err.message||String(err);msg.className='inline-status error'}
+    });
+    render();
+  })();
+  </script>
+  <style>
+  .panel-definition-list{display:flex;flex-direction:column;gap:8px;margin:14px 0}.panel-definition-row{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:end}.panel-definition-row label{display:block}.panel-definition-row input{display:block;width:100%;margin-top:4px}.panel-definition-number{display:grid;place-items:center;height:38px;border:1px solid var(--border);border-radius:8px;color:var(--muted)}@media(max-width:700px){.panel-definition-row{grid-template-columns:30px minmax(0,1fr)}.panel-definition-row button{grid-column:2}}
+  </style>
+
+  <details class="card section-gap preparation-maintenance">
+    <summary>Onderhoud / opnieuw installeren</summary>
+    <div class="preparation-maintenance-body">
+      <p class="muted">Deze acties zijn normaal niet nodig wanneer hierboven <strong>TABLE PIPELINE · GEREED</strong> staat. Gebruik ze alleen om status opnieuw te controleren, modellen opnieuw te downloaden of de runtime opnieuw te bouwen.</p>
+      <div class="process-actions preparation-primary-actions preparation-maintenance-actions">
+        <form method="post" action="/jobs"><input type="hidden" name="action_id" value="19"><button><strong>Status verversen</strong><span>Actuele bestanden en Docker-images inventariseren</span></button></form>
+        <form method="post" action="/jobs"><input type="hidden" name="action_id" value="30"><button><strong>Table modellen downloaden</strong><span>Alleen de lokale inference/table modelcache vullen</span></button></form>
+        <form method="post" action="/jobs"><input type="hidden" name="action_id" value="35"><button><strong>Inference runtime installeren</strong><span>Runtime voor PP-OCRv6 + PP-Structure bouwen</span></button></form>
+        <form method="post" action="/jobs"><input type="hidden" name="action_id" value="42"><button><strong>Table pipeline controleren</strong><span>Offline inference/table runtime valideren</span></button></form>
+        <form method="post" action="/jobs"><input type="hidden" name="action_id" value="14"><button><strong>Volledig proces</strong><span>Download → install → check</span></button></form>
+      </div>
+
+      <div class="preparation-summary-toolbar preparation-technical-summary">
+        <div>
+          <h3>Technische status</h3>
+          <p class="muted">Detailinformatie voor troubleshooting; niet nodig voor de normale table-first workflow.</p>
+        </div>
+        <div class="preparation-summary">
+          <span class="preparation-big-status {{ 'ready' if preparation.all_ready else 'incomplete' }}" data-prep-summary>{{ '✓ GEREED' if preparation.all_ready else preparation.ready_count ~ '/' ~ preparation.component_count ~ ' GEREED' }}</span>
+        </div>
+      </div>
+
+      <div class="table-wrap preparation-table-wrap">
+        <table class="preparation-table preparation-phase-table">
+          <thead><tr><th>Onderdeel</th><th>Files / bron</th><th>Download</th><th>Downloadcheck</th><th>Install / build</th><th>Installatiecheck</th><th>Volledig</th></tr></thead>
+          <tbody>
+          {% for item in preparation.components %}
+          <tr class="preparation-row {{ 'ready' if item.ready else 'missing' }}" data-prep-component="{{ item.key }}">
+            <td><strong>{{ item.title }}</strong><p class="muted compact">{{ item.description }}</p></td>
+            <td><ul class="expected-artifacts">{% for file in item.files %}<li class="mono wrap-anywhere">{{ file }}</li>{% endfor %}</ul></td>
+            <td><form method="post" action="/jobs"><input type="hidden" name="action_id" value="{{ item.download_action_id }}"><button {% if item.download.ready %}class="secondary"{% else %}class="primary"{% endif %}>Download</button></form></td>
+            <td class="phase-status-cell" data-prep-phase="download">
+              <span class="prep-check {{ item.download.state }}">{{ '✓' if item.download.state == 'ready' else '×' if item.download.state == 'missing' else '?' }}</span>
+              <strong>{{ 'Aanwezig' if item.download.state == 'ready' else 'Ontbreekt' if item.download.state == 'missing' else 'Onbekend' }}</strong>
+              <p class="muted compact">{{ item.download.detail }}</p>
+              <form method="post" action="/jobs" class="inline-check"><input type="hidden" name="action_id" value="19"><button class="small-button">Check</button></form>
+            </td>
+            <td><form method="post" action="/jobs"><input type="hidden" name="action_id" value="{{ item.install_action_id }}"><button {% if item.install.ready %}class="secondary"{% else %}class="primary"{% endif %}>Install / build</button></form></td>
+            <td class="phase-status-cell" data-prep-phase="install">
+              <span class="prep-check {{ item.install.state }}">{{ '✓' if item.install.state == 'ready' else '×' if item.install.state == 'missing' else '?' }}</span>
+              <strong>{{ 'Gevalideerd' if item.install.state == 'ready' else 'Ontbreekt' if item.install.state == 'missing' else 'Niet gecontroleerd' }}</strong>
+              <p class="muted compact">{{ item.install.detail }}</p>
+              <form method="post" action="/jobs" class="inline-check"><input type="hidden" name="action_id" value="{{ item.check_action_id }}"><button class="small-button">Check</button></form>
+            </td>
+            <td><form method="post" action="/jobs"><input type="hidden" name="action_id" value="{{ item.full_action_id }}"><button class="full-process-button"><strong>Volledig proces</strong><span>Download → install → check</span></button></form></td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="preparation-maintenance-meta">
+        <span><strong>{{ preparation.model_file_count }}</strong> modelbestanden in cache</span>
+        <span>Table-first gebruikt alleen bovenstaande inference/table-component.</span>
+      </div>
+    </div>
+  </details>
+
+  <section class="card section-gap preparation-boundary-note">
+    <h3>Pipelinegrens</h3>
+    <p>Alle externe downloads en runtime-builds horen in Stap 1. Vanaf Stap 2 werkt de table-pipeline met de lokaal voorbereide componenten en downloadt niets stilzwijgend bij.</p>
+  </section>
+</div>
+
+{% elif step.key == 'detect-candidates' %}
+<div class="grid cols-4 section-gap"><section class="card"><span class="muted">Bronnen</span><div class="metric">{{ detection_sources|length }}</div></section><section class="card"><span class="muted">Kandidaten</span><div class="metric">{{ detection_reviews.candidate_total }}</div></section><section class="card"><span class="muted">Te reviewen</span><div class="metric warn">{{ detection_reviews.pending }}</div></section><section class="card"><span class="muted">Ground truth</span><div class="metric ok">{{ detection_reviews.positive }}</div></section></div>
+<section class="card section-gap"><h3>Table-first modus</h3><p class="muted">PP-StructureV3 draait in deze fase afzonderlijk binnen ieder door jou opgeslagen panel. Elk panel kiest zijn eigen beste preprocessing-variant. OCR-tekstgeometrie en een eventueel actief PicoDet/field-model worden <strong>niet</strong> in de kandidaten gemengd.</p></section>
+
+{% elif step.key == 'detection-review' %}
+<div class="grid cols-4 section-gap"><section class="card"><span class="muted">Celgeometrie correct</span><div class="metric ok">{{ detection_reviews.correct }}</div></section><section class="card"><span class="muted">Aangepast</span><div class="metric">{{ detection_reviews.adjusted }}</div></section><section class="card"><span class="muted">Detectiefout</span><div class="metric bad">{{ detection_reviews.rejected }}</div></section><section class="card"><span class="muted">Niet relevant</span><div class="metric">{{ detection_reviews.irrelevant }}</div></section></div><div class="grid cols-3 section-gap"><section class="card"><span class="muted">Positieve GT</span><div class="metric ok">{{ detection_reviews.positive }}</div></section><section class="card"><span class="muted">Ignore-regio's</span><div class="metric">{{ detection_reviews.ignored }}</div></section><section class="card"><span class="muted">Ontbrekend toegevoegd</span><div class="metric">{{ detection_reviews.added }}</div></section></div>
+{% if detection_sources %}<section class="card section-gap"><div class="toolbar"><div><h3>Bronnen</h3><p class="muted">Review de geometrie per volledige bronafbeelding.</p></div><a class="button primary" href="/detection-review">Open studio</a></div><div class="table-wrap"><table><tr><th>Bron</th><th>Kandidaten</th><th>Pending</th><th></th></tr>{% for src in detection_sources %}{% set c = namespace(v=0) %}<tr><td class="mono">{{ src.source_id }}</td><td>{{ src.block_count }}</td><td>—</td><td><a class="button" href="/detection-review/{{ src.source_id }}">Review</a></td></tr>{% endfor %}</table></div></section>{% endif %}
+
+{% elif step.key == 'localization-dataset' %}
+<section class="card section-gap dataset-preview-summary">
+  <div class="toolbar"><div><span class="eyebrow">DATASET PREVIEW</span><h3>Dit gaat daadwerkelijk de detector-training in</h3><p class="muted">Alleen afbeeldingen met <strong>✓ Afbeelding klaar</strong> zijn eligible. Een niet-afgeronde afbeelding wordt volledig uitgesloten, ook als sommige ROI's al beoordeeld zijn.</p></div><a class="button" href="/detection-review">Detection Review openen</a></div>
+  <div class="grid cols-4">
+    <div><span class="muted">Afbeeldingen totaal</span><div class="metric">{{ localization_preview.totals.sources }}</div></div>
+    <div><span class="muted">Worden meegenomen</span><div class="metric ok">{{ localization_preview.totals.ready_sources }}</div></div>
+    <div><span class="muted">Uitgesloten</span><div class="metric warn">{{ localization_preview.totals.excluded_sources }}</div></div>
+    <div><span class="muted">Positieve ROI's</span><div class="metric">{{ localization_preview.totals.positive_rois }}</div></div>
+  </div>
+  <div class="dataset-preview-secondary">
+    <span><strong>{{ localization_preview.totals.negative_rois }}</strong> niet relevant / incorrect</span>
+    <span><strong>{{ localization_preview.totals.adjusted_rois }}</strong> aangepaste kaders</span>
+    <span><strong>{{ localization_preview.totals.added_rois }}</strong> handmatig toegevoegd</span>
+    <span><strong>{{ localization_preview.totals.pending_rois }}</strong> open ROI's op alle bronnen</span>
+    <span>Split: <strong>{{ localization_preview.splits.train }}</strong> train · <strong>{{ localization_preview.splits.val }}</strong> val · <strong>{{ localization_preview.splits.test }}</strong> test</span>
+  </div>
+  {% for warning in localization_preview.split_plan.warnings %}<div class="notice warning">{{ warning }}</div>{% endfor %}
+  {% if localization_preview.split_pending %}<div class="notice warning"><strong>Split gewijzigd.</strong> Bouw de dataset opnieuw en valideer hem daarna op deze pagina voordat detector-training weer beschikbaar is.</div>{% endif %}
+  {% if localization_preview.totals.ready_sources == 0 %}<div class="notice warning">Nog geen afbeelding is afgerond. De dataset kan daarom nog niet gebouwd worden.</div>{% endif %}
+</section>
+
+<form method="post" action="/process/localization-dataset" class="dataset-split-form">
+<section class="card section-gap dataset-split-card">
+  <div class="toolbar dataset-split-toolbar">
+    <div><span class="eyebrow">TRAIN / VALIDATION / TEST</span><h3>Verdeling sturen</h3><p class="muted">Deze verdeling wordt gebruikt bij de volgende dataset-build en bij de detector-evaluatie.</p></div>
+    <div class="actions"><button type="submit" name="split_action" value="auto" class="ghost">Veilige auto herstellen</button><button type="submit" name="split_action" value="save" class="primary">Verdeling opslaan</button></div>
+  </div>
+  <div class="dataset-split-controls">
+    <label>Train<input type="number" min="0" name="split_train" value="{{ localization_preview.split_plan.targets.train }}"></label>
+    <label>Validation<input type="number" min="0" name="split_val" value="{{ localization_preview.split_plan.targets.val }}"></label>
+    <label>Test<input type="number" min="0" name="split_test" value="{{ localization_preview.split_plan.targets.test }}"></label>
+    <div class="dataset-split-total"><span class="muted">Totaal afgerond</span><strong>{{ localization_preview.totals.ready_sources }}</strong><small>Train + val + test moet exact dit aantal zijn.</small></div>
+  </div>
+  <p class="muted compact">Veilige auto reserveert bij minimaal 8 afgeronde bronnen minstens <strong>2 validation</strong> en <strong>3 test</strong> afbeeldingen. Met {{ localization_preview.totals.ready_sources }} bronnen is de automatische verdeling <strong>{{ localization_preview.split_plan.auto_targets.train }}/{{ localization_preview.split_plan.auto_targets.val }}/{{ localization_preview.split_plan.auto_targets.test }}</strong>.</p>
+  <p class="muted compact">Per bron kun je hieronder een split vastzetten. <strong>Auto</strong> laat de bron door de deterministische verdeler plaatsen. Handmatige overrides veranderen niet bij opnieuw bouwen zolang de bronset gelijk blijft.</p>
+</section>
+
+<section class="card section-gap">
+  <div class="toolbar"><div><h3>Bronnen in dataset</h3><p class="muted">De preview en COCO-builder gebruiken exact dezelfde splitconfiguratie. Handmatige keuzes zijn gemarkeerd.</p></div><button type="submit" name="split_action" value="save">Splits opslaan</button></div>
+  <div class="table-wrap"><table class="dataset-preview-table"><thead><tr><th>Meenemen</th><th>Bron</th><th>Split</th><th>ROI's</th><th>Included</th><th>Niet relevant / incorrect</th><th>Aangepast</th><th>Open</th><th></th></tr></thead><tbody>
+  {% for src in localization_preview.sources %}<tr class="{{ 'dataset-source-included' if src.included else 'dataset-source-excluded' }}"><td>{% if src.included %}<span class="source-complete-mark">✓ Ja</span>{% else %}<span class="muted">— Nee</span>{% endif %}</td><td class="mono">{{ src.source_id }}</td><td>{% if src.included %}<input type="hidden" name="split_source_id" value="{{ src.source_id }}"><select name="split_choice" class="dataset-source-split {{ 'manual' if src.split_override else 'auto' }}" aria-label="Split voor {{ src.source_id }}"><option value="" {% if not src.split_override %}selected{% endif %}>Auto → {{ src.split }}</option><option value="train" {% if src.split_override == 'train' %}selected{% endif %}>Train</option><option value="val" {% if src.split_override == 'val' %}selected{% endif %}>Validation</option><option value="test" {% if src.split_override == 'test' %}selected{% endif %}>Test</option></select>{% if src.split_override %}<small class="split-manual-label">handmatig</small>{% endif %}{% else %}—{% endif %}</td><td>{{ src.candidate_total }}</td><td class="ok">{{ src.positive }}</td><td>{{ src.negative }}</td><td>{{ src.adjusted }}</td><td class="{{ 'warn' if src.pending else '' }}">{{ src.pending }}</td><td><a class="button" href="/detection-review/{{ src.source_id }}">Bekijken</a></td></tr>{% else %}<tr><td colspan="9">Nog geen gedetecteerde bronbeelden.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+</form>
+<section class="card section-gap" id="localization-dataset-summary"><h3>1 · Laatste localization-dataset</h3>{% if localization_dataset %}<div class="grid cols-4"><div><span class="muted">Dataset</span><strong class="mono wrap-anywhere" data-localization-dataset-id>{{ localization_dataset.dataset_id }}</strong></div><div><span class="muted">Beelden</span><div class="metric">{{ localization_dataset.image_count }}</div></div><div><span class="muted">Positieve boxes</span><div class="metric">{{ localization_dataset.annotation_count }}</div></div><div><span class="muted">Negatieve beelden</span><div class="metric">{{ localization_dataset.negative_image_count }}</div></div></div>{% if localization_dataset.splits %}<p class="muted compact">Gebouwd met <strong>{{ localization_dataset.splits.train.images }}</strong> train · <strong>{{ localization_dataset.splits.val.images }}</strong> val · <strong>{{ localization_dataset.splits.test.images }}</strong> test.</p>{% endif %}{% else %}<p class="muted">Nog geen COCO-localization-dataset gebouwd.</p>{% endif %}</section>
+
+<section class="card section-gap localization-validation-card">
+  <div class="toolbar"><div><h3>Dataset valideren</h3><p class="muted">Valideer de huidige dataset voordat je een training start.</p></div><form method="post" action="/jobs"><input type="hidden" name="action_id" value="6"><button id="localization-validate-button" class="primary" {% if not localization_dataset %}disabled{% endif %}>Opnieuw valideren</button></form></div>
+  {% if localization_dataset %}<div class="localization-current-dataset"><span class="muted">Huidige dataset</span><strong class="mono wrap-anywhere" data-localization-dataset-id>{{ localization_dataset.dataset_id }}</strong>{% if localization_training_ready_marker %}<small id="localization-validated-at">Laatste volledige validatie: {{ localization_training_ready_marker.validated_at or 'onbekend' }}</small>{% else %}<small id="localization-validated-at">Nog geen canonieke training-ready marker voor deze dataset.</small>{% endif %}</div>{% endif %}
+  <div class="localization-check-grid">
+    <div id="localization-check-app" class="localization-check {{ 'ready' if localization_app_valid else 'missing' }}"><span>{{ '✓' if localization_app_valid else '×' }}</span><div><strong>IsalaOCR</strong><small>{{ 'Datasetstructuur en bounding boxes geldig' if localization_app_valid else 'Nog niet geldig/gevalideerd' }}</small></div></div>
+    <div id="localization-check-paddlex" class="localization-check {{ 'ready' if localization_paddlex_valid else 'missing' }}"><span>{{ '✓' if localization_paddlex_valid else '×' }}</span><div><strong>PaddleX</strong><small>{{ 'PaddleDetection accepteert de COCO-dataset' if localization_paddlex_valid else 'Nog niet geldig/gevalideerd' }}</small></div></div>
+    <div id="localization-check-split" class="localization-check {{ 'ready' if localization_split_current else 'missing' }}"><span>{{ '✓' if localization_split_current else '×' }}</span><div><strong>Split actueel</strong><small>{{ 'Dataset gebruikt de huidige train/val/test-indeling' if localization_split_current else 'Split gewijzigd of oude dataset; opnieuw bouwen' }}</small></div></div>
+    <div id="localization-check-marker" class="localization-check {{ 'ready' if localization_ready_marker_valid else 'legacy' }}"><span>{{ '✓' if localization_ready_marker_valid else '•' }}</span><div><strong>Trainingsstatus</strong><small>{{ 'Dataset is klaar voor training' if localization_ready_marker_valid else 'Valideer de dataset opnieuw' }}</small></div></div>
+  </div>
+  {% if localization_validation %}<p class="muted compact">{{ localization_validation.totals.images }} beelden · {{ localization_validation.totals.annotations }} positieve annotations · {{ localization_validation.totals.ignored_annotations or 0 }} ignore-regio's</p>{% for warning in localization_validation.warnings %}<div class="notice warning">{{ warning }}</div>{% endfor %}{% for error in localization_validation.errors %}<div class="notice error">{{ error }}</div>{% endfor %}{% else %}<p class="muted">Nog geen IsalaOCR-validatierapport.</p>{% endif %}
+</section>
+
+<section class="card section-gap localization-train-card" id="localization-train-card">
+  <div class="toolbar"><div><h3>Detector trainen</h3><p class="muted" id="localization-train-copy">{{ 'Dataset is trainingsklaar.' if localization_training_ready else 'Eerst dataset bouwen en alle validaties groen krijgen.' }}</p></div><span id="localization-train-pill" class="pill {{ 'ok' if localization_training_ready else 'warn' }}">{{ 'KLAAR' if localization_training_ready else 'NIET KLAAR' }}</span></div>
+  <div class="actions"><form method="post" action="/jobs"><input type="hidden" name="action_id" value="7"><button id="localization-train-gpu" class="primary" {% if not localization_training_ready %}disabled{% endif %}>NVIDIA GPU trainen</button></form><form method="post" action="/jobs"><input type="hidden" name="action_id" value="8"><button id="localization-train-cpu" {% if not localization_training_ready %}disabled{% endif %}>CPU trainen</button></form></div>
+  <div class="table-wrap section-gap"><table><tr><th>Model</th><th>Dataset</th><th>Device</th><th>Status</th></tr>{% for m in localization_models %}<tr><td class="mono">{{ m.model_id }}</td><td>{{ m.dataset_id }}</td><td>{{ m.device }}</td><td>{{ m.status }}</td></tr>{% else %}<tr><td colspan="4">Nog geen getrainde field detector geregistreerd.</td></tr>{% endfor %}</table></div>
+</section>
+
+{% elif step.key in ['localization-evaluate','localization-compare','detection-report','localization-register','redetect'] %}
+<section class="card section-gap"><div class="toolbar"><div><h3>Detection Gate</h3></div><span class="pill {{ 'ok' if detection_gate.ready else 'bad' }}">{{ 'PASS' if detection_gate.ready else 'FAIL / NOG NIET' }}</span></div><p>{{ detection_gate.reason }}</p>{% if detection_gate.evaluation_id %}<p class="mono muted">{{ detection_gate.evaluation_id }}</p>{% endif %}</section>
+<div class="grid cols-2 section-gap"><section class="card"><h3>Baseline</h3>{% if localization_baseline %}{% set m=localization_baseline.metrics %}<div class="metric-row"><span>Precision</span><strong>{{ '%.1f%%'|format(m.precision*100) }}</strong></div><div class="metric-row"><span>Recall @ IoU {{ m.iou_threshold }}</span><strong>{{ '%.1f%%'|format(m.recall*100) }}</strong></div><div class="metric-row"><span>Gem. IoU</span><strong>{{ '%.3f'|format(m.mean_iou) }}</strong></div><div class="metric-row"><span>Direct akkoord</span><strong>{{ '%.1f%%'|format(m.auto_accept_rate*100) }}</strong></div><div class="metric-row"><span>FP / beeld</span><strong>{{ '%.2f'|format(m.false_positives_per_image) }}</strong></div>{% else %}<p class="muted">Nog geen baseline.</p>{% endif %}</section><section class="card"><h3>Getraind model</h3>{% if localization_trained %}{% set m=localization_trained.metrics %}<div class="metric-row"><span>Precision</span><strong>{{ '%.1f%%'|format(m.precision*100) }}</strong></div><div class="metric-row"><span>Recall @ IoU {{ m.iou_threshold }}</span><strong>{{ '%.1f%%'|format(m.recall*100) }}</strong></div><div class="metric-row"><span>Gem. IoU</span><strong>{{ '%.3f'|format(m.mean_iou) }}</strong></div><div class="metric-row"><span>Direct akkoord</span><strong>{{ '%.1f%%'|format(m.auto_accept_rate*100) }}</strong></div><div class="metric-row"><span>FP / beeld</span><strong>{{ '%.2f'|format(m.false_positives_per_image) }}</strong></div>{% else %}<p class="muted">Nog geen getrainde evaluatie.</p>{% endif %}</section></div>
+{% if active_localization_model %}<section class="card section-gap"><span class="pill ok">Actieve field detector</span><h3 class="mono">{{ active_localization_model.model_id }}</h3><p class="muted">{{ active_localization_model.path }}</p></section>{% endif %}
+
+{% elif step.key == 'mapping' %}
+<section class="card section-gap"><div class="toolbar"><div><h3>Functionele mapping</h3><p class="muted">Semantische label/value-logica start pas na de detectiepoort. Pipeline A heeft deze betekenis bewust niet gebruikt.</p></div><div class="actions"><a class="button" href="/field-schema">Veldschema</a><a class="button" href="/mapping-profiles">Profielen</a></div></div><div class="grid cols-3"><div><span class="muted">Relaties</span><div class="metric">{{ mapping.relations }}</div></div><div><span class="muted">Voorgesteld</span><div class="metric warn">{{ mapping.suggested }}</div></div><div><span class="muted">Bevestigd</span><div class="metric ok">{{ mapping.confirmed }}</div></div></div></section>
+
+{% elif step.key in ['apply-mapping','value-extract'] %}
+<div class="grid cols-3 section-gap"><section class="card"><span class="muted">Definitieve crops</span><div class="metric">{{ mapped.total }}</div></section><section class="card"><span class="muted">ROI correct</span><div class="metric ok">{{ mapped.roi_correct }}</div></section><section class="card"><span class="muted">Uitgelezen</span><div class="metric">{{ mapped.recognized }}</div></section></div>
+
+{% elif step.key == 'value-review' %}
+<div class="grid cols-3 section-gap"><section class="card"><span class="muted">Waarden</span><div class="metric">{{ value.total }}</div></section><section class="card"><span class="muted">Open</span><div class="metric warn">{{ value.pending }}</div></section><section class="card"><span class="muted">Goedgekeurd</span><div class="metric ok">{{ value.accepted }}</div></section></div>
+
+{% elif step.key in ['recognition-dataset','recognition-validate','recognition-train','recognition-evaluate','recognition-models'] %}
+<section class="card section-gap"><h3>Recognition is Pipeline B</h3><p class="muted">Deze dataset en modellen leren uitsluitend <strong>wat er binnen een reeds correcte crop staat</strong>. Ze veranderen geen bounding boxes.</p>{% if dataset %}<p>Laatste dataset: <span class="mono">{{ dataset.id or dataset.dataset_id }}</span></p>{% endif %}{% if active %}<p>Actief model: <span class="mono">{{ active.model_id }}</span></p>{% endif %}</section>
+{% endif %}
+
+{% endblock %}
+{% block scripts %}{% if step.key == 'detection-models' %}<script src="{{ url_for('static', filename='preparation-page.js', v=app_version) }}"></script>{% endif %}{% endblock %}

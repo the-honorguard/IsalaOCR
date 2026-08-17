@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Detectieweergave · IsalaOCR{% endblock %}
+{% block heading %}Detectieweergave{% endblock %}
+{% block subtitle %}Neutrale OCR-blokken en mogelijke label-waarderelaties, zonder functionele mapping{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="toolbar"><div><h3>Gedetecteerde bronnen</h3><p class="muted">Kies een bron om alle gevonden tekst, waarden en relaties visueel te controleren.</p></div><a class="button" href="/process/detect">← Velden detecteren</a></div>
+  <div class="table-wrap"><table>
+    <tr><th>Bron-ID</th><th>OCR-tokens</th><th>Blokken</th><th>Relaties</th><th>Voorgesteld</th><th>Bevestigd</th><th></th></tr>
+    {% for source in sources %}
+    <tr><td class="mono">{{ source.source_id }}</td><td>{{ source.token_count }}</td><td>{{ source.block_count }}</td><td>{{ source.relation_count }}</td><td class="warn">{{ source.suggested_mapping_count or 0 }}</td><td class="ok">{{ source.confirmed_mapping_count or 0 }}</td><td><a class="button primary" href="/detections/{{ source.source_id }}">Openen</a></td></tr>
+    {% else %}<tr><td colspan="7">Nog geen generieke detectie beschikbaar.</td></tr>{% endfor %}
+  </table></div>
+</section>
+{% endblock %}

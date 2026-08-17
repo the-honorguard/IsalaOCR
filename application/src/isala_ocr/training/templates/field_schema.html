@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Veldschema · IsalaOCR{% endblock %}
+{% block heading %}Veldschema{% endblock %}
+{% block subtitle %}Functionele outputvelden beheren, los van detectie en schermlayout{% endblock %}
+{% block content %}
+<section class="card">
+  <h3>Nieuw of bestaand veld opslaan</h3>
+  <form method="post" class="schema-form"><input type="hidden" name="schema_action" value="save">
+    <label>Veldsleutel<input name="field_key" required placeholder="bijv. cardiac.lv.ed_volume"></label>
+    <label>Weergavenaam<input name="display_name" required placeholder="Left ventricle ED Volume"></label>
+    <label>Groep<input name="group_name" placeholder="Left ventricle"></label>
+    <label>Datatype<select name="data_type">{% for item in data_types %}<option value="{{ item }}">{{ item }}</option>{% endfor %}</select></label>
+    <label>Voorkeurseenheid<input name="preferred_unit" placeholder="ml"></label>
+    <label>Minimum<input name="minimum_value" inputmode="decimal"></label>
+    <label>Maximum<input name="maximum_value" inputmode="decimal"></label>
+    <label class="schema-aliases">Aliassen<textarea name="aliases" rows="3" placeholder="ED Volume, ED-volume, ED volume"></textarea></label>
+    <label class="inline-check"><input type="checkbox" name="required" value="1"> Verplicht veld</label>
+    <button class="primary">Veld opslaan</button>
+  </form>
+</section>
+<section class="card" style="margin-top:18px">
+  <div class="toolbar"><div><h3>{{ fields|length }} velden</h3><p class="muted">Ingebouwde velden zijn startdata; ze kunnen worden uitgebreid en gedeactiveerd. Detectie blijft generiek.</p></div><a class="button" href="/mapping">Naar Mappingstudio</a></div>
+  <div class="table-wrap"><table><tr><th>Groep</th><th>Naam / sleutel</th><th>Type</th><th>Eenheid</th><th>Aliassen</th><th>Bereik</th><th>Status</th></tr>{% for field in fields %}<tr class="{% if not field.active %}muted-row{% endif %}"><td>{{ field.group_name or '—' }}</td><td><strong>{{ field.display_name }}</strong><small class="mono muted">{{ field.field_key }}</small></td><td>{{ field.data_type }}</td><td>{{ field.preferred_unit or '—' }}</td><td>{{ field.aliases|join(', ') or '—' }}</td><td>{{ field.minimum_value if field.minimum_value is not none else '—' }} … {{ field.maximum_value if field.maximum_value is not none else '—' }}</td><td><form method="post"><input type="hidden" name="schema_action" value="toggle"><input type="hidden" name="field_key" value="{{ field.field_key }}"><input type="hidden" name="active" value="{{ 0 if field.active else 1 }}"><button class="ghost">{{ 'Actief' if field.active else 'Inactief' }}</button></form></td></tr>{% endfor %}</table></div>
+</section>
+{% endblock %}

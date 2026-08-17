@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block title %}DICOM & detectie · IsalaOCR{% endblock %}
+{% block heading %}DICOM & detectie{% endblock %}
+{% block subtitle %}Bekijk uitsluitend bronrender, gedetecteerde blokken en technische detectiegegevens{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div><strong>{{ sources|length }} DICOMs verwerkt</strong><div class="muted">OCR-waarden en beoordelingen worden in deze stap niet getoond.</div></div>
+  <form method="post" action="/jobs"><input type="hidden" name="action_id" value="2"><button class="primary">Nieuwe/gewijzigde DICOMs analyseren</button></form>
+</div>
+<section class="card"><div class="table-wrap"><table>
+  <tr><th>Bron-ID</th><th>Gedetecteerde blokken</th><th>Dynamisch</th><th>Fallback</th><th>Gem. detectie-confidence</th><th></th></tr>
+  {% for s in sources %}
+  <tr>
+    <td class="mono">{{ s.source_id }}</td>
+    <td>{{ s.sample_count }}</td>
+    <td>{{ s.dynamic_count }}</td>
+    <td class="{% if s.fallback_count %}warn{% endif %}">{{ s.fallback_count }}</td>
+    <td>{{ '%.1f%%'|format((s.average_locator_confidence or 0)*100) }}</td>
+    <td><a class="button primary" href="/documents/{{ s.source_id }}">Detectie bekijken</a></td>
+  </tr>
+  {% else %}<tr><td colspan="6">Nog niets verwerkt. Start eerst de detectie.</td></tr>{% endfor %}
+</table></div></section>
+{% endblock %}

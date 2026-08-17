@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+{% block title %}ROI-beoordeling · {{ source_id }}{% endblock %}
+{% block heading %}ROI's beoordelen{% endblock %}
+{% block subtitle %}<span class="mono">{{ source_id }}</span> · beoordeel uitsluitend positie en uitsnede; alle ROI's staan standaard op OK{% endblock %}
+{% block content %}
+<form method="post" id="roi-review-form">
+<div class="toolbar">
+  <div class="actions">
+    <a class="button" href="/roi-review">← ROI-overzicht</a>
+    <a class="button" href="/documents/{{ source_id }}">Volledige bronafbeelding</a>
+    <button class="primary" type="submit">Alles opslaan als beoordeeld</button>
+  </div>
+  <label class="inline-check"><input id="toggle-overlay" type="checkbox" checked> Alle kaders tonen</label>
+</div>
+<div class="roi-review-layout">
+  <section class="viewer image-viewer roi-main-viewer" id="viewer">
+    {% if render_exists %}
+      <div class="image-overlay-stage" data-source-width="{{ image_width }}" data-source-height="{{ image_height }}">
+        <img src="/source-render/{{ source_id }}.png" alt="DICOM-render met ROI-kaders" decoding="async" fetchpriority="high" width="{{ image_width }}" height="{{ image_height }}">
+        {% for s in samples %}
+          <button type="button"
+                  class="overlay-box roi-{{ 'correct' if s.roi_review_status=='pending' else s.roi_review_status }}"
+                  data-sample="{{ s.sample_id }}"
+                  title="{{ s.field_label }}"
+                  style="left:{{ s.roi_x1/image_width*100 }}%;top:{{ s.roi_y1/image_height*100 }}%;width:{{ (s.roi_x2-s.roi_x1)/image_width*100 }}%;height:{{ (s.roi_y2-s.roi_y1)/image_height*100 }}%"></button>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="card">Bronrender ontbreekt. Voer detectie opnieuw uit.</div>
+    {% endif %}
+  </section>
+  <aside class="roi-review-list">
+  {% for s in samples %}
+    <article class="roi-review-card roi-{{ 'correct' if s.roi_review_status=='pending' else s.roi_review_status }}" data-sample="{{ s.sample_id }}">
+      <div class="roi-card-head">
+        <strong>{{ loop.index }}. {{ s.field_label }}</strong>
+        <span class="pill roi-status-label">{{ 'OK (standaard)' if s.roi_review_status=='pending' else ('OK' if s.roi_review_status=='correct' else ('Later' if s.roi_review_status=='deferred' else 'Fout')) }}</span>
+      </div>
+      <img src="/crop/{{ s.sample_id }}" alt="Uitsnede van {{ s.field_label }}" loading="lazy" decoding="async">
+      <div class="roi-meta">
+        <span class="mono">{{ s.roi_x1 }},{{ s.roi_y1 }} → {{ s.roi_x2 }},{{ s.roi_y2 }}</span>
+        <span>{{ s.extraction_method }}</span>
+        <span>detectie {{ '%.1f%%'|format(s.locator_confidence*100) }}</span>
+      </div>
+      <div class="roi-choice" role="group" aria-label="ROI-status voor {{ s.field_label }}">
+        <label><input type="radio" name="roi_status_{{ s.sample_id }}" value="correct" {% if s.roi_review_status in ['correct','pending'] %}checked{% endif %}> ROI klopt</label>
+        <label><input type="radio" name="roi_status_{{ s.sample_id }}" value="incorrect" {% if s.roi_review_status=='incorrect' %}checked{% endif %}> ROI fout</label>
+        <label><input type="radio" name="roi_status_{{ s.sample_id }}" value="deferred" {% if s.roi_review_status=='deferred' %}checked{% endif %}> Later</label>
+      </div>
+      <input name="roi_notes_{{ s.sample_id }}" value="{{ s.roi_review_notes }}" placeholder="Notitie over positie of uitsnede">
+    </article>
+  {% endfor %}
+  </aside>
+</div>
+</form>
+{% endblock %}
+{% block scripts %}<script>
+function selectRoi(id){
+  document.querySelectorAll('.overlay-box,.roi-review-card').forEach(x=>x.classList.remove('active'));
+  const box=document.querySelector(`.overlay-box[data-sample="${id}"]`);
+  const card=document.querySelector(`.roi-review-card[data-sample="${id}"]`);
+  if(box) box.classList.add('active');
+  if(card){card.classList.add('active');card.scrollIntoView({block:'nearest',behavior:'smooth'});}
+}
+document.querySelectorAll('[data-sample]').forEach(x=>x.addEventListener('click',()=>selectRoi(x.dataset.sample)));
+document.getElementById('toggle-overlay').addEventListener('change',event=>{
+  document.querySelectorAll('.overlay-box').forEach(x=>x.style.display=event.target.checked?'block':'none');
+});
+const statusLabels={correct:'OK',incorrect:'Fout',deferred:'Later'};
+document.querySelectorAll('.roi-choice input[type=radio]').forEach(input=>input.addEventListener('change',()=>{
+  const card=input.closest('.roi-review-card');
+  const id=card.dataset.sample;
+  const overlay=document.querySelector(`.overlay-box[data-sample="${id}"]`);
+  [card,overlay].filter(Boolean).forEach(element=>{
+    element.classList.remove('roi-correct','roi-incorrect','roi-pending','roi-deferred');
+    element.classList.add(`roi-${input.value}`);
+  });
+  card.querySelector('.roi-status-label').textContent=statusLabels[input.value];
+}));
+</script>{% endblock %}

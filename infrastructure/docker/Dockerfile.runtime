@@ -1,0 +1,51 @@
+# syntax=docker/dockerfile:1.7
+FROM python:3.11-slim-bookworm
+
+ARG APP_UID=10001
+ARG APP_GID=10001
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PADDLE_PDX_CACHE_HOME=/models/paddlex \
+    HOME=/tmp
+
+# BuildKit keeps the apt downloads outside the final image and reuses them
+# when this layer ever needs to be rebuilt.
+RUN --mount=type=cache,id=isalaocr-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=isalaocr-apt-lists,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libgl1 \
+        libglib2.0-0 \
+        libgomp1 \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+    && groupadd --gid "${APP_GID}" isalaocr \
+    && useradd --uid "${APP_UID}" --gid "${APP_GID}" --no-create-home --shell /usr/sbin/nologin isalaocr
+
+WORKDIR /app
+
+# Install the expensive third-party dependencies before copying application
+# source. Source/config changes therefore do not invalidate this layer.
+COPY application/requirements/runtime.txt /tmp/requirements-runtime.txt
+RUN --mount=type=cache,id=isalaocr-pip-cache,target=/root/.cache/pip,sharing=locked \
+    python -m pip install --upgrade pip setuptools wheel \
+    && python -m pip install --requirement /tmp/requirements-runtime.txt
+
+# Installing the local package is now a small, dependency-free layer. It is
+# expected to rebuild after an application update, but it downloads nothing.
+COPY application/pyproject.toml application/README.md /app/
+COPY application/src /app/src
+RUN python -m pip install --no-deps --no-cache-dir .
+
+COPY application/config /app/config
+COPY application/schemas /app/schemas
+
+RUN mkdir -p /input /output /models/paddlex /models/active-recognition /training/workspace /training/registry \
+    && chown -R "${APP_UID}:${APP_GID}" /output /models /training /tmp
+
+USER ${APP_UID}:${APP_GID}
+
+ENTRYPOINT ["python", "-m", "isala_ocr"]
+CMD ["--help"]

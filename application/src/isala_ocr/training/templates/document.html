@@ -1,0 +1,111 @@
+{% extends 'base.html' %}
+{% block title %}Detectieweergave · {{ source_id }}{% endblock %}
+{% block heading %}Detectieweergave{% endblock %}
+{% block subtitle %}<span class="mono">{{ source_id }}</span> · technische controle van gevonden blokken, zonder waardebeoordeling{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div class="actions"><a class="button" href="/documents">← DICOM & detectie</a><a class="button" href="/locator-overlay/{{ source_id }}.png" target="_blank">Diagnostische overlay</a>{% if extracted_output_exists %}<a class="button primary" href="/extracted-output/{{ source_id }}.json" target="_blank">Output-JSON openen</a>{% endif %}</div>
+  <label class="inline-check"><input id="toggle-overlay" type="checkbox" checked> Kaders tonen</label>
+</div>
+<section class="card study-info-card">
+  <div class="toolbar">
+    <div><h3>Studiegegevens</h3><p class="muted">Losse outputvelden uit de ongewijzigde OCR-regel <span class="mono">Study info</span>.</p></div>
+    {% if study_info %}<span class="status {% if study_info.detected %}ok{% else %}warn{% endif %}">{% if study_info.detected %}Gevonden{% else %}Niet gevonden{% endif %}</span>{% endif %}
+  </div>
+  {% if study_info_fields %}
+  <div class="study-info-grid">
+    {% for item in study_info_fields %}
+    <div class="study-info-field {% if not item.valid %}study-info-invalid{% endif %}">
+      <span class="muted">{{ item.label }}</span>
+      <strong>{% if item.value is not none %}{{ item.value }}{% else %}—{% endif %}{% if item.unit %} {{ item.unit }}{% endif %}</strong>
+      <small class="mono">{{ item.key }}</small>
+      {% if item.raw %}<small>Ruwe OCR: <span class="mono">{{ item.raw }}</span></small>{% endif %}
+      {% if item.confidence is not none %}<small>OCR-confidence {{ '%.1f%%'|format(item.confidence*100) }}</small>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <details class="study-info-raw"><summary>Volledige ruwe OCR-regel</summary><pre>{{ study_info.raw_text or 'Geen Study info-regel gevonden.' }}</pre></details>
+  {% else %}
+  <p class="warn">Nog geen studiegegevens beschikbaar. Voer de DICOM-detectie opnieuw uit met deze versie.</p>
+  {% endif %}
+</section>
+
+{% if fallback_count %}
+<section class="card fallback-help" id="fallback-uitleg">
+  <div class="fallback-help-head">
+    <div><h3>{{ fallback_count }} fallback-ROI{% if fallback_count != 1 %}'s{% endif %} gevonden</h3><p>Een fallback betekent dat de dynamische locator de rijheader niet betrouwbaar genoeg aan het veld kon koppelen. De uitsnede gebruikt dan de vaste coördinaten uit het profiel.</p></div>
+    <span class="pill warn">Drempel {{ '%.0f%%'|format(locator_label_threshold * 100) }}</span>
+  </div>
+  <div class="fallback-steps">
+    <div><strong>1. Bekijk de crop</strong><span>Controleer rechts of de vaste uitsnede werkelijk de juiste waarde bevat.</span></div>
+    <div><strong>2. Start generieke detectie</strong><span>De nieuwe detector verzamelt eerst alle labels en waarden zonder vooraf een veld toe te wijzen.</span></div>
+    <div><strong>3. Corrigeer in de Mappingstudio</strong><span>Koppel daar de juiste gevonden waarde aan het functionele veld en maak daarna opnieuw de ROI-crops.</span></div>
+  </div>
+  <p class="muted fallback-no-header"><strong>Geen rijheadertekst?</strong> Dan kan de normalisatielaag deze fallback niet oplossen: de OCR-detector heeft geen trainbaar headerfragment geleverd. Markeer de ROI als fout bij ROI beoordelen en verbeter daarna de headerdetectie of de vaste profiel-ROI.</p>
+</section>
+{% endif %}
+
+<div class="document-view">
+  <section class="viewer image-viewer" id="viewer">
+    {% if render_exists %}
+      <div class="image-overlay-stage" data-source-width="{{ image_width }}" data-source-height="{{ image_height }}">
+        <img src="/source-render/{{ source_id }}.png" alt="DICOM-render" decoding="async" fetchpriority="high" width="{{ image_width }}" height="{{ image_height }}">
+        {% for s in samples %}<button type="button" class="overlay-box {% if s.is_fallback %}overlay-fallback{% endif %}" data-sample="{{ s.sample_id }}" title="{{ s.field_label }} · {{ s.extraction_method }}" style="left:{{ s.roi_x1/image_width*100 }}%;top:{{ s.roi_y1/image_height*100 }}%;width:{{ (s.roi_x2-s.roi_x1)/image_width*100 }}%;height:{{ (s.roi_y2-s.roi_y1)/image_height*100 }}%"></button>{% endfor %}
+      </div>
+    {% else %}
+      <div class="card">Bronrender ontbreekt. Voer detectie opnieuw uit met de huidige versie.</div>
+    {% endif %}
+  </section>
+  <aside class="card detected-block-panel">
+    <div class="detected-block-head"><div><h3>Gedetecteerde blokken</h3><p class="muted">Klik op een crop of kaart om het bijbehorende kader links te markeren.</p></div><span class="pill">{{ samples|length }}</span></div>
+    <div class="field-list">
+    {% for s in samples %}
+      <article class="field-row {% if s.is_fallback %}field-row-fallback{% endif %}" id="row-{{ s.sample_id }}" data-sample="{{ s.sample_id }}" tabindex="0">
+        <button type="button" class="field-crop-button" aria-label="Markeer {{ s.field_label }}" data-sample="{{ s.sample_id }}">
+          {% if s.crop_exists %}<img class="field-crop" src="/crop/{{ s.sample_id }}" alt="ROI-crop van {{ s.field_label }}" loading="lazy" decoding="async">{% else %}<span class="field-crop-missing">Crop ontbreekt</span>{% endif %}
+        </button>
+        <div class="field-row-content">
+          <div class="field-row-title">
+            <div><strong>{{ s.field_label }}</strong><div class="muted mono">{{ s.field_key }}</div></div>
+            <span class="method-badge {% if s.is_fallback %}method-fallback{% else %}method-dynamic{% endif %}">{% if s.is_fallback %}Fallback{% else %}Dynamisch{% endif %}</span>
+          </div>
+          <div class="field-method mono">{{ s.extraction_method }}</div>
+          <div class="field-confidence"><span>Locator-matchscore</span><strong class="{% if s.is_fallback %}warn{% endif %}">{{ '%.1f%%'|format(s.locator_confidence*100) }}</strong></div>
+          <small class="muted mono">{{ s.roi_x1 }},{{ s.roi_y1 }} → {{ s.roi_x2 }},{{ s.roi_y2 }}</small>
+          {% if s.is_fallback %}
+          <div class="fallback-detail">
+            <strong>Waarom fallback?</strong>
+            <span>{{ s.fallback_reason }}</span>
+            <span>Verwachte header: <code>{{ s.canonical_header }}</code>{% if s.locator_label_text %} · uitgelezen: <code>{{ s.locator_label_text }}</code>{% endif %}</span>
+          </div>
+          <div class="field-row-actions">
+            {% if s.can_train_header %}
+            <a class="button primary" href="/process/detect">Generiek opnieuw detecteren</a>
+            {% else %}
+            <span class="pill warn">Geen trainbare header</span>
+            {% endif %}
+            <a class="button" href="/roi-review/{{ source_id }}#roi-{{ s.sample_id }}">ROI beoordelen</a>
+          </div>
+          {% endif %}
+        </div>
+      </article>
+    {% endfor %}
+    </div>
+  </aside>
+</div>
+{% endblock %}
+{% block scripts %}<script>
+function selectSample(id){
+  document.querySelectorAll('.overlay-box,.field-row').forEach(x=>x.classList.remove('active'));
+  const box=document.querySelector(`.overlay-box[data-sample="${CSS.escape(id)}"]`);
+  const row=document.querySelector(`.field-row[data-sample="${CSS.escape(id)}"]`);
+  if(box) box.classList.add('active');
+  if(row){row.classList.add('active');row.scrollIntoView({block:'nearest',behavior:'smooth'});}
+}
+document.querySelectorAll('.overlay-box,.field-crop-button').forEach(x=>x.addEventListener('click',event=>{event.stopPropagation();selectSample(x.dataset.sample);}));
+document.querySelectorAll('.field-row').forEach(row=>{
+  row.addEventListener('click',event=>{if(!event.target.closest('a,button,form'))selectSample(row.dataset.sample);});
+  row.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();selectSample(row.dataset.sample);}});
+});
+document.getElementById('toggle-overlay').addEventListener('change',event=>document.querySelectorAll('.overlay-box').forEach(x=>x.style.display=event.target.checked?'block':'none'));
+</script>{% endblock %}
