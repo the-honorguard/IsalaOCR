@@ -221,3 +221,32 @@
   renderAll([]);
   poll();
 })();
+
+// Step 7: a GT-check decision is both a review classification and an explicit
+// request to edit the canonical Ground Truth. Save the decision first through
+// the existing AJAX handler, then move straight to the source-specific GT Studio.
+(() => {
+  if (window.location.pathname !== '/process/table-compare') return;
+
+  const studioUrlFor = row => {
+    const link = row?.querySelector('a[href^="/detection-review/"]');
+    return link?.getAttribute('href') || '';
+  };
+
+  const observer = new MutationObserver(mutations => {
+    for (const mutation of mutations) {
+      if (mutation.type !== 'attributes' || mutation.attributeName !== 'data-issue-decision') continue;
+      const row = mutation.target;
+      if (!(row instanceof HTMLElement) || row.dataset.issueDecision !== 'gt_check') continue;
+      const studioUrl = studioUrlFor(row);
+      if (!studioUrl) continue;
+      observer.disconnect();
+      window.location.assign(studioUrl);
+      return;
+    }
+  });
+
+  document.querySelectorAll('.comparison-issue-row').forEach(row => {
+    observer.observe(row, {attributes: true, attributeFilter: ['data-issue-decision']});
+  });
+})();
