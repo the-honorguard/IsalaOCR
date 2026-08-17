@@ -29,11 +29,24 @@
     const reviewedCount = document.getElementById('comparison-reviewed-count');
     const issueCount = document.getElementById('comparison-issue-count');
 
+    const stabilityStyle = document.createElement('style');
+    stabilityStyle.textContent = `
+      .comparison-panel-list,.comparison-issue-list{overflow-anchor:none}
+      #comparison-inline-status{position:fixed;right:20px;bottom:84px;z-index:1200;max-width:min(520px,calc(100vw - 40px));margin:0;box-shadow:0 12px 36px rgba(0,0,0,.35)}
+      #comparison-inline-status:empty{display:none}
+    `;
+    document.head.appendChild(stabilityStyle);
+
     const setStatus = (message, ok = true) => {
       if (!status) return;
       status.textContent = message || '';
       status.classList.toggle('ok', Boolean(message) && ok);
       status.classList.toggle('bad', Boolean(message) && !ok);
+      if (message && ok) {
+        window.setTimeout(() => {
+          if (status.textContent === message) status.textContent = '';
+        }, 1800);
+      }
     };
 
     const syncPanelVisibility = panel => {
@@ -45,6 +58,47 @@
 
     const syncAllPanelVisibility = () => {
       document.querySelectorAll('.comparison-panel-card').forEach(syncPanelVisibility);
+    };
+
+    const visibleReviewRows = () => Array.from(document.querySelectorAll('.comparison-issue-row')).filter(row => (
+      row.dataset.optimisticHidden !== '1'
+      && !row.classList.contains('is-filtered')
+      && row.style.display !== 'none'
+    ));
+
+    const captureViewportAnchor = row => {
+      const rows = visibleReviewRows();
+      const index = rows.indexOf(row);
+      let anchor = index >= 0 ? (rows[index + 1] || rows[index - 1]) : null;
+      if (!anchor) {
+        const panel = row.closest('.comparison-panel-card');
+        anchor = panel?.nextElementSibling || panel?.previousElementSibling || document.querySelector('.comparison-panel-list');
+      }
+      return {
+        anchor,
+        anchorTop: anchor?.getBoundingClientRect().top ?? 0,
+        windowY: window.scrollY,
+      };
+    };
+
+    const restoreViewportAnchor = snapshot => {
+      window.requestAnimationFrame(() => {
+        const anchor = snapshot?.anchor;
+        if (!anchor || !anchor.isConnected || anchor.style?.display === 'none' || anchor.classList?.contains('is-filtered')) {
+          window.scrollTo(0, snapshot?.windowY || 0);
+          return;
+        }
+
+        const scrollBox = anchor.closest?.('.comparison-issue-list');
+        let delta = anchor.getBoundingClientRect().top - snapshot.anchorTop;
+        if (scrollBox && Math.abs(delta) > 0.5) {
+          const maxScroll = Math.max(0, scrollBox.scrollHeight - scrollBox.clientHeight);
+          scrollBox.scrollTop = Math.max(0, Math.min(maxScroll, scrollBox.scrollTop + delta));
+        }
+
+        delta = anchor.getBoundingClientRect().top - snapshot.anchorTop;
+        if (Math.abs(delta) > 0.5) window.scrollBy(0, delta);
+      });
     };
 
     const applyServerCounts = payload => {
@@ -110,6 +164,7 @@
       const button = form.querySelector('button');
       const originalButtonText = button?.textContent || '';
       const panel = row.closest('.comparison-panel-card');
+      const viewportSnapshot = captureViewportAnchor(row);
       const snapshot = {
         issueOpen: String(row.dataset.issueOpen || '1'),
         issueDecision: String(row.dataset.issueDecision || ''),
@@ -127,7 +182,10 @@
       }
       setStatus('');
 
-      if (closesItem) hideOptimistically(row, optimisticDecision);
+      if (closesItem) {
+        hideOptimistically(row, optimisticDecision);
+        restoreViewportAnchor(viewportSnapshot);
+      }
 
       try {
         const response = await fetch(form.action || window.location.href, {
@@ -143,7 +201,6 @@
         row.dataset.issueDecision = savedDecision;
         row.dataset.issueOpen = savedDecision === '' || savedDecision === 'deferred' || savedDecision === 'clear' ? '1' : '0';
         applyServerCounts(payload);
-        setStatus(payload.message || 'Vervolg-review opgeslagen.', true);
 
         if (savedDecision === 'gt_check') {
           const href = sourceHrefForRow(row);
@@ -159,8 +216,11 @@
           row.style.display = '';
         }
         syncAllPanelVisibility();
+        restoreViewportAnchor(viewportSnapshot);
+        setStatus(payload.message || 'Vervolg-review opgeslagen.', true);
       } catch (error) {
         restoreOptimisticState(row, snapshot);
+        restoreViewportAnchor(viewportSnapshot);
         setStatus(`Opslaan mislukt: ${error instanceof Error ? error.message : error}`, false);
       } finally {
         delete form.dataset.optimisticBusy;
