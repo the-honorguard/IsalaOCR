@@ -28,7 +28,8 @@ REVERSE_CONTAINMENT_MIN_HEIGHT_FRACTION = 0.45
 ROW_ALIGNMENT_MIN_VERTICAL_OVERLAP = 0.85
 ROW_ALIGNMENT_MIN_HORIZONTAL_OVERLAP = 0.90
 ROW_ALIGNMENT_MIN_AREA_RATIO = 0.12
-EVALUATION_SCHEMA_VERSION = 4
+MERGED_GT_MIN_COVERAGE = 0.70
+EVALUATION_SCHEMA_VERSION = 5
 
 
 def _read_json(path: Path, default: Any = None) -> Any:
@@ -105,6 +106,31 @@ def _coverage_fraction(inner: tuple[float, float, float, float], outer: tuple[fl
 
 def _box_area(box: tuple[float, float, float, float]) -> float:
     return max(1e-9, (box[2] - box[0]) * (box[3] - box[1]))
+
+
+def _box_center_inside(
+    inner: tuple[float, float, float, float], outer: tuple[float, float, float, float]
+) -> bool:
+    """Return whether the centre of ``inner`` lies inside ``outer``."""
+    cx = (inner[0] + inner[2]) / 2.0
+    cy = (inner[1] + inner[3]) / 2.0
+    return outer[0] <= cx <= outer[2] and outer[1] <= cy <= outer[3]
+
+
+def _gt_is_merged_into_prediction(
+    gt_box: tuple[float, float, float, float], prediction_box: tuple[float, float, float, float]
+) -> bool:
+    """Require substantial GT coverage and the GT centre inside the prediction.
+
+    Coverage alone is too permissive when neighbouring canonical GT boxes touch,
+    slightly overlap, or contain generous padding. Requiring the centre prevents
+    a prediction that visually belongs to only one cell from being classified as
+    a merged prediction merely because it clips a large edge of its neighbour.
+    """
+    return (
+        _coverage_fraction(gt_box, prediction_box) >= MERGED_GT_MIN_COVERAGE
+        and _box_center_inside(gt_box, prediction_box)
+    )
 
 
 def _axis_overlap_fraction_of_smaller(
@@ -305,9 +331,9 @@ def _evaluate_panel(
             "match_reason": "iou",
         })
 
-    # Detect predictions that substantially cover multiple GT cells before the
-    # geometry fallbacks. Such boxes are true merged-cell candidates and must
-    # never be rescued as a one-to-one geometry match.
+    # A prediction is only a true merge when it substantially contains at least
+    # two GT cells AND contains the centre point of each. Coverage alone caused
+    # padded/overlapping neighbouring GT boxes to produce false merged warnings.
     merged_prediction_indexes: set[int] = set()
     merged_gt_indexes: set[int] = set()
     for pred_index, pred in enumerate(predictions):
@@ -317,7 +343,7 @@ def _evaluate_panel(
         covered = []
         for gt_index, gt in enumerate(truth):
             gt_box = _box(gt.get("box"))
-            if gt_box is not None and _coverage_fraction(gt_box, pred_box) >= 0.60:
+            if gt_box is not None and _gt_is_merged_into_prediction(gt_box, pred_box):
                 covered.append(gt_index)
         if len(covered) >= 2:
             merged_prediction_indexes.add(pred_index)
@@ -470,7 +496,7 @@ def _evaluate_panel(
         pred_box = _box(pred.get("box"))
         for gt in truth:
             gt_box = _box(gt.get("box"))
-            if pred_box is not None and gt_box is not None and _coverage_fraction(gt_box, pred_box) >= 0.60:
+            if pred_box is not None and gt_box is not None and _gt_is_merged_into_prediction(gt_box, pred_box):
                 covered.append(gt.get("box"))
         issues.append({
             "type": "merged",
@@ -852,9 +878,9 @@ def capture_current_detection_run(workspace: str | Path) -> dict[str, Any] | Non
 def _current_evaluation_view(run: dict[str, Any]) -> dict[str, Any]:
     """Re-evaluate archived runs with current matching semantics in memory.
 
-    Raw predictions and frozen GT stay untouched on disk. Existing Step-7 v1-v3
-    runs immediately benefit from the current geometry recovery after an upgrade,
-    without forcing the user to run detection again.
+    Raw predictions and frozen GT stay untouched on disk. Existing Step-7 v1-v4
+    runs immediately benefit from the current geometry/merge recovery after an
+    upgrade, without forcing the user to run detection again.
     """
     try:
         schema_version = int(run.get("schema_version") or 1)
