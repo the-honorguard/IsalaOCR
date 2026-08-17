@@ -29,7 +29,8 @@ ROW_ALIGNMENT_MIN_VERTICAL_OVERLAP = 0.85
 ROW_ALIGNMENT_MIN_HORIZONTAL_OVERLAP = 0.90
 ROW_ALIGNMENT_MIN_AREA_RATIO = 0.12
 MERGED_GT_MIN_COVERAGE = 0.70
-EVALUATION_SCHEMA_VERSION = 5
+MERGED_GT_MIN_CENTER_SEPARATION = 0.35
+EVALUATION_SCHEMA_VERSION = 6
 
 
 def _read_json(path: Path, default: Any = None) -> Any:
@@ -120,17 +121,50 @@ def _box_center_inside(
 def _gt_is_merged_into_prediction(
     gt_box: tuple[float, float, float, float], prediction_box: tuple[float, float, float, float]
 ) -> bool:
-    """Require substantial GT coverage and the GT centre inside the prediction.
-
-    Coverage alone is too permissive when neighbouring canonical GT boxes touch,
-    slightly overlap, or contain generous padding. Requiring the centre prevents
-    a prediction that visually belongs to only one cell from being classified as
-    a merged prediction merely because it clips a large edge of its neighbour.
-    """
+    """Require substantial GT coverage and the GT centre inside the prediction."""
     return (
         _coverage_fraction(gt_box, prediction_box) >= MERGED_GT_MIN_COVERAGE
         and _box_center_inside(gt_box, prediction_box)
     )
+
+
+def _gt_boxes_are_spatially_distinct(
+    left: tuple[float, float, float, float], right: tuple[float, float, float, float]
+) -> bool:
+    """Return whether two GT boxes represent clearly different spatial cells.
+
+    Canonical GT can contain duplicate or near-duplicate boxes around one logical
+    cell. Counting those as two cells makes a perfectly normal single-cell
+    prediction look like a merged prediction. Compare centre separation relative
+    to the smaller cell dimensions: adjacent rows/columns remain distinct, while
+    strongly overlapping boxes with nearly coincident centres collapse to one
+    logical merge target.
+    """
+    left_cx = (left[0] + left[2]) / 2.0
+    left_cy = (left[1] + left[3]) / 2.0
+    right_cx = (right[0] + right[2]) / 2.0
+    right_cy = (right[1] + right[3]) / 2.0
+    min_width = max(1e-9, min(left[2] - left[0], right[2] - right[0]))
+    min_height = max(1e-9, min(left[3] - left[1], right[3] - right[1]))
+    x_separation = abs(left_cx - right_cx) / min_width
+    y_separation = abs(left_cy - right_cy) / min_height
+    return max(x_separation, y_separation) >= MERGED_GT_MIN_CENTER_SEPARATION
+
+
+def _distinct_merge_gt_indexes(truth: list[dict[str, Any]], indexes: list[int]) -> list[int]:
+    """Collapse duplicate/near-duplicate GT boxes for merged-cell classification."""
+    representatives: list[int] = []
+    for gt_index in indexes:
+        gt_box = _box((truth[gt_index] or {}).get("box"))
+        if gt_box is None:
+            continue
+        if all(
+            (other_box := _box((truth[other_index] or {}).get("box"))) is None
+            or _gt_boxes_are_spatially_distinct(gt_box, other_box)
+            for other_index in representatives
+        ):
+            representatives.append(gt_index)
+    return representatives
 
 
 def _axis_overlap_fraction_of_smaller(
@@ -331,30 +365,26 @@ def _evaluate_panel(
             "match_reason": "iou",
         })
 
-    # A prediction is only a true merge when it substantially contains at least
-    # two GT cells AND contains the centre point of each. Coverage alone caused
-    # padded/overlapping neighbouring GT boxes to produce false merged warnings.
+    # Merge classification must count logical cells, not raw GT annotations.
+    # Duplicate/near-duplicate GT boxes around one cell are collapsed first.
     merged_prediction_indexes: set[int] = set()
     merged_gt_indexes: set[int] = set()
+    merged_gt_by_prediction: dict[int, list[int]] = {}
     for pred_index, pred in enumerate(predictions):
         pred_box = _box(pred.get("box"))
         if pred_box is None:
             continue
-        covered = []
+        covered: list[int] = []
         for gt_index, gt in enumerate(truth):
             gt_box = _box(gt.get("box"))
             if gt_box is not None and _gt_is_merged_into_prediction(gt_box, pred_box):
                 covered.append(gt_index)
-        if len(covered) >= 2:
+        distinct_covered = _distinct_merge_gt_indexes(truth, covered)
+        if len(distinct_covered) >= 2:
             merged_prediction_indexes.add(pred_index)
-            merged_gt_indexes.update(covered)
+            merged_gt_indexes.update(distinct_covered)
+            merged_gt_by_prediction[pred_index] = distinct_covered
 
-    # Second-chance one-to-one matching. IoU is poor when one box is much wider
-    # than the other, even when both describe the same logical cell. Recover both
-    # containment directions first, then use a conservative row-alignment fallback
-    # for broad title/header cells where a few pixels of edge bleed break the 95%
-    # containment threshold. Every fallback remains one-to-one and excludes true
-    # merged predictions.
     containment_pairs: list[tuple[float, float, int, int, str]] = []
     for pred_index, pred in enumerate(predictions):
         if pred_index in matched_pred or pred_index in merged_prediction_indexes:
@@ -492,12 +522,11 @@ def _evaluate_panel(
 
     for pred_index in sorted(merged_prediction_indexes):
         pred = predictions[pred_index]
-        covered = []
-        pred_box = _box(pred.get("box"))
-        for gt in truth:
-            gt_box = _box(gt.get("box"))
-            if pred_box is not None and gt_box is not None and _gt_is_merged_into_prediction(gt_box, pred_box):
-                covered.append(gt.get("box"))
+        covered = [
+            truth[gt_index].get("box")
+            for gt_index in merged_gt_by_prediction.get(pred_index, [])
+            if 0 <= gt_index < len(truth)
+        ]
         issues.append({
             "type": "merged",
             "label": "Meerdere GT-cellen samengevoegd",
@@ -878,7 +907,7 @@ def capture_current_detection_run(workspace: str | Path) -> dict[str, Any] | Non
 def _current_evaluation_view(run: dict[str, Any]) -> dict[str, Any]:
     """Re-evaluate archived runs with current matching semantics in memory.
 
-    Raw predictions and frozen GT stay untouched on disk. Existing Step-7 v1-v4
+    Raw predictions and frozen GT stay untouched on disk. Existing Step-7 v1-v5
     runs immediately benefit from the current geometry/merge recovery after an
     upgrade, without forcing the user to run detection again.
     """
