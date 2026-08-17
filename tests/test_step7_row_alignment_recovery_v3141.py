@@ -66,5 +66,5 @@ def test_row_alignment_does_not_guess_when_two_predictions_fit_one_gt():
     assert not any(issue.get("alignment_recovered") for issue in result["issues"])
 
 
-def test_schema_v4_forces_existing_v3_runs_through_new_matching_rules():
-    assert EVALUATION_SCHEMA_VERSION == 4
+def test_schema_v5_forces_existing_v4_runs_through_new_matching_rules():
+    assert EVALUATION_SCHEMA_VERSION == 5
