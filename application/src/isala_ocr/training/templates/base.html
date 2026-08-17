@@ -25,12 +25,26 @@
   </section>
   <nav class="process-nav">
     <a href="/" class="{% if request.path=='/' %}active{% endif %}">Overzicht</a>
-    <div class="nav-section nav-pipeline-a">{% if localization_strategy == 'table_first' %}TABLE DETECTIE & CROPS{% else %}DETECTIE & CROPS{% endif %}</div>
+    {% if localization_strategy == 'table_first' %}
+    <div class="nav-section nav-pipeline-a">TABLE SETUP & GROUND TRUTH</div>
+    <a href="/process/detection-models" class="process-tab {% if request.path == '/process/detection-models' %}active{% endif %}"><span class="process-tab-number">1</span><span>Voorbereiding</span></a>
+    <a href="/process/panel-setup" class="process-tab {% if request.path == '/process/panel-setup' %}active{% endif %}"><span class="process-tab-number">2</span><span>Panelen instellen</span></a>
+    <a href="/process/detect-candidates" class="process-tab {% if request.path == '/process/detect-candidates' %}active{% endif %}"><span class="process-tab-number">3</span><span>Ground Truth maken</span></a>
+    <a href="/process/detection-review" class="process-tab {% if request.path == '/process/detection-review' or request.path.startswith('/detection-review') %}active{% endif %}"><span class="process-tab-number">4</span><span>Ground Truth beheren</span></a>
+
+    <div class="nav-section nav-pipeline-a">MODEL ITERATIE · 5 → 6 → 7 → 5</div>
+    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">5</span><span>Model trainen</span></a>
+    <a href="/process/table-model" class="process-tab {% if request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">6</span><span>Model beoordelen</span></a>
+    <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' %}active{% endif %}"><span class="process-tab-number">7</span><span>Afwijkingen reviewen</span></a>
+    {% else %}
+    <div class="nav-section nav-pipeline-a">DETECTIE & CROPS</div>
     {% for step in process_steps if step.group == 'detection' %}
     <a href="/process/{{ step.key }}" class="process-tab {% if request.path == '/process/' ~ step.key or (step.key == 'detection-review' and request.path.startswith('/detection-review')) %}active{% endif %}">
       <span class="process-tab-number">{{ step.index }}</span><span>{{ step.title }}</span>
     </a>
     {% endfor %}
+    {% endif %}
+
     <div class="nav-gate {{ 'gate-open' if pipeline_gate_global.ready else 'gate-closed' }}">
       <strong>{{ pipeline_gate_global.gate_label or 'PIPELINE A CHECK' }}</strong><span>{{ 'OPEN' if pipeline_gate_global.ready else 'GESLOTEN' }}</span>
     </div>
@@ -65,7 +79,7 @@
 <main class="shell">
   <header class="topbar">
     <div><h1>{% block heading %}IsalaOCR{% endblock %}</h1><p>{% block subtitle %}Lokale DICOM OCR workflow{% endblock %}</p></div>
-    {% if header_counts is defined and header_counts %}
+    {% if header_counts is defined and header_counts and not (localization_strategy == 'table_first' and request.path in ['/process/table-quality','/process/table-model']) %}
     {% set visible_counts = header_counts %}
     <div class="header-counts">
       <span>{{ visible_counts.total }} {{ header_total_label|default('blokken') }}</span>
@@ -117,6 +131,28 @@
 <script>window.ISALA_ACTION_DURATION_ESTIMATES={{ action_duration_estimates|tojson }};</script>
 <script src="{{ url_for('static',filename='app.js',v=app_version) }}"></script>
 <script>document.getElementById('project-switch-select')?.addEventListener('change',()=>document.getElementById('project-switch-form').submit());</script>
+{% if localization_strategy == 'table_first' %}
+<script>
+(() => {
+  const path=window.location.pathname;
+  const h1=document.querySelector('.topbar h1');
+  const subtitle=document.querySelector('.topbar p');
+  const setTopbar=(title,sub)=>{if(h1)h1.textContent=title;if(subtitle)subtitle.textContent=sub;document.title=`${title} · IsalaOCR`;};
+  if(path==='/process/detect-candidates'){
+    setTopbar('Stap 3 · Ground Truth maken','Maak éénmalig een eerste voorstel voor de table-cell Ground Truth binnen de ingestelde panelen.');
+  }else if(path==='/process/table-compare'){
+    setTopbar('Stap 7 · Afwijkingen reviewen','Beoordeel alleen de verschillen tussen de actieve modelrun en de canonieke Ground Truth.');
+    document.querySelectorAll('a[href="/process/detect-candidates"]').forEach(link=>{link.href='/process/table-model';link.textContent='Stap 6 · Model beoordelen';});
+    document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{
+      if(/volgende trainingsronde/i.test(link.textContent||'')){link.href='/process/table-quality';link.textContent='Stap 5 · Volgende trainingsronde';}
+    });
+  }
+  if(path.startsWith('/detection-review')){
+    document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{link.href='/process/table-quality';link.textContent='Naar Stap 5 · Model trainen →';});
+  }
+})();
+</script>
+{% endif %}
 <script>
 const comparisonIssueFilter=document.getElementById('comparison-issue-filter');
 if(comparisonIssueFilter){
