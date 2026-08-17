@@ -90,3 +90,226 @@
   border-color: var(--line) !important;
   color: var(--text) !important;
 }
+
+/* Step 7 feedback is an overlay, never part of document flow. This prevents
+   the success message itself from moving the review surface after each click. */
+#comparison-inline-status {
+  position: fixed !important;
+  right: 20px;
+  bottom: 84px;
+  z-index: 12050;
+  width: auto !important;
+  max-width: min(520px, calc(100vw - 40px));
+  margin: 0 !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .35);
+}
+
+#comparison-inline-status:empty {
+  display: none !important;
+}
+
+.comparison-panel-list,
+.comparison-issue-list {
+  overflow-anchor: none;
+}
+
+.step7-review-view-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+.step7-review-live-count {
+  white-space: nowrap;
+}
+
+#step7-review-focus-toggle {
+  white-space: nowrap;
+}
+
+/* GT Studio-style viewport review. This is deliberately a CSS focus mode,
+   rather than the browser Fullscreen API: navigation and GT hand-off remain
+   normal browser routes while the review surface itself stays fixed. */
+html.step7-review-focus-mode,
+body.step7-review-focus-mode {
+  overflow: hidden !important;
+}
+
+body.step7-review-focus-mode {
+  padding-bottom: 0 !important;
+}
+
+body.step7-review-focus-mode .sidebar,
+body.step7-review-focus-mode .topbar,
+body.step7-review-focus-mode .activity-dock {
+  display: none !important;
+}
+
+body.step7-review-focus-mode .shell {
+  margin-left: 0 !important;
+  min-height: 100vh;
+}
+
+body.step7-review-focus-mode .content {
+  padding: 0 !important;
+  max-width: none !important;
+}
+
+body.step7-review-focus-mode .content > :not(.step7-review-stage) {
+  display: none !important;
+}
+
+body.step7-review-focus-mode .step7-review-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: #03080c;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+
+body.step7-review-focus-mode .step7-review-stage > .toolbar {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  min-height: 58px;
+  margin: 0 !important;
+  padding: 8px 12px;
+  border-bottom: 1px solid #36536b;
+  background: rgba(8, 18, 27, .96);
+  backdrop-filter: blur(9px);
+  gap: 10px;
+}
+
+body.step7-review-focus-mode .step7-review-stage > .toolbar > div:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+body.step7-review-focus-mode .step7-review-stage > .toolbar h3 {
+  margin: 0;
+}
+
+body.step7-review-focus-mode .step7-review-stage > .toolbar p {
+  display: none;
+}
+
+body.step7-review-focus-mode .step7-review-view-actions {
+  flex-wrap: nowrap;
+}
+
+body.step7-review-focus-mode .compare-filter {
+  min-width: 0;
+}
+
+body.step7-review-focus-mode .compare-filter select {
+  width: 155px;
+  min-width: 155px;
+  flex-basis: 155px;
+}
+
+body.step7-review-focus-mode .comparison-panel-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  background: #03080c;
+  scrollbar-gutter: stable;
+}
+
+body.step7-review-focus-mode .comparison-panel-card {
+  background: #09121a;
+  border-color: #36536b;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .22);
+}
+
+body.step7-review-focus-mode .comparison-panel-card + .comparison-panel-card {
+  margin-top: 12px;
+}
+
+body.step7-review-focus-mode .comparison-panel-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: rgba(9, 18, 26, .97);
+  backdrop-filter: blur(8px);
+}
+
+body.step7-review-focus-mode .comparison-panel-body {
+  grid-template-columns: minmax(520px, 1.45fr) minmax(380px, .75fr);
+  align-items: start;
+}
+
+body.step7-review-focus-mode .comparison-image-stage {
+  position: sticky;
+  top: 49px;
+  align-self: start;
+  max-height: calc(100vh - 132px);
+  overflow: auto;
+  background: #020609;
+}
+
+body.step7-review-focus-mode .comparison-issue-list {
+  max-height: calc(100vh - 132px) !important;
+  min-height: min(520px, calc(100vh - 132px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  background: rgba(11, 18, 25, .96);
+}
+
+body.step7-review-focus-mode #comparison-inline-status {
+  right: 14px;
+  bottom: 14px;
+  z-index: 12100;
+}
+
+@media (max-width: 1050px) {
+  body.step7-review-focus-mode .comparison-panel-body {
+    grid-template-columns: minmax(0, 1fr) minmax(330px, .72fr);
+  }
+
+  body.step7-review-focus-mode .comparison-image-stage,
+  body.step7-review-focus-mode .comparison-issue-list {
+    max-height: calc(100vh - 140px) !important;
+  }
+}
+
+@media (max-width: 820px) {
+  body.step7-review-focus-mode .step7-review-stage > .toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  body.step7-review-focus-mode .step7-review-view-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  body.step7-review-focus-mode .comparison-panel-body {
+    grid-template-columns: 1fr;
+  }
+
+  body.step7-review-focus-mode .comparison-image-stage {
+    position: relative;
+    top: auto;
+    max-height: none !important;
+  }
+
+  body.step7-review-focus-mode .comparison-issue-list {
+    max-height: 46vh !important;
+    min-height: 300px;
+  }
+}
