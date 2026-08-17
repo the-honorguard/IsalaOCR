@@ -111,6 +111,10 @@ body.step7-single-panel-mode .comparison-panel-body {
   overflow: hidden;
 }
 
+/* The outer stage owns the available viewport. The inner canvas is fitted by
+   step7-single-panel.js to the exact rendered image rectangle. All absolute GT,
+   prediction and issue overlays live inside that canvas, so their percentage
+   coordinates can no longer drift when fullscreen changes the viewport ratio. */
 body.step7-single-panel-mode .comparison-image-stage {
   position: relative !important;
   top: auto !important;
@@ -119,21 +123,37 @@ body.step7-single-panel-mode .comparison-image-stage {
   height: 100%;
   max-height: none !important;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden !important;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
+  padding: 8px;
   background: #020609;
   border-right: 1px solid #29475e;
-  scrollbar-gutter: stable;
 }
 
-body.step7-single-panel-mode .comparison-image-stage > img {
+body.step7-single-panel-mode .step7-single-panel-image-canvas {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 1px;
+  min-height: 1px;
+  overflow: visible;
+  background: #020609;
+}
+
+body.step7-single-panel-mode .step7-single-panel-image-canvas > img {
+  position: absolute;
+  inset: 0;
+  display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
   max-width: none;
-  object-fit: contain;
-  align-self: flex-start;
+  max-height: none;
+  object-fit: fill;
+}
+
+body.step7-single-panel-mode .step7-single-panel-image-canvas > .compare-box {
+  position: absolute;
 }
 
 body.step7-single-panel-mode .comparison-issue-list {
