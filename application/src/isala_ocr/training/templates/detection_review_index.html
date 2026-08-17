@@ -6,10 +6,10 @@
 {% if gt_mode %}
 <section class="pipeline-boundary-card"><strong>Canonieke Ground Truth</strong><span>Stap 4 toont vanaf nu altijd de oorspronkelijke/beheerde GT. Nieuwe detector-runs uit Stap 3 worden hier niet ingemengd; die beoordeel je in Stap 7. Aanpassingen hier maken de bestaande trainingsdataset bewust verouderd.</span></section>
 <section class="card section-gap">
-  <div class="toolbar"><div><h3>GT-bronnen</h3><p class="muted">Open een bron om bestaande GT-cellen te verplaatsen, te verwijderen of een ontbrekende functionele cel toe te voegen.</p></div><div class="actions"><a class="button primary" href="/process/table-model">Nieuwe dataset / opnieuw trainen →</a></div></div>
-  <div class="notice"><strong>{{ header_counts.accepted }} canonieke GT-cellen.</strong> Deze geometrie is onafhankelijk van de actuele Stap-3-detecties.</div>
+  <div class="toolbar"><div><h3>GT-bronnen</h3><p class="muted">Open een bron om bestaande GT-cellen te verplaatsen, te verwijderen of een ontbrekende functionele cel toe te voegen.</p></div><div class="actions">{% if open_source_count %}<button type="button" class="ghost" id="complete-all-gt-sources">Alles als klaar markeren ({{ open_source_count }})</button>{% endif %}<a class="button primary" href="/process/table-model">Nieuwe dataset / opnieuw trainen →</a></div></div>
+  <div class="notice"><strong>{{ header_counts.accepted }} canonieke GT-cellen.</strong> Deze geometrie is onafhankelijk van de actuele Stap-3-detecties.{% if open_source_count %} <span>{{ open_source_count }} bron{{ '' if open_source_count == 1 else 'nen' }} nog niet als gecontroleerd gemarkeerd.</span>{% endif %}</div>
   <div class="table-wrap"><table><tr><th>Bron</th><th>GT-cellen</th><th>GT gecontroleerd</th><th></th></tr>
-  {% for source in sources %}{% set c=source.review_counts %}<tr><td class="mono">{{ source.source_id }}</td><td class="ok">{{ c.positive }}</td><td>{% if source.review_completed %}<span class="ok">✓ Ja</span>{% else %}<span class="warn">Nog controleren</span>{% endif %}</td><td><a class="button primary" href="/detection-review/{{ source.source_id }}">{{ 'GT bewerken' if source.review_completed else 'GT controleren' }}</a></td></tr>{% else %}<tr><td colspan="4">Nog geen canonieke Ground Truth. Rond eerst de initiële Stap-4-review af en bouw de eerste table-cell dataset.</td></tr>{% endfor %}
+  {% for source in sources %}{% set c=source.review_counts %}<tr data-gt-source-id="{{ source.source_id }}" data-review-completed="{{ 1 if source.review_completed else 0 }}"><td class="mono">{{ source.source_id }}</td><td class="ok">{{ c.positive }}</td><td>{% if source.review_completed %}<span class="ok">✓ Ja</span>{% else %}<span class="warn">Nog controleren</span>{% endif %}</td><td><a class="button primary" href="/detection-review/{{ source.source_id }}">{{ 'GT bewerken' if source.review_completed else 'GT controleren' }}</a></td></tr>{% else %}<tr><td colspan="4">Nog geen canonieke Ground Truth. Rond eerst de initiële Stap-4-review af en bouw de eerste table-cell dataset.</td></tr>{% endfor %}
   </table></div>
 </section>
 {% else %}
@@ -25,6 +25,42 @@
 {% endif %}
 {% endblock %}
 {% block scripts %}
+{% if gt_mode and open_source_count %}
+<script>
+(() => {
+  const button=document.getElementById('complete-all-gt-sources');
+  if(!button) return;
+  button.addEventListener('click',async()=>{
+    const rows=[...document.querySelectorAll('[data-gt-source-id][data-review-completed="0"]')];
+    if(!rows.length){window.location.reload();return;}
+    const confirmed=window.confirm(`Markeer alle ${rows.length} nog open GT-bronnen als gecontroleerd? De Ground Truth-kaders zelf worden niet aangepast.`);
+    if(!confirmed) return;
+    button.disabled=true;
+    const original=button.textContent;
+    button.textContent='Bezig met afronden…';
+    try{
+      for(const row of rows){
+        const sourceId=row.dataset.gtSourceId;
+        const response=await fetch(`/api/detection-review/${encodeURIComponent(sourceId)}/complete`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({completed:true}),
+        });
+        if(!response.ok){
+          const payload=await response.json().catch(()=>({}));
+          throw new Error(payload.error||`Afronden mislukt voor ${sourceId}`);
+        }
+      }
+      window.location.reload();
+    }catch(error){
+      button.disabled=false;
+      button.textContent=original;
+      window.alert(error instanceof Error?error.message:'Niet alle GT-bronnen konden worden afgerond.');
+    }
+  });
+})();
+</script>
+{% endif %}
 {% if not gt_mode and completed_source_count %}
 <script>
 (() => {
