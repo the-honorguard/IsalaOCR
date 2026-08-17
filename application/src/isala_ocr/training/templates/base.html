@@ -119,8 +119,31 @@
 <script>
 const comparisonIssueFilter=document.getElementById('comparison-issue-filter');
 if(comparisonIssueFilter){
+  const refreshComparisonPanelCounts=()=>{
+    document.querySelectorAll('.comparison-panel-card').forEach(panel=>{
+      const rows=Array.from(panel.querySelectorAll('.comparison-issue-row'));
+      const total=rows.length;
+      const open=rows.filter(row=>row.dataset.issueOpen==='1').length;
+      const reviewed=total-open;
+      const badge=panel.querySelector('.comparison-panel-head > .pill');
+      if(!badge)return;
+      badge.textContent=`${open} open · ${reviewed} beoordeeld`;
+      badge.classList.toggle('warn',open>0);
+      badge.classList.toggle('ok',open===0);
+    });
+  };
+
   comparisonIssueFilter.value='open';
   comparisonIssueFilter.dispatchEvent(new Event('change'));
+  refreshComparisonPanelCounts();
+
+  const panelCountObserver=new MutationObserver(mutations=>{
+    if(mutations.some(mutation=>mutation.type==='attributes'&&mutation.attributeName==='data-issue-open')){
+      refreshComparisonPanelCounts();
+    }
+  });
+  document.querySelectorAll('.comparison-issue-row').forEach(row=>panelCountObserver.observe(row,{attributes:true,attributeFilter:['data-issue-open']}));
+  comparisonIssueFilter.addEventListener('change',refreshComparisonPanelCounts);
 }
 </script>
 {% block scripts %}{% endblock %}
