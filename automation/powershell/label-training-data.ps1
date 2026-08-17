@@ -103,37 +103,12 @@ if (-not (Test-Path $database)) {
     Write-Warning "No samples.sqlite3 exists yet. First run menu option 2 to collect training crops."
 }
 
-# Reuse an already healthy labeler when possible. The container lookup includes
-# stopped containers so stale state can be cleaned up deterministically.
+# START always rebuilds and recreates the labeler from the current checkout.
+# Docker's layer cache keeps unchanged layers fast, while any pulled/edited
+# application, template or static file is guaranteed to reach the running UI.
 $existingContainerId = Get-LabelerContainerId
-$existingInfo = Get-LabelerContainerInfo -ContainerId $existingContainerId
-$expectedLabelerImage = "isalaocr-labeler:$expectedWorkerVersion"
-$existingLabelerImage = if ($null -ne $existingInfo -and $null -ne $existingInfo.Config) { [string]$existingInfo.Config.Image } else { "" }
-$labelerImageIsCurrent = $existingLabelerImage -eq $expectedLabelerImage
-$existingPort = Get-PublishedLabelerPort -ContainerInfo $existingInfo
-if ($null -eq $existingPort -and -not [string]::IsNullOrWhiteSpace($existingContainerId)) {
-    $existingPort = Get-StoredLabelerPort -PortFile $portFile
-}
 
-if (-not [string]::IsNullOrWhiteSpace($existingContainerId) -and
-    $labelerImageIsCurrent -and
-    $null -ne $existingPort -and
-    (Test-LabelerHealth -Port $existingPort)) {
-    Set-Content -Path $portFile -Value $existingPort -Encoding ascii
-    $existingUrl = "http://127.0.0.1:$existingPort"
-    Write-Host "Label interface is already running: $existingUrl" -ForegroundColor Green
-    if (-not $NoBrowser) {
-        try { Start-Process $existingUrl }
-        catch { Write-Warning "The browser could not be opened automatically. Open $existingUrl manually." }
-    }
-    return
-}
-
-if (-not [string]::IsNullOrWhiteSpace($existingContainerId) -and -not $labelerImageIsCurrent) {
-    Write-Host "Webinterface update detected: $existingLabelerImage -> $expectedLabelerImage" -ForegroundColor Cyan
-}
-
-# Remove stale port metadata and only remove a container when one actually exists.
+# Remove stale port metadata and remove the previous container when one exists.
 # Do not call `docker compose rm` unconditionally: Windows PowerShell 5.1 treats
 # Compose's harmless "No stopped containers" stderr message as a terminating error.
 if (Test-Path $portFile) { Remove-Item $portFile -Force -ErrorAction SilentlyContinue }
@@ -158,7 +133,7 @@ $url = "http://127.0.0.1:$selectedPort"
 
 Write-Host "Starting the local exact-label interface..." -ForegroundColor Cyan
 Write-Host "Address: $url"
-Write-Host "Docker will build/start the container; the browser opens after the health check succeeds."
+Write-Host "Docker will rebuild/recreate the labeler from the current checkout; unchanged layers may come from cache."
 Write-Host ""
 
 # Validate Compose interpolation. Temporarily use Continue because Windows
