@@ -64,6 +64,20 @@ def test_too_much_extra_area_remains_for_review():
     assert [item["type"] for item in result["issues"]] == ["geometry"]
 
 
+def test_crop_reaching_another_cell_center_remains_for_review():
+    result = _evaluate_panel(
+        _panel([100, 100, 300, 140], [300, 100, 340, 140]),
+        _prediction([80, 101, 325, 138]),
+        iou_threshold=0.50,
+        geometry_iou=0.75,
+    )
+    # The first GT is well covered with little overall excess, but the crop
+    # reaches the centre of the neighbouring logical cell. It must not be
+    # silently treated as a harmless wider crop.
+    assert result["functional_correct"] == 0
+    assert any(item["type"] == "geometry" for item in result["issues"])
+
+
 def test_merged_cells_are_not_auto_accepted():
     result = _evaluate_panel(
         _panel([20, 40, 130, 75], [100, 40, 220, 75]),
