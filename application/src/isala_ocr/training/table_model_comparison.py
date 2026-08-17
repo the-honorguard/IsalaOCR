@@ -25,7 +25,10 @@ FUNCTIONAL_PREDICTION_EXCESS = 0.30
 REVERSE_CONTAINMENT_PREDICTION_COVERAGE = 0.95
 REVERSE_CONTAINMENT_MIN_GT_AREA_FRACTION = 0.10
 REVERSE_CONTAINMENT_MIN_HEIGHT_FRACTION = 0.45
-EVALUATION_SCHEMA_VERSION = 3
+ROW_ALIGNMENT_MIN_VERTICAL_OVERLAP = 0.85
+ROW_ALIGNMENT_MIN_HORIZONTAL_OVERLAP = 0.90
+ROW_ALIGNMENT_MIN_AREA_RATIO = 0.12
+EVALUATION_SCHEMA_VERSION = 4
 
 
 def _read_json(path: Path, default: Any = None) -> Any:
@@ -104,16 +107,35 @@ def _box_area(box: tuple[float, float, float, float]) -> float:
     return max(1e-9, (box[2] - box[0]) * (box[3] - box[1]))
 
 
+def _axis_overlap_fraction_of_smaller(
+    left: tuple[float, float, float, float],
+    right: tuple[float, float, float, float],
+    *,
+    axis: str,
+) -> float:
+    if axis == "x":
+        left_start, left_end = left[0], left[2]
+        right_start, right_end = right[0], right[2]
+    elif axis == "y":
+        left_start, left_end = left[1], left[3]
+        right_start, right_end = right[1], right[3]
+    else:
+        raise ValueError(f"Onbekende as: {axis}")
+    overlap = max(0.0, min(left_end, right_end) - max(left_start, right_start))
+    smaller = max(1e-9, min(left_end - left_start, right_end - right_start))
+    return overlap / smaller
+
+
 def _geometry_quality(
     prediction_box: tuple[float, float, float, float], gt_box: tuple[float, float, float, float]
 ) -> dict[str, Any]:
     """Describe how an imperfect prediction relates to its canonical GT cell.
 
     IoU alone penalises both harmlessly oversized predictions and useful tight
-    predictions inside a broad/merged GT cell.  Step 7 therefore exposes both
-    directions of containment.  Automatic ``functional_candidate`` remains
+    predictions inside a broad/merged GT cell. Step 7 therefore exposes both
+    directions of containment. Automatic ``functional_candidate`` remains
     deliberately conservative: only a prediction that covers the complete GT
-    without much excess is hinted as probably usable.  A contained, tighter
+    without much excess is hinted as probably usable. A contained, tighter
     prediction is always left to human review because geometry alone cannot
     prove that the omitted GT area contains no useful content.
     """
@@ -149,7 +171,7 @@ def _issue_identifier(panel_key: str, issue: dict[str, Any]) -> str:
 def _legacy_fp_fn_issue_ids(
     panel_key: str, prediction_box: Any, gt_box: Any
 ) -> list[str]:
-    """IDs used before containment recovery joined one logical FP + FN pair."""
+    """IDs used before geometry recovery joined one logical FP + FN pair."""
     return [
         _issue_identifier(panel_key, {"type": "fp", "prediction_box": prediction_box, "gt_boxes": []}),
         _issue_identifier(panel_key, {"type": "fn", "prediction_box": None, "gt_boxes": [gt_box]}),
@@ -284,7 +306,7 @@ def _evaluate_panel(
         })
 
     # Detect predictions that substantially cover multiple GT cells before the
-    # containment fallback. Such boxes are true merged-cell candidates and must
+    # geometry fallbacks. Such boxes are true merged-cell candidates and must
     # never be rescued as a one-to-one geometry match.
     merged_prediction_indexes: set[int] = set()
     merged_gt_indexes: set[int] = set()
@@ -303,14 +325,10 @@ def _evaluate_panel(
 
     # Second-chance one-to-one matching. IoU is poor when one box is much wider
     # than the other, even when both describe the same logical cell. Recover both
-    # safe containment directions so one detection is not shown twice as FP+FN.
-    #
-    # Direction A (existing behaviour): prediction covers >=95% of one GT cell.
-    # Direction B: prediction itself lies >=95% inside one broad GT cell. The
-    # reverse direction is intentionally stricter: it must be an unambiguous
-    # one-prediction/one-GT relation and the prediction must still occupy >=10%
-    # of GT area and >=45% of GT height. This catches tight title/text boxes in a
-    # broad merged GT row without swallowing tiny noise boxes or split detections.
+    # containment directions first, then use a conservative row-alignment fallback
+    # for broad title/header cells where a few pixels of edge bleed break the 95%
+    # containment threshold. Every fallback remains one-to-one and excludes true
+    # merged predictions.
     containment_pairs: list[tuple[float, float, int, int, str]] = []
     for pred_index, pred in enumerate(predictions):
         if pred_index in matched_pred or pred_index in merged_prediction_indexes:
@@ -362,6 +380,39 @@ def _evaluate_panel(
         if reverse_pred_counts.get(pred_index) == 1 and reverse_gt_counts.get(gt_index) == 1:
             containment_pairs.append((coverage, score, pred_index, gt_index, "prediction_coverage"))
 
+    aligned_candidates: list[tuple[float, float, int, int]] = []
+    for pred_index, pred in enumerate(predictions):
+        if pred_index in matched_pred or pred_index in merged_prediction_indexes:
+            continue
+        pred_box = _box(pred.get("box"))
+        if pred_box is None:
+            continue
+        for gt_index, gt in enumerate(truth):
+            if gt_index in matched_gt or gt_index in merged_gt_indexes:
+                continue
+            gt_box = _box(gt.get("box"))
+            if gt_box is None:
+                continue
+            vertical = _axis_overlap_fraction_of_smaller(pred_box, gt_box, axis="y")
+            horizontal = _axis_overlap_fraction_of_smaller(pred_box, gt_box, axis="x")
+            area_ratio = min(_box_area(pred_box), _box_area(gt_box)) / max(_box_area(pred_box), _box_area(gt_box))
+            if vertical < ROW_ALIGNMENT_MIN_VERTICAL_OVERLAP:
+                continue
+            if horizontal < ROW_ALIGNMENT_MIN_HORIZONTAL_OVERLAP:
+                continue
+            if area_ratio < ROW_ALIGNMENT_MIN_AREA_RATIO:
+                continue
+            aligned_candidates.append((vertical * horizontal, _iou(pred_box, gt_box), pred_index, gt_index))
+
+    aligned_pred_counts: dict[int, int] = {}
+    aligned_gt_counts: dict[int, int] = {}
+    for _, _, pred_index, gt_index in aligned_candidates:
+        aligned_pred_counts[pred_index] = aligned_pred_counts.get(pred_index, 0) + 1
+        aligned_gt_counts[gt_index] = aligned_gt_counts.get(gt_index, 0) + 1
+    for alignment, score, pred_index, gt_index in aligned_candidates:
+        if aligned_pred_counts.get(pred_index) == 1 and aligned_gt_counts.get(gt_index) == 1:
+            containment_pairs.append((alignment, score, pred_index, gt_index, "row_alignment"))
+
     containment_pairs.sort(key=lambda item: (item[0], item[1]), reverse=True)
     for coverage, score, pred_index, gt_index, match_reason in containment_pairs:
         if pred_index in matched_pred or gt_index in matched_gt:
@@ -376,8 +427,10 @@ def _evaluate_panel(
         }
         if match_reason == "gt_coverage":
             match["match_gt_coverage"] = coverage
-        else:
+        elif match_reason == "prediction_coverage":
             match["match_prediction_coverage"] = coverage
+        else:
+            match["match_row_alignment"] = coverage
         matches.append(match)
 
     issues: list[dict[str, Any]] = []
@@ -400,12 +453,15 @@ def _evaluate_panel(
             "match_reason": item.get("match_reason") or "iou",
             **quality,
         }
-        if issue["match_reason"] in {"gt_coverage", "prediction_coverage"}:
-            issue["containment_recovered"] = True
-            issue["prediction_containment_recovered"] = issue["match_reason"] == "prediction_coverage"
+        if issue["match_reason"] in {"gt_coverage", "prediction_coverage", "row_alignment"}:
             issue["legacy_issue_ids"] = _legacy_fp_fn_issue_ids(
                 panel_key, pred.get("box"), gt.get("box")
             )
+        if issue["match_reason"] in {"gt_coverage", "prediction_coverage"}:
+            issue["containment_recovered"] = True
+            issue["prediction_containment_recovered"] = issue["match_reason"] == "prediction_coverage"
+        elif issue["match_reason"] == "row_alignment":
+            issue["alignment_recovered"] = True
         issues.append(issue)
 
     for pred_index in sorted(merged_prediction_indexes):
@@ -664,8 +720,6 @@ def current_detection_context(workspace: str | Path) -> dict[str, Any]:
         model_training_run_id = str(selected_meta.get("run_id") or "")
         model_dataset_id = str(selected_meta.get("dataset_id") or "")
     else:
-        # Migration for pre-run-aware diagnostics. Only attribute them to the
-        # currently active model when every source was detected after activation.
         source_times = [detected_by_source.get(source_id, "") for source_id in source_ids]
         activated_at = _safe_iso(active.get("activated_at"))
         can_be_active = bool(active_id and activated_at and source_times and all(value and value >= activated_at for value in source_times))
@@ -720,9 +774,6 @@ def capture_current_detection_run(workspace: str | Path) -> dict[str, Any] | Non
     model_id = str(context.get("model_id") or "generic-ppstructure")
     model_name = str(context.get("model_name") or model_id)
 
-    # A detection batch is immutable and must be archived only once. Dataset/GT
-    # rebuilds may happen later; those use an in-memory re-evaluation view of the
-    # same frozen predictions instead of creating a duplicate "new" detector run.
     runs_root = root / COMPARISON_DIRNAME / RUNS_DIRNAME
     batch_id = str(context.get("detection_batch_id") or "")
     context_created_at = str(context.get("created_at") or "")
@@ -789,10 +840,6 @@ def capture_current_detection_run(workspace: str | Path) -> dict[str, Any] | Non
     pointer = root / COMPARISON_DIRNAME / "latest.txt"
     pointer.parent.mkdir(parents=True, exist_ok=True)
     pointer.write_text(run_id + "\n", encoding="ascii")
-    # Every new detector output changes the set of proposals that must be
-    # judged as real cells, false positives, or misses. Keep the canonical
-    # geometry intact, but reopen every source covered by this complete run so
-    # the next dataset build cannot silently reuse the previous review pass.
     for source_id in sorted({
         str(panel.get("source_id") or "").strip()
         for panel in panels
@@ -805,9 +852,9 @@ def capture_current_detection_run(workspace: str | Path) -> dict[str, Any] | Non
 def _current_evaluation_view(run: dict[str, Any]) -> dict[str, Any]:
     """Re-evaluate archived runs with current matching semantics in memory.
 
-    Raw predictions and frozen GT stay untouched on disk. This lets existing
-    Step-7 v1/v2 runs immediately benefit from both containment directions after
-    an upgrade, without forcing the user to run detection again.
+    Raw predictions and frozen GT stay untouched on disk. Existing Step-7 v1-v3
+    runs immediately benefit from the current geometry recovery after an upgrade,
+    without forcing the user to run detection again.
     """
     try:
         schema_version = int(run.get("schema_version") or 1)
@@ -915,7 +962,6 @@ def list_comparison_runs(workspace: str | Path) -> list[dict[str, Any]]:
             view = _rebase_run_to_dataset(payload, dataset=dataset, current_panels=current_panels)
             if view is not None:
                 result.append(view)
-    # Baseline first, then chronological immutable Step-3 runs. Duplicate run IDs are ignored.
     unique: dict[str, dict[str, Any]] = {}
     for item in result:
         unique[str(item.get("run_id"))] = item
@@ -1101,12 +1147,7 @@ def latest_completed_training_feedback(workspace: str | Path) -> dict[str, Any]:
 
 
 def _gt_worklist_for_run(run: dict[str, Any], reviews: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return only unresolved GT checks from one immutable prediction run.
-
-    A GT check is deliberately not copied into a later run. It is a pointer
-    back to the canonical-GT workflow, while the prediction/review itself stays
-    attached to the run that produced it.
-    """
+    """Return only unresolved GT checks from one immutable prediction run."""
     run_id = str(run.get("run_id") or "")
     run_reviews = reviews.get(run_id, {}) if isinstance(reviews, dict) else {}
     if not isinstance(run_reviews, dict):
@@ -1137,7 +1178,6 @@ def _gt_worklist_for_run(run: dict[str, Any], reviews: dict[str, Any]) -> list[d
 
 
 def training_report_for_run(workspace: str | Path, run: dict[str, Any]) -> dict[str, Any]:
-    """Build the human-readable close-out report for a completed Step-7 run."""
     root = resolve_project_workspace(workspace)
     reviews = comparison_reviews(root)
     run_id = str(run.get("run_id") or "")
@@ -1203,9 +1243,6 @@ def review_comparison_issue(workspace: str | Path, run_id: str, issue_id: str, d
     if decision == "functional_ok" and str(selected_issue.get("type") or "") != "geometry":
         raise ValueError("Functioneel correct is alleen geldig voor geometrie-afwijkingen")
     if decision == "gt_check":
-        # A Step-3 discrepancy is a request to inspect the complete source GT
-        # again, not merely a note on the comparison run. Re-open only the
-        # affected source so unrelated sources remain ready for training.
         source_id = str(
             selected_issue.get("source_id")
             or (selected_panel or {}).get("source_id")
@@ -1224,13 +1261,6 @@ def review_comparison_issue(workspace: str | Path, run_id: str, issue_id: str, d
 
 
 def add_comparison_fp_to_ground_truth(workspace: str | Path, run_id: str, issue_id: str) -> dict[str, Any]:
-    """Promote an FP prediction from Step 7 directly into canonical Ground Truth.
-
-    Comparison predictions are stored in panel-local coordinates while Step 4's
-    canonical GT uses full-source coordinates. This helper resolves the frozen
-    run/panel/issue server-side, converts the box safely, avoids duplicate GT
-    additions, and records the Step-7 issue as reviewed.
-    """
     root = resolve_project_workspace(workspace)
     runs = {str(item.get("run_id")): item for item in list_comparison_runs(root)}
     run = runs.get(str(run_id or ""))
@@ -1271,7 +1301,6 @@ def add_comparison_fp_to_ground_truth(workspace: str | Path, run_id: str, issue_
     if not source_id:
         raise ValueError("Bron-ID ontbreekt voor deze prediction")
 
-    # A second click, page refresh or repeated POST must not create duplicate GT.
     for existing in list_ground_truth_cells(root, source_id):
         existing_box = _box([existing.get("x1"), existing.get("y1"), existing.get("x2"), existing.get("y2")])
         if existing_box is not None and _iou(full_box, existing_box) >= 0.95:
