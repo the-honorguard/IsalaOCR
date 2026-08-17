@@ -28,11 +28,12 @@
     const openCount = document.getElementById('comparison-open-count');
     const reviewedCount = document.getElementById('comparison-reviewed-count');
     const issueCount = document.getElementById('comparison-issue-count');
+    const filter = document.getElementById('comparison-issue-filter');
 
     const stabilityStyle = document.createElement('style');
     stabilityStyle.textContent = `
       .comparison-panel-list,.comparison-issue-list{overflow-anchor:none}
-      #comparison-inline-status{position:fixed;right:20px;bottom:84px;z-index:1200;max-width:min(520px,calc(100vw - 40px));margin:0;box-shadow:0 12px 36px rgba(0,0,0,.35)}
+      #comparison-inline-status{position:fixed;right:20px;bottom:84px;z-index:12050;max-width:min(520px,calc(100vw - 40px));margin:0;box-shadow:0 12px 36px rgba(0,0,0,.35)}
       #comparison-inline-status:empty{display:none}
     `;
     document.head.appendChild(stabilityStyle);
@@ -85,7 +86,7 @@
       window.requestAnimationFrame(() => {
         const anchor = snapshot?.anchor;
         if (!anchor || !anchor.isConnected || anchor.style?.display === 'none' || anchor.classList?.contains('is-filtered')) {
-          window.scrollTo(0, snapshot?.windowY || 0);
+          if (!document.body.classList.contains('step7-review-focus-mode')) window.scrollTo(0, snapshot?.windowY || 0);
           return;
         }
 
@@ -97,7 +98,7 @@
         }
 
         delta = anchor.getBoundingClientRect().top - snapshot.anchorTop;
-        if (Math.abs(delta) > 0.5) window.scrollBy(0, delta);
+        if (Math.abs(delta) > 0.5 && !document.body.classList.contains('step7-review-focus-mode')) window.scrollBy(0, delta);
       });
     };
 
@@ -143,6 +144,78 @@
       const panel = row.closest('.comparison-panel-card');
       if (panel) panel.style.display = snapshot.panelDisplay;
     };
+
+    // Build a viewport-filling review mode that mirrors the GT Studio focus mode:
+    // same page, no navigation/reload, fixed review surface, compact floating
+    // controls, image on the left and review queue on the right.
+    const reviewSection = filter?.closest('section.card') || null;
+    let fullscreenReturnScrollY = 0;
+    if (reviewSection) {
+      reviewSection.classList.add('step7-review-stage');
+      const toolbar = reviewSection.querySelector(':scope > .toolbar');
+      const controls = document.createElement('div');
+      controls.className = 'step7-review-view-actions';
+
+      const filterLabel = filter?.closest('.compare-filter');
+      if (filterLabel) controls.appendChild(filterLabel);
+
+      const liveCount = document.createElement('span');
+      liveCount.className = 'pill step7-review-live-count';
+      const refreshLiveCount = () => {
+        liveCount.textContent = `${parseCount(openCount)} open · ${parseCount(reviewedCount)} beoordeeld`;
+      };
+      refreshLiveCount();
+      controls.appendChild(liveCount);
+
+      const fullscreenButton = document.createElement('button');
+      fullscreenButton.type = 'button';
+      fullscreenButton.id = 'step7-review-focus-toggle';
+      fullscreenButton.className = 'primary';
+      fullscreenButton.setAttribute('aria-pressed', 'false');
+      fullscreenButton.title = 'Open/sluit viewport-vullende reviewmodus (F)';
+      fullscreenButton.textContent = '⛶ Review fullscreen';
+      controls.appendChild(fullscreenButton);
+      toolbar?.appendChild(controls);
+
+      const countObserver = new MutationObserver(refreshLiveCount);
+      if (openCount) countObserver.observe(openCount, {childList: true, characterData: true, subtree: true});
+      if (reviewedCount) countObserver.observe(reviewedCount, {childList: true, characterData: true, subtree: true});
+
+      const setFullscreen = enabled => {
+        const active = Boolean(enabled);
+        if (active === document.body.classList.contains('step7-review-focus-mode')) return;
+        if (active) fullscreenReturnScrollY = window.scrollY;
+        document.body.classList.toggle('step7-review-focus-mode', active);
+        fullscreenButton.setAttribute('aria-pressed', String(active));
+        fullscreenButton.textContent = active ? '× Fullscreen sluiten' : '⛶ Review fullscreen';
+        document.documentElement.classList.toggle('step7-review-focus-mode', active);
+        if (!active) {
+          window.requestAnimationFrame(() => window.scrollTo(0, fullscreenReturnScrollY));
+        } else {
+          window.requestAnimationFrame(() => {
+            const firstVisible = visibleReviewRows()[0];
+            firstVisible?.closest('.comparison-issue-list')?.scrollTo({top: 0});
+          });
+        }
+      };
+
+      fullscreenButton.addEventListener('click', () => {
+        setFullscreen(!document.body.classList.contains('step7-review-focus-mode'));
+      });
+
+      window.addEventListener('keydown', event => {
+        const target = event.target;
+        const typing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable;
+        if (typing || event.ctrlKey || event.metaKey || event.altKey) return;
+        if ((event.key === 'f' || event.key === 'F') && !event.repeat) {
+          event.preventDefault();
+          setFullscreen(!document.body.classList.contains('step7-review-focus-mode'));
+        } else if (event.key === 'Escape' && document.body.classList.contains('step7-review-focus-mode')) {
+          event.preventDefault();
+          setFullscreen(false);
+        }
+      });
+    }
 
     // Capture phase intentionally runs before the older per-form AJAX handler in
     // table_model_comparison.html. This gives immediate optimistic removal while
