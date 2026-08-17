@@ -9,13 +9,17 @@
 {% set m = latest_model or {} %}
 {% set e = evaluation or {} %}
 {% set active = model_state.active_model or {} %}
+{% set iteration_pending = needs_training or (d and not model_state.dataset_current) %}
 
-<section class="gate-banner {% if active %}gate-banner-open{% else %}gate-banner-closed{% endif %}">
+<section class="gate-banner {% if active and not iteration_pending %}gate-banner-open{% else %}gate-banner-closed{% endif %}">
   <div>
     <span class="gate-kicker">MODEL ITERATIE · STAP 6 VAN 7</span>
     {% if not active %}
     <h2>Nog geen actief table-cell model</h2>
     <p>Train en activeer eerst een model in Stap 5. De beoordelingsrun wordt altijd expliciet aan de actieve modelversie gekoppeld.</p>
+    {% elif iteration_pending %}
+    <h2>Eerst de nieuwe trainingsronde afronden</h2>
+    <p>De canonieke GT of de afgeronde Stap-7-feedback is nieuwer dan de modelversie die je nu zou beoordelen. Ga naar Stap 5 zodat dataset, training en activatie eerst weer bij dezelfde iteratie horen.</p>
     {% elif activate_ready %}
     <h2>Nieuw model is getraind maar nog niet actief</h2>
     <p>Activeer de nieuwste versie voordat je een nieuwe beoordelingsrun maakt. Zo blijft altijd aantoonbaar welk model welke predictions heeft geproduceerd.</p>
@@ -28,7 +32,7 @@
     {% endif %}
   </div>
   <div class="actions">
-    {% if not active %}
+    {% if not active or iteration_pending %}
     <a class="button primary" href="/process/table-quality">Stap 5 · Model trainen</a>
     {% elif activate_ready %}
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="52"><button class="primary">Nieuwste model activeren</button></form>
@@ -50,7 +54,7 @@
 <div class="grid cols-3 section-gap">
   <section class="card"><span class="muted">Actief model</span><div class="metric {% if active %}ok{% endif %}" style="font-size:1rem;line-height:1.35;word-break:break-word">{{ active.model_id or 'Geen' }}</div><small>{% if active.dataset_id %}Getraind op {{ active.dataset_id }}{% else %}Activeer in Stap 5 eerst een modelversie.{% endif %}</small></section>
   <section class="card"><span class="muted">Actuele trainingsdataset</span><div class="metric {% if model_state.dataset_current %}ok{% else %}warn{% endif %}" style="font-size:1rem;line-height:1.35;word-break:break-word">{{ d.dataset_id or 'Geen' }}</div><small>{% if d %}{{ d.annotation_count or 0 }} cellen · {{ d.panel_count or 0 }} panelcrops{% else %}Nog geen versioned table-cell dataset.{% endif %}</small></section>
-  <section class="card"><span class="muted">Beoordelingsrun</span><div class="metric {% if active and not needs_redetect %}ok{% else %}warn{% endif %}" style="font-size:1.15rem">{% if active and not needs_redetect %}Actueel{% elif active %}Opnieuw draaien{% else %}Niet beschikbaar{% endif %}</div><small>Een run blijft gekoppeld aan precies de modelversie waarmee hij is gemaakt.</small></section>
+  <section class="card"><span class="muted">Beoordelingsrun</span><div class="metric {% if active and not needs_redetect and not iteration_pending %}ok{% else %}warn{% endif %}" style="font-size:1.15rem">{% if iteration_pending %}Training eerst{% elif active and not needs_redetect %}Actueel{% elif active %}Opnieuw draaien{% else %}Niet beschikbaar{% endif %}</div><small>Een run blijft gekoppeld aan precies de modelversie waarmee hij is gemaakt.</small></section>
 </div>
 
 {% if m %}
