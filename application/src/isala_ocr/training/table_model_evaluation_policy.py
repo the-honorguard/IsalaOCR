@@ -68,6 +68,7 @@ def install_table_model_evaluation_policy() -> None:
         kept_issues: list[dict[str, Any]] = []
         auto_functional = 0
         accepted_pairs: set[tuple[int, int]] = set()
+        truth = panel.get("ground_truth") or []
 
         for issue in result.get("issues") or []:
             if not isinstance(issue, dict) or str(issue.get("type") or "") != "geometry":
@@ -88,30 +89,50 @@ def install_table_model_evaluation_policy() -> None:
                 continue
 
             # The original evaluator only emits a geometry issue for an already
-            # one-to-one matched pair. Record the exact match as accepted so the
-            # audit data remains explicit even though no human review is needed.
+            # one-to-one matched pair. Trace it back before applying any automatic
+            # acceptance so the result remains auditable.
             matched_pair: tuple[int, int] | None = None
+            matched_record: dict[str, Any] | None = None
             for match in result.get("matches") or []:
                 try:
                     pred_index = int(match.get("prediction_index"))
                     gt_index = int(match.get("gt_index"))
                     pred_raw = predictions[pred_index].get("box")
-                    gt_raw = (panel.get("ground_truth") or [])[gt_index].get("box")
+                    gt_raw = truth[gt_index].get("box")
                 except (IndexError, TypeError, ValueError, AttributeError):
                     continue
                 if tuple(pred_raw or []) == prediction_key and tuple(gt_raw or []) == tuple(gt_boxes[0] or []):
                     matched_pair = (pred_index, gt_index)
-                    match["functional_accepted"] = True
-                    match["functional_gt_coverage"] = float(quality.get("gt_coverage") or 0.0)
-                    match["functional_prediction_excess"] = float(quality.get("prediction_excess") or 0.0)
+                    matched_record = match
                     break
 
-            # Defensive guard: do not auto-accept anything we cannot trace back
-            # to the evaluator's one-to-one match table.
-            if matched_pair is None:
+            if matched_pair is None or matched_record is None:
                 kept_issues.append(issue)
                 continue
 
+            # Extra area is only harmless while it does not reach the centre of
+            # another spatially distinct GT cell. This catches partial neighbour
+            # capture that can stay below the normal 70% merged-cell threshold.
+            _, matched_gt_index = matched_pair
+            reaches_other_cell = False
+            for other_index, other_gt in enumerate(truth):
+                if other_index == matched_gt_index or not isinstance(other_gt, dict):
+                    continue
+                other_box = comparison._box(other_gt.get("box"))
+                if other_box is None:
+                    continue
+                if not comparison._gt_boxes_are_spatially_distinct(gt_box, other_box):
+                    continue
+                if comparison._box_center_inside(other_box, prediction_box):
+                    reaches_other_cell = True
+                    break
+            if reaches_other_cell:
+                kept_issues.append(issue)
+                continue
+
+            matched_record["functional_accepted"] = True
+            matched_record["functional_gt_coverage"] = float(quality.get("gt_coverage") or 0.0)
+            matched_record["functional_prediction_excess"] = float(quality.get("prediction_excess") or 0.0)
             accepted_pairs.add(matched_pair)
             auto_functional += 1
 
