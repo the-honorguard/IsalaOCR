@@ -108,6 +108,22 @@
   display: none !important;
 }
 
+/* Fallback for a normal POST/redirect response: Flask flash notices are
+   rendered directly under .shell. On Step 7 they must behave like the AJAX
+   toast as well, otherwise a confirmation such as 'Modelmisser bevestigd'
+   changes document height and moves the active review item. */
+body:has(#comparison-issue-filter) .shell > .notice {
+  position: fixed !important;
+  top: 16px;
+  right: 20px;
+  left: auto !important;
+  z-index: 12060;
+  width: auto !important;
+  max-width: min(520px, calc(100vw - 40px));
+  margin: 0 !important;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .35);
+}
+
 .comparison-panel-list,
 .comparison-issue-list {
   overflow-anchor: none;
