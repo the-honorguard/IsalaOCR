@@ -116,6 +116,13 @@
 <script>window.ISALA_ACTION_DURATION_ESTIMATES={{ action_duration_estimates|tojson }};</script>
 <script src="{{ url_for('static',filename='app.js',v=app_version) }}"></script>
 <script>document.getElementById('project-switch-select')?.addEventListener('change',()=>document.getElementById('project-switch-form').submit());</script>
+<script>
+const comparisonIssueFilter=document.getElementById('comparison-issue-filter');
+if(comparisonIssueFilter){
+  comparisonIssueFilter.value='open';
+  comparisonIssueFilter.dispatchEvent(new Event('change'));
+}
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
