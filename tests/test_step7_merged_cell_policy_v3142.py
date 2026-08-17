@@ -18,20 +18,21 @@ def _panel(*gt_boxes):
     }
 
 
-def test_prediction_that_only_owns_one_gt_center_is_not_merged():
-    """Large edge overlap with a neighbour must not create a false merge.
+def test_right_cell_prediction_with_65_percent_neighbour_overlap_is_not_merged():
+    """A right-cell prediction must not be merged because padded GT overlaps it.
 
-    The prediction substantially overlaps both padded GT boxes, but contains only
-    the centre of the right-hand GT cell. This mirrors the Step-7 case where the
-    visible prediction belongs only to the Normal Values cell.
+    The prediction exactly matches the right GT cell. The left GT overlaps it by
+    65%, which the previous >=60% rule incorrectly counted as a second covered GT.
+    Under the stricter policy the left GT is not considered merged into the
+    prediction, so Step 7 can review the right cell normally.
     """
     panel = _panel(
-        [20, 20, 120, 60],
-        [90, 20, 210, 60],
+        [0, 20, 100, 60],
+        [35, 20, 135, 60],
     )
     predictions = [{
         "prediction_id": "normal-values-only",
-        "box": [100, 20, 210, 60],
+        "box": [35, 20, 135, 60],
         "confidence": 0.85,
     }]
 
@@ -43,7 +44,7 @@ def test_prediction_that_only_owns_one_gt_center_is_not_merged():
     assert result["fn"] == 1
 
 
-def test_prediction_spanning_two_gt_centers_is_merged():
+def test_prediction_spanning_two_gt_cells_is_merged():
     """A genuine two-cell prediction must remain a merged model error candidate."""
     panel = _panel(
         [20, 20, 100, 60],
@@ -63,14 +64,14 @@ def test_prediction_spanning_two_gt_centers_is_merged():
     assert len(merged[0]["gt_boxes"]) == 2
 
 
-def test_70_percent_coverage_without_gt_center_is_not_enough_for_merge():
+def test_prediction_below_70_percent_second_gt_coverage_is_not_merged():
     panel = _panel(
         [0, 0, 100, 40],
-        [80, 0, 180, 40],
+        [31, 0, 131, 40],
     )
     predictions = [{
         "prediction_id": "right-cell",
-        "box": [70, 0, 180, 40],
+        "box": [31, 0, 131, 40],
         "confidence": 0.90,
     }]
 
