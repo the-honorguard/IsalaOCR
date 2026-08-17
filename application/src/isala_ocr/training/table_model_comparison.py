@@ -22,7 +22,10 @@ DEFAULT_IOU_THRESHOLD = 0.50
 DEFAULT_GEOMETRY_IOU = 0.75
 FUNCTIONAL_GT_COVERAGE = 0.95
 FUNCTIONAL_PREDICTION_EXCESS = 0.30
-EVALUATION_SCHEMA_VERSION = 2
+REVERSE_CONTAINMENT_PREDICTION_COVERAGE = 0.95
+REVERSE_CONTAINMENT_MIN_GT_AREA_FRACTION = 0.10
+REVERSE_CONTAINMENT_MIN_HEIGHT_FRACTION = 0.45
+EVALUATION_SCHEMA_VERSION = 3
 
 
 def _read_json(path: Path, default: Any = None) -> Any:
@@ -97,27 +100,35 @@ def _coverage_fraction(inner: tuple[float, float, float, float], outer: tuple[fl
     return inter / area
 
 
+def _box_area(box: tuple[float, float, float, float]) -> float:
+    return max(1e-9, (box[2] - box[0]) * (box[3] - box[1]))
+
+
 def _geometry_quality(
     prediction_box: tuple[float, float, float, float], gt_box: tuple[float, float, float, float]
 ) -> dict[str, Any]:
-    """Describe whether an imperfect prediction still fully covers its GT cell.
+    """Describe how an imperfect prediction relates to its canonical GT cell.
 
-    IoU alone penalises a deliberately or harmlessly oversized prediction even
-    when all desired content is present.  Step 7 therefore also exposes:
-
-    * GT coverage: fraction of the canonical GT contained by the prediction.
-    * Prediction excess: fraction of the prediction that lies outside the GT.
-
-    The threshold pair is only a review hint.  A human can still mark any
-    geometry issue as functionally correct when the extra image content is
-    harmless for downstream OCR.
+    IoU alone penalises both harmlessly oversized predictions and useful tight
+    predictions inside a broad/merged GT cell.  Step 7 therefore exposes both
+    directions of containment.  Automatic ``functional_candidate`` remains
+    deliberately conservative: only a prediction that covers the complete GT
+    without much excess is hinted as probably usable.  A contained, tighter
+    prediction is always left to human review because geometry alone cannot
+    prove that the omitted GT area contains no useful content.
     """
     gt_coverage = _coverage_fraction(gt_box, prediction_box)
     prediction_inside_gt = _coverage_fraction(prediction_box, gt_box)
     prediction_excess = max(0.0, min(1.0, 1.0 - prediction_inside_gt))
+    prediction_gt_area_fraction = min(1.0, _box_area(prediction_box) / _box_area(gt_box))
+    gt_height = max(1e-9, gt_box[3] - gt_box[1])
+    prediction_gt_height_fraction = min(1.0, (prediction_box[3] - prediction_box[1]) / gt_height)
     return {
         "gt_coverage": gt_coverage,
+        "prediction_inside_gt": prediction_inside_gt,
         "prediction_excess": prediction_excess,
+        "prediction_gt_area_fraction": prediction_gt_area_fraction,
+        "prediction_gt_height_fraction": prediction_gt_height_fraction,
         "functional_candidate": (
             gt_coverage >= FUNCTIONAL_GT_COVERAGE
             and prediction_excess <= FUNCTIONAL_PREDICTION_EXCESS
@@ -138,7 +149,7 @@ def _issue_identifier(panel_key: str, issue: dict[str, Any]) -> str:
 def _legacy_fp_fn_issue_ids(
     panel_key: str, prediction_box: Any, gt_box: Any
 ) -> list[str]:
-    """IDs used by evaluator v1 before containment recovery joined FP + FN."""
+    """IDs used before containment recovery joined one logical FP + FN pair."""
     return [
         _issue_identifier(panel_key, {"type": "fp", "prediction_box": prediction_box, "gt_boxes": []}),
         _issue_identifier(panel_key, {"type": "fn", "prediction_box": None, "gt_boxes": [gt_box]}),
@@ -273,8 +284,8 @@ def _evaluate_panel(
         })
 
     # Detect predictions that substantially cover multiple GT cells before the
-    # containment fallback.  Such boxes are true merged-cell candidates and
-    # must never be rescued as a one-to-one geometry match.
+    # containment fallback. Such boxes are true merged-cell candidates and must
+    # never be rescued as a one-to-one geometry match.
     merged_prediction_indexes: set[int] = set()
     merged_gt_indexes: set[int] = set()
     for pred_index, pred in enumerate(predictions):
@@ -290,12 +301,17 @@ def _evaluate_panel(
             merged_prediction_indexes.add(pred_index)
             merged_gt_indexes.update(covered)
 
-    # Second-chance one-to-one matching.  IoU is intentionally poor when a
-    # prediction is much larger than the canonical GT, even if the complete GT
-    # cell is inside it.  Without this pass Step 7 reports one logical detection
-    # twice as FP + FN.  A prediction that covers >=95% of one unmatched GT is
-    # therefore paired with that GT and reviewed as a geometry deviation.
-    containment_pairs: list[tuple[float, float, int, int]] = []
+    # Second-chance one-to-one matching. IoU is poor when one box is much wider
+    # than the other, even when both describe the same logical cell. Recover both
+    # safe containment directions so one detection is not shown twice as FP+FN.
+    #
+    # Direction A (existing behaviour): prediction covers >=95% of one GT cell.
+    # Direction B: prediction itself lies >=95% inside one broad GT cell. The
+    # reverse direction is intentionally stricter: it must be an unambiguous
+    # one-prediction/one-GT relation and the prediction must still occupy >=10%
+    # of GT area and >=45% of GT height. This catches tight title/text boxes in a
+    # broad merged GT row without swallowing tiny noise boxes or split detections.
+    containment_pairs: list[tuple[float, float, int, int, str]] = []
     for pred_index, pred in enumerate(predictions):
         if pred_index in matched_pred or pred_index in merged_prediction_indexes:
             continue
@@ -310,20 +326,59 @@ def _evaluate_panel(
                 continue
             coverage = _coverage_fraction(gt_box, pred_box)
             if coverage >= FUNCTIONAL_GT_COVERAGE:
-                containment_pairs.append((coverage, _iou(pred_box, gt_box), pred_index, gt_index))
-    containment_pairs.sort(reverse=True)
-    for coverage, score, pred_index, gt_index in containment_pairs:
+                containment_pairs.append((coverage, _iou(pred_box, gt_box), pred_index, gt_index, "gt_coverage"))
+
+    reverse_candidates: list[tuple[float, float, int, int]] = []
+    for pred_index, pred in enumerate(predictions):
+        if pred_index in matched_pred or pred_index in merged_prediction_indexes:
+            continue
+        pred_box = _box(pred.get("box"))
+        if pred_box is None:
+            continue
+        for gt_index, gt in enumerate(truth):
+            if gt_index in matched_gt or gt_index in merged_gt_indexes:
+                continue
+            gt_box = _box(gt.get("box"))
+            if gt_box is None:
+                continue
+            prediction_coverage = _coverage_fraction(pred_box, gt_box)
+            if prediction_coverage < REVERSE_CONTAINMENT_PREDICTION_COVERAGE:
+                continue
+            area_fraction = min(1.0, _box_area(pred_box) / _box_area(gt_box))
+            gt_height = max(1e-9, gt_box[3] - gt_box[1])
+            height_fraction = min(1.0, (pred_box[3] - pred_box[1]) / gt_height)
+            if area_fraction < REVERSE_CONTAINMENT_MIN_GT_AREA_FRACTION:
+                continue
+            if height_fraction < REVERSE_CONTAINMENT_MIN_HEIGHT_FRACTION:
+                continue
+            reverse_candidates.append((prediction_coverage, _iou(pred_box, gt_box), pred_index, gt_index))
+
+    reverse_pred_counts: dict[int, int] = {}
+    reverse_gt_counts: dict[int, int] = {}
+    for _, _, pred_index, gt_index in reverse_candidates:
+        reverse_pred_counts[pred_index] = reverse_pred_counts.get(pred_index, 0) + 1
+        reverse_gt_counts[gt_index] = reverse_gt_counts.get(gt_index, 0) + 1
+    for coverage, score, pred_index, gt_index in reverse_candidates:
+        if reverse_pred_counts.get(pred_index) == 1 and reverse_gt_counts.get(gt_index) == 1:
+            containment_pairs.append((coverage, score, pred_index, gt_index, "prediction_coverage"))
+
+    containment_pairs.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    for coverage, score, pred_index, gt_index, match_reason in containment_pairs:
         if pred_index in matched_pred or gt_index in matched_gt:
             continue
         matched_pred.add(pred_index)
         matched_gt.add(gt_index)
-        matches.append({
+        match = {
             "prediction_index": pred_index,
             "gt_index": gt_index,
             "iou": score,
-            "match_reason": "gt_coverage",
-            "match_gt_coverage": coverage,
-        })
+            "match_reason": match_reason,
+        }
+        if match_reason == "gt_coverage":
+            match["match_gt_coverage"] = coverage
+        else:
+            match["match_prediction_coverage"] = coverage
+        matches.append(match)
 
     issues: list[dict[str, Any]] = []
     panel_key = f"{panel.get('source_id')}::{panel.get('panel_id')}"
@@ -345,8 +400,9 @@ def _evaluate_panel(
             "match_reason": item.get("match_reason") or "iou",
             **quality,
         }
-        if issue["match_reason"] == "gt_coverage":
+        if issue["match_reason"] in {"gt_coverage", "prediction_coverage"}:
             issue["containment_recovered"] = True
+            issue["prediction_containment_recovered"] = issue["match_reason"] == "prediction_coverage"
             issue["legacy_issue_ids"] = _legacy_fp_fn_issue_ids(
                 panel_key, pred.get("box"), gt.get("box")
             )
@@ -734,7 +790,7 @@ def capture_current_detection_run(workspace: str | Path) -> dict[str, Any] | Non
     pointer.parent.mkdir(parents=True, exist_ok=True)
     pointer.write_text(run_id + "\n", encoding="ascii")
     # Every new detector output changes the set of proposals that must be
-    # judged as real cells, false positives, or misses.  Keep the canonical
+    # judged as real cells, false positives, or misses. Keep the canonical
     # geometry intact, but reopen every source covered by this complete run so
     # the next dataset build cannot silently reuse the previous review pass.
     for source_id in sorted({
@@ -747,11 +803,11 @@ def capture_current_detection_run(workspace: str | Path) -> dict[str, Any] | Non
 
 
 def _current_evaluation_view(run: dict[str, Any]) -> dict[str, Any]:
-    """Re-evaluate archived v1 runs with current matching semantics in memory.
+    """Re-evaluate archived runs with current matching semantics in memory.
 
-    Raw predictions and frozen GT stay untouched on disk.  This lets an existing
-    Step-7 run immediately benefit from containment recovery after an upgrade,
-    without forcing the user to run detection again.
+    Raw predictions and frozen GT stay untouched on disk. This lets existing
+    Step-7 v1/v2 runs immediately benefit from both containment directions after
+    an upgrade, without forcing the user to run detection again.
     """
     try:
         schema_version = int(run.get("schema_version") or 1)
@@ -791,8 +847,8 @@ def _rebase_run_to_dataset(
     """Re-evaluate archived predictions against the current canonical GT.
 
     This keeps model-v1 versus model-v2 comparison meaningful after a GT-only or
-    hard-example dataset rebuild.  The archived prediction geometry is immutable;
-    only the evaluation view is recalculated.  Panel-profile changes are not
+    hard-example dataset rebuild. The archived prediction geometry is immutable;
+    only the evaluation view is recalculated. Panel-profile changes are not
     silently rebased because local coordinates would no longer be comparable.
     """
     current_dataset_id = str(dataset.get("dataset_id") or "")
@@ -941,8 +997,8 @@ def _review_for_issue(issue: dict[str, Any], run_reviews: dict[str, Any]) -> dic
 def latest_completed_training_feedback(workspace: str | Path) -> dict[str, Any]:
     """Translate the newest fully reviewed Step-7 run into training feedback.
 
-    Only explicit ``model_error`` decisions become hard examples.  Functional
-    geometry is deliberately not punished.  A newer completed review supersedes
+    Only explicit ``model_error`` decisions become hard examples. Functional
+    geometry is deliberately not punished. A newer completed review supersedes
     older feedback, including the case where it contains zero model errors; this
     lets the next dataset remove hard-example oversampling once a model has fixed
     those failures.
@@ -1047,7 +1103,7 @@ def latest_completed_training_feedback(workspace: str | Path) -> dict[str, Any]:
 def _gt_worklist_for_run(run: dict[str, Any], reviews: dict[str, Any]) -> list[dict[str, Any]]:
     """Return only unresolved GT checks from one immutable prediction run.
 
-    A GT check is deliberately not copied into a later run.  It is a pointer
+    A GT check is deliberately not copied into a later run. It is a pointer
     back to the canonical-GT workflow, while the prediction/review itself stays
     attached to the run that produced it.
     """
@@ -1130,12 +1186,14 @@ def review_comparison_issue(workspace: str | Path, run_id: str, issue_id: str, d
     current = capture_current_detection_run(root)
     if current is not None and str(current.get("run_id") or "") != run_id:
         raise ValueError("Historische detectieruns zijn alleen-lezen; beoordeel uitsluitend de nieuwste Stap-3-run")
+    selected_panel: dict[str, Any] | None = None
     selected_issue: dict[str, Any] | None = None
     for panel in run.get("panels") or []:
         if not isinstance(panel, dict):
             continue
         for issue in panel.get("issues") or []:
             if isinstance(issue, dict) and str(issue.get("issue_id") or "") == issue_id:
+                selected_panel = panel
                 selected_issue = issue
                 break
         if selected_issue is not None:
@@ -1146,11 +1204,11 @@ def review_comparison_issue(workspace: str | Path, run_id: str, issue_id: str, d
         raise ValueError("Functioneel correct is alleen geldig voor geometrie-afwijkingen")
     if decision == "gt_check":
         # A Step-3 discrepancy is a request to inspect the complete source GT
-        # again, not merely a note on the comparison run.  Re-open only the
+        # again, not merely a note on the comparison run. Re-open only the
         # affected source so unrelated sources remain ready for training.
         source_id = str(
             selected_issue.get("source_id")
-            or selected_panel.get("source_id")
+            or (selected_panel or {}).get("source_id")
             or ""
         ).strip()
         if source_id:
@@ -1165,12 +1223,11 @@ def review_comparison_issue(workspace: str | Path, run_id: str, issue_id: str, d
     return dict(run_reviews.get(issue_id) or {})
 
 
-
 def add_comparison_fp_to_ground_truth(workspace: str | Path, run_id: str, issue_id: str) -> dict[str, Any]:
     """Promote an FP prediction from Step 7 directly into canonical Ground Truth.
 
     Comparison predictions are stored in panel-local coordinates while Step 4's
-    canonical GT uses full-source coordinates.  This helper resolves the frozen
+    canonical GT uses full-source coordinates. This helper resolves the frozen
     run/panel/issue server-side, converts the box safely, avoids duplicate GT
     additions, and records the Step-7 issue as reviewed.
     """
@@ -1232,6 +1289,7 @@ def add_comparison_fp_to_ground_truth(workspace: str | Path, run_id: str, issue_
     )
     review_comparison_issue(root, run_id, issue_id, "gt_added")
     return {"cell": cell, "already_present": False}
+
 
 def _metric_delta(reference: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
     left = reference.get("metrics") or {}
