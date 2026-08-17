@@ -1,10 +1,38 @@
 {% extends 'base.html' %}
 {% block title %}Overzicht · IsalaOCR{% endblock %}
 {% block heading %}Workflow-overzicht{% endblock %}
-{% block subtitle %}{% if localization_strategy == 'table_first' %}Eerst PP-Structure tabel/celgeometrie meten; de losse box-detector staat geparkeerd{% else %}Generieke detectie, functionele mapping, ROI-controle en modeltraining als afzonderlijke processtappen{% endif %}{% endblock %}
+{% block subtitle %}{% if localization_strategy == 'table_first' %}Canonieke Ground Truth opbouwen en daarna iteratief model trainen → beoordelen → afwijkingen reviewen{% else %}Generieke detectie, functionele mapping, ROI-controle en modeltraining als afzonderlijke processtappen{% endif %}{% endblock %}
 {% block content %}
+{% if localization_strategy == 'table_first' %}
 <section class="card workflow-map">
-  <div class="toolbar"><div><h3>Proces</h3><p class="muted">{% if localization_strategy == 'table_first' %}Stap 2 meet uitsluitend PP-Structure table-cell boxes. Pas na review en de TABLE-FIRST CHECK gaat de flow naar Mapping Studio.{% else %}Eerst wordt alleen waargenomen wat op het beeld staat. Functionele betekenis wordt pas in de Mappingstudio toegekend.{% endif %}</p></div><span class="pill">{{ stages|selectattr('complete')|list|length }}/{{ stages|length }} gereed</span></div>
+  <div class="toolbar"><div><h3>Table setup & Ground Truth</h3><p class="muted">Stappen 1–4 bouwen de vaste referentie op. Na de eerste canonieke GT gebruik je Stap 3 niet meer voor modeliteraties.</p></div></div>
+  <div class="stage-rail process-stage-rail">
+    {% set s1 = stages|selectattr('key','equalto','detection-models')|list|first %}
+    {% set s2 = stages|selectattr('key','equalto','panel-setup')|list|first %}
+    {% set s3 = stages|selectattr('key','equalto','detect-candidates')|list|first %}
+    {% set s4 = stages|selectattr('key','equalto','detection-review')|list|first %}
+    <a href="/process/detection-models" class="stage {% if s1 and s1.complete %}complete{% endif %}"><div class="stage-index">1</div><strong>Voorbereiding</strong><div class="muted">Runtime en table-modellen gereedmaken.</div></a>
+    <a href="/process/panel-setup" class="stage {% if s2 and s2.complete %}complete{% endif %}"><div class="stage-index">2</div><strong>Panelen instellen</strong><div class="muted">Vaste tabelgebieden per project bepalen.</div></a>
+    <a href="/process/detect-candidates" class="stage {% if s3 and s3.complete %}complete{% endif %}"><div class="stage-index">3</div><strong>Ground Truth maken</strong><div class="muted">Eenmalig eerste celvoorstel genereren.</div></a>
+    <a href="/process/detection-review" class="stage {% if s4 and s4.complete %}complete{% endif %}"><div class="stage-index">4</div><strong>Ground Truth beheren</strong><div class="muted">Canonieke cellen controleren en corrigeren.</div></a>
+  </div>
+</section>
+
+<section class="card workflow-map section-gap">
+  <div class="toolbar"><div><span class="eyebrow">ITERATIEVE MODELLOOP</span><h3>5 → 6 → 7 → 5</h3><p class="muted">De Ground Truth blijft staan. Alleen modeloutput en expliciete reviewfeedback veranderen per ronde.</p></div></div>
+  <div class="stage-rail process-stage-rail">
+    {% set s5 = stages|selectattr('key','equalto','table-quality')|list|first %}
+    {% set s6 = stages|selectattr('key','equalto','table-model')|list|first %}
+    {% set s7 = stages|selectattr('key','equalto','table-compare')|list|first %}
+    <a href="/process/table-quality" class="stage {% if s5 and s5.complete %}complete{% endif %}"><div class="stage-index">5</div><strong>Model trainen</strong><div class="muted">Dataset → validatie → training → activatie.</div></a>
+    <a href="/process/table-model" class="stage {% if s6 and s6.complete %}complete{% endif %}"><div class="stage-index">6</div><strong>Model beoordelen</strong><div class="muted">Actief model als nieuwe immutable run uitvoeren.</div></a>
+    <a href="/process/table-compare" class="stage {% if s7 and s7.complete %}complete{% endif %}"><div class="stage-index">7</div><strong>Afwijkingen reviewen</strong><div class="muted">Functioneel correct, Model fout of GT controleren.</div></a>
+    <a href="/process/table-quality" class="stage"><div class="stage-index">↻</div><strong>Volgende ronde</strong><div class="muted">Verwerkte feedback opnieuw trainen.</div></a>
+  </div>
+</section>
+{% else %}
+<section class="card workflow-map">
+  <div class="toolbar"><div><h3>Proces</h3><p class="muted">Eerst wordt alleen waargenomen wat op het beeld staat. Functionele betekenis wordt pas in de Mappingstudio toegekend.</p></div><span class="pill">{{ stages|selectattr('complete')|list|length }}/{{ stages|length }} gereed</span></div>
   <div class="stage-rail process-stage-rail">
     {% for s in stages %}
     <a href="/process/{{ s.key }}" class="stage {% if s.complete %}complete{% endif %}">
@@ -13,6 +41,7 @@
     {% endfor %}
   </div>
 </section>
+{% endif %}
 <div class="grid cols-4" style="margin-top:18px">
   <section class="card"><h3>Generieke detectie</h3><div class="metric">{{ generic.detection_sources|length }}</div><p class="muted">{{ generic.mapping.relations }} mogelijke label-waarderelaties gevonden.</p><a class="button primary" href="/detections">Detecties bekijken</a></section>
   <section class="card"><h3>Functionele mapping</h3><div class="metric">{{ generic.mapping.confirmed }}</div><p class="muted">{{ generic.mapping.suggested }} automatische voorstellen wachten op controle.</p><a class="button primary" href="/mapping">Mappingstudio openen</a></section>
