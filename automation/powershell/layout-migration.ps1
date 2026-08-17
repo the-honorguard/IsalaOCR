@@ -72,7 +72,7 @@ if ((Test-Path -LiteralPath $gitInfo -PathType Container) -and
 
 # These files are generated/source duplicates superseded by the grouped layout.
 $legacyFiles = @(
-    ".dockerignore", ".env.example", ".gitignore",
+    ".dockerignore", ".env.example",
     "Dockerfile", "Dockerfile.labeler", "Dockerfile.training", "docker-compose.yml",
     "pyproject.toml", "requirements-runtime.txt", "requirements-cpu.txt",
     "requirements-dev.txt", "VERSION", "TRAINING_IMAGE_VERSION", "PACKAGE_MANIFEST.json"
