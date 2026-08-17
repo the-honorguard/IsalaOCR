@@ -57,5 +57,5 @@ def test_overlapping_but_spatially_distinct_cells_can_still_be_merged():
     assert len(merged[0]["gt_boxes"]) == 2
 
 
-def test_schema_v7_re_evaluates_existing_v6_runs():
-    assert EVALUATION_SCHEMA_VERSION == 7
+def test_schema_v8_re_evaluates_existing_v7_runs():
+    assert EVALUATION_SCHEMA_VERSION == 8
