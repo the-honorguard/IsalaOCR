@@ -1,0 +1,60 @@
+/* Step 7 review choices must be visually neutral until the user selects one.
+   The decision itself, not the semantic meaning of the option, controls emphasis. */
+.comparison-issue-actions button,
+.comparison-issue-actions .button {
+  background: transparent !important;
+  border-color: var(--line) !important;
+  color: var(--text) !important;
+  box-shadow: none !important;
+}
+
+.comparison-issue-actions button:hover:not(:disabled),
+.comparison-issue-actions .button:hover {
+  background: rgba(255, 255, 255, 0.035) !important;
+  border-color: #536579 !important;
+}
+
+/* The template historically included a checkmark in these two labels even
+   before a choice was made. Rebuild those labels without the checkmark. */
+.comparison-issue-form:has(input[name="decision"][value="functional_ok"]) button,
+.comparison-issue-form:has(input[name="decision"][value="model_error"]) button {
+  font-size: 0;
+}
+
+.comparison-issue-form:has(input[name="decision"][value="functional_ok"]) button::before {
+  content: "Functioneel correct";
+  font-size: 12px;
+}
+
+.comparison-issue-form:has(input[name="decision"][value="model_error"]) button::before {
+  content: "Model fout";
+  font-size: 12px;
+}
+
+/* Only the persisted/currently selected review decision receives a checkmark
+   and positive highlight. The AJAX handler already updates data-issue-decision,
+   so this state changes immediately without a page reload. */
+.comparison-issue-row[data-issue-decision="functional_ok"] .comparison-issue-form:has(input[name="decision"][value="functional_ok"]) button,
+.comparison-issue-row[data-issue-decision="model_error"] .comparison-issue-form:has(input[name="decision"][value="model_error"]) button,
+.comparison-issue-row[data-issue-decision="gt_check"] .comparison-issue-form:has(input[name="decision"][value="gt_check"]) button,
+.comparison-issue-row[data-issue-decision="gt_added"] .comparison-issue-actions > button:disabled {
+  background: rgba(78, 193, 138, 0.10) !important;
+  border-color: var(--ok) !important;
+  color: var(--ok) !important;
+}
+
+.comparison-issue-row[data-issue-decision="functional_ok"] .comparison-issue-form:has(input[name="decision"][value="functional_ok"]) button::after,
+.comparison-issue-row[data-issue-decision="model_error"] .comparison-issue-form:has(input[name="decision"][value="model_error"]) button::after,
+.comparison-issue-row[data-issue-decision="gt_check"] .comparison-issue-form:has(input[name="decision"][value="gt_check"]) button::after {
+  content: " ✓";
+  font-size: 12px;
+  color: var(--ok);
+}
+
+/* Navigation and undo remain deliberately neutral. */
+.comparison-issue-actions a[href^="/detection-review/"],
+.comparison-issue-form[data-clear-review="1"] button {
+  background: transparent !important;
+  border-color: var(--line) !important;
+  color: var(--text) !important;
+}
