@@ -63,6 +63,99 @@
   let activeIndex = 0;
   let switching = false;
 
+  // In normal Step 7 the image itself is the sizing reference for the absolute
+  // overlay boxes. Fullscreen previously made .comparison-image-stage fill the
+  // complete left viewport while the image kept its own aspect ratio. The box
+  // percentages were therefore calculated against a different rectangle than
+  // the rendered image. Wrap image + overlays in one explicitly fitted canvas so
+  // every GT/prediction/issue box uses exactly the same coordinate surface.
+  const ensureImageCanvas = panel => {
+    const imageStage = panel?.querySelector('.comparison-image-stage');
+    if (!imageStage) return null;
+    let canvas = imageStage.querySelector(':scope > .step7-single-panel-image-canvas');
+    if (!canvas) {
+      canvas = document.createElement('div');
+      canvas.className = 'step7-single-panel-image-canvas';
+      const children = Array.from(imageStage.childNodes);
+      children.forEach(child => canvas.appendChild(child));
+      imageStage.appendChild(canvas);
+    }
+    return {
+      stage: imageStage,
+      canvas,
+      image: canvas.querySelector('img'),
+    };
+  };
+
+  const unwrapImageCanvas = panel => {
+    const imageStage = panel?.querySelector('.comparison-image-stage');
+    const canvas = imageStage?.querySelector(':scope > .step7-single-panel-image-canvas');
+    if (!imageStage || !canvas) return;
+    while (canvas.firstChild) imageStage.insertBefore(canvas.firstChild, canvas);
+    canvas.remove();
+  };
+
+  const stageAspectRatio = (imageStage, image) => {
+    if (image?.naturalWidth > 0 && image?.naturalHeight > 0) {
+      return image.naturalWidth / image.naturalHeight;
+    }
+    const raw = String(imageStage?.style.getPropertyValue('--aspect') || '').trim();
+    const parts = raw.split('/').map(value => Number.parseFloat(value.trim()));
+    if (parts.length === 2 && parts.every(value => Number.isFinite(value) && value > 0)) {
+      return parts[0] / parts[1];
+    }
+    return 0;
+  };
+
+  const fitImageCanvas = panel => {
+    if (!document.body.classList.contains('step7-single-panel-mode')) return;
+    const prepared = ensureImageCanvas(panel);
+    if (!prepared) return;
+    const { stage: imageStage, canvas, image } = prepared;
+
+    const apply = () => {
+      if (!document.body.classList.contains('step7-single-panel-mode')) return;
+      if (!panel.classList.contains('step7-single-panel-active')) return;
+      const ratio = stageAspectRatio(imageStage, image);
+      if (!(ratio > 0)) return;
+
+      const style = window.getComputedStyle(imageStage);
+      const horizontalPadding = (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0);
+      const verticalPadding = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
+      const availableWidth = Math.max(1, imageStage.clientWidth - horizontalPadding);
+      const availableHeight = Math.max(1, imageStage.clientHeight - verticalPadding);
+
+      let width = availableWidth;
+      let height = width / ratio;
+      if (height > availableHeight) {
+        height = availableHeight;
+        width = height * ratio;
+      }
+
+      canvas.style.width = `${Math.max(1, Math.floor(width))}px`;
+      canvas.style.height = `${Math.max(1, Math.floor(height))}px`;
+    };
+
+    if (image?.complete && image.naturalWidth > 0) {
+      apply();
+    } else if (image) {
+      image.addEventListener('load', apply, { once: true });
+    } else {
+      apply();
+    }
+  };
+
+  const imageStageResizeObserver = typeof ResizeObserver === 'function'
+    ? new ResizeObserver(() => {
+        if (!document.body.classList.contains('step7-single-panel-mode')) return;
+        fitImageCanvas(panels[activeIndex]);
+      })
+    : null;
+  panels.forEach(panel => {
+    const imageStage = panel.querySelector('.comparison-image-stage');
+    if (imageStage) imageStageResizeObserver?.observe(imageStage);
+  });
+
   const eligibleIndexes = () => panels
     .map((panel, index) => ({ panel, index }))
     .filter(item => panelEligible(item.panel))
@@ -125,12 +218,11 @@
       panel.setAttribute('aria-hidden', panelIndex === activeIndex ? 'false' : 'true');
     });
     updateContext();
-    if (scrollIssues) {
-      window.requestAnimationFrame(() => {
-        panels[activeIndex]?.querySelector('.comparison-issue-list')?.scrollTo({ top: 0 });
-      });
-    }
-    window.requestAnimationFrame(() => { switching = false; });
+    window.requestAnimationFrame(() => {
+      fitImageCanvas(panels[activeIndex]);
+      if (scrollIssues) panels[activeIndex]?.querySelector('.comparison-issue-list')?.scrollTo({ top: 0 });
+      switching = false;
+    });
   };
 
   const movePanel = direction => {
@@ -177,6 +269,7 @@
     panels.forEach(panel => {
       panel.classList.remove('step7-single-panel-active');
       panel.removeAttribute('aria-hidden');
+      unwrapImageCanvas(panel);
     });
   };
 
