@@ -7,7 +7,9 @@ import pytest
 
 from isala_ocr.training.db import TrainingDatabase
 from isala_ocr.training.table_model_comparison import (
+    _current_evaluation_view,
     _evaluate_panel,
+    latest_completed_training_feedback,
     review_comparison_issue,
     table_cell_comparison_state,
 )
@@ -48,11 +50,72 @@ def test_low_iou_prediction_that_contains_one_gt_is_one_geometry_issue() -> None
     issue = result["issues"][0]
     assert issue["type"] == "geometry"
     assert issue["containment_recovered"] is True
+    assert issue["prediction_containment_recovered"] is False
     assert issue["match_reason"] == "gt_coverage"
     assert issue["gt_coverage"] == pytest.approx(1.0)
     assert issue["prediction_excess"] > 0.30
     assert issue["functional_candidate"] is False
     assert len(issue["legacy_issue_ids"]) == 2
+
+
+def test_low_iou_prediction_inside_one_broad_gt_is_one_geometry_issue() -> None:
+    """Regression for broad merged GT rows with a tight text/title prediction."""
+    panel = _panel([0, 10, 190, 40])
+    predictions = [{
+        "prediction_id": "tight-title",
+        "box": [60, 14, 130, 36],
+        "confidence": 0.951,
+    }]
+
+    result = _evaluate_panel(panel, predictions, iou_threshold=0.50, geometry_iou=0.75)
+
+    assert result["tp"] == 1
+    assert result["fp"] == 0
+    assert result["fn"] == 0
+    assert result["geometry_mismatch"] == 1
+    assert len(result["issues"]) == 1
+    issue = result["issues"][0]
+    assert issue["type"] == "geometry"
+    assert issue["containment_recovered"] is True
+    assert issue["prediction_containment_recovered"] is True
+    assert issue["match_reason"] == "prediction_coverage"
+    assert issue["prediction_inside_gt"] == pytest.approx(1.0)
+    assert issue["gt_coverage"] < 0.50
+    assert issue["prediction_gt_area_fraction"] >= 0.10
+    assert issue["prediction_gt_height_fraction"] >= 0.45
+    assert len(issue["legacy_issue_ids"]) == 2
+
+
+def test_reverse_containment_does_not_hide_split_predictions() -> None:
+    """Two plausible predictions inside one GT remain explicit FP/FN errors."""
+    panel = _panel([0, 10, 190, 40])
+    predictions = [
+        {"prediction_id": "left-half", "box": [20, 14, 80, 36], "confidence": 0.92},
+        {"prediction_id": "right-half", "box": [110, 14, 170, 36], "confidence": 0.91},
+    ]
+
+    result = _evaluate_panel(panel, predictions, iou_threshold=0.50, geometry_iou=0.75)
+
+    assert result["tp"] == 0
+    assert result["fp"] == 2
+    assert result["fn"] == 1
+    assert not any(issue["type"] == "geometry" for issue in result["issues"])
+
+
+def test_reverse_containment_does_not_promote_tiny_noise_inside_gt() -> None:
+    panel = _panel([0, 10, 190, 40])
+    predictions = [{
+        "prediction_id": "tiny-noise",
+        "box": [80, 20, 90, 25],
+        "confidence": 0.88,
+    }]
+
+    result = _evaluate_panel(panel, predictions, iou_threshold=0.50, geometry_iou=0.75)
+
+    assert result["tp"] == 0
+    assert result["fp"] == 1
+    assert result["fn"] == 1
+    assert not any(issue["type"] == "geometry" for issue in result["issues"])
 
 
 def test_containment_recovery_does_not_turn_multi_gt_prediction_into_single_geometry() -> None:
@@ -156,7 +219,7 @@ def test_existing_v1_run_is_reclassified_without_redetect_and_can_be_functional_
     run_id = _seed_legacy_run(tmp_path)
     state = table_cell_comparison_state(tmp_path, candidate_run_id=run_id)
 
-    assert state["candidate"]["schema_version"] == 2
+    assert state["candidate"]["schema_version"] == 3
     assert state["candidate"]["evaluation_upgraded_from_schema"] == 1
     assert state["candidate"]["metrics"]["tp"] == 1
     assert state["candidate"]["metrics"]["fp"] == 0
@@ -174,6 +237,101 @@ def test_existing_v1_run_is_reclassified_without_redetect_and_can_be_functional_
     assert reviewed["open_issue_count"] == 0
 
 
+def test_existing_v2_reverse_containment_is_reclassified_without_redetect() -> None:
+    panel = _panel([0, 10, 190, 40])
+    prediction = {"prediction_id": "tight-title", "box": [60, 14, 130, 36], "confidence": 0.951}
+    panel.update({
+        "predictions": [prediction],
+        "matches": [],
+        "issues": [
+            {"type": "fp", "prediction_box": prediction["box"], "gt_boxes": [], "issue_id": "old-fp"},
+            {"type": "fn", "prediction_box": None, "gt_boxes": [[0, 10, 190, 40]], "issue_id": "old-fn"},
+        ],
+        "tp": 0, "fp": 1, "fn": 1, "direct_correct": 0, "geometry_mismatch": 0, "merged": 0,
+    })
+    run = {
+        "schema_version": 2,
+        "run_id": "detect-v2-reverse",
+        "label": "v2 reverse",
+        "model_id": "model-v2",
+        "model_name": "model-v2",
+        "dataset_id": "dataset-v2",
+        "source": "step3_localization_diagnostics",
+        "created_at": "2026-08-17T09:00:00+00:00",
+        "iou_threshold": 0.50,
+        "geometry_iou": 0.75,
+        "metrics": {"review_needed": 2},
+        "panels": [panel],
+    }
+
+    upgraded = _current_evaluation_view(run)
+
+    assert upgraded["schema_version"] == 3
+    assert upgraded["evaluation_upgraded_from_schema"] == 2
+    assert upgraded["metrics"]["tp"] == 1
+    assert upgraded["metrics"]["fp"] == 0
+    assert upgraded["metrics"]["fn"] == 0
+    assert upgraded["metrics"]["review_needed"] == 1
+    issue = upgraded["panels"][0]["issues"][0]
+    assert issue["type"] == "geometry"
+    assert issue["match_reason"] == "prediction_coverage"
+
+
+def test_functional_ok_reverse_containment_is_not_training_error(tmp_path: Path) -> None:
+    panel = _panel([0, 10, 190, 40])
+    prediction = {"prediction_id": "tight-title", "box": [60, 14, 130, 36], "confidence": 0.951}
+    panel.update({
+        "predictions": [prediction],
+        "matches": [],
+        "issues": [],
+        "tp": 0, "fp": 1, "fn": 1, "direct_correct": 0, "geometry_mismatch": 0, "merged": 0,
+    })
+    run = {
+        "schema_version": 2,
+        "run_id": "detect-v2-functional-reverse",
+        "label": "v2 reverse",
+        "model_id": "model-v2",
+        "model_name": "model-v2",
+        "dataset_id": "dataset-v2",
+        "source": "step3_localization_diagnostics",
+        "created_at": "2026-08-17T09:00:00+00:00",
+        "iou_threshold": 0.50,
+        "geometry_iou": 0.75,
+        "metrics": {"review_needed": 2},
+        "panels": [panel],
+    }
+    upgraded = _current_evaluation_view(run)
+    issue = upgraded["panels"][0]["issues"][0]
+    _write_json(tmp_path / "table_cell_comparisons" / "runs" / f"{run['run_id']}.json", run)
+    _write_json(tmp_path / "table_cell_comparisons" / "reviews.json", {
+        run["run_id"]: {
+            issue["issue_id"]: {
+                "decision": "functional_ok",
+                "reviewed_at": "2026-08-17T09:05:00+00:00",
+            }
+        }
+    })
+
+    feedback = latest_completed_training_feedback(tmp_path)
+
+    assert feedback["available"] is True
+    assert feedback["issue_count"] == 1
+    assert feedback["decision_counts"] == {"functional_ok": 1}
+    assert feedback["model_error_count"] == 0
+    assert feedback["model_errors"] == []
+    assert feedback["panel_weights"] == {}
+
+
+def test_gt_check_on_recovered_geometry_has_panel_context(tmp_path: Path) -> None:
+    run_id = _seed_legacy_run(tmp_path)
+    state = table_cell_comparison_state(tmp_path, candidate_run_id=run_id)
+    issue = state["issue_panels"][0]["issues"][0]
+
+    review = review_comparison_issue(tmp_path, run_id, issue["issue_id"], "gt_check")
+
+    assert review["decision"] == "gt_check"
+
+
 def test_step7_ui_explains_containment_recovery() -> None:
     root = Path(__file__).resolve().parents[1]
     template = (root / "application/src/isala_ocr/training/templates/table_model_comparison.html").read_text(encoding="utf-8")
@@ -181,5 +339,6 @@ def test_step7_ui_explains_containment_recovery() -> None:
     assert "FP+FN gekoppeld" in template
     assert "≥95% van één GT-cel" in template
     assert '"match_reason": "gt_coverage"' in comparison
+    assert '"prediction_coverage"' in comparison
     assert '"containment_recovered"' in comparison
-    assert "EVALUATION_SCHEMA_VERSION = 2" in comparison
+    assert "EVALUATION_SCHEMA_VERSION = 3" in comparison
