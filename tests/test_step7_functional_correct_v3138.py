@@ -1,5 +1,10 @@
 from pathlib import Path
 
+from isala_ocr.training.table_model_evaluation_policy import (
+    AUTO_FUNCTIONAL_GT_COVERAGE,
+    AUTO_FUNCTIONAL_PREDICTION_EXCESS,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "application/src/isala_ocr/training/templates/table_model_comparison.html"
 WEBUI = ROOT / "application/src/isala_ocr/training/webui.py"
@@ -23,6 +28,10 @@ def test_step7_geometry_review_shows_coverage_and_excess_metrics():
     assert "GT gedekt" in template
     assert "extra prediction" in template
     assert "waarschijnlijk bruikbaar" in template
+    assert AUTO_FUNCTIONAL_GT_COVERAGE == 0.92
+    assert AUTO_FUNCTIONAL_PREDICTION_EXCESS == 0.30
+    # The original 95% value remains the stricter containment-recovery gate;
+    # automatic functional acceptance is deliberately a separate policy.
     assert "FUNCTIONAL_GT_COVERAGE = 0.95" in comparison
     assert "FUNCTIONAL_PREDICTION_EXCESS = 0.30" in comparison
     assert '"gt_coverage"' in comparison
