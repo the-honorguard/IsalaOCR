@@ -1,116 +1,72 @@
 {% extends 'base.html' %}
-{% block title %}Stap {{ step.index }} · {{ step.title }} · IsalaOCR{% endblock %}
-{% block heading %}Stap {{ step.index }} · {{ step.title }}{% endblock %}
-{% block subtitle %}{{ step.subtitle }}{% endblock %}
+{% block title %}Stap 5 · Model trainen · IsalaOCR{% endblock %}
+{% block heading %}Stap 5 · Model trainen{% endblock %}
+{% block subtitle %}Bouw uit de canonieke Ground Truth een nieuwe dataset, valideer die, train het table-cell model en activeer de nieuwe versie.{% endblock %}
 {% block content %}
 {% set q = table_quality %}
 {% set t = q.totals or {} %}
-<section class="gate-banner {% if q.ready %}gate-banner-open{% else %}gate-banner-closed{% endif %}">
+{% set canonical = q.canonical_ground_truth %}
+{% set gt_ready = canonical and q.state == 'canonical_gt_ready' %}
+
+<section class="gate-banner {% if gt_ready %}gate-banner-open{% else %}gate-banner-closed{% endif %}">
   <div>
-    <span class="gate-kicker">TABLE-FIRST CHECK</span>
-    <h2>{{ q.title }}</h2>
-    <p>{{ q.summary }}</p>
-    <p><strong>Volgende stap:</strong> {{ q.next_step }}</p>
+    <span class="gate-kicker">MODEL ITERATIE · STAP 5 VAN 7</span>
+    {% if gt_ready %}
+    <h2>Canonieke Ground Truth klaar voor een trainingsronde</h2>
+    <p>De Ground Truth is de vaste waarheid. Deze stap maakt daar een nieuwe versioned dataset van, valideert die, traint het model en activeert de nieuwe modelversie.</p>
+    {% elif canonical and q.state == 'canonical_gt_needs_review' %}
+    <h2>Ground Truth eerst afronden</h2>
+    <p>{{ t.open_source_count or 0 }} van {{ t.source_count or 0 }} GT-bronnen moeten nog als gecontroleerd worden gemarkeerd. Training start pas vanaf een expliciet afgeronde canonieke GT.</p>
+    {% else %}
+    <h2>Eerst de Ground Truth opbouwen</h2>
+    <p>Er is nog geen afgeronde canonieke table-cell Ground Truth beschikbaar. Maak die eerst in Stap 3 en controleer hem in Stap 4.</p>
+    {% endif %}
   </div>
   <div class="actions">
-    {% if q.state == 'panels_missing' %}
-    <a class="button primary" href="/process/panel-setup">Stap 2 · Panelen instellen</a>
-    {% elif q.state == 'panel_detection_stale' %}
-    <a class="button primary" href="/process/detect-candidates">Stap 3 · Detectie opnieuw uitvoeren</a>
-    {% elif q.state == 'not_started' or q.state == 'no_cells' %}
-    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="2"><button class="primary">Tabelanalyse uitvoeren</button></form>
-    {% elif q.state == 'canonical_gt_needs_review' %}
-    <a class="button primary" href="/detection-review">Ground Truth controleren</a>
-    {% elif q.state == 'canonical_gt_ready' %}
-    <a class="button primary" href="/process/table-compare">Stap 7 · Model vergelijken</a>
-    <a class="button" href="/process/table-model">Model verder verbeteren</a>
-    {% elif q.state == 'needs_review' or q.state == 'no_ground_truth' %}
-    <a class="button primary" href="/detection-review">Tabelcellen reviewen</a>
-    {% elif q.ready %}
-    <a class="button primary" href="/process/mapping">Naar Mapping Studio</a>
-    <a class="button" href="/process/table-model">Model verder verbeteren</a>
-    {% elif q.state in ['fallback_needed','table_training_recommended'] %}
-    <a class="button primary" href="/process/table-model">Reviewcorrecties trainen</a>
-    <a class="button" href="/detection-review">Missers bekijken</a>
+    {% if gt_ready %}
+    <form method="post" action="/jobs">
+      <input type="hidden" name="action_id" value="53">
+      <button class="primary"><strong>Nieuwe trainingsronde starten</strong><small>Dataset bouwen → valideren → GPU trainen → activeren</small></button>
+    </form>
+    <a class="button" href="/process/table-model">Stap 6 · Model beoordelen</a>
+    {% elif canonical %}
+    <a class="button primary" href="/detection-review">Stap 4 · Ground Truth afronden</a>
     {% else %}
-    <a class="button primary" href="/detection-review">Missers bekijken</a>
+    <a class="button primary" href="/process/detect-candidates">Stap 3 · Ground Truth maken</a>
+    <a class="button" href="/process/detection-review">Stap 4 · Ground Truth beheren</a>
     {% endif %}
   </div>
 </section>
 
-{% if q.canonical_ground_truth %}
-<div class="table-quality-metrics section-gap">
-  <section class="card"><span class="muted">Canonieke GT-cellen</span><div class="metric ok">{{ t.desired_total or 0 }}</div><small>De vaste referentiegeometrie waarop nieuwe detector-runs in Stap 7 worden beoordeeld.</small></section>
-  <section class="card"><span class="muted">GT-bronnen gecontroleerd</span><div class="metric {% if (t.open_source_count or 0) == 0 %}ok{% else %}warn{% endif %}">{{ t.completed_source_count or 0 }} / {{ t.source_count or 0 }}</div><small>Deze status hoort bij de Ground Truth en wordt niet gereset door een nieuwe Stap-3-run.</small></section>
-  <section class="card"><span class="muted">Nog te controleren</span><div class="metric {% if (t.open_source_count or 0) == 0 %}ok{% else %}warn{% endif %}">{{ t.open_source_count or 0 }}</div><small>Een geometriewijziging in Stap 4 heropent alleen de betreffende bron.</small></section>
-</div>
-
-<section class="card section-gap">
-  <div class="toolbar"><div><span class="eyebrow">CANONIEKE GROUND TRUTH</span><h3>Nieuwe predictions horen niet meer in Stap 4</h3><p class="muted">Na de eerste dataset is Stap 4 uitsluitend GT-beheer. Nieuwe modelruns resetten deze controle niet en worden in Stap 7 tegen deze GT vergeleken.</p></div><a class="button" href="/process/table-compare">Stap 7 openen</a></div>
-  <div class="table-wrap"><table><thead><tr><th>Bron</th><th>GT-cellen</th><th>GT gecontroleerd</th><th></th></tr></thead><tbody>
-  {% for item in q.sources %}<tr><td class="mono wrap-anywhere">{{ item.source_id }}</td><td>{{ item.candidate_total }}</td><td>{% if item.review_completed %}<span class="ok">✓ Ja</span>{% else %}<span class="warn">Nog niet</span>{% endif %}</td><td><a class="button small-button" href="/detection-review/{{ item.source_id }}">Controleren</a></td></tr>{% else %}<tr><td colspan="4">Geen canonieke GT-bronnen.</td></tr>{% endfor %}
-  </tbody></table></div>
-</section>
-{% else %}
-<div class="table-quality-metrics section-gap">
-  <section class="card"><span class="muted">Directe Paddle coverage</span><div class="metric {% if (t.direct_coverage or 0) >= 0.95 %}ok{% else %}warn{% endif %}">{{ '%.1f%%'|format((t.direct_coverage or 0)*100) }}</div><small>Gewenste cellen die PP-Structure zelf leverde, inclusief cellen waarvan je het kader corrigeerde.</small></section>
-  <section class="card"><span class="muted">Functionele coverage</span><div class="metric {% if (t.structural_coverage or 0) >= 0.95 %}ok{% else %}warn{% endif %}">{{ '%.1f%%'|format((t.structural_coverage or 0)*100) }}</div><small>Direct gevonden plus cellen die betrouwbaar uit rij/kolomgeometrie zijn gereconstrueerd.</small></section>
-  <section class="card"><span class="muted">Echte fallback nodig</span><div class="metric {% if (t.fallback_need or 0) <= 0.05 %}ok{% else %}warn{% endif %}">{{ '%.1f%%'|format((t.fallback_need or 0)*100) }}</div><small>Cellen die na Paddle én geometrische reconstructie nog handmatig moesten worden toegevoegd.</small></section>
-  <section class="card"><span class="muted">Kader moest aangepast</span><div class="metric {% if (t.adjustment_rate or 0) <= (q.thresholds.maximum_adjustment_rate or 0.25) %}ok{% else %}warn{% endif %}">{{ '%.1f%%'|format((t.adjustment_rate or 0)*100) }}</div><small>Gevonden table-cellen waarvan de box niet goed genoeg stond en handmatig is gecorrigeerd.</small></section>
-  <section class="card"><span class="muted">False table candidates</span><div class="metric {% if (t.false_candidate_rate or 0) <= (q.thresholds.maximum_false_candidate_rate or 0.10) %}ok{% else %}bad{% endif %}">{{ '%.1f%%'|format((t.false_candidate_rate or 0)*100) }}</div><small>Door PP-Structure voorgestelde cellen die tijdens review als detectiefout zijn afgewezen.</small></section>
+<div class="grid cols-3 section-gap">
+  <section class="card"><span class="muted">Canonieke GT-cellen</span><div class="metric {% if canonical %}ok{% endif %}">{{ t.desired_total or 0 }}</div><small>Deze geometrie verandert alleen wanneer je hem expliciet in Stap 4 aanpast.</small></section>
+  <section class="card"><span class="muted">GT-bronnen gecontroleerd</span><div class="metric {% if canonical and (t.open_source_count or 0) == 0 %}ok{% else %}warn{% endif %}">{{ t.completed_source_count or 0 }} / {{ t.source_count or 0 }}</div><small>Elke geometriewijziging heropent alleen de betreffende bron.</small></section>
+  <section class="card"><span class="muted">Nog te controleren</span><div class="metric {% if (t.open_source_count or 0) == 0 %}ok{% else %}warn{% endif %}">{{ t.open_source_count or 0 }}</div><small>Moet 0 zijn voordat een nieuwe trainingsdataset als definitief wordt gebruikt.</small></section>
 </div>
 
 <section class="card section-gap">
   <div class="toolbar">
-    <div><span class="eyebrow">WAT VERTELLEN DEZE CIJFERS?</span><h3>We meten de table pipeline, niet de oude box-detector</h3></div>
-    <a class="button" href="/detection-review">Review openen</a>
+    <div><span class="eyebrow">DE ITERATIEVE LOOP</span><h3>Train → beoordeel → review → train opnieuw</h3><p class="muted">Na de eerste Ground Truth kom je niet meer terug in de initiële detectieflow om een model te verbeteren.</p></div>
   </div>
-  <div class="grid cols-3 table-quality-explain-grid">
-    <div><strong>{{ t.correct or 0 }} direct correct</strong><p class="muted">Paddle leverde een celbox die je zonder geometrische wijziging accepteerde.</p></div>
-    <div><strong>{{ t.adjusted or 0 }} gevonden maar aangepast</strong><p class="muted">De cel bestond wel in de table-output, maar de box moest worden verschoven of geresized.</p></div>
-    <div><strong>{{ t.reconstructed or 0 }} geometrisch gereconstrueerd</strong><p class="muted">Paddle leverde de cel niet direct, maar rij- en kolomgrenzen waren stabiel genoeg om de functionele cel voor te stellen.</p></div>
-    <div><strong>{{ t.manual_added or 0 }} echt handmatig toegevoegd</strong><p class="muted">Deze gewenste ROI kon niet betrouwbaar uit de table-output worden afgeleid. Dit zijn de interessantste voorbeelden voor table-cell fine-tuning.</p></div>
-    <div><strong>{{ t.rejected or 0 }} fout voorgesteld</strong><p class="muted">PP-Structure zag een cel die voor onze cropgeometrie niet bruikbaar was.</p></div>
-    <div><strong>{{ t.pending or 0 }} nog open</strong><p class="muted">Zolang er open kandidaten zijn is de coverage nog niet betrouwbaar.</p></div>
-    <div><strong>{{ t.desired_total or 0 }} gewenste cellen</strong><p class="muted">Alle bevestigde/verbeterde table-cellen plus handmatig toegevoegde ontbrekende ROI's.</p></div>
+  <div class="grid cols-3">
+    <div><strong>5 · Model trainen</strong><p class="muted">Bouw de dataset uit de actuele GT plus expliciete <em>Model fout</em>-feedback uit de vorige review en train een nieuwe versie.</p></div>
+    <div><strong>6 · Model beoordelen</strong><p class="muted">Draai het actieve model opnieuw over dezelfde beoordelingsbronnen. De Ground Truth wordt hierbij nooit aangepast.</p></div>
+    <div><strong>7 · Afwijkingen reviewen</strong><p class="muted">Beoordeel alleen verschillen als Functioneel correct, Model fout of GT controleren. Daarna start de volgende ronde weer hier.</p></div>
   </div>
 </section>
 
 <section class="card section-gap">
-  <div class="toolbar"><div><span class="eyebrow">PER BRON</span><h3>Waar mist Paddle cellen?</h3><p class="muted">Een bron met veel “toegevoegd” is interessant: daar heeft de table pipeline de meeste fallback nodig.</p></div></div>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Bron</th><th>Table cells</th><th>Open</th><th>Correct</th><th>Aangepast</th><th>Afgewezen</th><th>Reconstr.</th><th>Handmatig</th><th>Direct</th><th>Functioneel</th><th></th></tr></thead>
-      <tbody>
-      {% for item in q.sources %}
-      <tr>
-        <td class="mono wrap-anywhere">{{ item.source_id }}</td>
-        <td>{{ item.candidate_total }}</td>
-        <td class="{% if item.pending %}warn{% endif %}">{{ item.pending }}</td>
-        <td class="ok">{{ item.correct }}</td>
-        <td>{{ item.adjusted }}</td>
-        <td class="bad">{{ item.rejected }}</td>
-        <td>{{ item.reconstructed }}</td>
-        <td class="warn">{{ item.manual_added }}</td>
-        <td>{{ '%.1f%%'|format(item.direct_coverage*100) }}</td>
-        <td>{{ '%.1f%%'|format(item.structural_coverage*100) }}</td>
-        <td><a class="button small-button" href="/detection-review/{{ item.source_id }}">Bekijken</a></td>
-      </tr>
-      {% else %}
-      <tr><td colspan="11">Nog geen tabelanalyse uitgevoerd.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
+  <div class="toolbar"><div><span class="eyebrow">GEAVANCEERD</span><h3>Losse technische acties</h3><p class="muted">Normaal gebruik je alleen “Nieuwe trainingsronde starten”. Deze knoppen zijn bedoeld voor diagnose of het hervatten van een gedeeltelijk uitgevoerde ronde.</p></div></div>
+  <div class="process-actions">
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="48"><button {% if not gt_ready %}disabled{% endif %}><strong>Dataset bouwen</strong><span>Nieuwe snapshot uit actuele canonieke GT en trainingsfeedback</span></button></form>
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="49"><button {% if not gt_ready %}disabled{% endif %}><strong>Dataset valideren</strong><span>Controleer de laatst gebouwde table-cell dataset</span></button></form>
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="50"><button {% if not gt_ready %}disabled{% endif %}><strong>GPU trainen</strong><span>Train op de huidige gevalideerde dataset</span></button></form>
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="51"><button {% if not gt_ready %}disabled{% endif %}><strong>CPU trainen</strong><span>Langzaam alternatief</span></button></form>
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="52"><button {% if not gt_ready %}disabled{% endif %}><strong>Laatste model activeren</strong><span>Activeer een reeds getrainde modelversie</span></button></form>
   </div>
 </section>
 
-<section class="card section-gap">
-  <h3>Beslisregel voor deze proef</h3>
-  <p>De table pipeline wordt als zelfstandig voldoende beschouwd bij minimaal <strong>{{ '%.0f%%'|format((q.thresholds.minimum_direct_coverage or 0.95)*100) }}</strong> directe coverage, maximaal <strong>{{ '%.0f%%'|format((q.thresholds.maximum_false_candidate_rate or 0.10)*100) }}</strong> false table candidates en maximaal <strong>{{ '%.0f%%'|format((q.thresholds.maximum_adjustment_rate or 0.25)*100) }}</strong> gevonden cellen die handmatig moeten worden aangepast.</p>
-  <p class="muted">Dit zijn workflowcriteria voor de table-first proef. Ze veranderen geen Paddle-model en trainen niets. Als de check niet slaagt, beslissen we op basis van de missers of table-cell fine-tuning of een kleine fallback-detector nodig is.</p>
+<section class="notice info section-gap">
+  <strong>GT en modelfeedback blijven gescheiden.</strong> “Model fout” uit Stap 7 mag als hard example in een volgende trainingsronde worden gebruikt. “Functioneel correct” wordt niet als fout teruggetraind. Alleen een expliciete wijziging in Stap 4 verandert de canonieke Ground Truth.
 </section>
-
-{% endif %}
-
-<section class="notice info section-gap"><strong>Losse PicoDet/field detector staat geparkeerd.</strong> Bestaande datasets, modellen en evaluaties zijn niet verwijderd. De oude detectorpagina's staan onder “Geparkeerd · box detector” in de zijbalk en worden in Stap 3 niet meer automatisch in de table-output gemengd.</section>
 {% endblock %}
