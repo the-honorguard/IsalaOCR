@@ -93,4 +93,4 @@ def test_merged_cells_are_not_auto_accepted():
 def test_policy_thresholds_and_schema():
     assert AUTO_FUNCTIONAL_GT_COVERAGE == 0.92
     assert AUTO_FUNCTIONAL_PREDICTION_EXCESS == 0.30
-    assert EVALUATION_SCHEMA_VERSION == 7
+    assert EVALUATION_SCHEMA_VERSION == 8
