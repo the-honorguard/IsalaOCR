@@ -44,6 +44,7 @@ COPY application/src/isala_ocr/training/relation_feedback.py /app/src/isala_ocr/
 COPY application/src/isala_ocr/training/projects.py /app/src/isala_ocr/training/projects.py
 COPY application/src/isala_ocr/training/labeler.py /app/src/isala_ocr/training/labeler.py
 COPY application/src/isala_ocr/training/labeler_server.py /app/src/isala_ocr/training/labeler_server.py
+COPY application/src/isala_ocr/training/job_cancellation.py /app/src/isala_ocr/training/job_cancellation.py
 COPY application/src/isala_ocr/training/webui.py /app/src/isala_ocr/training/webui.py
 COPY application/src/isala_ocr/training/webui_server.py /app/src/isala_ocr/training/webui_server.py
 COPY application/src/isala_ocr/training/templates /app/src/isala_ocr/training/templates
