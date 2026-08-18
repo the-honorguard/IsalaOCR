@@ -11,7 +11,7 @@ requires-python = ">=3.10,<3.13"
 license = { text = "Proprietary - internal evaluation" }
 authors = [{ name = "IsalaOCR project" }]
 dependencies = [
-  "numpy>=1.26,<3",
+  "numpy==1.26.4",
   "opencv-python-headless>=4.10,<5",
   "pydicom>=3.0,<4",
   "PyYAML>=6,<7",
@@ -26,6 +26,7 @@ training = [
   "waitress>=3.1,<4",
 ]
 paddle = [
+  "pandas>=2.2,<2.3",
   "paddleocr[doc-parser]==3.7.0",
   "paddlepaddle==3.2.0",
 ]
