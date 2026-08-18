@@ -14,7 +14,7 @@
     <span class="gate-kicker">MODEL ITERATIE · DRAAIEN → BEOORDELEN → DRAAIEN</span>
     {% if canonical %}
     <h2>Klaar voor de volgende volledige modelronde</h2>
-    <p>Met één actie wordt de hele technische keten uitgevoerd: eventueel nog open GT-bronnen afronden → dataset bouwen → valideren → GPU trainen → model activeren → het nieuwe model opnieuw over de beoordelingsbronnen draaien.</p>
+    <p>Met één actie wordt de hele technische keten uitgevoerd: eventueel nog open GT-bronnen afronden → dataset bouwen → valideren → trainen → model activeren → het nieuwe model opnieuw over de beoordelingsbronnen draaien.</p>
     {% if gt_open %}<p class="warn"><strong>{{ gt_open }} GT-bron{% if gt_open != 1 %}nen{% endif %} nog niet bevestigd.</strong> “Alles laten draaien” markeert deze eerst als gecontroleerd zonder de GT-geometrie te wijzigen.</p>{% endif %}
     {% else %}
     <h2>Eerst de Ground Truth opbouwen</h2>
@@ -23,9 +23,18 @@
   </div>
   <div class="actions">
     {% if canonical %}
-    <form method="post" action="/jobs">
+    <form method="post" action="/jobs" id="run-all-table-form">
       <input type="hidden" name="action_id" value="53">
-      <button class="primary"><strong>Alles laten draaien</strong><small>GT afronden indien nodig → dataset → validatie → training → activatie → nieuwe modelrun</small></button>
+      <label for="table-execution-device" style="display:grid;gap:5px;min-width:min(340px,100%)">
+        <strong>Uitvoermodus</strong>
+        <select id="table-execution-device" name="execution_device">
+          <option value="auto" selected>Auto · beste beschikbare optie</option>
+          <option value="gpu">GPU · NVIDIA/CUDA verplicht</option>
+          <option value="cpu">CPU · altijd CPU gebruiken</option>
+        </select>
+        <small id="table-execution-device-help" class="muted">Auto test NVIDIA + Docker + CUDA/Paddle. Alleen als dat echt werkt gebruikt de ronde de GPU; anders valt hij terug op CPU.</small>
+      </label>
+      <button class="primary" id="run-all-table-button"><strong>Alles laten draaien</strong><small>GT → dataset → validatie → training → activatie → nieuwe modelrun</small></button>
     </form>
     {% if gt_open %}<button type="button" id="complete-all-step5-gt" class="ghost"><strong>Markeer alle GT's als correct</strong><small>{{ gt_open }} open bron{% if gt_open != 1 %}nen{% endif %}; geometrie blijft ongewijzigd</small></button>{% endif %}
     <a class="button" href="/process/table-compare">Naar beoordelen</a>
@@ -41,6 +50,17 @@
   <section class="card"><span class="muted">GT-bronnen gecontroleerd</span><div class="metric {% if canonical and gt_open == 0 %}ok{% else %}warn{% endif %}">{{ t.completed_source_count or 0 }} / {{ t.source_count or 0 }}</div><small>Bronstatus is een reviewbevestiging; deze wijzigt de geometrie niet.</small></section>
   <section class="card"><span class="muted">Nog te bevestigen</span><div class="metric {% if gt_open == 0 %}ok{% else %}warn{% endif %}">{{ gt_open }}</div><small>Je kunt ze hier in één keer bevestigen; “Alles laten draaien” doet dit automatisch als dat nog nodig is.</small></section>
 </div>
+
+<section class="card section-gap">
+  <div class="toolbar">
+    <div><span class="eyebrow">UITVOERBACKEND</span><h3>Auto blijft ook op een CPU-only server werken</h3><p class="muted">Dezelfde gekozen backend wordt voor training én de nieuwe modelrun gebruikt. Bij Auto wordt GPU alleen gekozen na een echte Docker/CUDA/Paddle-probe. Geen bruikbare GPU betekent automatisch CPU. Kies GPU of CPU alleen wanneer je dit bewust wilt forceren.</p></div>
+  </div>
+  <div class="grid cols-3">
+    <div><strong>Auto · aanbevolen</strong><p class="muted">GPU als die aantoonbaar werkt; anders CPU. Daardoor kan dezelfde installatie later zonder workflowwijziging op een CPU-server draaien.</p></div>
+    <div><strong>GPU forceren</strong><p class="muted">Vereist NVIDIA, Docker GPU-passthrough en een werkende CUDA/Paddle-runtime. De taak stopt duidelijk als één daarvan ontbreekt.</p></div>
+    <div><strong>CPU forceren</strong><p class="muted">Slaat alle GPU-probes over en gebruikt de draagbare CPU-route. Langzamer, maar zonder NVIDIA-afhankelijkheid.</p></div>
+  </div>
+</section>
 
 <section class="card section-gap">
   <div class="toolbar">
@@ -66,6 +86,56 @@
 <section class="notice info section-gap">
   <strong>GT en modelfeedback blijven gescheiden.</strong> “Model fout” uit de beoordeling mag als hard example in een volgende trainingsronde worden gebruikt. “Functioneel correct” wordt niet als fout teruggetraind. Alleen een expliciete geometriewijziging in Ground Truth beheren verandert de canonieke Ground Truth.
 </section>
+
+{% if canonical %}
+<script>
+(() => {
+  const form = document.getElementById('run-all-table-form');
+  const button = document.getElementById('run-all-table-button');
+  const select = document.getElementById('table-execution-device');
+  const help = document.getElementById('table-execution-device-help');
+  if (!form || !button || !select) return;
+
+  const descriptions = {
+    auto: 'Auto test NVIDIA + Docker + CUDA/Paddle. Alleen als dat echt werkt gebruikt de ronde de GPU; anders valt hij terug op CPU.',
+    gpu: 'GPU wordt verplicht. Als NVIDIA/CUDA/Paddle niet bruikbaar is stopt de taak met een duidelijke fout; er is geen stille CPU-fallback.',
+    cpu: 'CPU wordt verplicht. Er wordt geen GPU-probe uitgevoerd; dit is de veilige keuze voor een CPU-only server.',
+  };
+  select.addEventListener('change', () => {
+    if (help) help.textContent = descriptions[String(select.value || 'auto')] || descriptions.auto;
+  });
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (button.disabled) return;
+    const requested = String(select.value || 'auto');
+    const original = button.innerHTML;
+    button.disabled = true;
+    select.disabled = true;
+    button.innerHTML = `<strong>Volledige ronde in wachtrij zetten…</strong><small>Uitvoermodus: ${requested.toUpperCase()}</small>`;
+    try {
+      const response = await fetch('/api/v2/jobs', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: JSON.stringify({action_id: '53', options: {execution_device: requested}}),
+        cache: 'no-store',
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${response.status}`);
+      const jobId = String(payload.job?.job_id || '');
+      const url = new URL(window.location.href);
+      if (jobId) url.searchParams.set('job_id', jobId);
+      window.location.assign(url.toString());
+    } catch (error) {
+      button.disabled = false;
+      select.disabled = false;
+      button.innerHTML = original;
+      window.alert(`Alles laten draaien kon niet worden ingepland: ${error instanceof Error ? error.message : error}`);
+    }
+  });
+})();
+</script>
+{% endif %}
 
 {% if canonical and gt_open %}
 <script>
