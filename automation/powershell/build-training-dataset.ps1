@@ -6,7 +6,16 @@ param(
 Assert-IsalaActionPreflight -ActionId "24"
 Assert-IsalaDetectionGateOpen
 Assert-Docker
-docker compose --profile training run --rm --build dataset-builder `
-    build-dataset --workspace /training/workspace --config /app/config/app.yaml `
-    --augmentations $Augmentations --minimum-samples $MinimumSamples
+$dockerArguments = @(
+    "compose", "--profile", "training", "run", "--rm", "--pull", "never",
+    "--entrypoint", "python",
+    "dataset-builder",
+    "-m", "isala_ocr.table_first_cli",
+    "build-dataset",
+    "--workspace", "/training/workspace",
+    "--config", "/app/config/app.yaml",
+    "--augmentations", $Augmentations,
+    "--minimum-samples", $MinimumSamples
+)
+& docker @dockerArguments
 if ($LASTEXITCODE -ne 0) { throw "Dataset build failed." }
