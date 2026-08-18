@@ -1,122 +1,108 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-from PIL import Image
-
 from isala_ocr.training.table_hard_negative_policy import (
-    HARD_NEGATIVE_COPIES,
-    _append_hard_negative_images,
-    _dedupe_hard_negatives,
-    _negative_crop_box,
+    MAX_REPLAY_WEIGHT,
+    REPLAY_BUDGET_RATIO,
+    _feedback_from_completed_runs,
+    _plan_replay,
 )
 
 
-def test_persistent_fp_dedup_keeps_newest_similar_geometry() -> None:
-    items = [
-        {
-            "run_id": "old",
-            "issue_id": "old-fp",
-            "source_id": "source-1",
-            "panel_id": "left",
-            "prediction_box": [10, 10, 80, 30],
-            "reviewed_at": "2026-08-18T07:00:00+00:00",
-        },
-        {
-            "run_id": "new",
-            "issue_id": "new-fp",
-            "source_id": "source-1",
-            "panel_id": "left",
-            "prediction_box": [11, 10, 81, 30],
-            "reviewed_at": "2026-08-18T08:00:00+00:00",
-        },
-        {
-            "run_id": "other",
-            "issue_id": "other-fp",
-            "source_id": "source-1",
-            "panel_id": "right",
-            "prediction_box": [11, 10, 81, 30],
-            "reviewed_at": "2026-08-18T08:00:00+00:00",
-        },
+def _error(source: str, panel: str, *, issue_type: str = "fp", confidence: float = 0.9) -> dict:
+    return {
+        "issue_id": f"{source}-{panel}-{issue_type}",
+        "type": issue_type,
+        "source_id": source,
+        "panel_id": panel,
+        "confidence": confidence,
+    }
+
+
+def _run(run_id: str, errors: dict[str, list[dict]]) -> dict:
+    model_errors = [item for values in errors.values() for item in values]
+    return {
+        "run_id": run_id,
+        "model_id": f"model-{run_id}",
+        "dataset_id": f"dataset-{run_id}",
+        "created_at": run_id,
+        "issue_count": len(model_errors),
+        "decision_counts": {"model_error": len(model_errors)} if model_errors else {},
+        "model_errors": model_errors,
+        "errors_by_panel": errors,
+        "material": sorted((item["issue_id"], "model_error") for item in model_errors),
+    }
+
+
+def test_recurrent_panel_gets_more_replay_weight_than_new_error() -> None:
+    panel_a = "source-a::left"
+    panel_b = "source-b::right"
+    completed = [
+        _run("2026-08-18T10:00:00+00:00", {
+            panel_a: [_error("source-a", "left", confidence=0.97)],
+            panel_b: [_error("source-b", "right", issue_type="geometry", confidence=0.75)],
+        }),
+        _run("2026-08-18T09:00:00+00:00", {
+            panel_a: [_error("source-a", "left", confidence=0.94)],
+        }),
     ]
 
-    result = _dedupe_hard_negatives(items)
+    feedback = _feedback_from_completed_runs(completed)
 
-    assert len(result) == 2
-    assert {item["issue_id"] for item in result} == {"new-fp", "other-fp"}
-
-
-def test_negative_crop_is_rejected_when_fp_conflicts_with_current_gt() -> None:
-    gt = [(10.0, 20.0, 90.0, 40.0)]
-
-    assert _negative_crop_box((20.0, 24.0, 80.0, 36.0), width=100, height=50, gt_boxes=gt) is None
-
-
-def test_negative_crop_falls_back_to_exact_fp_when_padding_would_hit_gt() -> None:
-    gt = [(0.0, 26.0, 100.0, 50.0)]
-
-    crop = _negative_crop_box((20.0, 5.0, 80.0, 22.0), width=100, height=50, gt_boxes=gt)
-
-    assert crop == (20, 5, 80, 22)
+    assert feedback["panel_weights"] == {}
+    assert feedback["replay_panel_weights"][panel_a] == MAX_REPLAY_WEIGHT == 3
+    assert feedback["replay_panel_weights"][panel_b] == 2
+    registry = {item["panel_key"]: item for item in feedback["hard_example_registry"]}
+    assert registry[panel_a]["error_streak"] == 2
+    assert registry[panel_b]["error_streak"] == 1
+    assert "no negative-only crops" in feedback["policy"]
 
 
-def test_dataset_gets_negative_only_training_images_without_gt_leakage(tmp_path: Path) -> None:
-    dataset_root = tmp_path / "table_cell_datasets" / "dataset-1"
-    images_root = dataset_root / "images"
-    annotations_root = dataset_root / "annotations"
-    images_root.mkdir(parents=True)
-    annotations_root.mkdir(parents=True)
+def test_newer_clean_review_immediately_clears_old_hard_example() -> None:
+    panel_a = "source-a::left"
+    completed = [
+        _run("2026-08-18T10:00:00+00:00", {}),
+        _run("2026-08-18T09:00:00+00:00", {panel_a: [_error("source-a", "left")]}),
+    ]
 
-    Image.new("RGB", (120, 60), "white").save(images_root / "source-1__left.png")
-    train_payload = {
-        "images": [{"id": 1, "file_name": "source-1__left.png", "width": 120, "height": 60}],
-        "annotations": [
-            {"id": 1, "image_id": 1, "category_id": 1, "bbox": [0, 35, 120, 20], "area": 2400, "iscrowd": 0}
+    feedback = _feedback_from_completed_runs(completed)
+
+    assert feedback["available"] is True
+    assert feedback["model_error_count"] == 0
+    assert feedback["replay_panel_weights"] == {}
+    assert feedback["hard_example_registry"] == []
+
+
+def test_replay_plan_is_train_only_and_budgeted() -> None:
+    feedback = {
+        "fingerprint": "round-1",
+        "replay_panel_weights": {
+            "source-a::left": 3,
+            "source-b::right": 2,
+            "source-val::left": 3,
+        },
+        "hard_example_registry": [
+            {"panel_key": "source-a::left", "error_streak": 2, "latest_error_count": 2, "max_confidence": 0.99},
+            {"panel_key": "source-b::right", "error_streak": 1, "latest_error_count": 1, "max_confidence": 0.85},
+            {"panel_key": "source-val::left", "error_streak": 4, "latest_error_count": 4, "max_confidence": 1.0},
         ],
-        "categories": [{"id": 1, "name": "table_cell"}],
     }
-    (annotations_root / "instance_train.json").write_text(json.dumps(train_payload), encoding="utf-8")
-
     manifest = {
-        "path": "table_cell_datasets/dataset-1",
-        "training_image_count": 1,
-        "splits": {"train": {"sources": 1, "panels": 1, "annotations": 1}},
         "panels": [
-            {
-                "source_id": "source-1",
-                "panel_id": "left",
-                "split": "train",
-                "file_name": "source-1__left.png",
-            }
-        ],
+            {"source_id": "source-a", "panel_id": "left", "panel_name": "A", "file_name": "a.png", "split": "train"},
+            {"source_id": "source-b", "panel_id": "right", "panel_name": "B", "file_name": "b.png", "split": "train"},
+            {"source_id": "source-c", "panel_id": "left", "panel_name": "C", "file_name": "c.png", "split": "train"},
+            {"source_id": "source-d", "panel_id": "right", "panel_name": "D", "file_name": "d.png", "split": "train"},
+            {"source_id": "source-val", "panel_id": "left", "panel_name": "V", "file_name": "v.png", "split": "val"},
+        ]
     }
-    hard_negatives = [
-        {
-            "run_id": "run-1",
-            "issue_id": "title-fp",
-            "source_id": "source-1",
-            "panel_id": "left",
-            "prediction_box": [15, 5, 105, 22],
-        },
-        {
-            "run_id": "run-1",
-            "issue_id": "conflicting-fp",
-            "source_id": "source-1",
-            "panel_id": "left",
-            "prediction_box": [15, 38, 105, 52],
-        },
-    ]
 
-    updated = _append_hard_negative_images(tmp_path, manifest, hard_negatives)
-    payload = json.loads((annotations_root / "instance_train.json").read_text(encoding="utf-8"))
+    plan = _plan_replay(manifest, feedback)
 
-    assert updated["hard_negative_fp_count"] == 1
-    assert updated["hard_negative_conflict_count"] == 1
-    assert updated["hard_negative_image_count"] == HARD_NEGATIVE_COPIES
-    assert updated["training_image_count"] == 1 + HARD_NEGATIVE_COPIES
-    assert len(payload["images"]) == 1 + HARD_NEGATIVE_COPIES
-    assert len(payload["annotations"]) == 1
-    negative_images = [item for item in payload["images"] if item.get("hard_negative")]
-    assert len(negative_images) == HARD_NEGATIVE_COPIES
-    assert all(item["hard_negative_issue_id"] == "title-fp" for item in negative_images)
+    assert plan["strategy"] == "dynamic_panel_weighted_replay"
+    assert plan["base_train_panels"] == 4
+    assert plan["budget_extra_draws"] == int(4 * REPLAY_BUDGET_RATIO) == 2
+    assert plan["selected_extra_draws"] == 2
+    assert plan["effective_train_draws"] == 6
+    assert {item["panel_key"] for item in plan["panels"]} == {"source-a::left", "source-b::right"}
+    assert all(item["replay_count"] == 1 for item in plan["panels"])
+    assert all(item["source_id"] != "source-val" for item in plan["panels"])
