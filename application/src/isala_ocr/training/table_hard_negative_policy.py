@@ -5,238 +5,29 @@ import json
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
-
 from .projects import resolve_project_workspace
 from . import table_model_comparison as comparison
 from . import table_cell_training as training
 
-
-HARD_NEGATIVE_COPIES = 3
-HARD_NEGATIVE_DEDUPE_IOU = 0.70
-HARD_NEGATIVE_CONFLICT_PIXELS = 1.0
+# A panel that failed in the newest completed review gets one extra draw. If the
+# same panel is still wrong in consecutive model generations it can get two.
+# Once a newer completed review is clean, its replay weight immediately returns
+# to 1. This follows hard-example mining much more closely than keeping an
+# ever-growing bank of permanent negative-only crops.
+MAX_REPLAY_WEIGHT = 3
+REPLAY_BUDGET_RATIO = 0.50
+HISTORY_LIMIT = 8
 
 _ORIGINAL_LATEST_FEEDBACK = comparison.latest_completed_training_feedback
 _ORIGINAL_BUILD_DATASET = training.build_table_cell_dataset
 _INSTALLED = False
 
 
-def _box(raw: Any) -> tuple[float, float, float, float] | None:
-    if not isinstance(raw, (list, tuple)) or len(raw) != 4:
-        return None
+def _read_json(path: Path, default: Any = None) -> Any:
     try:
-        x1, y1, x2, y2 = (float(value) for value in raw)
-    except (TypeError, ValueError):
-        return None
-    if x2 <= x1 or y2 <= y1:
-        return None
-    return x1, y1, x2, y2
-
-
-def _area(box: tuple[float, float, float, float]) -> float:
-    return max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
-
-
-def _intersection_area(
-    left: tuple[float, float, float, float], right: tuple[float, float, float, float]
-) -> float:
-    width = max(0.0, min(left[2], right[2]) - max(left[0], right[0]))
-    height = max(0.0, min(left[3], right[3]) - max(left[1], right[1]))
-    return width * height
-
-
-def _iou(left: tuple[float, float, float, float], right: tuple[float, float, float, float]) -> float:
-    intersection = _intersection_area(left, right)
-    if intersection <= 0:
-        return 0.0
-    union = _area(left) + _area(right) - intersection
-    return intersection / max(1e-9, union)
-
-
-def _dedupe_hard_negatives(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep one recent representative for the same persistent FP geometry."""
-    result: list[dict[str, Any]] = []
-    for item in sorted(items, key=lambda row: (str(row.get("reviewed_at") or ""), str(row.get("run_id") or ""))):
-        candidate = _box(item.get("prediction_box"))
-        if candidate is None:
-            continue
-        key = (str(item.get("source_id") or ""), str(item.get("panel_id") or ""))
-        replaced = False
-        for index, existing in enumerate(result):
-            existing_key = (str(existing.get("source_id") or ""), str(existing.get("panel_id") or ""))
-            existing_box = _box(existing.get("prediction_box"))
-            if key == existing_key and existing_box is not None and _iou(candidate, existing_box) >= HARD_NEGATIVE_DEDUPE_IOU:
-                result[index] = item
-                replaced = True
-                break
-        if not replaced:
-            result.append(item)
-    return sorted(result, key=lambda row: (str(row.get("source_id") or ""), str(row.get("panel_id") or ""), str(row.get("issue_id") or "")))
-
-
-def _persistent_fp_hard_negatives(root: Path) -> list[dict[str, Any]]:
-    """Collect FP=model_error decisions from every fully reviewed comparison run.
-
-    Newer review rounds normally supersede old whole-panel weighting. False-positive
-    hard negatives are different: once the operator has explicitly said that a
-    prediction is background, keep teaching that fact until current GT conflicts
-    with it. The dataset builder performs that live-GT conflict check.
-    """
-    reviews = comparison.comparison_reviews(root)
-    runs_root = root / comparison.COMPARISON_DIRNAME / comparison.RUNS_DIRNAME
-    if not runs_root.is_dir():
-        return []
-
-    collected: list[dict[str, Any]] = []
-    for path in sorted(runs_root.glob("*.json")):
-        payload = comparison._read_json(path, {}) or {}
-        if not isinstance(payload, dict) or not payload.get("run_id"):
-            continue
-        run = comparison._current_evaluation_view(payload)
-        run_id = str(run.get("run_id") or "")
-        run_reviews = reviews.get(run_id, {}) if isinstance(reviews, dict) else {}
-        run_reviews = run_reviews if isinstance(run_reviews, dict) else {}
-        issues: list[tuple[dict[str, Any], dict[str, Any]]] = []
-        complete = True
-        for panel in run.get("panels") or []:
-            if not isinstance(panel, dict):
-                continue
-            for issue in panel.get("issues") or []:
-                if not isinstance(issue, dict):
-                    continue
-                review = comparison._review_for_issue(issue, run_reviews) or {}
-                decision = str(review.get("decision") or "")
-                if not decision or decision == "deferred":
-                    complete = False
-                    break
-                issues.append((issue, review))
-            if not complete:
-                break
-        if not complete:
-            continue
-
-        for issue, review in issues:
-            if str(issue.get("type") or "") != "fp" or str(review.get("decision") or "") != "model_error":
-                continue
-            prediction_box = _box(issue.get("prediction_box"))
-            if prediction_box is None:
-                continue
-            collected.append({
-                "run_id": run_id,
-                "issue_id": str(issue.get("issue_id") or ""),
-                "source_id": str(issue.get("source_id") or ""),
-                "panel_id": str(issue.get("panel_id") or ""),
-                "prediction_box": list(prediction_box),
-                "confidence": float(issue.get("confidence") or 0.0),
-                "reviewed_at": str(review.get("reviewed_at") or run.get("created_at") or ""),
-            })
-    return _dedupe_hard_negatives(collected)
-
-
-def _feedback_with_persistent_hard_negatives(workspace: str | Path) -> dict[str, Any]:
-    root = resolve_project_workspace(workspace)
-    base = dict(_ORIGINAL_LATEST_FEEDBACK(root) or {})
-    hard_negatives = _persistent_fp_hard_negatives(root)
-
-    # FP model errors now get targeted negative-only crops instead of merely
-    # repeating the whole positive panel. Keep whole-panel weighting for geometry,
-    # FN and merged errors because those still need positive target emphasis.
-    non_fp_errors = [
-        dict(item) for item in (base.get("model_errors") or [])
-        if isinstance(item, dict) and str(item.get("type") or "") != "fp"
-    ]
-    panel_weights: dict[str, int] = {}
-    source_weights: dict[str, int] = {}
-    for item in non_fp_errors:
-        source_id = str(item.get("source_id") or "")
-        panel_id = str(item.get("panel_id") or "")
-        multiplier = max(1, int(item.get("multiplier") or 1))
-        if source_id and panel_id:
-            panel_weights[f"{source_id}::{panel_id}"] = max(panel_weights.get(f"{source_id}::{panel_id}", 1), multiplier)
-        if source_id:
-            source_weights[source_id] = max(source_weights.get(source_id, 1), multiplier)
-
-    fingerprint_material = {
-        "base": str(base.get("fingerprint") or ""),
-        "persistent_fp_hard_negatives": [
-            {
-                "source_id": item.get("source_id"),
-                "panel_id": item.get("panel_id"),
-                "prediction_box": [round(float(value), 3) for value in item.get("prediction_box") or []],
-            }
-            for item in hard_negatives
-        ],
-    }
-    fingerprint = hashlib.sha256(
-        json.dumps(fingerprint_material, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-
-    base.update({
-        "fingerprint": fingerprint,
-        "panel_weights": panel_weights,
-        "source_weights": source_weights,
-        "persistent_fp_hard_negatives": hard_negatives,
-        "persistent_fp_hard_negative_count": len(hard_negatives),
-        "policy": (
-            "model_error only; geometry/fn x3, merged x4 whole-panel; "
-            "FP -> persistent negative-only crops x3; train split only"
-        ),
-    })
-    if hard_negatives and not base.get("available"):
-        base["available"] = True
-    return base
-
-
-def _gt_boxes_for_image(train_payload: dict[str, Any], image_id: int) -> list[tuple[float, float, float, float]]:
-    result: list[tuple[float, float, float, float]] = []
-    for annotation in train_payload.get("annotations") or []:
-        if not isinstance(annotation, dict) or int(annotation.get("image_id") or -1) != image_id:
-            continue
-        bbox = annotation.get("bbox")
-        if not isinstance(bbox, list) or len(bbox) != 4:
-            continue
-        try:
-            x, y, width, height = (float(value) for value in bbox)
-        except (TypeError, ValueError):
-            continue
-        candidate = _box([x, y, x + width, y + height])
-        if candidate is not None:
-            result.append(candidate)
-    return result
-
-
-def _conflicts_with_gt(
-    candidate: tuple[float, float, float, float], gt_boxes: list[tuple[float, float, float, float]]
-) -> bool:
-    return any(_intersection_area(candidate, gt) > HARD_NEGATIVE_CONFLICT_PIXELS for gt in gt_boxes)
-
-
-def _negative_crop_box(
-    prediction: tuple[float, float, float, float], *, width: int, height: int,
-    gt_boxes: list[tuple[float, float, float, float]],
-) -> tuple[int, int, int, int] | None:
-    """Return a GT-safe context crop, or None when the FP now conflicts with GT."""
-    x1, y1, x2, y2 = prediction
-    exact = (
-        max(0.0, min(float(width), x1)), max(0.0, min(float(height), y1)),
-        max(0.0, min(float(width), x2)), max(0.0, min(float(height), y2)),
-    )
-    if exact[2] <= exact[0] or exact[3] <= exact[1] or _conflicts_with_gt(exact, gt_boxes):
-        return None
-
-    box_width = exact[2] - exact[0]
-    box_height = exact[3] - exact[1]
-    pad_x = max(8.0, box_width * 0.12)
-    pad_y = max(6.0, box_height * 0.35)
-    padded = (
-        max(0.0, exact[0] - pad_x), max(0.0, exact[1] - pad_y),
-        min(float(width), exact[2] + pad_x), min(float(height), exact[3] + pad_y),
-    )
-    selected = exact if _conflicts_with_gt(padded, gt_boxes) else padded
-    crop = tuple(int(round(value)) for value in selected)
-    if crop[2] - crop[0] < 4 or crop[3] - crop[1] < 4:
-        return None
-    return crop
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, TypeError, ValueError):
+        return default
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -245,136 +36,321 @@ def _write_json(path: Path, payload: Any) -> None:
     temporary.replace(path)
 
 
-def _append_hard_negative_images(
-    root: Path, manifest: dict[str, Any], hard_negatives: list[dict[str, Any]]
-) -> dict[str, Any]:
-    dataset_root = root / str(manifest.get("path") or "")
-    train_path = dataset_root / "annotations" / "instance_train.json"
-    if not hard_negatives or not train_path.is_file():
-        return manifest
-    try:
-        train_payload = json.loads(train_path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError, TypeError):
-        return manifest
-    if not isinstance(train_payload, dict):
-        return manifest
-    images = train_payload.get("images")
-    annotations = train_payload.get("annotations")
-    if not isinstance(images, list) or not isinstance(annotations, list):
-        return manifest
+def _panel_key(issue: dict[str, Any]) -> str:
+    source_id = str(issue.get("source_id") or "")
+    panel_id = str(issue.get("panel_id") or "")
+    return f"{source_id}::{panel_id}" if source_id and panel_id else ""
 
-    image_by_filename = {
-        str(item.get("file_name") or ""): item
-        for item in images if isinstance(item, dict) and item.get("id") is not None
+
+def _completed_review_runs(root: Path) -> list[dict[str, Any]]:
+    """Return completed comparison rounds, newest first, with panel-level errors."""
+    reviews = comparison.comparison_reviews(root)
+    runs_root = root / comparison.COMPARISON_DIRNAME / comparison.RUNS_DIRNAME
+    if not runs_root.is_dir():
+        return []
+
+    result: list[dict[str, Any]] = []
+    for path in runs_root.glob("*.json"):
+        payload = _read_json(path, {}) or {}
+        if not isinstance(payload, dict) or not payload.get("run_id"):
+            continue
+        run = comparison._current_evaluation_view(payload)
+        run_id = str(run.get("run_id") or "")
+        run_reviews = reviews.get(run_id, {}) if isinstance(reviews, dict) else {}
+        run_reviews = run_reviews if isinstance(run_reviews, dict) else {}
+        issues = [
+            issue
+            for panel in (run.get("panels") or [])
+            if isinstance(panel, dict)
+            for issue in (panel.get("issues") or [])
+            if isinstance(issue, dict)
+        ]
+
+        resolved: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        complete = True
+        for issue in issues:
+            review = comparison._review_for_issue(issue, run_reviews) or {}
+            decision = str(review.get("decision") or "")
+            if not decision or decision == "deferred":
+                complete = False
+                break
+            resolved.append((issue, review))
+        if not complete:
+            continue
+
+        decision_counts: dict[str, int] = {}
+        errors_by_panel: dict[str, list[dict[str, Any]]] = {}
+        model_errors: list[dict[str, Any]] = []
+        material: list[tuple[str, str]] = []
+        for issue, review in resolved:
+            decision = str(review.get("decision") or "")
+            decision_counts[decision] = decision_counts.get(decision, 0) + 1
+            material.append((str(issue.get("issue_id") or ""), decision))
+            if decision != "model_error":
+                continue
+            key = _panel_key(issue)
+            if not key:
+                continue
+            try:
+                confidence = float(issue.get("confidence") or 0.0)
+            except (TypeError, ValueError):
+                confidence = 0.0
+            item = {
+                "issue_id": str(issue.get("issue_id") or ""),
+                "type": str(issue.get("type") or ""),
+                "source_id": str(issue.get("source_id") or ""),
+                "panel_id": str(issue.get("panel_id") or ""),
+                "confidence": max(0.0, min(1.0, confidence)),
+            }
+            errors_by_panel.setdefault(key, []).append(item)
+            model_errors.append(item)
+
+        result.append({
+            "run_id": run_id,
+            "model_id": str(run.get("model_id") or ""),
+            "dataset_id": str(run.get("dataset_id") or ""),
+            "created_at": str(run.get("created_at") or ""),
+            "issue_count": len(issues),
+            "decision_counts": decision_counts,
+            "model_errors": model_errors,
+            "errors_by_panel": errors_by_panel,
+            "material": sorted(material),
+        })
+
+    result.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return result[:HISTORY_LIMIT]
+
+
+def _feedback_from_completed_runs(completed: list[dict[str, Any]]) -> dict[str, Any]:
+    if not completed:
+        return {
+            "available": False,
+            "fingerprint": "",
+            "model_error_count": 0,
+            "model_errors": [],
+            "panel_weights": {},
+            "source_weights": {},
+            "replay_panel_weights": {},
+            "hard_example_registry": [],
+        }
+
+    latest = completed[0]
+    latest_errors = latest.get("errors_by_panel") or {}
+    latest_errors = latest_errors if isinstance(latest_errors, dict) else {}
+    registry: list[dict[str, Any]] = []
+    replay_panel_weights: dict[str, int] = {}
+
+    for key, latest_items in sorted(latest_errors.items()):
+        if not isinstance(latest_items, list) or not latest_items:
+            continue
+        streak = 0
+        total_error_runs = 0
+        still_consecutive = True
+        for run in completed:
+            run_errors = run.get("errors_by_panel") or {}
+            has_error = isinstance(run_errors, dict) and bool(run_errors.get(key))
+            if has_error:
+                total_error_runs += 1
+                if still_consecutive:
+                    streak += 1
+            elif still_consecutive:
+                still_consecutive = False
+
+        requested_weight = min(MAX_REPLAY_WEIGHT, 1 + max(1, streak))
+        replay_panel_weights[key] = requested_weight
+        source_id, panel_id = key.split("::", 1)
+        error_types = sorted({str(item.get("type") or "") for item in latest_items if isinstance(item, dict)})
+        max_confidence = max(
+            [float(item.get("confidence") or 0.0) for item in latest_items if isinstance(item, dict)] or [0.0]
+        )
+        registry.append({
+            "panel_key": key,
+            "source_id": source_id,
+            "panel_id": panel_id,
+            "requested_weight": requested_weight,
+            "error_streak": streak,
+            "total_error_runs": total_error_runs,
+            "latest_error_count": len(latest_items),
+            "latest_error_types": error_types,
+            "max_confidence": max_confidence,
+            "latest_run_id": str(latest.get("run_id") or ""),
+        })
+
+    fingerprint_material = {
+        "latest_run_id": str(latest.get("run_id") or ""),
+        "completed_history": [
+            {
+                "run_id": str(run.get("run_id") or ""),
+                "material": run.get("material") or [],
+            }
+            for run in completed
+        ],
+        "registry": registry,
     }
-    panel_by_key = {
-        (str(panel.get("source_id") or ""), str(panel.get("panel_id") or "")): panel
+    fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_material, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+    # Keep panel_weights empty on purpose. The canonical COCO builder used this
+    # field for physical PNG duplication. The runtime sampler consumes
+    # replay_panel_weights instead and performs additional draws in memory.
+    return {
+        "available": True,
+        "run_id": str(latest.get("run_id") or ""),
+        "model_id": str(latest.get("model_id") or ""),
+        "dataset_id": str(latest.get("dataset_id") or ""),
+        "created_at": str(latest.get("created_at") or ""),
+        "fingerprint": fingerprint,
+        "issue_count": int(latest.get("issue_count") or 0),
+        "decision_counts": dict(latest.get("decision_counts") or {}),
+        "model_error_count": len(latest.get("model_errors") or []),
+        "model_errors": list(latest.get("model_errors") or []),
+        "panel_weights": {},
+        "source_weights": {},
+        "replay_panel_weights": replay_panel_weights,
+        "hard_example_registry": registry,
+        "hard_example_registry_count": len(registry),
+        "history_run_count": len(completed),
+        "policy": (
+            "dynamic panel hard-example replay; newest model_error panel -> weight 2; "
+            "consecutive recurrence -> weight 3 max; a clean newer review resets to weight 1; "
+            "train split only; no negative-only crops and no physical image copies"
+        ),
+    }
+
+
+def _dynamic_hard_example_feedback(workspace: str | Path) -> dict[str, Any]:
+    root = resolve_project_workspace(workspace)
+    return _feedback_from_completed_runs(_completed_review_runs(root))
+
+
+def _plan_replay(manifest: dict[str, Any], feedback: dict[str, Any]) -> dict[str, Any]:
+    train_panels = [
+        dict(panel)
         for panel in (manifest.get("panels") or [])
         if isinstance(panel, dict) and str(panel.get("split") or "") == "train"
+    ]
+    by_key = {
+        f"{str(panel.get('source_id') or '')}::{str(panel.get('panel_id') or '')}": panel
+        for panel in train_panels
     }
-    next_image_id = max([int(item.get("id") or 0) for item in images if isinstance(item, dict)] or [0]) + 1
-    accepted_fp_count = 0
-    added_image_count = 0
-    conflict_count = 0
-    skipped_non_train_count = 0
-    accepted_records: list[dict[str, Any]] = []
+    registry = {
+        str(item.get("panel_key") or ""): dict(item)
+        for item in (feedback.get("hard_example_registry") or [])
+        if isinstance(item, dict)
+    }
+    requested_weights = {
+        str(key): max(1, min(MAX_REPLAY_WEIGHT, int(value or 1)))
+        for key, value in dict(feedback.get("replay_panel_weights") or {}).items()
+        if str(key) in by_key
+    }
 
-    for item in hard_negatives:
-        source_id = str(item.get("source_id") or "")
-        panel_id = str(item.get("panel_id") or "")
-        panel = panel_by_key.get((source_id, panel_id))
-        if panel is None:
-            skipped_non_train_count += 1
-            continue
-        filename = str(panel.get("file_name") or "")
-        base_image_record = image_by_filename.get(filename)
-        image_path = dataset_root / "images" / filename
-        prediction = _box(item.get("prediction_box"))
-        if base_image_record is None or prediction is None or not image_path.is_file():
-            continue
-        base_image_id = int(base_image_record.get("id") or -1)
-        gt_boxes = _gt_boxes_for_image(train_payload, base_image_id)
+    requested_extra = sum(max(0, weight - 1) for weight in requested_weights.values())
+    budget = 0
+    if requested_extra and train_panels:
+        budget = max(1, int(len(train_panels) * REPLAY_BUDGET_RATIO))
+        budget = min(budget, requested_extra)
 
-        with Image.open(image_path) as image:
-            image = image.convert("RGB")
-            crop_box = _negative_crop_box(prediction, width=image.width, height=image.height, gt_boxes=gt_boxes)
-            if crop_box is None:
-                conflict_count += 1
-                continue
-            crop = image.crop(crop_box)
-            if crop.width < 4 or crop.height < 4:
-                continue
-            digest = hashlib.sha256(json.dumps({
-                "source": source_id, "panel": panel_id, "box": list(crop_box)
-            }, sort_keys=True).encode("utf-8")).hexdigest()[:12]
-            for copy_index in range(1, HARD_NEGATIVE_COPIES + 1):
-                hard_filename = f"{source_id}__{panel_id}__hardneg-{digest}-{copy_index}.png"
-                crop.save(dataset_root / "images" / hard_filename)
-                images.append({
-                    "id": next_image_id,
-                    "file_name": hard_filename,
-                    "width": crop.width,
-                    "height": crop.height,
-                    "hard_negative": True,
-                    "hard_negative_source": filename,
-                    "hard_negative_issue_id": str(item.get("issue_id") or ""),
-                })
-                next_image_id += 1
-                added_image_count += 1
-            accepted_fp_count += 1
-            accepted_records.append({
-                "source_id": source_id,
-                "panel_id": panel_id,
-                "issue_id": str(item.get("issue_id") or ""),
-                "run_id": str(item.get("run_id") or ""),
-                "prediction_box": list(prediction),
-                "crop_box": list(crop_box),
-                "copies": HARD_NEGATIVE_COPIES,
+    fingerprint = str(feedback.get("fingerprint") or "")
+    slots: list[dict[str, Any]] = []
+    for key, weight in requested_weights.items():
+        meta = registry.get(key, {})
+        for replay_index in range(1, weight):
+            tie = hashlib.sha256(f"{fingerprint}|{key}|{replay_index}".encode("utf-8")).hexdigest()
+            slots.append({
+                "panel_key": key,
+                "replay_index": replay_index,
+                "error_streak": int(meta.get("error_streak") or 1),
+                "latest_error_count": int(meta.get("latest_error_count") or 1),
+                "max_confidence": float(meta.get("max_confidence") or 0.0),
+                "tie": tie,
             })
 
-    if added_image_count:
-        _write_json(train_path, train_payload)
+    # Give every difficult panel its first extra draw before spending budget on
+    # a second draw. Within that tier, recurrent/high-error panels win. The hash
+    # tie-break rotates when the review fingerprint changes instead of always
+    # starving the same later-sorted panels.
+    slots.sort(key=lambda item: (
+        int(item["replay_index"]),
+        -int(item["error_streak"]),
+        -int(item["latest_error_count"]),
+        -float(item["max_confidence"]),
+        str(item["tie"]),
+    ))
+    selected = slots[:budget]
+    counts: dict[str, int] = {}
+    for slot in selected:
+        key = str(slot["panel_key"])
+        counts[key] = counts.get(key, 0) + 1
 
-    updated = dict(manifest)
-    updated["hard_negative_fp_count"] = accepted_fp_count
-    updated["hard_negative_image_count"] = added_image_count
-    updated["hard_negative_conflict_count"] = conflict_count
-    updated["hard_negative_non_train_skipped_count"] = skipped_non_train_count
-    updated["hard_negatives"] = accepted_records
-    updated["training_image_count"] = int(updated.get("training_image_count") or 0) + added_image_count
-    splits = dict(updated.get("splits") or {})
-    train_split = dict(splits.get("train") or {})
-    train_split["panels"] = int(train_split.get("panels") or 0) + added_image_count
-    splits["train"] = train_split
-    updated["splits"] = splits
-    feedback_meta = dict(updated.get("training_feedback") or {})
-    feedback_meta.update({
-        "persistent_fp_hard_negative_count": len(hard_negatives),
-        "hard_negative_fp_count": accepted_fp_count,
-        "hard_negative_image_count": added_image_count,
-        "hard_negative_conflict_count": conflict_count,
-        "policy": "FP=model_error -> persistent GT-safe negative-only crops x3; train split only",
-    })
-    updated["training_feedback"] = feedback_meta
-    _write_json(dataset_root / "manifest.json", updated)
-    return updated
+    panels: list[dict[str, Any]] = []
+    for key, replay_count in sorted(counts.items()):
+        panel = by_key[key]
+        meta = registry.get(key, {})
+        panels.append({
+            "panel_key": key,
+            "source_id": str(panel.get("source_id") or ""),
+            "panel_id": str(panel.get("panel_id") or ""),
+            "panel_name": str(panel.get("panel_name") or panel.get("panel_id") or ""),
+            "file_name": str(panel.get("file_name") or ""),
+            "replay_count": replay_count,
+            "effective_weight": 1 + replay_count,
+            "requested_weight": int(requested_weights.get(key, 1)),
+            "error_streak": int(meta.get("error_streak") or 1),
+            "total_error_runs": int(meta.get("total_error_runs") or 1),
+            "latest_error_count": int(meta.get("latest_error_count") or 1),
+            "latest_error_types": list(meta.get("latest_error_types") or []),
+            "max_confidence": float(meta.get("max_confidence") or 0.0),
+        })
+
+    return {
+        "schema_version": 1,
+        "strategy": "dynamic_panel_weighted_replay",
+        "budget_ratio": REPLAY_BUDGET_RATIO,
+        "base_train_panels": len(train_panels),
+        "candidate_panel_count": len(requested_weights),
+        "requested_extra_draws": requested_extra,
+        "budget_extra_draws": budget,
+        "selected_extra_draws": sum(counts.values()),
+        "effective_train_draws": len(train_panels) + sum(counts.values()),
+        "max_replay_weight": MAX_REPLAY_WEIGHT,
+        "panels": panels,
+    }
 
 
-def _build_dataset_with_hard_negatives(workspace: str | Path) -> dict[str, Any]:
+def _build_dataset_with_replay_plan(workspace: str | Path) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
-    manifest = _ORIGINAL_BUILD_DATASET(root)
+    manifest = dict(_ORIGINAL_BUILD_DATASET(root))
     feedback = comparison.latest_completed_training_feedback(root)
-    hard_negatives = [
-        dict(item) for item in (feedback.get("persistent_fp_hard_negatives") or [])
-        if isinstance(item, dict)
-    ]
-    return _append_hard_negative_images(root, manifest, hard_negatives)
+    replay = _plan_replay(manifest, feedback)
+    manifest["hard_example_panel_count"] = len(replay["panels"])
+    # Deliberately zero: there are no physical hard-example PNG/COCO copies.
+    manifest["hard_example_image_count"] = 0
+    manifest["hard_example_replay_draw_count"] = int(replay["selected_extra_draws"])
+    manifest["hard_example_replay"] = replay
+    feedback_meta = dict(manifest.get("training_feedback") or {})
+    feedback_meta.update({
+        "hard_example_registry_count": int(feedback.get("hard_example_registry_count") or 0),
+        "replay_candidate_panel_count": int(replay["candidate_panel_count"]),
+        "replay_selected_extra_draws": int(replay["selected_extra_draws"]),
+        "replay_budget_ratio": REPLAY_BUDGET_RATIO,
+        "policy": str(feedback.get("policy") or ""),
+    })
+    manifest["training_feedback"] = feedback_meta
+    dataset_root = root / str(manifest.get("path") or "")
+    _write_json(dataset_root / "manifest.json", manifest)
+    return manifest
 
 
-def install_table_hard_negative_policy() -> None:
+def install_table_hard_example_replay_policy() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
-    comparison.latest_completed_training_feedback = _feedback_with_persistent_hard_negatives
-    training.build_table_cell_dataset = _build_dataset_with_hard_negatives
+    comparison.latest_completed_training_feedback = _dynamic_hard_example_feedback
+    training.build_table_cell_dataset = _build_dataset_with_replay_plan
     _INSTALLED = True
+
+
+# Backwards-compatible import name used by v3.14.1 checkouts and tests.
+def install_table_hard_negative_policy() -> None:
+    install_table_hard_example_replay_policy()
