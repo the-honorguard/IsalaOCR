@@ -1,15 +1,15 @@
 {
     "schema_version":  1,
     "project_id":  "cmr_testcase_01",
-    "status":  "completed",
-    "started_at":  "2026-08-18T13:19:59.5208485+02:00",
-    "completed_at":  "2026-08-18T13:43:16.7703485+02:00",
+    "status":  "running",
+    "started_at":  "2026-08-18T14:21:39.5633387+02:00",
+    "completed_at":  "",
     "requested_device":  "auto",
     "resolved_device":  "gpu",
     "training_backend":  "gpu",
-    "inference_backend":  "cpu_fallback",
+    "inference_backend":  "gpu",
     "gpu_name":  "NVIDIA GeForce RTX 3070",
-    "dataset_id":  "table-cells-20260818T112254872244Z-28e82265",
+    "dataset_id":  "table-cells-20260818T122228346591Z-28e82265",
     "dataset":  {
                     "source_count":  14,
                     "panel_count":  28,
@@ -34,12 +34,12 @@
                                             }
                                },
                     "training_feedback":  {
-                                              "run_id":  "detect-20260818T081231Z-641c27ae46",
-                                              "model_id":  "table-RTDETR-L-table-run-20260818T095249-RTDETR-L",
+                                              "run_id":  "detect-20260818T114251Z-0ff7bfa696",
+                                              "model_id":  "table-RTDETR-L-table-run-20260818T132355-RTDETR-L",
                                               "model_error_count":  31,
                                               "decision_counts":  {
                                                                       "model_error":  31,
-                                                                      "functional_ok":  68
+                                                                      "functional_ok":  87
                                                                   },
                                               "policy":  "dynamic panel hard-example replay; newest model_error panel -\u003e weight 2; consecutive recurrence -\u003e weight 3 max; a clean newer review resets to weight 1; train split only; no negative-only crops and no physical image copies",
                                               "hard_example_registry_count":  27,
@@ -100,7 +100,7 @@
                                 "budget_ratio":  0.5,
                                 "base_train_panels":  18,
                                 "candidate_panel_count":  18,
-                                "requested_extra_draws":  35,
+                                "requested_extra_draws":  36,
                                 "budget_extra_draws":  9,
                                 "selected_extra_draws":  9,
                                 "effective_train_draws":  27,
@@ -115,8 +115,8 @@
                                                    "replay_count":  1,
                                                    "effective_weight":  2,
                                                    "requested_weight":  3,
-                                                   "error_streak":  5,
-                                                   "total_error_runs":  5,
+                                                   "error_streak":  6,
+                                                   "total_error_runs":  6,
                                                    "latest_error_count":  2,
                                                    "latest_error_types":  [
                                                                               "fp",
@@ -133,8 +133,8 @@
                                                    "replay_count":  1,
                                                    "effective_weight":  2,
                                                    "requested_weight":  3,
-                                                   "error_streak":  5,
-                                                   "total_error_runs":  5,
+                                                   "error_streak":  6,
+                                                   "total_error_runs":  6,
                                                    "latest_error_count":  2,
                                                    "latest_error_types":  [
                                                                               "fp",
@@ -151,8 +151,8 @@
                                                    "replay_count":  1,
                                                    "effective_weight":  2,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  4,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
                                                    "latest_error_count":  2,
                                                    "latest_error_types":  [
                                                                               "fp"
@@ -168,13 +168,30 @@
                                                    "replay_count":  1,
                                                    "effective_weight":  2,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  5,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  6,
                                                    "latest_error_count":  1,
                                                    "latest_error_types":  [
                                                                               "fp"
                                                                           ],
                                                    "max_confidence":  0.9656305313110352
+                                               },
+                                               {
+                                                   "panel_key":  "86701d04742e3c4745b33450::right-ventricle-volume-result",
+                                                   "source_id":  "86701d04742e3c4745b33450",
+                                                   "panel_id":  "right-ventricle-volume-result",
+                                                   "panel_name":  "Right ventricle Volume Result",
+                                                   "file_name":  "86701d04742e3c4745b33450__right-ventricle-volume-result.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  6,
+                                                   "latest_error_count":  1,
+                                                   "latest_error_types":  [
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.9800757765769958
                                                },
                                                {
                                                    "panel_key":  "9a92b29ef0942817d6e8ca6e::right-ventricle-volume-result",
@@ -185,30 +202,13 @@
                                                    "replay_count":  1,
                                                    "effective_weight":  2,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  5,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  6,
                                                    "latest_error_count":  1,
                                                    "latest_error_types":  [
                                                                               "fp"
                                                                           ],
                                                    "max_confidence":  0.9800757765769958
-                                               },
-                                               {
-                                                   "panel_key":  "adbf5979034c56b232330829::left-ventricle-volume-result",
-                                                   "source_id":  "adbf5979034c56b232330829",
-                                                   "panel_id":  "left-ventricle-volume-result",
-                                                   "panel_name":  "Left ventricle Volume Result",
-                                                   "file_name":  "adbf5979034c56b232330829__left-ventricle-volume-result.png",
-                                                   "replay_count":  1,
-                                                   "effective_weight":  2,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  4,
-                                                   "latest_error_count":  1,
-                                                   "latest_error_types":  [
-                                                                              "fp"
-                                                                          ],
-                                                   "max_confidence":  0.9626011252403259
                                                },
                                                {
                                                    "panel_key":  "bcb1a14e26e65de3aaa61e81::left-ventricle-volume-result",
@@ -219,8 +219,8 @@
                                                    "replay_count":  1,
                                                    "effective_weight":  2,
                                                    "requested_weight":  3,
-                                                   "error_streak":  5,
-                                                   "total_error_runs":  5,
+                                                   "error_streak":  6,
+                                                   "total_error_runs":  6,
                                                    "latest_error_count":  1,
                                                    "latest_error_types":  [
                                                                               "fp"
@@ -236,8 +236,8 @@
                                                    "replay_count":  1,
                                                    "effective_weight":  2,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  5,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  6,
                                                    "latest_error_count":  1,
                                                    "latest_error_types":  [
                                                                               "fp"
@@ -253,8 +253,8 @@
                                                    "replay_count":  1,
                                                    "effective_weight":  2,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  5,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  6,
                                                    "latest_error_count":  1,
                                                    "latest_error_types":  [
                                                                               "fp"
@@ -263,72 +263,9 @@
                                                }
                                            ]
                             },
-    "model_id":  "table-RTDETR-L-table-run-20260818T132355-RTDETR-L",
-    "run_id":  "table-run-20260818T132355-RTDETR-L",
-    "training_run":  {
-                         "training_mode":  "continue",
-                         "parent_model_id":  "table-RTDETR-L-table-run-20260818T095249-RTDETR-L",
-                         "epochs":  40,
-                         "batch_size":  4,
-                         "learning_rate":  3E-05,
-                         "base_train_images":  18,
-                         "hard_example_replay_draws":  9,
-                         "hard_example_replay_panels":  9,
-                         "hard_example_replay_runtime":  {
-                                                             "strategy":  "dynamic_panel_weighted_replay",
-                                                             "base_records":  18,
-                                                             "extra_draws":  9,
-                                                             "effective_records":  27,
-                                                             "panel_count":  9,
-                                                             "budget_ratio":  0.5,
-                                                             "candidate_panel_count":  18,
-                                                             "requested_extra_draws":  35,
-                                                             "dataset":  "/training/workspace/projects/cmr_testcase_01/table_cell_datasets/table-cells-20260818T112254872244Z-28e82265",
-                                                             "annotation":  "annotations/instance_train.json"
-                                                         },
-                         "started_at":  "2026-08-18T11:23:58.771318+00:00",
-                         "completed_at":  "2026-08-18T11:30:39.301705+00:00"
-                     },
-    "model_validation":  {
-                             "dataset_id":  "table-cells-20260818T112254872244Z-28e82265",
-                             "split":  "val",
-                             "confidence":  0.25,
-                             "iou_threshold":  0.5,
-                             "tp":  108,
-                             "fp":  0,
-                             "fn":  0,
-                             "recall":  1.0,
-                             "precision":  1.0,
-                             "f1":  1.0,
-                             "false_positives_per_panel":  0.0,
-                             "panel_count":  4,
-                             "evaluated_at":  "2026-08-18T11:31:23.966692+00:00",
-                             "images":  [
-                                            {
-                                                "file_name":  "a53913ec7d41d58384415386__left-ventricle-volume-result.png",
-                                                "tp":  27,
-                                                "fp":  0,
-                                                "fn":  0
-                                            },
-                                            {
-                                                "file_name":  "a53913ec7d41d58384415386__right-ventricle-volume-result.png",
-                                                "tp":  27,
-                                                "fp":  0,
-                                                "fn":  0
-                                            },
-                                            {
-                                                "file_name":  "bcc4bceea17c19580924f189__left-ventricle-volume-result.png",
-                                                "tp":  27,
-                                                "fp":  0,
-                                                "fn":  0
-                                            },
-                                            {
-                                                "file_name":  "bcc4bceea17c19580924f189__right-ventricle-volume-result.png",
-                                                "tp":  27,
-                                                "fp":  0,
-                                                "fn":  0
-                                            }
-                                        ]
-                         },
+    "model_id":  "",
+    "run_id":  "",
+    "training_run":  null,
+    "model_validation":  null,
     "error":  ""
 }
