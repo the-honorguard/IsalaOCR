@@ -1,12 +1,12 @@
 ﻿**********************
 Windows PowerShell transcript start
-Start time: 20260818124527
+Start time: 20260818131959
 Username: PCJulian\Julian
 RunAs User: PCJulian\Julian
 Configuration Name: 
 Machine: PCJULIAN (Microsoft Windows NT 10.0.26200.0)
 Host Application: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\Users\Jbeuk\Documents\GitHub\IsalaOCR\automation\powershell\launcher.ps1 action 53
-Process ID: 32604
+Process ID: 31040
 PSVersion: 5.1.26100.9168
 PSEdition: Desktop
 PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9168
@@ -28,14 +28,6 @@ Validating reviewed table-cell dataset...
 Running strict numeric/geometry sanity check before training...
 
 Alles laten draaien: uitvoerbackend bepalen (gevraagd: auto)...
-Auto/GPU: NVIDIA GPU gevonden; GPU detection runtime voorbereiden...
-Pulling shared NVIDIA PaddleX base image...
-PicoDet-S training weight already downloaded: C:\Users\Jbeuk\Documents\GitHub\IsalaOCR\models\training\PicoDet-S_pretrained.pdparams
-Building GPU PaddleDetection/PicoDet image: isalaocr-training-gpu-detection:3.8.5
-Validating PaddlePaddle, CUDA and PaddleDetection in a started GPU container...
-Preparation status: downloads=READY, installs=INCOMPLETE
-Status written to: C:\Users\Jbeuk\Documents\GitHub\IsalaOCR\models\preparation_status.json
-Preparation gpu-detection/full completed.
 Uitvoermodus: GPU Â· NVIDIA GeForce RTX 3070
 Alles laten draaien: GPU-training...
 Pre-training numeric/geometry sanity check...
@@ -44,88 +36,42 @@ Continuing from active custom model table-RTDETR-L-table-run-20260818T095249-RTD
 Continuation learning rate: 3E-05; epochs: 40
 Fine-tuning RT-DETR-L wireless table-cell detector on reviewed cell geometry + Step-7 hard examples...
 
-  assert (masks is not None and gt_mask is not None,
-/opt/paddlex-source/paddlex/repo_manager/repos/PaddleDetection/ppdet/modeling/losses/dfine_loss.py:192: SyntaxWarning: assertion is always true, perhaps remove parentheses?
-  assert (masks is not None and gt_mask is not None,
-[08/18 11:13:02] ppdet.utils.checkpoint INFO: Skipping import of the encryption module.
-[33mUsing the local font file(`/opt/isala-training-resources/DejaVuSans.ttf`) specified by `LOCAL_FONT_FILE_PATH`![0m
-[32m['/usr/bin/python3', 'tools/train.py', '--eval', '--config', '/models/paddlex/tmpn1xpn0vw/detmodel_RT-DETR-L_wireless_table_cell_det.yml', '--use_vdl', 'True', '--vdl_log_dir', '/training/workspace/projects/cmr_testcase_01/table_cell_runs/table-run-20260818T131247-RTDETR-L'][0m
-[32m
-Log path: /training/workspace/projects/cmr_testcase_01/table_cell_runs/table-run-20260818T131247-RTDETR-L/train.log
-[0m
-/opt/paddlex-source/paddlex/repo_manager/repos/PaddleDetection/ppdet/modeling/losses/detr_loss.py:362: SyntaxWarning: assertion is always true, perhaps remove parentheses?
-  assert (masks is not None and gt_mask is not None,
-/opt/paddlex-source/paddlex/repo_manager/repos/PaddleDetection/ppdet/modeling/transformers/matchers.py:139: SyntaxWarning: assertion is always true, perhaps remove parentheses?
-  assert (masks is not None and gt_mask is not None,
-/opt/paddlex-source/paddlex/repo_manager/repos/PaddleDetection/ppdet/modeling/losses/dfine_loss.py:192: SyntaxWarning: assertion is always true, perhaps remove parentheses?
-  assert (masks is not None and gt_mask is not None,
-[08/18 11:13:10] ppdet.utils.checkpoint INFO: Skipping import of the encryption module.
-======================= Modified FLAGS detected =======================
-FLAGS(name='FLAGS_cublas_dir', current_value='/usr/local/lib/python3.10/dist-packages/paddle/../nvidia/cublas/lib', default_value='')
-FLAGS(name='FLAGS_enable_pir_in_executor', current_value=True, default_value=False)
-FLAGS(name='FLAGS_cusolver_dir', current_value='/usr/local/lib/python3.10/dist-packages/paddle/../nvidia/cusolver/lib', default_value='')
-FLAGS(name='FLAGS_nccl_dir', current_value='/usr/local/lib/python3.10/dist-packages/paddle/../nvidia/nccl/lib', default_value='')
-FLAGS(name='FLAGS_curand_dir', current_value='/usr/local/lib/python3.10/dist-packages/paddle/../nvidia/curand/lib', default_value='')
-FLAGS(name='FLAGS_nvidia_package_dir', current_value='/usr/local/lib/python3.10/dist-packages/paddle/../nvidia', default_value='')
-FLAGS(name='FLAGS_cudnn_dir', current_value='/usr/local/lib/python3.10/dist-packages/paddle/../nvidia/cudnn/lib', default_value='')
-FLAGS(name='FLAGS_cuda_cccl_dir', current_value='/usr/local/lib/python3.10/dist-packages/paddle/../nvidia/cuda_cccl/include/', default_value='')
-FLAGS(name='FLAGS_cupti_dir', current_value='/usr/local/lib/python3.10/dist-packages/paddle/../nvidia/cuda_cupti/lib', default_value='')
-FLAGS(name='FLAGS_cusparse_dir', current_value='/usr/local/lib/python3.10/dist-packages/paddle/../nvidia/cusparse/lib', default_value='')
-=======================================================================
-loading annotations into memory...
-Done (t=0.00s)
-creating index...
-index created!
-[08/18 11:13:10] ppdet.data.source.coco INFO: Load [18 samples valid, 0 samples invalid] in file /training/workspace/projects/cmr_testcase_01/table_cell_datasets/table-cells-20260818T104801292080Z-28e82265/annotations/instance_train.json.
-ISALA hard-example replay: 18 basispanelen + 9 gewogen replay-draws = 27 trainingssamples; geen PNG/COCO-kopieen.
-W0818 11:13:11.020110    35 gpu_resources.cc:114] Please NOTE: device: 0, GPU Compute Capability: 8.6, Driver API Version: 13.3, Runtime API Version: 11.8
-use cuda ms_deformable_attn op!
-[08/18 11:13:17] ppdet.utils.checkpoint INFO: Finish loading model weights: /training/workspace/projects/cmr_testcase_01/table_cell_runs/table-run-20260818T095249-RTDETR-L/model_final/model_final.pdparams
-Exception in thread Thread-2 (_thread_loop):
-Traceback (most recent call last):
-  File "/usr/lib/python3.10/threading.py", line 1016, in _bootstrap_inner
-Traceback (most recent call last):
-  File "/opt/paddlex-source/paddlex/repo_manager/repos/PaddleDetection/tools/train.py", line 225, in <module>
-    main()
-  File "/opt/paddlex-source/paddlex/repo_manager/repos/PaddleDetection/tools/train.py", line 221, in main
-    run(FLAGS, cfg)
-  File "/opt/paddlex-source/paddlex/repo_manager/repos/PaddleDetection/tools/train.py", line 161, in run
-    trainer.train(FLAGS.eval)
-  File "/opt/paddlex-source/paddlex/repo_manager/repos/PaddleDetection/ppdet/engine/trainer.py", line 590, in train
-    for step_id, data in enumerate(self.loader):
-  File "/usr/local/lib/python3.10/dist-packages/paddle/io/dataloader/dataloader_iter.py", line 849, in __next__
-    self.run()
-  File "/usr/lib/python3.10/threading.py", line 953, in run
-    self._target(*self._args, **self._kwargs)
-  File "/usr/local/lib/python3.10/dist-packages/paddle/io/dataloader/dataloader_iter.py", line 628, in _thread_loop
-        batch = self._get_data()self._reader.read_next_list()[0]
+Evaluating the new detector on the fixed validation split...
 
-  File "/usr/local/lib/python3.10/dist-packages/paddle/io/dataloader/dataloader_iter.py", line 775, in _get_data
-SystemError: (Fatal) Blocking queue is killed because the data reader raises an exception.
-  [Hint: Expected killed_ != true, but received killed_:1 == true:1.] (at ../paddle/phi/core/operators/reader/blocking_queue.h:175)
 
-    batch.reraise()
-  File "/usr/local/lib/python3.10/dist-packages/paddle/io/dataloader/worker.py", line 195, in reraise
-    raise self.exc_type(msg)
-KeyError: 'DataLoader worker(2) caught KeyError with message:\nTraceback (most recent call last):\n  File "/usr/local/lib/python3.10/dist-packages/paddle/io/dataloader/worker.py", line 380, in _worker_loop\n    batch = fetcher.fetch(indices)\n  File "/usr/local/lib/python3.10/dist-packages/paddle/io/dataloader/fetcher.py", line 85, in fetch\n    data = self.collate_fn(data)\n  File "/opt/paddlex-source/paddlex/repo_manager/repos/PaddleDetection/ppdet/data/reader.py", line 127, in __call__\n    tmp_data.append(data[i][k])\nKeyError: \'isala_hard_example_replay\'\n'
-Traceback (most recent call last):
-  File "/opt/paddlex-source/paddlex/utils/result_saver.py", line 28, in wrap
-    result = func(self, *args, **kwargs)
-  File "/opt/paddlex-source/paddlex/engine.py", line 41, in run
-    self._model.train()
-  File "/opt/paddlex-source/paddlex/model.py", line 132, in train
-    trainer.train()
-  File "/opt/paddlex-source/paddlex/modules/base/trainer.py", line 99, in train
-    train_result = self.pdx_model.train(**train_args)
-  File "/opt/paddlex-source/paddlex/repo_apis/PaddleDetection_api/object_det/model.py", line 143, in train
-    return self.runner.train(
-  File "/opt/paddlex-source/paddlex/repo_apis/PaddleDetection_api/object_det/runner.py", line 54, in train
-    return self.run_cmd(
-  File "/opt/paddlex-source/paddlex/repo_apis/base/runner.py", line 357, in run_cmd
-    raise CalledProcessError(
-paddlex.utils.errors.others.CalledProcessError: Command ['/usr/bin/python3', 'tools/train.py', '--eval', '--config', '/models/paddlex/tmpn1xpn0vw/detmodel_RT-DETR-L_wireless_table_cell_det.yml', '--use_vdl', 'True', '--vdl_log_dir', '/training/workspace/projects/cmr_testcase_01/table_cell_runs/table-run-20260818T131247-RTDETR-L'] returned non-zero exit status 1.
-PS>TerminatingError(): "Table-cell detector training failed."
+Registering trained table-cell model (activation stays explicit)...
+
+Table-cell model trained and registered: table-RTDETR-L-table-run-20260818T132355-RTDETR-L
+Next: review validation metrics, activate the model, then rerun Step 3 to measure whether direct Paddle coverage improves.
+Alles laten draaien: model activeren...
+Activating table-cell detector: latest
+
+Active table-cell model updated.
+Alles laten draaien: nieuw actief model uitvoeren op GPU (table-RTDETR-L-table-run-20260818T132355-RTDETR-L)...
+Table inference backend: GPU (GPU gekozen: Docker/CUDA/Paddle is bruikbaar)
+Safe housekeeping: no stale transient artifacts found.
+Host input path: C:\Users\Jbeuk\Documents\GitHub\IsalaOCR\input
+Processable input files found: 15
+Detecting PP-Structure table regions and cell geometry in: /input
+Table-first mode does not mix loose OCR text boxes or the active PicoDet/field detector into this pass.
+Pipeline A does not persist OCR values, field mappings or measurement output.
+Preparing cached GPU inference layer: isalaocr-table-inference-gpu:3.14.1
+
+
+PS>TerminatingError(): "Table/cell geometry detection completed with errors on gpu. Review the console output."
+WARNING: GPU-inference mislukte; Auto probeert dezelfde actieve modelrun opnieuw op CPU. Reden: Table/cell geometry detection completed with errors on gpu. Review the console output.
+Table inference backend: CPU (CPU handmatig gekozen)
+Safe housekeeping: no stale transient artifacts found.
+Host input path: C:\Users\Jbeuk\Documents\GitHub\IsalaOCR\input
+Processable input files found: 15
+Detecting PP-Structure table regions and cell geometry in: /input
+Table-first mode does not mix loose OCR text boxes or the active PicoDet/field detector into this pass.
+Pipeline A does not persist OCR values, field mappings or measurement output.
+
+Table-first pass complete on CPU. Active field detector intentionally NOT merged.
+Alles afgerond. Training: GPU; inference: CPU (fallback). Open Stap 6 om alleen de afwijkingen te beoordelen.
+Voor diagnose/push: diagnostics/step5/latest.txt + diagnostics/step5/latest.json
 **********************
 Windows PowerShell transcript end
-End time: 20260818131336
+End time: 20260818134316
 **********************
