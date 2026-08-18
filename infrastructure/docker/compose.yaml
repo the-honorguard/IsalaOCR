@@ -137,7 +137,7 @@ services:
     build:
       context: ../..
       dockerfile: infrastructure/docker/Dockerfile.labeler
-    image: isalaocr-labeler:3.14.0
+    image: isalaocr-labeler:3.14.1
     profiles: ["training"]
     read_only: true
     environment:
