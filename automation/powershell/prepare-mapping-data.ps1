@@ -4,7 +4,16 @@ Assert-IsalaActionPreflight -ActionId "20"
 Assert-IsalaDetectionGateOpen
 Assert-Docker
 $ProjectInput = Get-IsalaContainerProjectInput
-Write-Host "Pipeline B: creating semantic OCR blocks and mapping suggestions after the detection gate..."
-$args = @("compose","--profile","training","run","--rm","--build","training-collector","collect-mapping","--input",$ProjectInput,"--workspace","/training/workspace","--config","/app/config/app.yaml")
+Write-Host "Pipeline B: creating semantic OCR blocks and mapping suggestions after the table-first gate..."
+$args = @(
+    "compose","--profile","training","run","--rm","--pull","never",
+    "--entrypoint","python",
+    "training-collector",
+    "-m","isala_ocr.table_first_cli",
+    "collect-mapping",
+    "--input",$ProjectInput,
+    "--workspace","/training/workspace",
+    "--config","/app/config/app.yaml"
+)
 & docker @args
-if ($LASTEXITCODE -ne 0) { throw "Mapping preparation failed. The detection gate may be closed." }
+if ($LASTEXITCODE -ne 0) { throw "Mapping preparation failed. Review the table-first gate and console output." }
