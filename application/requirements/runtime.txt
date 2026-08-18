@@ -1,7 +1,10 @@
 # Runtime dependencies for the reusable IsalaOCR Docker image.
 # Keep this file stable unless a dependency actually changes; Docker uses it
 # as the cache key for the expensive dependency-install layer.
-numpy>=1.26,<3
+# PaddleOCR/PaddleX currently needs a NumPy 1.x ABI-compatible pandas stack.
+# Keep these two pins aligned with Dockerfile.table-inference.
+numpy==1.26.4
+pandas>=2.2,<2.3
 opencv-python-headless>=4.10,<5
 pydicom>=3.0,<4
 PyYAML>=6,<7

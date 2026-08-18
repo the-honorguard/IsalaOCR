@@ -297,8 +297,15 @@ try {
         if (-not $inferenceSucceeded) { throw "Nieuwe table-cell modelrun failed on $resolvedDevice." }
     }
     catch {
+        $inferenceError = [string]$_.Exception.Message
+        if ($inferenceError.Contains("[ISALA_TABLE_RUNTIME_BROKEN]")) {
+            # A dependency/ABI/image startup defect is deterministic and affects
+            # the inference stack itself. Falling back to CPU would hide the
+            # broken environment instead of providing a meaningful recovery.
+            throw ("GPU table-inference runtime is ongeldig; CPU-fallback bewust overgeslagen. {0}" -f $inferenceError)
+        }
         if ($ExecutionDevice -eq "auto" -and $resolvedDevice -eq "gpu") {
-            Write-Warning ("GPU-inference mislukte; Auto probeert dezelfde actieve modelrun opnieuw op CPU. Reden: {0}" -f $_.Exception.Message)
+            Write-Warning ("GPU-inference mislukte; Auto probeert dezelfde actieve modelrun opnieuw op CPU. Reden: {0}" -f $inferenceError)
             $executionState.inference_backend = "cpu_fallback"
             $executionState.auto_fallback = $true
             $executionState.selection_reason = ([string]$executionState.selection_reason) + "; GPU-inference fallback naar CPU"

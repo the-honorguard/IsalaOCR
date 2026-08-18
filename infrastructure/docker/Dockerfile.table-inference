@@ -9,8 +9,14 @@ FROM ${BASE_IMAGE}
 
 USER root
 
+# PaddleOCR/PaddleX imports pandas during startup. Keep NumPy on the 1.x ABI and
+# install a matching pandas wheel explicitly; otherwise a transitive dependency
+# can upgrade NumPy underneath an older pandas binary and fail with
+# "numpy.dtype size changed" before PP-StructureV3 even reaches the GPU.
 RUN --mount=type=cache,id=isalaocr-table-inference-pip-cache,target=/root/.cache/pip,sharing=locked \
-    python3 -m pip install \
+    python3 -m pip install --upgrade \
+      "numpy==1.26.4" \
+      "pandas>=2.2,<2.3" \
       "paddleocr[doc-parser]==3.7.0" \
       "pydicom>=3.0,<4" \
       "PyYAML>=6,<7" \
@@ -18,6 +24,20 @@ RUN --mount=type=cache,id=isalaocr-table-inference-pip-cache,target=/root/.cache
       "pylibjpeg>=2,<3" \
       "pylibjpeg-libjpeg>=2,<3" \
       "pylibjpeg-openjpeg>=2,<3"
+
+# Docker build does not have access to libcuda.so.1, so CUDA/Paddle imports are
+# deliberately deferred to a runtime probe. This build-time check still catches
+# the NumPy/pandas C-ABI failure deterministically without touching CUDA.
+RUN python3 - <<'PYABI'
+import importlib.metadata as metadata
+import numpy
+import pandas
+
+assert numpy.__version__ == "1.26.4", numpy.__version__
+print("NumPy/pandas ABI OK:", numpy.__version__, pandas.__version__)
+print("PaddleOCR distribution:", metadata.version("paddleocr"))
+print("PaddleX distribution:", metadata.version("paddlex"))
+PYABI
 
 COPY application/src /app/src
 COPY application/config /app/config
