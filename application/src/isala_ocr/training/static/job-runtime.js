@@ -250,3 +250,83 @@
     observer.observe(row, {attributes: true, attributeFilter: ['data-issue-decision']});
   });
 })();
+
+// Keep cancellation available where long-running work is actually watched: the
+// bottom activity dock. The backend remains host-worker mediated; this button
+// only submits the existing cancellation endpoint for the selected live job.
+(() => {
+  const toolbar = document.querySelector('#activity-dock .activity-toolbar');
+  const select = document.getElementById('activity-job-select');
+  const refresh = document.getElementById('activity-refresh');
+  if (!toolbar || !select) return;
+
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'ghost';
+  cancel.id = 'activity-cancel';
+  cancel.textContent = 'Annuleren';
+  cancel.hidden = true;
+  cancel.title = 'Annuleer de geselecteerde actieve of wachtende taak.';
+  if (refresh) toolbar.insertBefore(cancel, refresh);
+  else toolbar.appendChild(cancel);
+
+  let checking = false;
+  let cancellationRequestedFor = '';
+
+  async function refreshCancelState() {
+    const jobId = String(select.value || '');
+    if (!jobId || checking) {
+      if (!jobId) cancel.hidden = true;
+      return;
+    }
+    checking = true;
+    try {
+      const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}?_cancel_state=${Date.now()}`, {cache: 'no-store'});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const job = await response.json();
+      const status = String(job?.status || '').toLowerCase();
+      const live = status === 'pending' || status === 'running';
+      cancel.hidden = !live;
+      cancel.disabled = !live || cancellationRequestedFor === jobId || Boolean(job?.cancellation_requested_at);
+      cancel.textContent = cancel.disabled && live ? 'Annulering aangevraagd…' : 'Annuleren';
+    } catch (_) {
+      cancel.hidden = true;
+    } finally {
+      checking = false;
+    }
+  }
+
+  cancel.addEventListener('click', async () => {
+    const jobId = String(select.value || '');
+    if (!jobId || cancel.disabled) return;
+    if (!window.confirm('Deze taak annuleren? Een actieve Docker/Paddle-training wordt door de lokale worker gestopt.')) return;
+    cancellationRequestedFor = jobId;
+    cancel.disabled = true;
+    cancel.textContent = 'Annulering aangevraagd…';
+    try {
+      const response = await fetch(`/jobs/${encodeURIComponent(jobId)}/cancel`, {
+        method: 'POST',
+        headers: {'X-Requested-With': 'XMLHttpRequest'},
+        cache: 'no-store',
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      window.setTimeout(() => {
+        document.getElementById('activity-refresh')?.click();
+        refreshCancelState();
+      }, 500);
+    } catch (error) {
+      cancellationRequestedFor = '';
+      cancel.disabled = false;
+      cancel.textContent = 'Annuleren';
+      window.alert(`Taak annuleren mislukt: ${error instanceof Error ? error.message : error}`);
+    }
+  });
+
+  select.addEventListener('change', refreshCancelState);
+  const observer = new MutationObserver(refreshCancelState);
+  observer.observe(select, {childList: true, subtree: true, attributes: true});
+  window.addEventListener('isala:job-created', refreshCancelState);
+  window.addEventListener('isala:job-status', refreshCancelState);
+  window.setInterval(refreshCancelState, 2000);
+  refreshCancelState();
+})();
