@@ -1,81 +1,13 @@
 {% extends 'base.html' %}
-{% block title %}Stap 6 · Model beoordelen · IsalaOCR{% endblock %}
-{% block heading %}Stap 6 · Model beoordelen{% endblock %}
-{% block subtitle %}Draai het actieve table-cell model over de beoordelingsbronnen en bepaal daarna in Stap 7 welke verschillen nog aandacht nodig hebben.{% endblock %}
+{% block title %}Doorsturen naar Stap 6 · IsalaOCR{% endblock %}
+{% block heading %}Stap 6 · Afwijkingen reviewen{% endblock %}
+{% block subtitle %}De aparte modelbeoordelingsstap is vervallen; Stap 5 traint, activeert en draait het model al volledig.{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="0;url=/process/table-compare">{% endblock %}
 {% block content %}
-{% set p = preview or {} %}
-{% set d = dataset or {} %}
-{% set v = validation or {} %}
-{% set m = latest_model or {} %}
-{% set e = evaluation or {} %}
-{% set active = model_state.active_model or {} %}
-{% set iteration_pending = needs_training or (d and not model_state.dataset_current) %}
-
-<section class="gate-banner {% if active and not iteration_pending %}gate-banner-open{% else %}gate-banner-closed{% endif %}">
-  <div>
-    <span class="gate-kicker">MODEL ITERATIE · STAP 6 VAN 7</span>
-    {% if not active %}
-    <h2>Nog geen actief table-cell model</h2>
-    <p>Train en activeer eerst een model in Stap 5. De beoordelingsrun wordt altijd expliciet aan de actieve modelversie gekoppeld.</p>
-    {% elif iteration_pending %}
-    <h2>Eerst de nieuwe trainingsronde afronden</h2>
-    <p>De canonieke GT of de afgeronde Stap-7-feedback is nieuwer dan de modelversie die je nu zou beoordelen. Ga naar Stap 5 zodat dataset, training en activatie eerst weer bij dezelfde iteratie horen.</p>
-    {% elif activate_ready %}
-    <h2>Nieuw model is getraind maar nog niet actief</h2>
-    <p>Activeer de nieuwste versie voordat je een nieuwe beoordelingsrun maakt. Zo blijft altijd aantoonbaar welk model welke predictions heeft geproduceerd.</p>
-    {% elif needs_redetect %}
-    <h2>{{ active.model_id }} is actief · nieuwe beoordelingsrun nodig</h2>
-    <p>De bestaande detectierun hoort nog bij een oudere modelversie. Draai het actieve model opnieuw over dezelfde panelen; de canonieke Ground Truth blijft daarbij onaangeroerd.</p>
-    {% else %}
-    <h2>Beoordelingsrun beschikbaar voor {{ active.model_id }}</h2>
-    <p>De actieve detectierun kan in Stap 7 tegen de canonieke Ground Truth worden beoordeeld. Daar zie je alleen de afwijkingen en beslis je per geval wat ermee moet gebeuren.</p>
-    {% endif %}
-  </div>
-  <div class="actions">
-    {% if not active or iteration_pending %}
-    <a class="button primary" href="/process/table-quality">Stap 5 · Model trainen</a>
-    {% elif activate_ready %}
-    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="52"><button class="primary">Nieuwste model activeren</button></form>
-    <a class="button" href="/process/table-quality">Terug naar Stap 5</a>
-    {% elif needs_redetect %}
-    <form method="post" action="/jobs">
-      <input type="hidden" name="action_id" value="2">
-      <input type="hidden" name="table_model_id" value="{{ active.model_id }}">
-      <button class="primary"><strong>Actief model opnieuw draaien</strong><small>{{ active.model_id }} · nieuwe immutable beoordelingsrun</small></button>
-    </form>
-    <a class="button" href="/process/table-compare">Bestaande Stap-7-run bekijken</a>
-    {% else %}
-    <a class="button primary" href="/process/table-compare">Stap 7 · Afwijkingen reviewen</a>
-    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="2"><input type="hidden" name="table_model_id" value="{{ active.model_id }}"><button>Beoordelingsrun opnieuw uitvoeren</button></form>
-    {% endif %}
-  </div>
+<section class="card">
+  <h2>Deze tussenstap bestaat niet meer</h2>
+  <p>De volledige modelrun zit nu in Stap 5. Je gaat direct door naar Stap 6 om alleen de afwijkingen te beoordelen.</p>
+  <a class="button primary" href="/process/table-compare">Naar Stap 6 · Afwijkingen reviewen</a>
 </section>
-
-<div class="grid cols-3 section-gap">
-  <section class="card"><span class="muted">Actief model</span><div class="metric {% if active %}ok{% endif %}" style="font-size:1rem;line-height:1.35;word-break:break-word">{{ active.model_id or 'Geen' }}</div><small>{% if active.dataset_id %}Getraind op {{ active.dataset_id }}{% else %}Activeer in Stap 5 eerst een modelversie.{% endif %}</small></section>
-  <section class="card"><span class="muted">Actuele trainingsdataset</span><div class="metric {% if model_state.dataset_current %}ok{% else %}warn{% endif %}" style="font-size:1rem;line-height:1.35;word-break:break-word">{{ d.dataset_id or 'Geen' }}</div><small>{% if d %}{{ d.annotation_count or 0 }} cellen · {{ d.panel_count or 0 }} panelcrops{% else %}Nog geen versioned table-cell dataset.{% endif %}</small></section>
-  <section class="card"><span class="muted">Beoordelingsrun</span><div class="metric {% if active and not needs_redetect and not iteration_pending %}ok{% else %}warn{% endif %}" style="font-size:1.15rem">{% if iteration_pending %}Training eerst{% elif active and not needs_redetect %}Actueel{% elif active %}Opnieuw draaien{% else %}Niet beschikbaar{% endif %}</div><small>Een run blijft gekoppeld aan precies de modelversie waarmee hij is gemaakt.</small></section>
-</div>
-
-{% if m %}
-<section class="card section-gap">
-  <div class="toolbar"><div><span class="eyebrow">LAATSTE TRAININGSRESULTAAT</span><h3>{{ m.model_id }}</h3><p class="muted">Dataset {{ m.dataset_id }}{% if m.parent_model_id %} · vervolgtraining vanaf {{ m.parent_model_id }}{% endif %}{% if m.learning_rate %} · LR {{ m.learning_rate }}{% endif %}</p></div>{% if active and m.model_id == active.model_id %}<span class="pill ok">ACTIEF</span>{% endif %}</div>
-  {% if e %}<div class="mini-metrics"><span>Recall <strong>{{ '%.1f%%'|format((e.recall or 0)*100) }}</strong></span><span>Precision <strong>{{ '%.1f%%'|format((e.precision or 0)*100) }}</strong></span><span>F1 <strong>{{ '%.1f%%'|format((e.f1 or 0)*100) }}</strong></span><span>FP/panel <strong>{{ '%.2f'|format(e.false_positives_per_panel or 0) }}</strong></span></div><p class="muted">Dit zijn de trainings/validation-metrics. De functionele vergelijking met de canonieke GT en de handmatige beslissingen staan in Stap 7.</p>{% else %}<p class="muted">Nog geen validation-metrics voor de nieuwste training beschikbaar.</p>{% endif %}
-</section>
-{% endif %}
-
-<section class="card section-gap">
-  <div class="toolbar"><div><span class="eyebrow">WAT GEBEURT HIER?</span><h3>Modelrun maken zonder de Ground Truth aan te raken</h3></div></div>
-  <div class="grid cols-3">
-    <div><strong>1 · Actieve versie vastleggen</strong><p class="muted">De run krijgt het actieve model-ID mee. Oude runs blijven beschikbaar als historie en worden niet overschreven.</p></div>
-    <div><strong>2 · Predictions genereren</strong><p class="muted">Dezelfde opgeslagen panelen worden opnieuw gedetecteerd. Dit is modeloutput, geen nieuwe Ground Truth.</p></div>
-    <div><strong>3 · Naar Stap 7</strong><p class="muted">Daar vergelijken we predictions met de canonieke GT en review je alleen verschillen, niet opnieuw alle correcte cellen.</p></div>
-  </div>
-</section>
-
-<section class="notice info section-gap"><strong>Geen terugkoppeling naar Stap 3.</strong> Stap 3 is alleen bedoeld om de eerste Ground Truth op te bouwen. Iteratief trainen loopt vanaf nu bewust als <strong>5 → 6 → 7 → 5</strong>.</section>
-
-<style>
-.mini-metrics{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.mini-metrics span{border:1px solid var(--border);border-radius:8px;padding:6px 9px}
-</style>
+<script>window.location.replace('/process/table-compare');</script>
 {% endblock %}
