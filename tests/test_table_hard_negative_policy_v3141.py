@@ -54,7 +54,7 @@ def test_negative_crop_is_rejected_when_fp_conflicts_with_current_gt() -> None:
 
 
 def test_negative_crop_falls_back_to_exact_fp_when_padding_would_hit_gt() -> None:
-    gt = [(0.0, 30.0, 100.0, 50.0)]
+    gt = [(0.0, 26.0, 100.0, 50.0)]
 
     crop = _negative_crop_box((20.0, 5.0, 80.0, 22.0), width=100, height=50, gt_boxes=gt)
 
