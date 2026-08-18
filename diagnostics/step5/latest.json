@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "status": "not_run_since_logger_install",
+  "message": "Run Stap 5 lokaal; run-table-cell-pipeline.ps1 overwrites this file with the latest processing summary."
+}
