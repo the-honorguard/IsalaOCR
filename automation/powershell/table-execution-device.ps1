@@ -27,9 +27,12 @@ function Test-IsalaDockerPaddleGpu {
         return [pscustomobject]@{ Available = $false; Name = ""; Reason = "GPU detection runtime is nog niet voorbereid" }
     }
 
-    # No network and no project files are required for this probe.  It tests the
-    # exact combination we care about: Docker GPU passthrough + CUDA Paddle.
-    $code = "p=__import__('paddle');assert p.is_compiled_with_cuda();assert p.device.cuda.device_count()>0;print('ISALA_GPU_OK:'+p.device.cuda.get_device_name(0))"
+    # Start-Process on Windows PowerShell 5.1 flattens ArgumentList into one
+    # command line. A Python -c program containing spaces was therefore split
+    # into multiple argv items and Auto falsely interpreted the resulting
+    # SyntaxError as an unavailable GPU. Keep the probe deliberately whitespace
+    # free so it remains one argument all the way through docker.exe.
+    $code = "p=__import__('paddle');assert(p.is_compiled_with_cuda());assert(p.device.cuda.device_count()>0);print('ISALA_GPU_OK:'+p.device.cuda.get_device_name(0))"
     $probe = Invoke-DockerWithTimeout -Arguments @(
         "run", "--rm", "--gpus", "all", "--network", "none",
         "--entrypoint", "python3", $image, "-c", $code
