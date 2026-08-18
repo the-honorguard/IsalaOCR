@@ -31,17 +31,16 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 
 def install_job_cancellation(app: Flask, workspace: str | Path) -> None:
-    """Install a host-worker mediated cancellation endpoint for WebUI jobs.
+    """Install host-worker mediated cancellation for WebUI jobs.
 
-    The Flask app runs in Docker and therefore never attempts to kill a Windows
-    process directly. Running jobs receive a cancellation marker that is consumed
-    by webui-worker.ps1. Pending jobs can be cancelled atomically without worker
-    involvement.
+    The Flask app runs in Docker and never kills a Windows process directly.
+    Active jobs receive a marker consumed by webui-worker.ps1. Cancelled job
+    records are stored in the existing failed bucket while retaining the
+    explicit ``cancelled`` status, so legacy retry/delete cleanup keeps working.
     """
 
     jobs_root = Path(workspace) / "webui" / "jobs"
-    for name in ("cancel", "cancelled"):
-        (jobs_root / name).mkdir(parents=True, exist_ok=True)
+    (jobs_root / "cancel").mkdir(parents=True, exist_ok=True)
 
     @app.post("/jobs/<job_id>/cancel")
     def cancel_job(job_id: str):
@@ -51,7 +50,7 @@ def install_job_cancellation(app: Flask, workspace: str | Path) -> None:
         status_path = jobs_root / "status" / f"{job_id}.json"
         payload = _read_json(status_path)
         if payload is None:
-            for folder in ("pending", "running", "completed", "failed", "cancelled"):
+            for folder in ("pending", "running", "completed", "failed"):
                 payload = _read_json(jobs_root / folder / f"{job_id}.json")
                 if payload is not None:
                     break
@@ -63,7 +62,7 @@ def install_job_cancellation(app: Flask, workspace: str | Path) -> None:
 
         if status == "pending":
             pending_path = jobs_root / "pending" / f"{job_id}.json"
-            cancelled_path = jobs_root / "cancelled" / f"{job_id}.json"
+            cancelled_path = jobs_root / "failed" / f"{job_id}.json"
             # The worker may claim the job between the status read and this move.
             # If so, fall through to the running cancellation-marker path.
             if pending_path.exists():
@@ -88,11 +87,7 @@ def install_job_cancellation(app: Flask, workspace: str | Path) -> None:
             status = "running"
 
         if status == "running":
-            marker = {
-                "job_id": job_id,
-                "requested_at": now,
-                "requested_via": "webui",
-            }
+            marker = {"job_id": job_id, "requested_at": now, "requested_via": "webui"}
             _write_json(jobs_root / "cancel" / f"{job_id}.json", marker)
             payload["cancellation_requested_at"] = now
             payload["updated_at"] = now
