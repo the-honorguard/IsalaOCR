@@ -46,20 +46,21 @@ def test_runtime_freshness_ignores_independent_webui_layer() -> None:
     # label-training-data.ps1. Its presentation/control files must therefore not
     # invalidate the heavyweight OCR/mapping runtime.
     for path in (
-        r"application\src\isala_ocr\training\static",
-        r"application\src\isala_ocr\training\templates",
-        r"application\src\isala_ocr\training\webui.py",
-        r"application\src\isala_ocr\training\webui_server.py",
-        r"application\src\isala_ocr\training\labeler.py",
-        r"application\src\isala_ocr\training\labeler_server.py",
-        r"application\src\isala_ocr\training\comparison_review_queue_web.py",
-        r"application\src\isala_ocr\training\job_cancellation.py",
+        r"application\src\isala_ocr\training\static".replace("\\\\", "\\"),
+        r"application\src\isala_ocr\training\templates".replace("\\\\", "\\"),
+        r"application\src\isala_ocr\training\webui.py".replace("\\\\", "\\"),
+        r"application\src\isala_ocr\training\webui_server.py".replace("\\\\", "\\"),
+        r"application\src\isala_ocr\training\labeler.py".replace("\\\\", "\\"),
+        r"application\src\isala_ocr\training\labeler_server.py".replace("\\\\", "\\"),
+        r"application\src\isala_ocr\training\comparison_review_queue_web.py".replace("\\\\", "\\"),
+        r"application\src\isala_ocr\training\job_cancellation.py".replace("\\\\", "\\"),
     ):
         assert path in script
 
     assert "Test-IsalaComputeRuntimeInput -File $file" in script
     assert '"application\\schemas"' in script
-    assert '"application\\config"' not in script.split("foreach ($relativeDirectory in @(", 1)[1].split("))", 1)[0]
+    runtime_directories = script.split("foreach ($relativeDirectory in @(", 1)[1].split("))", 1)[0]
+    assert '"application\\config"' not in runtime_directories
 
 
 def test_labeler_restart_rebuilds_webui_from_current_checkout() -> None:
