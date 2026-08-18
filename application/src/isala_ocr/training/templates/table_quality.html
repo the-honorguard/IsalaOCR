@@ -1,36 +1,34 @@
 {% extends 'base.html' %}
-{% block title %}Stap 5 · Model trainen · IsalaOCR{% endblock %}
-{% block heading %}Stap 5 · Model trainen{% endblock %}
-{% block subtitle %}Bouw uit de canonieke Ground Truth een nieuwe dataset, valideer die, train het table-cell model en activeer de nieuwe versie.{% endblock %}
+{% block title %}Stap 5 · Alles laten draaien · IsalaOCR{% endblock %}
+{% block heading %}Stap 5 · Alles laten draaien{% endblock %}
+{% block subtitle %}Maak de huidige Ground Truth gereed, bouw en valideer de dataset, train en activeer een nieuw model en voer dat model direct opnieuw uit.{% endblock %}
 {% block content %}
 {% set q = table_quality %}
 {% set t = q.totals or {} %}
 {% set canonical = q.canonical_ground_truth %}
 {% set gt_ready = canonical and q.state == 'canonical_gt_ready' %}
+{% set gt_open = t.open_source_count or 0 %}
 
-<section class="gate-banner {% if gt_ready %}gate-banner-open{% else %}gate-banner-closed{% endif %}">
+<section class="gate-banner {% if canonical %}gate-banner-open{% else %}gate-banner-closed{% endif %}">
   <div>
-    <span class="gate-kicker">MODEL ITERATIE · STAP 5 VAN 7</span>
-    {% if gt_ready %}
-    <h2>Canonieke Ground Truth klaar voor een trainingsronde</h2>
-    <p>De Ground Truth is de vaste waarheid. Deze stap maakt daar een nieuwe versioned dataset van, valideert die, traint het model en activeert de nieuwe modelversie.</p>
-    {% elif canonical and q.state == 'canonical_gt_needs_review' %}
-    <h2>Ground Truth eerst afronden</h2>
-    <p>{{ t.open_source_count or 0 }} van {{ t.source_count or 0 }} GT-bronnen moeten nog als gecontroleerd worden gemarkeerd. Training start pas vanaf een expliciet afgeronde canonieke GT.</p>
+    <span class="gate-kicker">MODEL ITERATIE · DRAAIEN → BEOORDELEN → DRAAIEN</span>
+    {% if canonical %}
+    <h2>Klaar voor de volgende volledige modelronde</h2>
+    <p>Met één actie wordt de hele technische keten uitgevoerd: eventueel nog open GT-bronnen afronden → dataset bouwen → valideren → GPU trainen → model activeren → het nieuwe model opnieuw over de beoordelingsbronnen draaien.</p>
+    {% if gt_open %}<p class="warn"><strong>{{ gt_open }} GT-bron{% if gt_open != 1 %}nen{% endif %} nog niet bevestigd.</strong> “Alles laten draaien” markeert deze eerst als gecontroleerd zonder de GT-geometrie te wijzigen.</p>{% endif %}
     {% else %}
     <h2>Eerst de Ground Truth opbouwen</h2>
-    <p>Er is nog geen afgeronde canonieke table-cell Ground Truth beschikbaar. Maak die eerst in Stap 3 en controleer hem in Stap 4.</p>
+    <p>Er is nog geen canonieke table-cell Ground Truth beschikbaar. Maak die eerst in Stap 3 en controleer hem in Stap 4. Daarna bestaat de iteratieve loop alleen nog uit draaien en beoordelen.</p>
     {% endif %}
   </div>
   <div class="actions">
-    {% if gt_ready %}
+    {% if canonical %}
     <form method="post" action="/jobs">
       <input type="hidden" name="action_id" value="53">
-      <button class="primary"><strong>Nieuwe trainingsronde starten</strong><small>Dataset bouwen → valideren → GPU trainen → activeren</small></button>
+      <button class="primary"><strong>Alles laten draaien</strong><small>GT afronden indien nodig → dataset → validatie → training → activatie → nieuwe modelrun</small></button>
     </form>
-    <a class="button" href="/process/table-model">Stap 6 · Model beoordelen</a>
-    {% elif canonical %}
-    <a class="button primary" href="/detection-review">Stap 4 · Ground Truth afronden</a>
+    {% if gt_open %}<button type="button" id="complete-all-step5-gt" class="ghost"><strong>Markeer alle GT's als correct</strong><small>{{ gt_open }} open bron{% if gt_open != 1 %}nen{% endif %}; geometrie blijft ongewijzigd</small></button>{% endif %}
+    <a class="button" href="/process/table-compare">Naar beoordelen</a>
     {% else %}
     <a class="button primary" href="/process/detect-candidates">Stap 3 · Ground Truth maken</a>
     <a class="button" href="/process/detection-review">Stap 4 · Ground Truth beheren</a>
@@ -39,26 +37,25 @@
 </section>
 
 <div class="grid cols-3 section-gap">
-  <section class="card"><span class="muted">Canonieke GT-cellen</span><div class="metric {% if canonical %}ok{% endif %}">{{ t.desired_total or 0 }}</div><small>Deze geometrie verandert alleen wanneer je hem expliciet in Stap 4 aanpast.</small></section>
-  <section class="card"><span class="muted">GT-bronnen gecontroleerd</span><div class="metric {% if canonical and (t.open_source_count or 0) == 0 %}ok{% else %}warn{% endif %}">{{ t.completed_source_count or 0 }} / {{ t.source_count or 0 }}</div><small>Elke geometriewijziging heropent alleen de betreffende bron.</small></section>
-  <section class="card"><span class="muted">Nog te controleren</span><div class="metric {% if (t.open_source_count or 0) == 0 %}ok{% else %}warn{% endif %}">{{ t.open_source_count or 0 }}</div><small>Moet 0 zijn voordat een nieuwe trainingsdataset als definitief wordt gebruikt.</small></section>
+  <section class="card"><span class="muted">Canonieke GT-cellen</span><div class="metric {% if canonical %}ok{% endif %}">{{ t.desired_total or 0 }}</div><small>Deze geometrie verandert alleen wanneer je hem expliciet in Ground Truth beheren aanpast.</small></section>
+  <section class="card"><span class="muted">GT-bronnen gecontroleerd</span><div class="metric {% if canonical and gt_open == 0 %}ok{% else %}warn{% endif %}">{{ t.completed_source_count or 0 }} / {{ t.source_count or 0 }}</div><small>Bronstatus is een reviewbevestiging; deze wijzigt de geometrie niet.</small></section>
+  <section class="card"><span class="muted">Nog te bevestigen</span><div class="metric {% if gt_open == 0 %}ok{% else %}warn{% endif %}">{{ gt_open }}</div><small>Je kunt ze hier in één keer bevestigen; “Alles laten draaien” doet dit automatisch als dat nog nodig is.</small></section>
 </div>
 
 <section class="card section-gap">
   <div class="toolbar">
-    <div><span class="eyebrow">DE ITERATIEVE LOOP</span><h3>Train → beoordeel → review → train opnieuw</h3><p class="muted">Na de eerste Ground Truth kom je niet meer terug in de initiële detectieflow om een model te verbeteren.</p></div>
+    <div><span class="eyebrow">DE ITERATIEVE LOOP</span><h3>Alles laten draaien → beoordelen → herhalen</h3><p class="muted">De technische tussenstappen blijven bestaan voor reproduceerbaarheid en diagnose, maar je hoeft ze normaal niet meer handmatig te doorlopen.</p></div>
   </div>
-  <div class="grid cols-3">
-    <div><strong>5 · Model trainen</strong><p class="muted">Bouw de dataset uit de actuele GT plus expliciete <em>Model fout</em>-feedback uit de vorige review en train een nieuwe versie.</p></div>
-    <div><strong>6 · Model beoordelen</strong><p class="muted">Draai het actieve model opnieuw over dezelfde beoordelingsbronnen. De Ground Truth wordt hierbij nooit aangepast.</p></div>
-    <div><strong>7 · Afwijkingen reviewen</strong><p class="muted">Beoordeel alleen verschillen als Functioneel correct, Model fout of GT controleren. Daarna start de volgende ronde weer hier.</p></div>
+  <div class="grid cols-2">
+    <div><strong>1 · Alles laten draaien</strong><p class="muted">Neem de actuele canonieke GT en expliciete <em>Model fout</em>-feedback, bouw een nieuwe dataset, train en activeer het model en maak meteen een nieuwe prediction-run.</p></div>
+    <div><strong>2 · Beoordelen</strong><p class="muted">Review alleen de overgebleven afwijkingen als Functioneel correct, Model fout of GT controleren. Daarna kom je hier terug voor de volgende ronde.</p></div>
   </div>
 </section>
 
 <section class="card section-gap">
-  <div class="toolbar"><div><span class="eyebrow">GEAVANCEERD</span><h3>Losse technische acties</h3><p class="muted">Normaal gebruik je alleen “Nieuwe trainingsronde starten”. Deze knoppen zijn bedoeld voor diagnose of het hervatten van een gedeeltelijk uitgevoerde ronde.</p></div></div>
+  <div class="toolbar"><div><span class="eyebrow">GEAVANCEERD</span><h3>Losse technische acties</h3><p class="muted">Alleen nodig voor diagnose of het hervatten van een gedeeltelijk uitgevoerde ronde.</p></div></div>
   <div class="process-actions">
-    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="48"><button {% if not gt_ready %}disabled{% endif %}><strong>Dataset bouwen</strong><span>Nieuwe snapshot uit actuele canonieke GT en trainingsfeedback</span></button></form>
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="48"><button {% if not gt_ready %}disabled{% endif %}><strong>Dataset bouwen</strong><span>Snapshot uit actuele canonieke GT en trainingsfeedback</span></button></form>
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="49"><button {% if not gt_ready %}disabled{% endif %}><strong>Dataset valideren</strong><span>Controleer de laatst gebouwde table-cell dataset</span></button></form>
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="50"><button {% if not gt_ready %}disabled{% endif %}><strong>GPU trainen</strong><span>Train op de huidige gevalideerde dataset</span></button></form>
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="51"><button {% if not gt_ready %}disabled{% endif %}><strong>CPU trainen</strong><span>Langzaam alternatief</span></button></form>
@@ -67,6 +64,42 @@
 </section>
 
 <section class="notice info section-gap">
-  <strong>GT en modelfeedback blijven gescheiden.</strong> “Model fout” uit Stap 7 mag als hard example in een volgende trainingsronde worden gebruikt. “Functioneel correct” wordt niet als fout teruggetraind. Alleen een expliciete wijziging in Stap 4 verandert de canonieke Ground Truth.
+  <strong>GT en modelfeedback blijven gescheiden.</strong> “Model fout” uit de beoordeling mag als hard example in een volgende trainingsronde worden gebruikt. “Functioneel correct” wordt niet als fout teruggetraind. Alleen een expliciete geometriewijziging in Ground Truth beheren verandert de canonieke Ground Truth.
 </section>
+
+{% if canonical and gt_open %}
+<script>
+(() => {
+  const button = document.getElementById('complete-all-step5-gt');
+  if (!button) return;
+  const sources = {{ (q.sources or [])|tojson }}.filter(item => !item.review_completed && item.source_id);
+  button.addEventListener('click', async () => {
+    if (!sources.length) { window.location.reload(); return; }
+    if (!window.confirm(`Markeer alle ${sources.length} open GT-bronnen als gecontroleerd? De GT-kaders zelf worden niet aangepast.`)) return;
+    button.disabled = true;
+    const original = button.innerHTML;
+    button.innerHTML = '<strong>GT-bronnen afronden…</strong><small>0 / ' + sources.length + '</small>';
+    try {
+      for (let index = 0; index < sources.length; index += 1) {
+        const source = sources[index];
+        const response = await fetch(`/api/detection-review/${encodeURIComponent(source.source_id)}/complete`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+          body: JSON.stringify({completed: true}),
+          cache: 'no-store',
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${response.status}`);
+        button.innerHTML = `<strong>GT-bronnen afronden…</strong><small>${index + 1} / ${sources.length}</small>`;
+      }
+      window.location.reload();
+    } catch (error) {
+      button.disabled = false;
+      button.innerHTML = original;
+      window.alert(`GT-bronnen afronden mislukt: ${error instanceof Error ? error.message : error}`);
+    }
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}
