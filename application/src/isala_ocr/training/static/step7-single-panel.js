@@ -322,6 +322,20 @@
     ensureEmptyState(panel);
   };
 
+  const forceIssueListTop = panel => {
+    const list = panel?.querySelector('.comparison-issue-list');
+    if (!list) return;
+    // Do both direct assignment and scrollTo: different browser/layout paths can
+    // restore scroll anchoring after a reviewed row disappears. Re-assert on the
+    // next frame so late button/row reflow cannot shift the controls vertically.
+    list.scrollTop = 0;
+    list.scrollTo({top: 0, left: 0, behavior: 'auto'});
+    window.requestAnimationFrame(() => {
+      list.scrollTop = 0;
+      list.scrollTo({top: 0, left: 0, behavior: 'auto'});
+    });
+  };
+
   const showPanel = (index, { scrollIssues = true } = {}) => {
     if (!Number.isInteger(index) || index < 0 || index >= panels.length) return;
     switching = true;
@@ -333,7 +347,7 @@
     updateContext();
     window.requestAnimationFrame(() => {
       fitImageCanvas(panels[activeIndex]);
-      if (scrollIssues) panels[activeIndex]?.querySelector('.comparison-issue-list')?.scrollTo({ top: 0 });
+      if (scrollIssues) forceIssueListTop(panels[activeIndex]);
       switching = false;
     });
   };
@@ -341,7 +355,7 @@
   const movePanel = direction => {
     const eligible = eligibleIndexes();
     if (!eligible.length) {
-      showPanel(activeIndex, { scrollIssues: false });
+      showPanel(activeIndex);
       return;
     }
     let position = eligible.indexOf(activeIndex);
@@ -366,7 +380,9 @@
         return;
       }
     }
-    showPanel(activeIndex, { scrollIssues: false });
+    // A review can remove or resize rows. Always return the issue queue to its
+    // canonical top position so the action buttons never jump between items.
+    showPanel(activeIndex);
   };
 
   const enterSinglePanelMode = () => {
