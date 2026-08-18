@@ -1,8 +1,10 @@
 param([string]$SourceId = "")
 . (Join-Path $PSScriptRoot "training-common.ps1")
+. (Join-Path $PSScriptRoot "runtime-preparation.ps1")
 Assert-IsalaActionPreflight -ActionId "20"
 Assert-IsalaDetectionGateOpen
 Assert-Docker
+Assert-IsalaRuntimePrepared | Out-Null
 $ProjectInput = Get-IsalaContainerProjectInput
 Write-Host "Pipeline B: creating semantic OCR blocks and mapping suggestions after the table-first gate..."
 $args = @(
@@ -16,4 +18,4 @@ $args = @(
     "--config","/app/config/app.yaml"
 )
 & docker @args
-if ($LASTEXITCODE -ne 0) { throw "Mapping preparation failed. Review the table-first gate and console output." }
+if ($LASTEXITCODE -ne 0) { throw "Mapping preparation failed. Open STDERR in the activity dock for the Python/Docker error." }
