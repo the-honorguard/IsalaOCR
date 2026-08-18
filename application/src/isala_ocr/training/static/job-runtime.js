@@ -1,3 +1,18 @@
+// Step 1 is deliberately one-click in the WebUI. The preparation backend already
+// has action 1, which performs download -> install/build -> validation for every
+// preparation component and refreshes preparation_status.json. Keep the granular
+// actions available for CLI/diagnostics, but do not make users walk through them.
+(() => {
+  const actionInput = document.querySelector('[data-prep-repair-action-id]');
+  if (!actionInput) return;
+  actionInput.value = '1';
+  const form = actionInput.closest('form');
+  const title = form?.querySelector('[data-prep-repair-title]');
+  const detail = form?.querySelector('[data-prep-repair-detail]');
+  if (title) title.textContent = 'Alles voorbereiden';
+  if (detail) detail.textContent = 'Downloadt, bouwt/installeert en controleert alle benodigde runtime- en modelcomponenten in één taak.';
+})();
+
 (() => {
   const estimates = window.ISALA_ACTION_DURATION_ESTIMATES || {};
   const trackedForms = Array.from(document.querySelectorAll('form[action="/jobs"]')).filter(form => {
