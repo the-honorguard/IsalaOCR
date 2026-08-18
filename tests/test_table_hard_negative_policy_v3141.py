@@ -59,6 +59,7 @@ def test_recurrent_panel_gets_more_replay_weight_than_new_error() -> None:
     registry = {item["panel_key"]: item for item in feedback["hard_example_registry"]}
     assert registry[panel_a]["error_streak"] == 2
     assert registry[panel_b]["error_streak"] == 1
+    assert "replay priority" in feedback["policy"]
     assert "no negative-only crops" in feedback["policy"]
 
 
@@ -105,12 +106,48 @@ def test_replay_plan_is_train_only_and_budgeted() -> None:
 
     assert plan["strategy"] == "dynamic_panel_weighted_replay"
     assert plan["base_train_panels"] == 4
-    assert plan["budget_extra_draws"] == int(4 * REPLAY_BUDGET_RATIO) == 2
-    assert plan["selected_extra_draws"] == 2
-    assert plan["effective_train_draws"] == 6
+    assert plan["budget_extra_draws"] == min(3, int(4 * REPLAY_BUDGET_RATIO)) == 3
+    assert plan["selected_extra_draws"] == 3
+    assert plan["effective_train_draws"] == 7
     assert {item["panel_key"] for item in plan["panels"]} == {"source-a::left", "source-b::right"}
-    assert all(item["replay_count"] == 1 for item in plan["panels"])
+    replay_counts = {item["panel_key"]: item["replay_count"] for item in plan["panels"]}
+    assert replay_counts == {"source-a::left": 2, "source-b::right": 1}
     assert all(item["source_id"] != "source-val" for item in plan["panels"])
+
+
+def test_scarce_budget_prioritizes_recurrent_high_confidence_panel() -> None:
+    panel_keys = [f"source-{name}::left" for name in "abcd"]
+    feedback = {
+        "fingerprint": "priority-round",
+        "replay_panel_weights": {key: 3 for key in panel_keys},
+        "hard_example_registry": [
+            {"panel_key": panel_keys[0], "error_streak": 6, "latest_error_count": 2, "max_confidence": 0.98},
+            {"panel_key": panel_keys[1], "error_streak": 2, "latest_error_count": 1, "max_confidence": 0.90},
+            {"panel_key": panel_keys[2], "error_streak": 1, "latest_error_count": 1, "max_confidence": 0.88},
+            {"panel_key": panel_keys[3], "error_streak": 1, "latest_error_count": 1, "max_confidence": 0.80},
+        ],
+    }
+    manifest = {
+        "panels": [
+            {
+                "source_id": f"source-{name}",
+                "panel_id": "left",
+                "panel_name": name.upper(),
+                "file_name": f"{name}.png",
+                "split": "train",
+            }
+            for name in "abcd"
+        ]
+    }
+
+    plan = _plan_replay(manifest, feedback)
+    replay_counts = {item["panel_key"]: item["replay_count"] for item in plan["panels"]}
+
+    assert plan["requested_extra_draws"] == 8
+    assert plan["budget_extra_draws"] == int(4 * REPLAY_BUDGET_RATIO) == 6
+    assert replay_counts[panel_keys[0]] == 2
+    assert replay_counts[panel_keys[1]] == 2
+    assert replay_counts[panel_keys[3]] <= 1
 
 
 def test_policy_no_longer_generates_negative_crops_or_duplicate_pngs() -> None:
