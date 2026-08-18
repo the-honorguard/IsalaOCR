@@ -1,13 +1,41 @@
 {% extends 'base.html' %}
-{% block title %}Doorsturen naar Stap 6 · IsalaOCR{% endblock %}
-{% block heading %}Stap 6 · Afwijkingen reviewen{% endblock %}
-{% block subtitle %}De aparte modelbeoordelingsstap is vervallen; Stap 5 traint, activeert en draait het model al volledig.{% endblock %}
-{% block head %}<meta http-equiv="refresh" content="0;url=/process/table-compare">{% endblock %}
+{% block title %}Stap 6 · Nieuwe detectierun + modelvergelijking · IsalaOCR{% endblock %}
+{% block heading %}Stap 6 · Nieuwe detectierun + modelvergelijking{% endblock %}
+{% block subtitle %}Voer het actieve model als nieuwe versiegebonden run uit en ga daarna naar de vergelijking met de canonieke Ground Truth.{% endblock %}
 {% block content %}
 <section class="card">
-  <h2>Deze tussenstap bestaat niet meer</h2>
-  <p>De volledige modelrun zit nu in Stap 5. Je gaat direct door naar Stap 6 om alleen de afwijkingen te beoordelen.</p>
-  <a class="button primary" href="/process/table-compare">Naar Stap 6 · Afwijkingen reviewen</a>
+  <div class="toolbar">
+    <div>
+      <span class="eyebrow">STAP 6</span>
+      <h2>Nieuwe modelrun</h2>
+      <p class="muted">Deze stap verandert de Ground Truth niet. De output hoort bij het actieve model en vormt de input voor Stap 7 · Vervolg-review.</p>
+    </div>
+    <div class="actions">
+      <a class="button" href="/process/table-quality?stage=training">← Stap 5 · Model trainen & activeren</a>
+      <a class="button" href="/process/table-compare">Stap 7 · Bestaande vergelijking bekijken</a>
+    </div>
+  </div>
+
+  {% if active_model %}
+  <div class="notice"><strong>Actief model:</strong> <span class="mono">{{ active_model.model_id }}</span>. Een nieuwe run blijft versiegebonden; eerdere runs en reviewfeedback worden niet overschreven.</div>
+  <form method="post" action="/jobs" class="section-gap">
+    <input type="hidden" name="action_id" value="2">
+    <input type="hidden" name="table_model_id" value="{{ active_model.model_id }}">
+    <button class="primary"><strong>Actief model opnieuw draaien</strong><span>Maak een nieuwe immutable detectierun voor vergelijking met de canonieke GT</span></button>
+  </form>
+  {% else %}
+  <div class="notice warn"><strong>Geen actief table-cell model.</strong> Train en activeer eerst een model in Stap 5.</div>
+  <a class="button primary section-gap" href="/process/table-quality?stage=training">Naar Stap 5 · Model trainen & activeren</a>
+  {% endif %}
 </section>
-<script>window.location.replace('/process/table-compare');</script>
+
+<section class="card section-gap">
+  <span class="eyebrow">SCHEIDING VAN VERANTWOORDELIJKHEDEN</span>
+  <h3>Run ≠ Ground Truth</h3>
+  <p class="muted">Stap 3 beheert de persistente waarheid. Stap 6 produceert alleen modeloutput. Stap 7 beoordeelt het verschil daartussen en legt feedback vast voor een volgende trainingsronde.</p>
+</section>
+
+<section class="notice info section-gap">
+  <strong>Na voltooiing:</strong> open Stap 7 · Vervolg-review. Alleen daar classificeer je afwijkingen als functioneel correct, model fout of GT controleren.
+</section>
 {% endblock %}
