@@ -66,7 +66,7 @@ x-training-gpu-detection-build: &training-gpu-detection-build
 
 services:
   model-prep:
-    image: "isalaocr-model-prep:${ISALA_APP_IMAGE_VERSION:-3.9.8}"
+    image: "isalaocr-runtime:${ISALA_APP_IMAGE_VERSION:-3.14.1}"
     build: *runtime-build
     profiles: ["setup"]
     environment:
@@ -80,7 +80,7 @@ services:
     <<: *runtime-security
 
   model-prep-offline:
-    image: "isalaocr-model-prep:${ISALA_APP_IMAGE_VERSION:-3.9.8}"
+    image: "isalaocr-runtime:${ISALA_APP_IMAGE_VERSION:-3.14.1}"
     build: *runtime-build
     profiles: ["setup"]
     network_mode: none
@@ -95,6 +95,7 @@ services:
     <<: *runtime-security
 
   ocr:
+    image: "isalaocr-runtime:${ISALA_APP_IMAGE_VERSION:-3.14.1}"
     build: *runtime-build
     network_mode: none
     read_only: true
@@ -114,6 +115,7 @@ services:
     restart: "no"
 
   training-collector:
+    image: "isalaocr-runtime:${ISALA_APP_IMAGE_VERSION:-3.14.1}"
     build: *runtime-build
     profiles: ["training"]
     network_mode: none
@@ -164,6 +166,7 @@ services:
     pids_limit: 128
 
   dataset-builder:
+    image: "isalaocr-runtime:${ISALA_APP_IMAGE_VERSION:-3.14.1}"
     build: *runtime-build
     profiles: ["training"]
     network_mode: none
@@ -180,6 +183,7 @@ services:
     <<: *runtime-security
 
   evaluator:
+    image: "isalaocr-runtime:${ISALA_APP_IMAGE_VERSION:-3.14.1}"
     build: *runtime-build
     profiles: ["training"]
     network_mode: none
@@ -200,6 +204,7 @@ services:
     pids_limit: 256
 
   model-manager:
+    image: "isalaocr-runtime:${ISALA_APP_IMAGE_VERSION:-3.14.1}"
     build: *runtime-build
     profiles: ["training"]
     network_mode: none
