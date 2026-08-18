@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1.7
+# Lightweight IsalaOCR inference layer on top of the already prepared
+# PaddleDetection CUDA image.  The expensive CUDA/Paddle layers are therefore
+# reused; this image only adds the application code and DICOM/runtime helpers.
+ARG BASE_IMAGE=isalaocr-training-gpu-detection:3.8.4
+FROM ${BASE_IMAGE}
+
+USER root
+
+RUN --mount=type=cache,id=isalaocr-table-inference-pip-cache,target=/root/.cache/pip,sharing=locked \
+    python3 -m pip install \
+      "pydicom>=3.0,<4" \
+      "PyYAML>=6,<7" \
+      "rapidfuzz>=3,<4" \
+      "pylibjpeg>=2,<3" \
+      "pylibjpeg-libjpeg>=2,<3" \
+      "pylibjpeg-openjpeg>=2,<3"
+
+COPY application/src /app/src
+COPY application/config /app/config
+
+ENV PYTHONPATH=/app/src \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/tmp \
+    TMPDIR=/tmp \
+    PADDLE_PDX_CACHE_HOME=/models/paddlex \
+    PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
+
+USER 10001:10001
+WORKDIR /app
+ENTRYPOINT ["python3", "-m", "isala_ocr"]
+CMD ["--help"]
