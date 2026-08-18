@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse
 from .webui import create_web_app
 from .comparison_review_queue_web import install_comparison_review_queue
+from .job_cancellation import install_job_cancellation
 
 def main()->int:
     p=argparse.ArgumentParser()
@@ -16,6 +17,7 @@ def main()->int:
     from waitress import serve
     app=create_web_app(a.workspace,models_root=a.models,output_root=a.output,project_root=a.project,config_path=a.config)
     install_comparison_review_queue(app,a.workspace)
+    install_job_cancellation(app,a.workspace)
     serve(app,host=a.host,port=a.port,threads=8)
     return 0
 
