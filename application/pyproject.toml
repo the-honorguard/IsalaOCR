@@ -23,7 +23,7 @@ dependencies = [
 [project.optional-dependencies]
 training = [
   "Flask>=3.1,<4",
-  "waitress>=3,<4",
+  "waitress>=3.1,<4",
 ]
 paddle = [
   "paddleocr[doc-parser]==3.7.0",
@@ -34,10 +34,13 @@ dicom-compressed = [
   "pylibjpeg-libjpeg>=2,<3",
   "pylibjpeg-openjpeg>=2,<3",
 ]
+dev = [
+  "pytest>=8,<10",
+  "ruff>=0.9,<1",
+]
 
 [project.scripts]
 isala-ocr = "isala_ocr.cli:main"
-isala-ocr-labeler = "isala_ocr.training.webui_server:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -45,7 +48,13 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"isala_ocr.training" = ["templates/*.html", "static/*"]
+
 [tool.pytest.ini_options]
-addopts = "-q"
-pythonpath = ["src"]
 testpaths = ["../tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
