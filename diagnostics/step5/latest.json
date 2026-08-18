@@ -1,5 +1,271 @@
 {
-  "schema_version": 1,
-  "status": "not_run_since_logger_install",
-  "message": "Run Stap 5 lokaal; run-table-cell-pipeline.ps1 overwrites this file with the latest processing summary."
+    "schema_version":  1,
+    "project_id":  "cmr_testcase_01",
+    "status":  "failed",
+    "started_at":  "2026-08-18T12:45:27.8412922+02:00",
+    "completed_at":  "2026-08-18T13:13:36.8606117+02:00",
+    "requested_device":  "auto",
+    "resolved_device":  "gpu",
+    "training_backend":  "gpu",
+    "inference_backend":  "gpu",
+    "gpu_name":  "NVIDIA GeForce RTX 3070",
+    "dataset_id":  "table-cells-20260818T104801292080Z-28e82265",
+    "dataset":  {
+                    "source_count":  14,
+                    "panel_count":  28,
+                    "annotation_count":  894,
+                    "training_image_count":  28,
+                    "training_annotation_count":  894,
+                    "splits":  {
+                                   "train":  {
+                                                 "sources":  9,
+                                                 "panels":  18,
+                                                 "annotations":  597
+                                             },
+                                   "val":  {
+                                               "sources":  2,
+                                               "panels":  4,
+                                               "annotations":  108
+                                           },
+                                   "test":  {
+                                                "sources":  3,
+                                                "panels":  6,
+                                                "annotations":  189
+                                            }
+                               },
+                    "training_feedback":  {
+                                              "run_id":  "detect-20260818T081231Z-641c27ae46",
+                                              "model_id":  "table-RTDETR-L-table-run-20260818T095249-RTDETR-L",
+                                              "model_error_count":  31,
+                                              "decision_counts":  {
+                                                                      "model_error":  31,
+                                                                      "functional_ok":  68
+                                                                  },
+                                              "policy":  "dynamic panel hard-example replay; newest model_error panel -\u003e weight 2; consecutive recurrence -\u003e weight 3 max; a clean newer review resets to weight 1; train split only; no negative-only crops and no physical image copies",
+                                              "hard_example_registry_count":  27,
+                                              "replay_candidate_panel_count":  18,
+                                              "replay_selected_extra_draws":  9,
+                                              "replay_budget_ratio":  0.5
+                                          }
+                },
+    "validation":  {
+                       "valid":  true,
+                       "errors":  [
+
+                                  ],
+                       "warnings":  [
+
+                                    ],
+                       "splits":  {
+                                      "train":  {
+                                                    "images":  18,
+                                                    "annotations":  597
+                                                },
+                                      "val":  {
+                                                  "images":  4,
+                                                  "annotations":  108
+                                              },
+                                      "test":  {
+                                                   "images":  6,
+                                                   "annotations":  189
+                                               }
+                                  },
+                       "numeric_sanity":  {
+                                              "valid":  true,
+                                              "errors":  [
+
+                                                         ],
+                                              "warnings":  [
+
+                                                           ],
+                                              "splits":  {
+                                                             "train":  {
+                                                                           "images":  18,
+                                                                           "annotations":  597
+                                                                       },
+                                                             "val":  {
+                                                                         "images":  4,
+                                                                         "annotations":  108
+                                                                     },
+                                                             "test":  {
+                                                                          "images":  6,
+                                                                          "annotations":  189
+                                                                      }
+                                                         }
+                                          }
+                   },
+    "hard_example_replay":  {
+                                "schema_version":  1,
+                                "strategy":  "dynamic_panel_weighted_replay",
+                                "budget_ratio":  0.5,
+                                "base_train_panels":  18,
+                                "candidate_panel_count":  18,
+                                "requested_extra_draws":  35,
+                                "budget_extra_draws":  9,
+                                "selected_extra_draws":  9,
+                                "effective_train_draws":  27,
+                                "max_replay_weight":  3,
+                                "panels":  [
+                                               {
+                                                   "panel_key":  "2837386836db1bf29897e10f::left-ventricle-volume-result",
+                                                   "source_id":  "2837386836db1bf29897e10f",
+                                                   "panel_id":  "left-ventricle-volume-result",
+                                                   "panel_name":  "Left ventricle Volume Result",
+                                                   "file_name":  "2837386836db1bf29897e10f__left-ventricle-volume-result.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  2,
+                                                   "latest_error_types":  [
+                                                                              "fp",
+                                                                              "geometry"
+                                                                          ],
+                                                   "max_confidence":  0.977271556854248
+                                               },
+                                               {
+                                                   "panel_key":  "4d5cca8727ec4e226d2fa767::left-ventricle-volume-result",
+                                                   "source_id":  "4d5cca8727ec4e226d2fa767",
+                                                   "panel_id":  "left-ventricle-volume-result",
+                                                   "panel_name":  "Left ventricle Volume Result",
+                                                   "file_name":  "4d5cca8727ec4e226d2fa767__left-ventricle-volume-result.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  2,
+                                                   "latest_error_types":  [
+                                                                              "fp",
+                                                                              "geometry"
+                                                                          ],
+                                                   "max_confidence":  0.9508137106895447
+                                               },
+                                               {
+                                                   "panel_key":  "80e835586f59b8303b0d23a4::left-ventricle-volume-result",
+                                                   "source_id":  "80e835586f59b8303b0d23a4",
+                                                   "panel_id":  "left-ventricle-volume-result",
+                                                   "panel_name":  "Left ventricle Volume Result",
+                                                   "file_name":  "80e835586f59b8303b0d23a4__left-ventricle-volume-result.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  4,
+                                                   "total_error_runs":  4,
+                                                   "latest_error_count":  2,
+                                                   "latest_error_types":  [
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.9646422266960144
+                                               },
+                                               {
+                                                   "panel_key":  "86701d04742e3c4745b33450::left-ventricle-volume-result",
+                                                   "source_id":  "86701d04742e3c4745b33450",
+                                                   "panel_id":  "left-ventricle-volume-result",
+                                                   "panel_name":  "Left ventricle Volume Result",
+                                                   "file_name":  "86701d04742e3c4745b33450__left-ventricle-volume-result.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  4,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  1,
+                                                   "latest_error_types":  [
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.9656305313110352
+                                               },
+                                               {
+                                                   "panel_key":  "9a92b29ef0942817d6e8ca6e::right-ventricle-volume-result",
+                                                   "source_id":  "9a92b29ef0942817d6e8ca6e",
+                                                   "panel_id":  "right-ventricle-volume-result",
+                                                   "panel_name":  "Right ventricle Volume Result",
+                                                   "file_name":  "9a92b29ef0942817d6e8ca6e__right-ventricle-volume-result.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  4,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  1,
+                                                   "latest_error_types":  [
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.9800757765769958
+                                               },
+                                               {
+                                                   "panel_key":  "adbf5979034c56b232330829::left-ventricle-volume-result",
+                                                   "source_id":  "adbf5979034c56b232330829",
+                                                   "panel_id":  "left-ventricle-volume-result",
+                                                   "panel_name":  "Left ventricle Volume Result",
+                                                   "file_name":  "adbf5979034c56b232330829__left-ventricle-volume-result.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  4,
+                                                   "total_error_runs":  4,
+                                                   "latest_error_count":  1,
+                                                   "latest_error_types":  [
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.9626011252403259
+                                               },
+                                               {
+                                                   "panel_key":  "bcb1a14e26e65de3aaa61e81::left-ventricle-volume-result",
+                                                   "source_id":  "bcb1a14e26e65de3aaa61e81",
+                                                   "panel_id":  "left-ventricle-volume-result",
+                                                   "panel_name":  "Left ventricle Volume Result",
+                                                   "file_name":  "bcb1a14e26e65de3aaa61e81__left-ventricle-volume-result.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  1,
+                                                   "latest_error_types":  [
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.9624303579330444
+                                               },
+                                               {
+                                                   "panel_key":  "bcb1a14e26e65de3aaa61e81::right-ventricle-volume-result",
+                                                   "source_id":  "bcb1a14e26e65de3aaa61e81",
+                                                   "panel_id":  "right-ventricle-volume-result",
+                                                   "panel_name":  "Right ventricle Volume Result",
+                                                   "file_name":  "bcb1a14e26e65de3aaa61e81__right-ventricle-volume-result.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  4,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  1,
+                                                   "latest_error_types":  [
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.9800757765769958
+                                               },
+                                               {
+                                                   "panel_key":  "ead2ecf7296e44b6bd3249f2::right-ventricle-volume-result",
+                                                   "source_id":  "ead2ecf7296e44b6bd3249f2",
+                                                   "panel_id":  "right-ventricle-volume-result",
+                                                   "panel_name":  "Right ventricle Volume Result",
+                                                   "file_name":  "ead2ecf7296e44b6bd3249f2__right-ventricle-volume-result.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  4,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  1,
+                                                   "latest_error_types":  [
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.978712797164917
+                                               }
+                                           ]
+                            },
+    "model_id":  "",
+    "run_id":  "",
+    "training_run":  null,
+    "model_validation":  null,
+    "error":  "Table-cell detector training failed."
 }
