@@ -43,6 +43,17 @@ $ValidationPath = Join-Path $HostWorkspace ("table_cell_datasets\{0}\validation.
 if (-not (Test-Path -LiteralPath $ValidationPath -PathType Leaf)) { throw "Dataset has not been validated yet. Run Table-cell dataset valideren first." }
 $Validation = Get-Content -LiteralPath $ValidationPath -Raw | ConvertFrom-Json
 if (-not [bool]$Validation.valid) { throw "Latest table-cell dataset is invalid. Fix the dataset validation errors first." }
+$ContainerDataset = "$ContainerWorkspace/table_cell_datasets/$DatasetId"
+
+# Re-run the strict finite-number/image-bound check immediately before training.
+# This closes the gap where COCO JSON containing NaN/Infinity could pass ordinary
+# comparisons because every comparison with NaN evaluates to false.
+Write-Host "Pre-training numeric/geometry sanity check..." -ForegroundColor Cyan
+& docker compose --profile training run --rm --build --entrypoint python dataset-builder `
+    /opt/isala-training/table_cell_dataset_sanity.py --dataset $ContainerDataset
+if ($LASTEXITCODE -ne 0) {
+    throw "Latest table-cell dataset failed the strict numeric/geometry sanity check. Review validation.json."
+}
 
 # A failed post-training registration must not force another 120-epoch run.
 # Look for the newest completed + evaluated run for the current dataset that
@@ -122,7 +133,16 @@ if (Test-Path -LiteralPath $ActiveTableModelPath -PathType Leaf) {
                 Sort-Object @{Expression={ if ($_.FullName -match '[\\/]best_model[\\/]') { 0 } else { 1 } }}, LastWriteTimeUtc -Descending |
                 Select-Object -First 1
             if ($null -ne $ParentWeight -and $ParentWeight.Length -gt 1MB) {
-                $relativeWeight = [System.IO.Path]::GetRelativePath($HostWorkspace, $ParentWeight.FullName).Replace('\','/')
+                # System.IO.Path.GetRelativePath is unavailable in Windows
+                # PowerShell 5.1/.NET Framework. Both paths are already below the
+                # project workspace, so derive the relative path portably.
+                $workspaceFull = [System.IO.Path]::GetFullPath($HostWorkspace).TrimEnd('\','/')
+                $weightFull = [System.IO.Path]::GetFullPath($ParentWeight.FullName)
+                $workspacePrefix = $workspaceFull + [System.IO.Path]::DirectorySeparatorChar
+                if (-not $weightFull.StartsWith($workspacePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    throw "Active model checkpoint is outside the project workspace: $weightFull"
+                }
+                $relativeWeight = $weightFull.Substring($workspacePrefix.Length).Replace('\','/')
                 $TrainingPretrain = "$ContainerWorkspace/$relativeWeight"
                 $TrainingMode = "continue"
                 $LearningRate = 0.00003
@@ -139,9 +159,17 @@ if (Test-Path -LiteralPath $ActiveTableModelPath -PathType Leaf) {
     }
 }
 
+# RT-DETR-L CPU training is a portability fallback, not the fast path. Keep the
+# optimizer conservative and use one image per batch; this substantially reduces
+# CPU-side numerical spikes in the DINO/Hungarian matcher while preserving the
+# same model family and dataset semantics.
+if ($Device -eq "cpu") {
+    $LearningRate = [Math]::Min([double]$LearningRate, 0.00003)
+    Write-Host "CPU-safe RT-DETR settings: batch size 1; learning rate $LearningRate." -ForegroundColor Yellow
+}
+
 $RunId = "table-run-{0}-RTDETR-L" -f (Get-Date -Format "yyyyMMddTHHmmss")
 $HostRun = Join-Path $HostWorkspace ("table_cell_runs\{0}" -f $RunId)
-$ContainerDataset = "$ContainerWorkspace/table_cell_datasets/$DatasetId"
 $ContainerRun = "$ContainerWorkspace/table_cell_runs/$RunId"
 New-Item -ItemType Directory -Force -Path $HostRun | Out-Null
 $Service = if ($Device -eq "gpu") { "trainer-gpu-detection" } else { "trainer-cpu" }
@@ -153,6 +181,7 @@ $TrainArgs = @(
     "--device", $Device, "--pretrain", $TrainingPretrain,
     "--learning-rate", [string]$LearningRate, "--training-mode", $TrainingMode
 )
+if ($Device -eq "cpu") { $TrainArgs += @("--batch-size", "1") }
 if (-not [string]::IsNullOrWhiteSpace($ParentModelId)) { $TrainArgs += @("--parent-model-id", $ParentModelId) }
 if ($EffectiveEpochs -gt 0) { $TrainArgs += @("--epochs", [string]$EffectiveEpochs) }
 Write-Host "Fine-tuning RT-DETR-L wireless table-cell detector on reviewed cell geometry + Step-7 hard examples..." -ForegroundColor Cyan
@@ -160,6 +189,12 @@ docker compose --profile $Profile run --rm --pull never --entrypoint python3 $Se
 if ($LASTEXITCODE -ne 0) {
     $log = Join-Path $HostRun "paddlex_train.log"
     if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 80 | ForEach-Object { Write-Host $_ } }
+    if ($Device -eq "cpu" -and (Test-Path -LiteralPath $log -PathType Leaf)) {
+        $logText = [string](Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue)
+        if ($logText -match 'matrix contains invalid numeric entries') {
+            throw "CPU RT-DETR matcher produced non-finite costs even with CPU-safe settings. Dataset sanity passed; use GPU when available or inspect this run's paddlex_train.log for a Paddle CPU numerical issue."
+        }
+    }
     throw "Table-cell detector training failed."
 }
 
