@@ -7,50 +7,53 @@ param(
 . (Join-Path $PSScriptRoot "table-execution-device.ps1")
 
 $ErrorActionPreference = "Stop"
-Assert-IsalaActionPreflight -ActionId "53"
-
-# The web worker intentionally keeps launcher arguments generic. Read the
-# execution preference directly from the currently running action-53 job so the
-# browser can submit Auto/CPU/GPU without coupling the worker to this action.
-# Direct/CLI callers can still pass -ExecutionDevice explicitly.
-if ($ExecutionDevice -eq "auto") {
-    try {
-        $projectIdForJob = Get-IsalaActiveProjectId
-        $runningJobs = Join-Path $ProjectRoot "training\workspace\webui\jobs\running"
-        $job = Get-ChildItem -LiteralPath $runningJobs -Filter "*.json" -File -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTimeUtc -Descending |
-            ForEach-Object {
-                try {
-                    $candidate = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
-                    if ([string]$candidate.action_id -eq "53" -and [string]$candidate.project_id -eq $projectIdForJob) { $candidate }
-                } catch { }
-            } | Select-Object -First 1
-        if ($null -ne $job -and $null -ne $job.options) {
-            $requestedFromJob = ([string]$job.options.execution_device).Trim().ToLowerInvariant()
-            if ($requestedFromJob -in @("auto", "cpu", "gpu")) {
-                $ExecutionDevice = $requestedFromJob
-            }
-        }
-    }
-    catch {
-        Write-Warning ("Uitvoermodus uit webtaak kon niet worden gelezen; Auto blijft actief: {0}" -f $_.Exception.Message)
-    }
-}
-
-# One complete table-model iteration. The individual scripts remain the source
-# of truth; this wrapper only sequences them and stops immediately on failure.
-# Canonical GT geometry is never changed here. When source-level GT review flags
-# are still open, they are explicitly completed before the dataset snapshot is
-# built so the normal iterative loop can be: run everything -> review -> repeat.
-#
-# ExecutionDevice:
-#   auto = prefer a verified NVIDIA/CUDA/Paddle path, otherwise use CPU
-#   gpu  = require a working GPU path; fail clearly when unavailable
-#   cpu  = force the portable CPU path
-$oldNested = $env:ISALA_NESTED_PREFLIGHT_APPROVED
 $startedAt = (Get-Date).ToString("o")
+$projectId = Get-IsalaActiveProjectId
+$Step5DiagnosticsRoot = Join-Path $ProjectRoot "diagnostics\step5"
+$Step5TranscriptPath = Join-Path $Step5DiagnosticsRoot "latest.txt"
+$Step5SummaryPath = Join-Path $Step5DiagnosticsRoot "latest.json"
+$step5TranscriptStarted = $false
+$oldNested = $env:ISALA_NESTED_PREFLIGHT_APPROVED
 $executionState = $null
 $statePath = $null
+
+New-Item -ItemType Directory -Force -Path $Step5DiagnosticsRoot | Out-Null
+try {
+    Start-Transcript -LiteralPath $Step5TranscriptPath -Force | Out-Null
+    $step5TranscriptStarted = $true
+}
+catch {
+    Write-Warning ("Stap 5 transcript kon niet worden gestart: {0}" -f $_.Exception.Message)
+}
+
+$step5Summary = [ordered]@{
+    schema_version = 1
+    project_id = $projectId
+    status = "running"
+    started_at = $startedAt
+    completed_at = ""
+    requested_device = $ExecutionDevice
+    resolved_device = ""
+    training_backend = ""
+    inference_backend = ""
+    gpu_name = ""
+    dataset_id = ""
+    dataset = $null
+    validation = $null
+    hard_example_replay = $null
+    model_id = ""
+    run_id = ""
+    training_run = $null
+    model_validation = $null
+    error = ""
+}
+
+function Write-Step5DiagnosticsSummary {
+    $json = $script:step5Summary | ConvertTo-Json -Depth 16
+    $temporary = $script:Step5SummaryPath + ".tmp"
+    [System.IO.File]::WriteAllText($temporary, $json, [System.Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath $temporary -Destination $script:Step5SummaryPath -Force
+}
 
 function Write-TableExecutionState {
     param([Parameter(Mandatory = $true)]$Payload)
@@ -62,7 +65,82 @@ function Write-TableExecutionState {
     Move-Item -LiteralPath $temporary -Destination $script:statePath -Force
 }
 
+function Wait-IsalaComparisonReviewQueue {
+    param([int]$TimeoutSeconds = 60)
+    $queuePath = Join-Path $ProjectRoot "training\workspace\webui\comparison_review_queue.json"
+    if (-not (Test-Path -LiteralPath $queuePath -PathType Leaf)) { return }
+    $deadline = (Get-Date).AddSeconds([Math]::Max(5, $TimeoutSeconds))
+    $announced = $false
+    $lastProgress = Get-Date
+    while ($true) {
+        try {
+            $queue = Get-Content -LiteralPath $queuePath -Raw | ConvertFrom-Json
+            $projectItems = @($queue.items | Where-Object { [string]$_.project_id -eq $projectId })
+            $failed = @($projectItems | Where-Object { [string]$_.status -eq "failed" })
+            if ($failed.Count -gt 0) {
+                $last = $failed[-1]
+                throw ("{0} reviewwachtrij-item(s) zijn mislukt; laatste fout: {1}. Gebruik 'Opnieuw proberen' in de webinterface voordat Stap 5 verdergaat." -f $failed.Count, [string]$last.last_error)
+            }
+            $pending = @($projectItems | Where-Object { [string]$_.status -in @("pending", "processing") })
+            if ($pending.Count -eq 0) {
+                if ($announced) { Write-Host "Review-opslag is volledig verwerkt; dataset snapshot kan veilig worden gemaakt." -ForegroundColor Green }
+                return
+            }
+            if (-not $announced) {
+                Write-Host ("Stap 5 wacht eerst op {0} nog niet verwerkte Stap-6 beoordeling(en)..." -f $pending.Count) -ForegroundColor Cyan
+                $announced = $true
+                $lastProgress = Get-Date
+            }
+            elseif (((Get-Date) - $lastProgress).TotalSeconds -ge 5) {
+                Write-Host ("Nog {0} reviewwachtrij-item(s) te verwerken..." -f $pending.Count) -ForegroundColor DarkCyan
+                $lastProgress = Get-Date
+            }
+        }
+        catch {
+            if ($_.Exception.Message -like "*reviewwachtrij-item(s) zijn mislukt*") { throw }
+            # The queue writer replaces the JSON atomically. A very short read
+            # race should not make Step 5 fail; retry until the same timeout.
+        }
+        if ((Get-Date) -ge $deadline) {
+            throw "Reviewwachtrij was na $TimeoutSeconds seconden nog niet leeg. Stap 5 stopt om geen dataset met nog niet opgeslagen beoordelingen te bouwen."
+        }
+        Start-Sleep -Milliseconds 250
+    }
+}
+
 try {
+    Write-Host ("Stap 5 diagnostiek wordt bijgehouden in {0} en {1}" -f $Step5TranscriptPath, $Step5SummaryPath) -ForegroundColor DarkCyan
+    Write-Step5DiagnosticsSummary
+    Assert-IsalaActionPreflight -ActionId "53"
+
+    # The web worker intentionally keeps launcher arguments generic. Read the
+    # execution preference directly from the currently running action-53 job so
+    # the browser can submit Auto/CPU/GPU without coupling the worker to this action.
+    if ($ExecutionDevice -eq "auto") {
+        try {
+            $runningJobs = Join-Path $ProjectRoot "training\workspace\webui\jobs\running"
+            $job = Get-ChildItem -LiteralPath $runningJobs -Filter "*.json" -File -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTimeUtc -Descending |
+                ForEach-Object {
+                    try {
+                        $candidate = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+                        if ([string]$candidate.action_id -eq "53" -and [string]$candidate.project_id -eq $projectId) { $candidate }
+                    } catch { }
+                } | Select-Object -First 1
+            if ($null -ne $job -and $null -ne $job.options) {
+                $requestedFromJob = ([string]$job.options.execution_device).Trim().ToLowerInvariant()
+                if ($requestedFromJob -in @("auto", "cpu", "gpu")) {
+                    $ExecutionDevice = $requestedFromJob
+                    $step5Summary.requested_device = $ExecutionDevice
+                    Write-Step5DiagnosticsSummary
+                }
+            }
+        }
+        catch {
+            Write-Warning ("Uitvoermodus uit webtaak kon niet worden gelezen; Auto blijft actief: {0}" -f $_.Exception.Message)
+        }
+    }
+
     $env:ISALA_NESTED_PREFLIGHT_APPROVED = "1"
     $ContainerWorkspace = Get-IsalaContainerWorkspace
     $HostWorkspace = Get-IsalaHostProjectWorkspace
@@ -85,6 +163,12 @@ try {
     }
     Write-TableExecutionState $executionState
 
+    # Review clicks are persisted by a backend FIFO. Navigation no longer waits
+    # for those writes, so Step 5 establishes a barrier before snapshotting GT +
+    # feedback. This guarantees that the just-completed Step-6 decisions are in
+    # reviews.json before the dataset/replay plan is built.
+    Wait-IsalaComparisonReviewQueue -TimeoutSeconds 60
+
     Write-Host "Alles laten draaien: open GT-bronnen afronden indien nodig..." -ForegroundColor Cyan
     $gtPython = "from isala_ocr.training.table_cell_ground_truth import list_ground_truth_sources,set_ground_truth_source_review_completed; import sys; w=sys.argv[1]; s=list_ground_truth_sources(w); o=[str(x.get('source_id') or '') for x in s if not bool(x.get('review_completed'))]; [set_ground_truth_source_review_completed(w,i,True) for i in o if i]; print('GT sources marked correct: %d' % len(o))"
     & docker compose --profile training run --rm --build --entrypoint python training-collector -c $gtPython $ContainerWorkspace
@@ -94,9 +178,44 @@ try {
     & (Join-Path $PSScriptRoot "build-table-cell-dataset.ps1")
     if ($LASTEXITCODE -ne 0) { throw "Table-cell dataset build failed." }
 
+    $datasetPointer = Join-Path $HostWorkspace "table_cell_datasets\latest.txt"
+    if (Test-Path -LiteralPath $datasetPointer -PathType Leaf) {
+        $datasetId = (Get-Content -LiteralPath $datasetPointer -Raw).Trim()
+        $step5Summary.dataset_id = $datasetId
+        $manifestPath = Join-Path $HostWorkspace ("table_cell_datasets\{0}\manifest.json" -f $datasetId)
+        if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            $step5Summary.dataset = [ordered]@{
+                source_count = [int]$manifest.source_count
+                panel_count = [int]$manifest.panel_count
+                annotation_count = [int]$manifest.annotation_count
+                training_image_count = [int]$manifest.training_image_count
+                training_annotation_count = [int]$manifest.training_annotation_count
+                splits = $manifest.splits
+                training_feedback = $manifest.training_feedback
+            }
+            $step5Summary.hard_example_replay = $manifest.hard_example_replay
+        }
+        Write-Step5DiagnosticsSummary
+    }
+
     Write-Host "Alles laten draaien: dataset valideren..." -ForegroundColor Cyan
     & (Join-Path $PSScriptRoot "validate-table-cell-dataset.ps1")
     if ($LASTEXITCODE -ne 0) { throw "Table-cell dataset validation failed." }
+    if (-not [string]::IsNullOrWhiteSpace([string]$step5Summary.dataset_id)) {
+        $validationPath = Join-Path $HostWorkspace ("table_cell_datasets\{0}\validation.json" -f $step5Summary.dataset_id)
+        if (Test-Path -LiteralPath $validationPath -PathType Leaf) {
+            $validation = Get-Content -LiteralPath $validationPath -Raw | ConvertFrom-Json
+            $step5Summary.validation = [ordered]@{
+                valid = [bool]$validation.valid
+                errors = @($validation.errors)
+                warnings = @($validation.warnings)
+                splits = $validation.splits
+                numeric_sanity = $validation.numeric_sanity
+            }
+            Write-Step5DiagnosticsSummary
+        }
+    }
 
     Write-Host ("Alles laten draaien: uitvoerbackend bepalen (gevraagd: {0})..." -f $ExecutionDevice) -ForegroundColor Cyan
     $deviceSelection = Resolve-IsalaTableExecutionDevice -Requested $ExecutionDevice -PrepareGpuRuntime
@@ -107,7 +226,12 @@ try {
     $executionState.gpu_name = [string]$deviceSelection.GpuName
     $executionState.auto_fallback = [bool]$deviceSelection.AutoFallback
     $executionState.selection_reason = [string]$deviceSelection.Reason
+    $step5Summary.resolved_device = $resolvedDevice
+    $step5Summary.training_backend = $resolvedDevice
+    $step5Summary.inference_backend = $resolvedDevice
+    $step5Summary.gpu_name = [string]$deviceSelection.GpuName
     Write-TableExecutionState $executionState
+    Write-Step5DiagnosticsSummary
 
     if ($resolvedDevice -eq "gpu") {
         Write-Host ("Uitvoermodus: GPU{0}" -f $(if ($executionState.gpu_name) { " · $($executionState.gpu_name)" } else { "" })) -ForegroundColor Green
@@ -135,7 +259,35 @@ try {
     }
     $executionState.model_id = $activeModelId
     $executionState.run_id = $activeRunId
+    $step5Summary.model_id = $activeModelId
+    $step5Summary.run_id = $activeRunId
     Write-TableExecutionState $executionState
+
+    if (-not [string]::IsNullOrWhiteSpace($activeRunId)) {
+        $runRoot = Join-Path $HostWorkspace ("table_cell_runs\{0}" -f $activeRunId)
+        $runMetadataPath = Join-Path $runRoot "table_cell_run.json"
+        $runValidationPath = Join-Path $runRoot "validation_evaluation.json"
+        if (Test-Path -LiteralPath $runMetadataPath -PathType Leaf) {
+            $runMetadata = Get-Content -LiteralPath $runMetadataPath -Raw | ConvertFrom-Json
+            $step5Summary.training_run = [ordered]@{
+                training_mode = [string]$runMetadata.training_mode
+                parent_model_id = [string]$runMetadata.parent_model_id
+                epochs = $runMetadata.epochs
+                batch_size = $runMetadata.batch_size
+                learning_rate = $runMetadata.learning_rate
+                base_train_images = $runMetadata.base_train_images
+                hard_example_replay_draws = $runMetadata.hard_example_replay_draws
+                hard_example_replay_panels = $runMetadata.hard_example_replay_panels
+                hard_example_replay_runtime = $runMetadata.hard_example_replay_runtime
+                started_at = [string]$runMetadata.started_at
+                completed_at = [string]$runMetadata.completed_at
+            }
+        }
+        if (Test-Path -LiteralPath $runValidationPath -PathType Leaf) {
+            $step5Summary.model_validation = Get-Content -LiteralPath $runValidationPath -Raw | ConvertFrom-Json
+        }
+        Write-Step5DiagnosticsSummary
+    }
 
     Write-Host ("Alles laten draaien: nieuw actief model uitvoeren op {0} ({1})..." -f $resolvedDevice.ToUpperInvariant(), $activeModelId) -ForegroundColor Cyan
     $inferenceSucceeded = $false
@@ -150,7 +302,9 @@ try {
             $executionState.inference_backend = "cpu_fallback"
             $executionState.auto_fallback = $true
             $executionState.selection_reason = ([string]$executionState.selection_reason) + "; GPU-inference fallback naar CPU"
+            $step5Summary.inference_backend = "cpu_fallback"
             Write-TableExecutionState $executionState
+            Write-Step5DiagnosticsSummary
             & (Join-Path $PSScriptRoot "collect-training-data.ps1") -TableModelId $activeModelId -Device cpu
             if ($LASTEXITCODE -ne 0) { throw "Nieuwe table-cell modelrun failed op GPU en CPU-fallback." }
             $inferenceSucceeded = $true
@@ -161,12 +315,13 @@ try {
     }
     if (-not $inferenceSucceeded) { throw "Nieuwe table-cell modelrun heeft geen succesvolle inference opgeleverd." }
 
-    # Persist execution provenance next to both the active model and the training
-    # run. This does not affect model bytes; it only makes later diagnostics and
-    # the UI explicit about where training and inference actually ran.
     $executionState.status = "completed"
     $executionState.completed_at = (Get-Date).ToString("o")
+    $step5Summary.status = "completed"
+    $step5Summary.completed_at = $executionState.completed_at
+    $step5Summary.inference_backend = [string]$executionState.inference_backend
     Write-TableExecutionState $executionState
+    Write-Step5DiagnosticsSummary
 
     foreach ($metadataPath in @(
         $activePath,
@@ -193,17 +348,27 @@ try {
     }
 
     $summaryInference = if ($executionState.inference_backend -eq "cpu_fallback") { "CPU (fallback)" } else { $executionState.inference_backend.ToUpperInvariant() }
-    Write-Host ("Alles afgerond. Training: {0}; inference: {1}. Open Stap 7 om alleen de afwijkingen te beoordelen." -f $executionState.training_backend.ToUpperInvariant(), $summaryInference) -ForegroundColor Green
+    Write-Host ("Alles afgerond. Training: {0}; inference: {1}. Open Stap 6 om alleen de afwijkingen te beoordelen." -f $executionState.training_backend.ToUpperInvariant(), $summaryInference) -ForegroundColor Green
+    Write-Host "Voor diagnose/push: diagnostics/step5/latest.txt + diagnostics/step5/latest.json" -ForegroundColor DarkCyan
 }
 catch {
+    $errorMessage = $_.Exception.Message
     if ($null -ne $executionState) {
         $executionState.status = "failed"
         $executionState.completed_at = (Get-Date).ToString("o")
-        $executionState | Add-Member -MemberType NoteProperty -Name error -Value $_.Exception.Message -Force
+        $executionState | Add-Member -MemberType NoteProperty -Name error -Value $errorMessage -Force
         try { Write-TableExecutionState $executionState } catch { }
     }
+    $step5Summary.status = "failed"
+    $step5Summary.completed_at = (Get-Date).ToString("o")
+    $step5Summary.error = $errorMessage
+    try { Write-Step5DiagnosticsSummary } catch { }
     throw
 }
 finally {
     $env:ISALA_NESTED_PREFLIGHT_APPROVED = $oldNested
+    try { Write-Step5DiagnosticsSummary } catch { }
+    if ($step5TranscriptStarted) {
+        try { Stop-Transcript | Out-Null } catch { }
+    }
 }
