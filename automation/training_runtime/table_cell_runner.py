@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from hard_example_replay import load_replay_plan, replay_training_counts
+
 MODEL_NAME = "RT-DETR-L_wireless_table_cell_det"
 PADDLEX_ROOT = Path(os.environ.get("ISALA_PADDLEX_SOURCE_ROOT", "/opt/paddlex-source"))
 PRETRAIN_DEFAULT = "/models/training/RT-DETR-L_wireless_table_cell_det_pretrained.pdparams"
@@ -101,7 +103,9 @@ def validate_coco(dataset: Path) -> dict[str, Any]:
 
 def resolve_settings(dataset: Path, *, device: str, epochs: int, batch_size: int, learning_rate: float = 0.0) -> dict[str, Any]:
     counts = validate_coco(dataset)
-    images = int(counts["train"]["images"])
+    base_images = int(counts["train"]["images"])
+    replay_counts = replay_training_counts(dataset, base_images=base_images)
+    images = int(replay_counts["effective_train_images"])
     annotations = int(counts["train"]["annotations"])
     if images <= 20:
         defaults = {"epochs": 120, "batch": 2 if device == "gpu" else 1, "profile": "small-reviewed"}
@@ -113,8 +117,15 @@ def resolve_settings(dataset: Path, *, device: str, epochs: int, batch_size: int
     effective_batch = int(batch_size) if int(batch_size) > 0 else defaults["batch"]
     steps = max(1, math.ceil(images / max(1, effective_batch)))
     effective_learning_rate = float(learning_rate) if float(learning_rate or 0.0) > 0 else 0.0001
+    replay_plan = load_replay_plan(dataset)
     return {
-        "profile": defaults["profile"], "train_images": images, "train_annotations": annotations,
+        "profile": defaults["profile"],
+        "train_images": images,
+        "base_train_images": int(replay_counts["base_train_images"]),
+        "hard_example_replay_draws": int(replay_counts["hard_example_replay_draws"]),
+        "hard_example_replay_strategy": str(replay_plan.get("strategy") or ""),
+        "hard_example_replay_panels": len(replay_plan.get("panels") or []),
+        "train_annotations": annotations,
         "epochs": effective_epochs, "batch_size": effective_batch, "learning_rate": effective_learning_rate,
         "warmup_steps": min(100, max(5, steps * 3)), "eval_interval": max(1, min(10, effective_epochs // 8)),
         "estimated_optimizer_steps": steps * effective_epochs,
@@ -176,6 +187,15 @@ def command_train(args: argparse.Namespace) -> int:
                 "pretrain":str(pretrain), "parent_model_id":str(args.parent_model_id or ""),
                 "training_mode":str(args.training_mode or "fresh"), **settings, "started_at":utc_now()}
     (output / "training_config.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    replay_draws = int(settings.get("hard_example_replay_draws") or 0)
+    if replay_draws:
+        print(
+            "Hard-example sampler gepland: "
+            f"{settings['base_train_images']} basispanelen + {replay_draws} replay-draws "
+            f"= {settings['train_images']} effectieve samples; "
+            f"{settings['hard_example_replay_panels']} moeilijk(e) panel(en).",
+            flush=True,
+        )
     command = [sys.executable, str(PADDLEX_ROOT / "main.py"), "-c", str(config),
                "-o", "Global.mode=train", "-o", f"Global.dataset_dir={dataset}",
                "-o", f"Global.device={device}", "-o", f"Global.output={output}",
@@ -185,7 +205,22 @@ def command_train(args: argparse.Namespace) -> int:
                "-o", f"Train.warmup_steps={settings['warmup_steps']}",
                "-o", f"Train.eval_interval={settings['eval_interval']}",
                "-o", "Train.num_classes=1", "-o", f"Train.pretrain_weight_path={pretrain}"]
-    run(command, log_path=output / "paddlex_train.log", eval_artifact_dir=output / "evaluation_artifacts")
+    artifact_dir = output / "evaluation_artifacts"
+    run(command, log_path=output / "paddlex_train.log", eval_artifact_dir=artifact_dir)
+    if replay_draws:
+        replay_marker = artifact_dir / "hard_example_replay_runtime.json"
+        if not replay_marker.is_file():
+            raise RuntimeError(
+                "Hard-example replay was gepland maar PaddleDetection heeft geen runtime-marker geschreven; "
+                "training wordt niet als geldig beschouwd."
+            )
+        runtime_replay = json.loads(replay_marker.read_text(encoding="utf-8-sig"))
+        applied = int(runtime_replay.get("extra_draws") or 0)
+        if applied != replay_draws:
+            raise RuntimeError(
+                f"Hard-example replay mismatch: gepland {replay_draws}, PaddleDetection gebruikte {applied}."
+            )
+        metadata["hard_example_replay_runtime"] = runtime_replay
     inference = find_inference(output)
     if inference is None:
         weight = find_weight(output)
