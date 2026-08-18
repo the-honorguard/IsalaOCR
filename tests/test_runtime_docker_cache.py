@@ -37,3 +37,34 @@ def test_runtime_requirements_cover_all_project_extras() -> None:
         "pylibjpeg-openjpeg>=2,<3",
     }
     assert expected.issubset(set(requirements.splitlines()))
+
+
+def test_runtime_freshness_ignores_independent_webui_layer() -> None:
+    script = (ROOT / "automation" / "powershell" / "runtime-preparation.ps1").read_text(encoding="utf-8")
+
+    # The labeler/WebUI has its own Dockerfile and is rebuilt independently by
+    # label-training-data.ps1. Its presentation/control files must therefore not
+    # invalidate the heavyweight OCR/mapping runtime.
+    for path in (
+        r"application\src\isala_ocr\training\static",
+        r"application\src\isala_ocr\training\templates",
+        r"application\src\isala_ocr\training\webui.py",
+        r"application\src\isala_ocr\training\webui_server.py",
+        r"application\src\isala_ocr\training\labeler.py",
+        r"application\src\isala_ocr\training\labeler_server.py",
+        r"application\src\isala_ocr\training\comparison_review_queue_web.py",
+        r"application\src\isala_ocr\training\job_cancellation.py",
+    ):
+        assert path in script
+
+    assert "Test-IsalaComputeRuntimeInput -File $file" in script
+    assert '"application\\schemas"' in script
+    assert '"application\\config"' not in script.split("foreach ($relativeDirectory in @(", 1)[1].split("))", 1)[0]
+
+
+def test_labeler_restart_rebuilds_webui_from_current_checkout() -> None:
+    launcher = (ROOT / "automation" / "powershell" / "label-training-data.ps1").read_text(encoding="utf-8")
+    compose = (ROOT / "infrastructure" / "docker" / "compose.yaml").read_text(encoding="utf-8")
+
+    assert "up --build -d --force-recreate labeler" in launcher
+    assert "dockerfile: infrastructure/docker/Dockerfile.labeler" in compose
