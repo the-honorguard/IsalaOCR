@@ -9,9 +9,11 @@ $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Push-Location $ProjectRoot
 try {
     . (Join-Path $PSScriptRoot "training-common.ps1")
+    . (Join-Path $PSScriptRoot "runtime-preparation.ps1")
     Assert-IsalaActionPreflight -ActionId "22"
     Assert-IsalaDetectionGateOpen
     Assert-Docker
+    Assert-IsalaRuntimePrepared | Out-Null
 
     Write-Host "Reading values from approved mapped ROI crops..."
     $dockerArguments = @(
@@ -31,7 +33,7 @@ try {
     }
     & docker @dockerArguments
     if ($LASTEXITCODE -ne 0) {
-        throw "Mapped value recognition completed with errors. Review the console output."
+        throw "Mapped value recognition completed with errors. Open STDERR in the activity dock for the Python/Docker error."
     }
 }
 finally {
