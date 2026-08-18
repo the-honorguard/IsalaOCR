@@ -33,10 +33,9 @@
     <a href="/process/detect-candidates" class="process-tab {% if request.path == '/process/detect-candidates' %}active{% endif %}"><span class="process-tab-number">3</span><span>Ground Truth maken</span></a>
     <a href="/process/detection-review" class="process-tab {% if request.path == '/process/detection-review' or request.path.startswith('/detection-review') %}active{% endif %}"><span class="process-tab-number">4</span><span>Ground Truth beheren</span></a>
 
-    <div class="nav-section nav-pipeline-a">MODEL ITERATIE · 5 → 6 → 7 → 5</div>
-    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">5</span><span>Model trainen</span></a>
-    <a href="/process/table-model" class="process-tab {% if request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">6</span><span>Model beoordelen</span></a>
-    <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' %}active{% endif %}"><span class="process-tab-number">7</span><span>Afwijkingen reviewen</span></a>
+    <div class="nav-section nav-pipeline-a">MODEL ITERATIE · 5 → 6 → 5</div>
+    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">5</span><span>Model trainen & draaien</span></a>
+    <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' or request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">6</span><span>Afwijkingen reviewen</span></a>
     {% else %}
     <div class="nav-section nav-pipeline-a">DETECTIE & CROPS</div>
     {% for step in process_steps if step.group == 'detection' %}
@@ -52,7 +51,7 @@
     <div class="nav-section nav-pipeline-b">WAARDEN & OCR</div>
     {% for step in process_steps if step.group == 'value' %}
     <a href="/process/{{ step.key }}" class="process-tab {% if request.path == '/process/' ~ step.key or (step.key == 'mapping' and request.path.startswith('/mapping')) %}active{% endif %} {% if not pipeline_gate_global.ready %}blocked{% endif %}"{% if not pipeline_gate_global.ready %} title="Niet beschikbaar: {{ pipeline_gate_global.reason }} Volgende stap: {{ pipeline_gate_global.next_step or 'rond Pipeline A af.' }}"{% endif %}>
-      <span class="process-tab-number">{{ step.index }}</span><span>{{ step.title }}</span>{% if not pipeline_gate_global.ready %}<span class="lock-mark">🔒</span>{% endif %}
+      <span class="process-tab-number">{{ (step.index - 1) if localization_strategy == 'table_first' and step.index else step.index }}</span><span>{{ step.title }}</span>{% if not pipeline_gate_global.ready %}<span class="lock-mark">🔒</span>{% endif %}
     </a>
     {% endfor %}
     {% if localization_strategy == 'table_first' %}
@@ -80,7 +79,7 @@
 <main class="shell">
   <header class="topbar">
     <div><h1>{% block heading %}IsalaOCR{% endblock %}</h1><p>{% block subtitle %}Lokale DICOM OCR workflow{% endblock %}</p></div>
-    {% if header_counts is defined and header_counts and not (localization_strategy == 'table_first' and request.path in ['/process/table-quality','/process/table-model']) %}
+    {% if header_counts is defined and header_counts and not (localization_strategy == 'table_first' and request.path == '/process/table-quality') %}
     {% set visible_counts = header_counts %}
     <div class="header-counts">
       <span>{{ visible_counts.total }} {{ header_total_label|default('blokken') }}</span>
@@ -139,20 +138,31 @@
 <script>
 (() => {
   const path=window.location.pathname;
+  if(path==='/process/table-model'){
+    window.location.replace('/process/table-compare');
+    return;
+  }
   const h1=document.querySelector('.topbar h1');
   const subtitle=document.querySelector('.topbar p');
   const setTopbar=(title,sub)=>{if(h1)h1.textContent=title;if(subtitle)subtitle.textContent=sub;document.title=`${title} · IsalaOCR`;};
   if(path==='/process/detect-candidates'){
     setTopbar('Stap 3 · Ground Truth maken','Maak éénmalig een eerste voorstel voor de table-cell Ground Truth binnen de ingestelde panelen.');
   }else if(path==='/process/table-compare'){
-    setTopbar('Stap 7 · Afwijkingen reviewen','Beoordeel alleen de verschillen tussen de actieve modelrun en de canonieke Ground Truth.');
-    document.querySelectorAll('a[href="/process/detect-candidates"]').forEach(link=>{link.href='/process/table-model';link.textContent='Stap 6 · Model beoordelen';});
+    setTopbar('Stap 6 · Afwijkingen reviewen','Beoordeel alleen de verschillen tussen de actieve modelrun en de canonieke Ground Truth.');
     document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{
-      if(/volgende trainingsronde/i.test(link.textContent||'')){link.href='/process/table-quality';link.textContent='Stap 5 · Volgende trainingsronde';}
+      link.href='/process/table-quality';
+      link.textContent=/volgende trainingsronde/i.test(link.textContent||'')?'Stap 5 · Volgende trainingsronde':'Stap 5 · Alles laten draaien';
     });
+    const content=document.querySelector('.content');
+    if(content){
+      const walker=document.createTreeWalker(content,NodeFilter.SHOW_TEXT);
+      const nodes=[];
+      while(walker.nextNode())nodes.push(walker.currentNode);
+      nodes.forEach(node=>{if(node.nodeValue&&node.nodeValue.includes('Stap 7'))node.nodeValue=node.nodeValue.replaceAll('Stap 7','Stap 6');});
+    }
   }
   if(path.startsWith('/detection-review')){
-    document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{link.href='/process/table-quality';link.textContent='Naar Stap 5 · Model trainen →';});
+    document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{link.href='/process/table-quality';link.textContent='Naar Stap 5 · Model trainen & draaien →';});
   }
 })();
 </script>
