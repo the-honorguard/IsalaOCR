@@ -6,21 +6,29 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$Model = "auto",
 
-    [string]$TableModelId = ""
+    [string]$TableModelId = "",
+
+    [ValidateSet("auto", "cpu", "gpu")]
+    [string]$Device = "cpu"
 )
 
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Push-Location $ProjectRoot
 try {
     . (Join-Path $PSScriptRoot "training-common.ps1")
-$ContainerWorkspace = Get-IsalaContainerWorkspace
-$HostWorkspace = Get-IsalaHostProjectWorkspace
-if ([string]::IsNullOrWhiteSpace($InputPath)) {
-    $InputPath = Get-IsalaContainerProjectInput
-    New-Item -ItemType Directory -Path (Get-IsalaHostProjectInput) -Force | Out-Null
-}
-Assert-IsalaActionPreflight -ActionId "2"
+    . (Join-Path $PSScriptRoot "table-execution-device.ps1")
+    $ContainerWorkspace = Get-IsalaContainerWorkspace
+    $HostWorkspace = Get-IsalaHostProjectWorkspace
+    if ([string]::IsNullOrWhiteSpace($InputPath)) {
+        $InputPath = Get-IsalaContainerProjectInput
+        New-Item -ItemType Directory -Path (Get-IsalaHostProjectInput) -Force | Out-Null
+    }
+    Assert-IsalaActionPreflight -ActionId "2"
     Assert-Docker
+
+    $deviceResolution = Resolve-IsalaTableExecutionDevice -Requested $Device -PrepareGpuRuntime:($Device -eq "gpu")
+    $ResolvedDevice = [string]$deviceResolution.Device
+    Write-Host ("Table inference backend: {0} ({1})" -f $ResolvedDevice.ToUpperInvariant(), [string]$deviceResolution.Reason) -ForegroundColor Cyan
 
     & (Join-Path $PSScriptRoot "safe-housekeeping.ps1") -ProjectRoot $ProjectRoot
 
@@ -90,27 +98,62 @@ Assert-IsalaActionPreflight -ActionId "2"
 
     New-Item -ItemType Directory -Force -Path training\workspace, training\registry | Out-Null
 
-    $dockerArguments = @(
-        "compose",
-        "--profile", "training",
-        "run", "--rm", "--build",
-        "training-collector",
+    $collectArguments = @(
         "collect-training",
         "--input", $normalizedInput,
         "--workspace", $ContainerWorkspace,
-        "--config", "/app/config/app.yaml"
+        "--config", "/app/config/app.yaml",
+        "--device", $ResolvedDevice
     )
     if (-not [string]::IsNullOrWhiteSpace($Model) -and $Model -ne "auto") {
-        $dockerArguments += @("--model", $Model)
+        $collectArguments += @("--model", $Model)
     }
     if (-not [string]::IsNullOrWhiteSpace($TableModelId)) {
-        $dockerArguments += @("--table-model-id", $TableModelId)
+        $collectArguments += @("--table-model-id", $TableModelId)
     }
 
-    & docker @dockerArguments
+    if ($ResolvedDevice -eq "gpu") {
+        # Reuse the already prepared CUDA/PaddleDetection image and add only the
+        # small IsalaOCR runtime layer. Docker's build cache keeps subsequent
+        # inference rounds cheap while avoiding a second heavyweight GPU stack.
+        $baseImage = Get-TrainingImageName -Device "gpu-detection"
+        if (-not (Test-TrainingImagePrepared -Device "gpu-detection")) {
+            throw "GPU inference selected, but the GPU detection runtime is not prepared."
+        }
+        $appVersion = ([string](Get-Content -LiteralPath (Join-Path $ProjectRoot "project\VERSION") -Raw)).Trim()
+        $inferenceImage = "isalaocr-table-inference-gpu:$appVersion"
+        Write-Host "Preparing cached GPU inference layer: $inferenceImage" -ForegroundColor Cyan
+        & docker build `
+            --file (Join-Path $ProjectRoot "infrastructure\docker\Dockerfile.table-inference") `
+            --build-arg ("BASE_IMAGE={0}" -f $baseImage) `
+            --tag $inferenceImage `
+            $ProjectRoot
+        if ($LASTEXITCODE -ne 0) { throw "GPU table-inference image build failed." }
+
+        $projectId = Get-IsalaActiveProjectId
+        $dockerArguments = @(
+            "run", "--rm", "--gpus", "all", "--network", "none", "--read-only",
+            "--tmpfs", "/tmp:size=2g,mode=1777", "--pids-limit", "256",
+            "-e", "ISALA_PROJECT_ID=$projectId",
+            "-e", "PADDLE_PDX_CACHE_HOME=/models/paddlex",
+            "-e", "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True",
+            "-v", ((Join-Path $ProjectRoot "input") + ":/input:ro"),
+            "-v", ((Join-Path $ProjectRoot "models") + ":/models"),
+            "-v", ((Join-Path $ProjectRoot "training") + ":/training"),
+            $inferenceImage
+        ) + $collectArguments
+        & docker @dockerArguments
+    }
+    else {
+        $dockerArguments = @(
+            "compose", "--profile", "training", "run", "--rm", "--build",
+            "training-collector"
+        ) + $collectArguments
+        & docker @dockerArguments
+    }
 
     if ($LASTEXITCODE -ne 0) {
-        throw "Table/cell geometry detection completed with errors. Review the console output."
+        throw "Table/cell geometry detection completed with errors on $ResolvedDevice. Review the console output."
     }
 
     # v3.11 table-first experiment: the collector writes its effective strategy
@@ -129,7 +172,7 @@ Assert-IsalaActionPreflight -ActionId "2"
     }
 
     if ($strategy -eq "table_first") {
-        Write-Host "Table-first pass complete. Active field detector intentionally NOT merged." -ForegroundColor Green
+        Write-Host ("Table-first pass complete on {0}. Active field detector intentionally NOT merged." -f $ResolvedDevice.ToUpperInvariant()) -ForegroundColor Green
     } else {
         $activeModelFile = Join-Path $HostWorkspace "localization_models\active.json"
         if (Test-Path -LiteralPath $activeModelFile -PathType Leaf) {
