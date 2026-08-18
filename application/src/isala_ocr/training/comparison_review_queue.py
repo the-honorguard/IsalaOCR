@@ -164,6 +164,31 @@ class PersistentComparisonReviewQueue:
         self._wake.set()
         return {"queue_id": queue_id, **self.status(project_id=project_id)}
 
+    def discard_pending_issue(self, *, project_id: str, run_id: str, issue_id: str) -> int:
+        """Drop not-yet-processing decisions for one issue.
+
+        Used when a synchronous canonical-GT mutation supersedes a queued review
+        decision. A processing decision is intentionally left alone; the caller
+        should serialize the direct mutation with the worker and run afterwards.
+        """
+        with self._lock:
+            state = self._load_locked()
+            before = len(state["items"])
+            state["items"] = [
+                item
+                for item in state["items"]
+                if not (
+                    str(item.get("project_id") or "") == str(project_id)
+                    and str(item.get("run_id") or "") == str(run_id)
+                    and str(item.get("issue_id") or "") == str(issue_id)
+                    and str(item.get("status") or "pending") in {"pending", "failed"}
+                )
+            ]
+            removed = before - len(state["items"])
+            if removed:
+                self._save_locked(state)
+            return removed
+
     def status(self, *, project_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             state = self._load_locked()
