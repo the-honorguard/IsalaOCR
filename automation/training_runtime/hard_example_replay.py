@@ -78,6 +78,12 @@ def apply_replay_to_records(
     epoch. Adding references to the same panel record therefore gives a hard
     panel additional independent draws/augmentations while the canonical COCO
     dataset and PNG files remain single-copy and auditable.
+
+    Replay clones intentionally keep exactly the same sample-key schema as the
+    canonical COCO records. PaddleDetection's batch collator takes the keys from
+    one sample and indexes every other sample with those keys; adding replay-only
+    metadata fields therefore crashes mixed batches with a KeyError. Runtime
+    replay diagnostics are written separately by ``sitecustomize.py``.
     """
     base = list(records)
     plan = load_replay_plan(dataset)
@@ -106,14 +112,12 @@ def apply_replay_to_records(
     for item in panels:
         filename = str(item.get("file_name") or "")
         source = by_filename[filename]
-        for replay_index in range(1, int(item.get("replay_count") or 0) + 1):
+        for _replay_index in range(1, int(item.get("replay_count") or 0) + 1):
             clone = copy.deepcopy(source)
             _replace_image_id(clone, next_image_id)
             next_image_id += 1
-            clone["isala_hard_example_replay"] = True
-            clone["isala_replay_source_file"] = filename
-            clone["isala_replay_index"] = replay_index
-            clone["isala_replay_streak"] = int(item.get("error_streak") or 1)
+            # Do not add replay-only keys to the record. Mixed batches must have
+            # one identical key schema for PaddleDetection's BatchCompose.
             result.append(clone)
             applied += 1
 
