@@ -10,13 +10,16 @@ Push-Location $ProjectRoot
 try {
     . (Join-Path $PSScriptRoot "training-common.ps1")
     Assert-IsalaActionPreflight -ActionId "22"
-Assert-IsalaDetectionGateOpen
+    Assert-IsalaDetectionGateOpen
     Assert-Docker
 
     Write-Host "Reading values from approved mapped ROI crops..."
     $dockerArguments = @(
-        "compose", "--profile", "training", "run", "--rm", "--build",
-        "training-collector", "read-mapped-values",
+        "compose", "--profile", "training", "run", "--rm", "--pull", "never",
+        "--entrypoint", "python",
+        "training-collector",
+        "-m", "isala_ocr.table_first_cli",
+        "read-mapped-values",
         "--workspace", "/training/workspace",
         "--config", "/app/config/app.yaml"
     )
