@@ -1,5 +1,6 @@
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "training-common.ps1")
+. (Join-Path $PSScriptRoot "runtime-preparation.ps1")
 
 $modelsRoot = Join-Path $ProjectRoot "models"
 $paddlexRoot = Join-Path $modelsRoot "paddlex"
@@ -64,6 +65,7 @@ $weightReady=Test-FileReady -Path $weightPath -MinimumBytes 1MB
 $picodetWeightPath=Join-Path $trainingRoot "PicoDet-S_pretrained.pdparams"
 $picodetWeightReady=Test-FileReady -Path $picodetWeightPath -MinimumBytes 1MB
 
+$runtimeState=Get-IsalaRuntimePreparationState
 $cpuBase=Get-PreparationImageState -Image $CpuBaseImage
 $gpuBase=Get-PreparationImageState -Image $GpuBaseImage
 $cpuImage=Get-PreparationImageState -Image (Get-TrainingImageName -Device cpu)
@@ -81,7 +83,7 @@ $localizationManifestStamp = if (Test-Path -LiteralPath $localizationManifest -P
 $weightStamp = if ($weightReady) { (Get-Item -LiteralPath $weightPath).LastWriteTimeUtc.ToString("o") } else { "" }
 $weightBytes = if ($weightReady) { [long](Get-Item -LiteralPath $weightPath).Length } else { [long]0 }
 
-$inferenceInstalled = $inferenceReady -and $null -ne $inferenceMarker -and [string]$inferenceMarker.manifest_last_write_utc -eq $inferenceManifestStamp
+$inferenceInstalled = [bool]$runtimeState.Ready -and $inferenceReady -and $null -ne $inferenceMarker -and [string]$inferenceMarker.manifest_last_write_utc -eq $inferenceManifestStamp
 $cpuInstalled = $cpuImage.present -and $localizationReady -and $null -ne $cpuMarker -and [string]$cpuMarker.image_id -eq [string]$cpuImage.id -and [string]$cpuMarker.localization_manifest_last_write_utc -eq $localizationManifestStamp
 $gpuInstalled = $gpuImage.present -and $null -ne $gpuMarker -and [string]$gpuMarker.image_id -eq [string]$gpuImage.id
 $gpuDetectionInstalled = $gpuDetectionImage.present -and $null -ne $gpuDetectionMarker -and [string]$gpuDetectionMarker.image_id -eq [string]$gpuDetectionImage.id
@@ -94,13 +96,21 @@ function InstalledPhase {
     return PhaseState -Ready $false -State "missing" -Detail "Installatie/build ontbreekt." -Expected $Expected
 }
 
+$runtimeDetail = if ([bool]$runtimeState.Ready) {
+    "Offline runtime-validatie geslaagd."
+} elseif ([string]$runtimeState.State -eq "stale") {
+    "Runtime-image is verouderd voor de huidige checkout; voer Stap 1 opnieuw uit."
+} else {
+    "Gedeelde runtime-image ontbreekt; voer Stap 1 opnieuw uit."
+}
+
 $components=[ordered]@{
     inference=[ordered]@{
         full_action_id="14"; download_action_id="30"; install_action_id="35"; check_action_id="42"
         title="Inference OCR + tabelmodellen"; description="PP-OCRv6 en PP-Structure modelcache voor offline inferentie."
         files=@("PP-OCRv6 detectie + recognition","PP-StructureV3 layout/table/cell models","PP-OCRv6 medium baseline")
         download=(PhaseState -Ready $inferenceReady -Detail $(if($inferenceReady){"Alle vereiste modelbestanden aanwezig."}else{"Modelcache of manifest incompleet."}) -Expected @("models/paddlex/official_models/*","models/paddlex/isala_ocr_model_manifest.json"))
-        install=(InstalledPhase -ArtifactPresent $inferenceReady -Validated $inferenceInstalled -ReadyDetail "Offline runtime-validatie geslaagd." -UncheckedDetail "Bestanden aanwezig; offline runtime nog niet gevalideerd." -Expected @("offline model-prep smoke test"))
+        install=(InstalledPhase -ArtifactPresent ($inferenceReady -and [bool]$runtimeState.Ready) -Validated $inferenceInstalled -ReadyDetail $runtimeDetail -UncheckedDetail $runtimeDetail -Expected @((Get-IsalaRuntimeImageName),"offline model-prep smoke test"))
     }
     cpu_detection=[ordered]@{
         full_action_id="15"; download_action_id="31"; install_action_id="36"; check_action_id="43"
@@ -150,11 +160,12 @@ $inventory = [ordered]@{
 }
 
 $payload=[ordered]@{
-    schema_version="2.0"; checked_at=(Get-Date).ToString("o"); training_image_version=Get-TrainingImageVersion
+    schema_version="2.1"; checked_at=(Get-Date).ToString("o"); training_image_version=Get-TrainingImageVersion
     all_downloads_ready=$allDownloadsReady; all_installs_ready=$allInstallsReady; all_ready=($allDownloadsReady -and $allInstallsReady)
+    runtime_image=$runtimeState
     inventory=$inventory
     base_images=[ordered]@{cpu=$cpuBase;gpu=$gpuBase}; components=$components
 }
 [System.IO.File]::WriteAllText($statusPath,($payload|ConvertTo-Json -Depth 12),[System.Text.UTF8Encoding]::new($false))
-Write-Host ("Preparation status: downloads={0}, installs={1}" -f $(if($allDownloadsReady){"READY"}else{"INCOMPLETE"}),$(if($allInstallsReady){"READY"}else{"INCOMPLETE"})) -ForegroundColor $(if($payload.all_ready){"Green"}else{"Yellow"})
+Write-Host ("Preparation status: downloads={0}, installs={1}, runtime={2}" -f $(if($allDownloadsReady){"READY"}else{"INCOMPLETE"}),$(if($allInstallsReady){"READY"}else{"INCOMPLETE"}),$(if([bool]$runtimeState.Ready){"READY"}else{([string]$runtimeState.State).ToUpperInvariant()})) -ForegroundColor $(if($payload.all_ready){"Green"}else{"Yellow"})
 Write-Host "Status written to: $statusPath"
