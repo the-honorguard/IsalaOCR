@@ -27,16 +27,15 @@
   <nav class="process-nav">
     <a href="/" class="{% if request.path=='/' %}active{% endif %}">Overzicht</a>
     {% if localization_strategy == 'table_first' %}
-    <div class="nav-section nav-pipeline-a">GROUND TRUTH</div>
+    <div class="nav-section nav-pipeline-a">TABLE SETUP & GROUND TRUTH</div>
     <a href="/process/detection-models" class="process-tab {% if request.path == '/process/detection-models' %}active{% endif %}"><span class="process-tab-number">1</span><span>Voorbereiding</span></a>
     <a href="/process/panel-setup" class="process-tab {% if request.path == '/process/panel-setup' %}active{% endif %}"><span class="process-tab-number">2</span><span>Panelen instellen</span></a>
-    <a href="/process/detection-review" class="process-tab {% if request.path == '/process/detection-review' or request.path.startswith('/detection-review') or request.path == '/process/detect-candidates' %}active{% endif %}"><span class="process-tab-number">3</span><span>GT Studio</span></a>
+    <a href="/process/detect-candidates" class="process-tab {% if request.path == '/process/detect-candidates' %}active{% endif %}"><span class="process-tab-number">3</span><span>Ground Truth maken</span></a>
+    <a href="/process/detection-review" class="process-tab {% if request.path == '/process/detection-review' or request.path.startswith('/detection-review') %}active{% endif %}"><span class="process-tab-number">4</span><span>Ground Truth beheren</span></a>
 
-    <div class="nav-section nav-pipeline-a">MODEL ITERATIE · 4 → 5 → 6 → 7 → 4</div>
-    <a href="/process/table-quality?stage=dataset" class="process-tab {% if request.path == '/process/table-quality' and request.args.get('stage','dataset') != 'training' %}active{% endif %}"><span class="process-tab-number">4</span><span>Dataset bouwen & valideren</span></a>
-    <a href="/process/table-quality?stage=training" class="process-tab {% if request.path == '/process/table-quality' and request.args.get('stage') == 'training' %}active{% endif %}"><span class="process-tab-number">5</span><span>Model trainen & activeren</span></a>
-    <a href="/process/table-model" class="process-tab {% if request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">6</span><span>Nieuwe detectierun</span></a>
-    <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' %}active{% endif %}"><span class="process-tab-number">7</span><span>Vervolg-review</span></a>
+    <div class="nav-section nav-pipeline-a">MODEL ITERATIE · 5 → 6 → 5</div>
+    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">5</span><span>Model trainen & draaien</span></a>
+    <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' or request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">6</span><span>Afwijkingen reviewen</span></a>
     {% else %}
     <div class="nav-section nav-pipeline-a">DETECTIE & CROPS</div>
     {% for step in process_steps if step.group == 'detection' %}
@@ -139,20 +138,31 @@
 <script>
 (() => {
   const path=window.location.pathname;
+  if(path==='/process/table-model'){
+    window.location.replace('/process/table-compare');
+    return;
+  }
   const h1=document.querySelector('.topbar h1');
   const subtitle=document.querySelector('.topbar p');
   const setTopbar=(title,sub)=>{if(h1)h1.textContent=title;if(subtitle)subtitle.textContent=sub;document.title=`${title} · IsalaOCR`;};
   if(path==='/process/detect-candidates'){
-    setTopbar('Stap 3 · GT Studio · kandidaatdetectie','Genereer of vernieuw het automatische celvoorstel en ga daarna terug naar de persistente Ground Truth in GT Studio.');
-  }else if(path==='/process/detection-review'||path.startsWith('/detection-review')){
-    setTopbar('Stap 3 · GT Studio','Beheer hier uitsluitend de persistente Ground Truth: structuur, panelen, cellen en expliciete goedkeuring per afbeelding.');
-  }else if(path==='/process/table-model'){
-    setTopbar('Stap 6 · Nieuwe detectierun + modelvergelijking','Draai het actieve model als nieuwe versiegebonden run; daarna beoordeel je de verschillen in Stap 7.');
+    setTopbar('Stap 3 · Ground Truth maken','Maak éénmalig een eerste voorstel voor de table-cell Ground Truth binnen de ingestelde panelen.');
   }else if(path==='/process/table-compare'){
-    setTopbar('Stap 7 · Vervolg-review','Beoordeel alleen de verschillen tussen de nieuwe modelrun en de canonieke Ground Truth.');
+    setTopbar('Stap 6 · Afwijkingen reviewen','Beoordeel alleen de verschillen tussen de actieve modelrun en de canonieke Ground Truth.');
+    document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{
+      link.href='/process/table-quality';
+      link.textContent=/volgende trainingsronde/i.test(link.textContent||'')?'Stap 5 · Volgende trainingsronde':'Stap 5 · Alles laten draaien';
+    });
+    const content=document.querySelector('.content');
+    if(content){
+      const walker=document.createTreeWalker(content,NodeFilter.SHOW_TEXT);
+      const nodes=[];
+      while(walker.nextNode())nodes.push(walker.currentNode);
+      nodes.forEach(node=>{if(node.nodeValue&&node.nodeValue.includes('Stap 7'))node.nodeValue=node.nodeValue.replaceAll('Stap 7','Stap 6');});
+    }
   }
   if(path.startsWith('/detection-review')){
-    document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{link.href='/process/table-quality?stage=dataset';link.textContent='Naar Stap 4 · Dataset bouwen & valideren →';});
+    document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{link.href='/process/table-quality';link.textContent='Naar Stap 5 · Model trainen & draaien →';});
   }
 })();
 </script>

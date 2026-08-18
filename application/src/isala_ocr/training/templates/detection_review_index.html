@@ -1,46 +1,31 @@
 {% extends 'base.html' %}
-{% block title %}GT Studio · IsalaOCR{% endblock %}
-{% block heading %}{% if localization_strategy == 'table_first' %}Stap 3 · GT Studio{% else %}Detection Review Studio{% endif %}{% endblock %}
-{% block subtitle %}{% if localization_strategy == 'table_first' %}De persistente Ground Truth voor project {{ active_project.name }} beheren{% else %}Expliciete trainingsvoorbeelden voor project {{ active_project.name }}{% endif %}{% endblock %}
+{% block title %}Detection Review Studio · IsalaOCR{% endblock %}
+{% block heading %}{% if gt_mode %}Ground Truth beheren{% elif localization_strategy == 'table_first' %}Tabelcellen reviewen{% else %}Detection Review Studio{% endif %}{% endblock %}
+{% block subtitle %}Pipeline A · {% if gt_mode %}canonieke table-cell Ground Truth voor project {{ active_project.name }}{% elif localization_strategy == 'table_first' %}PP-Structure cell-boxes beoordelen voor project {{ active_project.name }}{% else %}expliciete trainingsvoorbeelden voor project {{ active_project.name }}{% endif %}{% endblock %}
 {% block content %}
-{% if localization_strategy == 'table_first' %}
-<section class="pipeline-boundary-card"><strong>GT is de waarheid, detectie is alleen een voorstel</strong><span>Alles wat je hier bevestigt of corrigeert hoort bij de persistente Ground Truth. Kandidaten uit een detectorrun zijn alleen startmateriaal. Modelruns en vervolg-review veranderen deze GT niet tenzij je hier expliciet geometrie aanpast.</span></section>
+{% if gt_mode %}
+<section class="pipeline-boundary-card"><strong>Canonieke Ground Truth</strong><span>Stap 4 toont vanaf nu altijd de oorspronkelijke/beheerde GT. Nieuwe detector-runs uit Stap 3 worden hier niet ingemengd; die beoordeel je in Stap 7. Aanpassingen hier maken de bestaande trainingsdataset bewust verouderd.</span></section>
 <section class="card section-gap">
-  <div class="toolbar">
-    <div><h3>GT Studio</h3><p class="muted">Genereer zo nodig een eerste/nieuw detectievoorstel, open daarna iedere afbeelding en corrigeer panelen en cellen tot de GT klopt.</p></div>
-    <div class="actions">
-      <a class="button" href="/process/detect-candidates">Detectievoorstel genereren / vernieuwen</a>
-      {% if gt_mode and open_source_count %}<button type="button" class="ghost" id="complete-all-gt-sources">Alles als klaar markeren ({{ open_source_count }})</button>{% endif %}
-      <a class="button primary" href="/process/table-quality?stage=dataset">Naar Stap 4 · Dataset bouwen & valideren →</a>
-    </div>
-  </div>
-  {% if gt_mode %}
-  <div class="notice"><strong>{{ header_counts.accepted }} canonieke GT-cellen.</strong>{% if open_source_count %} {{ open_source_count }} bron{{ '' if open_source_count == 1 else 'nen' }} nog niet als gecontroleerd gemarkeerd.{% else %} Alle bekende bronnen zijn gecontroleerd.{% endif %}</div>
+  <div class="toolbar"><div><h3>GT-bronnen</h3><p class="muted">Open een bron om bestaande GT-cellen te verplaatsen, te verwijderen of een ontbrekende functionele cel toe te voegen.</p></div><div class="actions">{% if open_source_count %}<button type="button" class="ghost" id="complete-all-gt-sources">Alles als klaar markeren ({{ open_source_count }})</button>{% endif %}<a class="button primary" href="/process/table-model">Nieuwe dataset / opnieuw trainen →</a></div></div>
+  <div class="notice"><strong>{{ header_counts.accepted }} canonieke GT-cellen.</strong> Deze geometrie is onafhankelijk van de actuele Stap-3-detecties.{% if open_source_count %} <span>{{ open_source_count }} bron{{ '' if open_source_count == 1 else 'nen' }} nog niet als gecontroleerd gemarkeerd.</span>{% endif %}</div>
   <div class="table-wrap"><table><tr><th>Bron</th><th>GT-cellen</th><th>GT gecontroleerd</th><th></th></tr>
-  {% for source in sources %}{% set c=source.review_counts %}<tr data-gt-source-id="{{ source.source_id }}" data-review-completed="{{ 1 if source.review_completed else 0 }}"><td class="mono">{{ source.source_id }}</td><td class="ok">{{ c.positive }}</td><td>{% if source.review_completed %}<span class="ok">✓ Ja</span>{% else %}<span class="warn">Nog controleren</span>{% endif %}</td><td><a class="button primary" href="/detection-review/{{ source.source_id }}">{{ 'GT bewerken' if source.review_completed else 'GT controleren' }}</a></td></tr>{% else %}<tr><td colspan="4">Nog geen Ground Truth beschikbaar. Gebruik “Detectievoorstel genereren / vernieuwen” als startpunt en controleer daarna de bronnen hier.</td></tr>{% endfor %}
+  {% for source in sources %}{% set c=source.review_counts %}<tr data-gt-source-id="{{ source.source_id }}" data-review-completed="{{ 1 if source.review_completed else 0 }}"><td class="mono">{{ source.source_id }}</td><td class="ok">{{ c.positive }}</td><td>{% if source.review_completed %}<span class="ok">✓ Ja</span>{% else %}<span class="warn">Nog controleren</span>{% endif %}</td><td><a class="button primary" href="/detection-review/{{ source.source_id }}">{{ 'GT bewerken' if source.review_completed else 'GT controleren' }}</a></td></tr>{% else %}<tr><td colspan="4">Nog geen canonieke Ground Truth. Rond eerst de initiële Stap-4-review af en bouw de eerste table-cell dataset.</td></tr>{% endfor %}
   </table></div>
-  {% else %}
-  <div class="notice"><strong>{{ header_counts.accepted }} positieve GT-cellen · {{ review_counts_global.negative if review_counts_global is defined else 0 }} afgewezen.</strong> {{ header_counts.pending }} kandidaten zijn nog open.{% if completed_source_count %} <span id="completed-source-visibility-note">{{ completed_source_count }} afgeronde bron{{ '' if completed_source_count == 1 else 'nen' }} verborgen.</span>{% endif %}</div>
-  <div class="toolbar section-gap"><div><strong>Afbeeldingen</strong><p class="muted">Open een afbeelding om cellen toe te voegen, verwijderen, verplaatsen of resizen en markeer de afbeelding pas als klaar wanneer de GT klopt.</p></div>{% if completed_source_count %}<button type="button" class="ghost" id="toggle-completed-sources" aria-pressed="false">Toon afgeronde reviews ({{ completed_source_count }})</button>{% endif %}</div>
-  <div class="table-wrap"><table id="initial-review-source-table"><tr><th>Klaar</th><th>Bron</th><th>Kandidaten</th><th>Open</th><th>Included</th><th>Aangepast</th><th>Afgewezen</th><th>Toegevoegd</th><th>Tabelcellen</th><th></th></tr>
-  {% for source in sources %}{% set c=source.review_counts %}<tr data-review-source-row data-review-completed="{{ 1 if source.review_completed else 0 }}" class="{% if source.review_completed %}review-source-complete initial-review-completed hidden{% endif %}"><td>{% if source.review_completed %}<span class="source-complete-mark">✓</span>{% else %}<span class="muted">—</span>{% endif %}</td><td class="mono">{{ source.source_id }}</td><td>{{ c.candidate_total }}</td><td class="warn">{{ c.pending }}</td><td class="ok">{{ c.positive }}</td><td>{{ c.adjusted }}</td><td class="bad">{{ c.negative }}</td><td>{{ c.added }}</td><td>{{ source.table_cell_count }}</td><td><a class="button primary" href="/detection-review/{{ source.source_id }}">{{ 'Bekijken / bewerken' if source.review_completed else 'GT controleren' }}</a></td></tr>{% else %}<tr><td colspan="10">Nog geen detectievoorstel. Gebruik “Detectievoorstel genereren / vernieuwen”.</td></tr>{% endfor %}
-  {% if sources and not open_source_count %}<tr id="initial-review-filter-empty"><td colspan="10" class="muted">Alle bronafbeeldingen zijn afgerond. Gebruik “Toon afgeronde reviews” om ze opnieuw te bekijken of te bewerken.</td></tr>{% else %}<tr id="initial-review-filter-empty" class="hidden"><td colspan="10" class="muted">Alle zichtbare bronafbeeldingen zijn afgerond. Gebruik “Toon afgeronde reviews” om ze opnieuw te bekijken.</td></tr>{% endif %}
-  </table></div>
-  {% endif %}
 </section>
 {% else %}
-<section class="pipeline-boundary-card"><strong>Expliciete review</strong><span>Per afbeelding staat “Rest standaard includeren” standaard aan. Markeer alleen Niet relevant, Incorrect of pas geometrie aan; bij “Afbeelding klaar” worden resterende open ROI’s automatisch geïncludeerd.</span></section>
+<section class="pipeline-boundary-card"><strong>{% if localization_strategy == 'table_first' %}Initiële table-first review{% else %}Expliciete review{% endif %}</strong><span>{% if localization_strategy == 'table_first' %}Deze eerste review maakt de canonieke Ground Truth. Beoordeel de PP-Structure cell-boxes, corrigeer fouten en teken ontbrekende cellen. Na de eerste dataset blijft Stap 4 voortaan op deze GT staan.{% else %}Per afbeelding staat “Rest standaard includeren” standaard aan. Markeer alleen Niet relevant, Incorrect of pas geometrie aan; bij “Afbeelding klaar” worden resterende open ROI’s automatisch geïncludeerd.{% endif %}</span></section>
 <section class="card section-gap">
-  <div class="toolbar"><div><h3>Bronnen</h3><p class="muted">Review per afbeelding de uitzonderingen. Afgeronde bronnen worden standaard verborgen.</p></div><div class="actions">{% if completed_source_count %}<button type="button" class="ghost" id="toggle-completed-sources" aria-pressed="false">Toon afgeronde reviews ({{ completed_source_count }})</button>{% endif %}<a class="button primary" href="/process/localization-dataset">Dataset preview / bouwen →</a></div></div>
-  <div class="notice"><strong>{{ header_counts.accepted }} positieve trainingsvoorbeelden · {{ review_counts_global.negative if review_counts_global is defined else 0 }} negatief.</strong> {{ header_counts.pending }} kandidaten zijn nog open.</div>
+  <div class="toolbar"><div><h3>Bronnen</h3><p class="muted">{% if localization_strategy == 'table_first' %}Bouw één keer een betrouwbare table-cell Ground Truth op. Afgeronde bronnen worden standaard uit deze initiële review verborgen.{% else %}Review per afbeelding de uitzonderingen. Afgeronde bronnen worden standaard verborgen.{% endif %}</p></div><div class="actions">{% if completed_source_count %}<button type="button" class="ghost" id="toggle-completed-sources" aria-pressed="false">Toon afgeronde reviews ({{ completed_source_count }})</button>{% endif %}<a class="button primary" href="{{ '/process/table-quality' if localization_strategy == 'table_first' else '/process/localization-dataset' }}">{% if localization_strategy == 'table_first' %}Tabeldekking beoordelen →{% else %}Dataset preview / bouwen →{% endif %}</a></div></div>
+  <div class="notice"><strong>{{ header_counts.accepted }} positieve trainingsvoorbeelden · {{ review_counts_global.negative if review_counts_global is defined else 0 }} negatief.</strong> {{ header_counts.pending }} kandidaten zijn nog open.{% if completed_source_count %} <span id="completed-source-visibility-note">{{ completed_source_count }} afgeronde bron{{ '' if completed_source_count == 1 else 'nen' }} verborgen.</span>{% endif %}</div>
   <div class="table-wrap"><table id="initial-review-source-table"><tr><th>Klaar</th><th>Bron</th><th>Kandidaten</th><th>Open</th><th>Included</th><th>Aangepast</th><th>Incorrect / niet relevant</th><th>Toegevoegd</th><th>Tabelcellen</th><th></th></tr>
-  {% for source in sources %}{% set c=source.review_counts %}<tr data-review-source-row data-review-completed="{{ 1 if source.review_completed else 0 }}" class="{% if source.review_completed %}review-source-complete initial-review-completed hidden{% endif %}"><td>{% if source.review_completed %}<span class="source-complete-mark">✓</span>{% else %}<span class="muted">—</span>{% endif %}</td><td class="mono">{{ source.source_id }}</td><td>{{ c.candidate_total }}</td><td class="warn">{{ c.pending }}</td><td class="ok">{{ c.positive }}</td><td>{{ c.adjusted }}</td><td class="bad">{{ c.negative }}</td><td>{{ c.added }}</td><td>{{ source.table_cell_count }}</td><td><a class="button primary" href="/detection-review/{{ source.source_id }}">{{ 'Bekijken' if source.review_completed else 'Review' }}</a></td></tr>{% else %}<tr><td colspan="10">Nog geen detectie.</td></tr>{% endfor %}
+  {% for source in sources %}{% set c=source.review_counts %}<tr data-review-source-row data-review-completed="{{ 1 if source.review_completed else 0 }}" class="{% if source.review_completed %}review-source-complete initial-review-completed hidden{% endif %}"><td>{% if source.review_completed %}<span class="source-complete-mark">✓</span>{% else %}<span class="muted">—</span>{% endif %}</td><td class="mono">{{ source.source_id }}</td><td>{{ c.candidate_total }}</td><td class="warn">{{ c.pending }}</td><td class="ok">{{ c.positive }}</td><td>{{ c.adjusted }}</td><td class="bad">{{ c.negative }}</td><td>{{ c.added }}</td><td>{{ source.table_cell_count }}</td><td><a class="button primary" href="/detection-review/{{ source.source_id }}">{{ 'Bekijken' if source.review_completed else 'Review' }}</a></td></tr>{% else %}<tr><td colspan="10">Nog geen table/cell-detectie. Voer Stap 3 · Tabelstructuur detecteren uit.</td></tr>{% endfor %}
+  {% if sources and not open_source_count %}<tr id="initial-review-filter-empty"><td colspan="10" class="muted">Alle bronafbeeldingen zijn afgerond. Gebruik “Toon afgeronde reviews” om ze opnieuw te bekijken.</td></tr>{% else %}<tr id="initial-review-filter-empty" class="hidden"><td colspan="10" class="muted">Alle zichtbare bronafbeeldingen zijn afgerond. Gebruik “Toon afgeronde reviews” om ze opnieuw te bekijken.</td></tr>{% endif %}
   </table></div>
 </section>
 {% endif %}
 {% endblock %}
 {% block scripts %}
-{% if localization_strategy == 'table_first' and gt_mode and open_source_count %}
+{% if gt_mode and open_source_count %}
 <script>
 (() => {
   const button=document.getElementById('complete-all-gt-sources');
@@ -48,28 +33,39 @@
   button.addEventListener('click',async()=>{
     const rows=[...document.querySelectorAll('[data-gt-source-id][data-review-completed="0"]')];
     if(!rows.length){window.location.reload();return;}
-    if(!window.confirm(`Markeer alle ${rows.length} nog open GT-bronnen als gecontroleerd? De Ground Truth-kaders zelf worden niet aangepast.`)) return;
+    const confirmed=window.confirm(`Markeer alle ${rows.length} nog open GT-bronnen als gecontroleerd? De Ground Truth-kaders zelf worden niet aangepast.`);
+    if(!confirmed) return;
     button.disabled=true;
     const original=button.textContent;
     button.textContent='Bezig met afronden…';
     try{
       for(const row of rows){
         const sourceId=row.dataset.gtSourceId;
-        const response=await fetch(`/api/detection-review/${encodeURIComponent(sourceId)}/complete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({completed:true})});
-        if(!response.ok){const payload=await response.json().catch(()=>({}));throw new Error(payload.error||`Afronden mislukt voor ${sourceId}`);}
+        const response=await fetch(`/api/detection-review/${encodeURIComponent(sourceId)}/complete`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({completed:true}),
+        });
+        if(!response.ok){
+          const payload=await response.json().catch(()=>({}));
+          throw new Error(payload.error||`Afronden mislukt voor ${sourceId}`);
+        }
       }
       window.location.reload();
-    }catch(error){button.disabled=false;button.textContent=original;window.alert(error instanceof Error?error.message:'Niet alle GT-bronnen konden worden afgerond.');}
+    }catch(error){
+      button.disabled=false;
+      button.textContent=original;
+      window.alert(error instanceof Error?error.message:'Niet alle GT-bronnen konden worden afgerond.');
+    }
   });
 })();
 </script>
 {% endif %}
-{% if completed_source_count %}
+{% if not gt_mode and completed_source_count %}
 <script>
 (() => {
   const button=document.getElementById('toggle-completed-sources');
   const rows=[...document.querySelectorAll('[data-review-source-row]')];
-  if(!button||!rows.length) return;
   const note=document.getElementById('completed-source-visibility-note');
   const empty=document.getElementById('initial-review-filter-empty');
   const storageKey='isala-detection-review:show-completed-sources';
@@ -77,12 +73,11 @@
   function applyCompletedVisibility(){
     let visible=0;
     rows.forEach(row=>{const completed=row.dataset.reviewCompleted==='1';const show=!completed||showCompleted;row.classList.toggle('hidden',!show);if(show)visible++;});
-    button.textContent=showCompleted?'Verberg afgeronde reviews':'Toon afgeronde reviews ({{ completed_source_count }})';
-    button.setAttribute('aria-pressed',String(showCompleted));
+    if(button){button.textContent=showCompleted?'Verberg afgeronde reviews':'Toon afgeronde reviews ({{ completed_source_count }})';button.setAttribute('aria-pressed',String(showCompleted));}
     if(note)note.textContent=showCompleted?'Afgeronde bronnen zijn zichtbaar.':'{{ completed_source_count }} afgeronde bron{{ '' if completed_source_count == 1 else 'nen' }} verborgen.';
     if(empty)empty.classList.toggle('hidden',visible>0);
   }
-  button.addEventListener('click',()=>{showCompleted=!showCompleted;window.localStorage.setItem(storageKey,showCompleted?'1':'0');applyCompletedVisibility();});
+  button?.addEventListener('click',()=>{showCompleted=!showCompleted;window.localStorage.setItem(storageKey,showCompleted?'1':'0');applyCompletedVisibility();});
   applyCompletedVisibility();
 })();
 </script>
