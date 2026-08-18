@@ -1,6 +1,98 @@
 (() => {
   if (window.location.pathname !== '/process/table-compare') return;
 
+  // Review clicks are intentionally optimistic, so a fast reviewer can submit
+  // several decisions before the previous HTTP request has completed. Sending
+  // those writes concurrently made the lightweight local Flask server/Docker
+  // bind mount intermittently time out. Keep the UI instant, but serialize the
+  // actual network writes and retry transient failures with backoff.
+  const nativeFetch = window.fetch.bind(window);
+  const reviewNetworkQueue = [];
+  let reviewNetworkBusy = false;
+  let reviewQueueSequence = 0;
+
+  const emitQueueState = (state, detail = {}) => {
+    window.dispatchEvent(new CustomEvent('isala:step7-review-queue', {
+      detail: {
+        state,
+        waiting: reviewNetworkQueue.length + (reviewNetworkBusy ? 1 : 0),
+        ...detail,
+      },
+    }));
+  };
+
+  const isReviewWrite = (input, init = {}) => {
+    const method = String(init.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+    if (method !== 'POST') return false;
+    let url;
+    try {
+      url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
+    } catch (_) {
+      return false;
+    }
+    if (url.pathname !== '/process/table-compare') return false;
+    const body = init.body;
+    return body instanceof FormData && (body.has('decision') || body.has('comparison_action'));
+  };
+
+  const retryableStatus = status => status === 408 || status === 425 || status === 429 || status >= 500;
+  const wait = ms => new Promise(resolve => window.setTimeout(resolve, ms));
+
+  const executeQueuedReviewWrite = async item => {
+    const maxAttempts = 6;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 12000);
+      try {
+        emitQueueState(attempt > 1 ? 'retrying' : 'saving', {attempt, id: item.id});
+        const response = await nativeFetch(item.input, {...item.init, signal: controller.signal});
+        if (response.ok || !retryableStatus(response.status) || attempt === maxAttempts) return response;
+      } catch (error) {
+        if (attempt === maxAttempts) throw error;
+      } finally {
+        window.clearTimeout(timeout);
+      }
+      const delay = Math.min(8000, 600 * (2 ** (attempt - 1)));
+      emitQueueState('retrying', {attempt, retryInMs: delay, id: item.id});
+      await wait(delay);
+    }
+    throw new Error('Review write queue exhausted retries');
+  };
+
+  const drainReviewNetworkQueue = async () => {
+    if (reviewNetworkBusy) return;
+    reviewNetworkBusy = true;
+    try {
+      while (reviewNetworkQueue.length) {
+        const item = reviewNetworkQueue.shift();
+        try {
+          const response = await executeQueuedReviewWrite(item);
+          item.resolve(response);
+        } catch (error) {
+          item.reject(error);
+        }
+      }
+    } finally {
+      reviewNetworkBusy = false;
+      emitQueueState('idle');
+    }
+  };
+
+  window.fetch = (input, init = {}) => {
+    if (!isReviewWrite(input, init)) return nativeFetch(input, init);
+    return new Promise((resolve, reject) => {
+      reviewNetworkQueue.push({
+        id: ++reviewQueueSequence,
+        input,
+        init,
+        resolve,
+        reject,
+      });
+      emitQueueState('queued');
+      void drainReviewNetworkQueue();
+    });
+  };
+
   const stage = document.querySelector('.step7-review-stage');
   const panelList = stage?.querySelector('.comparison-panel-list');
   const filter = document.getElementById('comparison-issue-filter');
@@ -17,6 +109,27 @@
   const toolbar = stage.querySelector(':scope > .toolbar');
   const toolbarLead = toolbar?.querySelector(':scope > div:first-child');
   const controls = toolbar?.querySelector('.step7-review-view-actions');
+
+  const saveQueuePill = document.createElement('span');
+  saveQueuePill.className = 'pill step7-review-save-queue';
+  saveQueuePill.hidden = true;
+  controls?.insertBefore(saveQueuePill, controls.firstChild);
+  let queueIdleTimer = 0;
+  window.addEventListener('isala:step7-review-queue', event => {
+    const detail = event.detail || {};
+    window.clearTimeout(queueIdleTimer);
+    saveQueuePill.hidden = false;
+    saveQueuePill.classList.toggle('warn', detail.state === 'retrying');
+    saveQueuePill.classList.toggle('ok', detail.state === 'idle');
+    if (detail.state === 'retrying') {
+      saveQueuePill.textContent = `Netwerk traag · ${Math.max(1, Number(detail.waiting) || 1)} in wachtrij`;
+    } else if (detail.state === 'idle') {
+      saveQueuePill.textContent = '✓ reviews opgeslagen';
+      queueIdleTimer = window.setTimeout(() => { saveQueuePill.hidden = true; }, 1400);
+    } else {
+      saveQueuePill.textContent = `${Math.max(1, Number(detail.waiting) || 1)} review${Number(detail.waiting) === 1 ? '' : 's'} opslaan…`;
+    }
+  });
 
   const context = document.createElement('div');
   context.className = 'step7-single-panel-context';
