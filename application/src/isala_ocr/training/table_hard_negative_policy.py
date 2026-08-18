@@ -12,10 +12,11 @@ from . import table_cell_training as training
 # A panel that failed in the newest completed review gets one extra draw. If the
 # same panel is still wrong in consecutive model generations it can get two.
 # Once a newer completed review is clean, its replay weight immediately returns
-# to 1. This follows hard-example mining much more closely than keeping an
-# ever-growing bank of permanent negative-only crops.
+# to 1. A 150% replay budget is deliberate for the small, highly specific table
+# datasets used here: recurrent/high-confidence failures must be allowed to use
+# their full requested weight instead of being flattened to one extra draw.
 MAX_REPLAY_WEIGHT = 3
-REPLAY_BUDGET_RATIO = 0.50
+REPLAY_BUDGET_RATIO = 1.50
 HISTORY_LIMIT = 8
 
 _ORIGINAL_LATEST_FEEDBACK = comparison.latest_completed_training_feedback
@@ -213,8 +214,8 @@ def _feedback_from_completed_runs(completed: list[dict[str, Any]]) -> dict[str, 
         "history_run_count": len(completed),
         "policy": (
             "dynamic panel hard-example replay; newest model_error panel -> weight 2; "
-            "consecutive recurrence -> weight 3 max; a clean newer review resets to weight 1; "
-            "train split only; no negative-only crops and no physical image copies"
+            "consecutive recurrence -> weight 3 max; recurrent/high-confidence panels get replay priority; "
+            "a clean newer review resets to weight 1; train split only; no negative-only crops and no physical image copies"
         ),
     }
 
@@ -266,15 +267,16 @@ def _plan_replay(manifest: dict[str, Any], feedback: dict[str, Any]) -> dict[str
                 "tie": tie,
             })
 
-    # Give every difficult panel its first extra draw before spending budget on
-    # a second draw. Within that tier, recurrent/high-error panels win. The hash
-    # tie-break rotates when the review fingerprint changes instead of always
-    # starving the same later-sorted panels.
+    # Spend scarce replay budget on the failures that have survived the most
+    # model generations, then on panels with multiple/high-confidence errors.
+    # replay_index is deliberately a later tie-break: a persistent panel may get
+    # its second extra draw before a one-off failure gets its first. This is the
+    # key distinction between hard-example mining and uniform oversampling.
     slots.sort(key=lambda item: (
-        int(item["replay_index"]),
         -int(item["error_streak"]),
         -int(item["latest_error_count"]),
         -float(item["max_confidence"]),
+        int(item["replay_index"]),
         str(item["tie"]),
     ))
     selected = slots[:budget]
