@@ -101,6 +101,39 @@ def validate_coco(dataset: Path) -> dict[str, Any]:
     return counts
 
 
+def gpu_memory_mb() -> int | None:
+    override = str(os.environ.get("ISALA_GPU_MEMORY_MB") or "").strip()
+    if override:
+        try:
+            value = int(float(override))
+            return value if value > 0 else None
+        except ValueError:
+            pass
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits", "-i", "0"],
+            check=True, capture_output=True, text=True, timeout=5,
+        )
+        first = result.stdout.strip().splitlines()[0].strip()
+        value = int(float(first))
+        return value if value > 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
+def safe_gpu_batch(default_batch: int, memory_mb: int | None) -> int:
+    """Cap RT-DETR-L defaults before Windows/WSL starts spilling into shared RAM."""
+    if memory_mb is None:
+        # Unknown GPU: prefer the conservative 8-GB-class setting over an
+        # optimistic batch 8 that can silently page into shared memory.
+        return min(default_batch, 4)
+    if memory_mb <= 9216:
+        return min(default_batch, 4)
+    if memory_mb <= 13312:
+        return min(default_batch, 6)
+    return default_batch
+
+
 def resolve_settings(dataset: Path, *, device: str, epochs: int, batch_size: int, learning_rate: float = 0.0) -> dict[str, Any]:
     counts = validate_coco(dataset)
     base_images = int(counts["train"]["images"])
@@ -113,8 +146,17 @@ def resolve_settings(dataset: Path, *, device: str, epochs: int, batch_size: int
         defaults = {"epochs": 80, "batch": 4 if device == "gpu" else 2, "profile": "medium-reviewed"}
     else:
         defaults = {"epochs": 50, "batch": 8 if device == "gpu" else 2, "profile": "standard"}
+    memory_mb = gpu_memory_mb() if device == "gpu" else None
+    if int(batch_size) > 0:
+        effective_batch = int(batch_size)
+        batch_source = "explicit"
+    elif device == "gpu":
+        effective_batch = safe_gpu_batch(int(defaults["batch"]), memory_mb)
+        batch_source = "vram-aware-default"
+    else:
+        effective_batch = int(defaults["batch"])
+        batch_source = "default"
     effective_epochs = int(epochs) if int(epochs) > 0 else defaults["epochs"]
-    effective_batch = int(batch_size) if int(batch_size) > 0 else defaults["batch"]
     steps = max(1, math.ceil(images / max(1, effective_batch)))
     effective_learning_rate = float(learning_rate) if float(learning_rate or 0.0) > 0 else 0.0001
     replay_plan = load_replay_plan(dataset)
@@ -126,18 +168,19 @@ def resolve_settings(dataset: Path, *, device: str, epochs: int, batch_size: int
         "hard_example_replay_strategy": str(replay_plan.get("strategy") or ""),
         "hard_example_replay_panels": len(replay_plan.get("panels") or []),
         "train_annotations": annotations,
-        "epochs": effective_epochs, "batch_size": effective_batch, "learning_rate": effective_learning_rate,
-        "warmup_steps": min(100, max(5, steps * 3)), "eval_interval": max(1, min(10, effective_epochs // 8)),
+        "epochs": effective_epochs,
+        "batch_size": effective_batch,
+        "batch_size_source": batch_source,
+        "gpu_memory_mb": memory_mb,
+        "learning_rate": effective_learning_rate,
+        "warmup_steps": min(100, max(5, steps * 3)),
+        "eval_interval": max(1, min(10, effective_epochs // 8)),
         "estimated_optimizer_steps": steps * effective_epochs,
     }
 
 
 def find_weight(output: Path) -> Path:
-    candidates = [
-        output / "best_model" / "best_model.pdparams",
-        output / "best_model" / "model.pdparams",
-        output / "best_accuracy.pdparams",
-    ]
+    candidates = [output / "best_model" / "best_model.pdparams", output / "best_model" / "model.pdparams", output / "best_accuracy.pdparams"]
     candidates.extend(sorted(output.rglob("*.pdparams"), key=lambda p: p.stat().st_mtime, reverse=True))
     for item in candidates:
         if item.is_file() and item.stat().st_size > 1024:
@@ -163,9 +206,7 @@ def command_check(_: argparse.Namespace) -> int:
 def command_validate(args: argparse.Namespace) -> int:
     dataset = Path(args.dataset).resolve(); output = Path(args.output).resolve(); output.mkdir(parents=True, exist_ok=True)
     counts = validate_coco(dataset); config = config_path()
-    command = [sys.executable, str(PADDLEX_ROOT / "main.py"), "-c", str(config),
-               "-o", "Global.mode=check_dataset", "-o", f"Global.dataset_dir={dataset}",
-               "-o", f"Global.output={output}", "-o", "CheckDataset.split.enable=False"]
+    command = [sys.executable, str(PADDLEX_ROOT / "main.py"), "-c", str(config), "-o", "Global.mode=check_dataset", "-o", f"Global.dataset_dir={dataset}", "-o", f"Global.output={output}", "-o", "CheckDataset.split.enable=False"]
     run(command, log_path=output / "paddlex_dataset_check.log")
     marker = {"status":"ok", "valid":True, "dataset":str(dataset), "counts":counts, "config":str(config), "validated_at":utc_now()}
     (output / "table_cell_paddlex_validation.json").write_text(json.dumps(marker, indent=2), encoding="utf-8")
@@ -175,60 +216,36 @@ def command_validate(args: argparse.Namespace) -> int:
 
 def command_train(args: argparse.Namespace) -> int:
     dataset = Path(args.dataset).resolve(); output = Path(args.output).resolve(); output.mkdir(parents=True, exist_ok=True)
-    settings = resolve_settings(
-        dataset, device=args.device, epochs=args.epochs, batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-    )
+    settings = resolve_settings(dataset, device=args.device, epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate)
     config = config_path(); device = "gpu:0" if args.device == "gpu" else "cpu"
     pretrain = Path(args.pretrain or PRETRAIN_DEFAULT).resolve()
     if not pretrain.is_file() or pretrain.stat().st_size <= 1024 * 1024:
         raise FileNotFoundError(f"Official {MODEL_NAME} pretrained weight missing or too small: {pretrain}")
-    metadata = {"schema_version":2, "model_name":MODEL_NAME, "dataset":str(dataset), "device":device,
-                "pretrain":str(pretrain), "parent_model_id":str(args.parent_model_id or ""),
-                "training_mode":str(args.training_mode or "fresh"), **settings, "started_at":utc_now()}
+    metadata = {"schema_version":2, "model_name":MODEL_NAME, "dataset":str(dataset), "device":device, "pretrain":str(pretrain), "parent_model_id":str(args.parent_model_id or ""), "training_mode":str(args.training_mode or "fresh"), **settings, "started_at":utc_now()}
     (output / "training_config.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    if args.device == "gpu":
+        memory_label = f"{settings['gpu_memory_mb']} MB" if settings.get("gpu_memory_mb") else "onbekend"
+        print(f"GPU batch policy: VRAM={memory_label}; batch_size={settings['batch_size']} ({settings['batch_size_source']}).", flush=True)
     replay_draws = int(settings.get("hard_example_replay_draws") or 0)
     if replay_draws:
-        print(
-            "Hard-example sampler gepland: "
-            f"{settings['base_train_images']} basispanelen + {replay_draws} replay-draws "
-            f"= {settings['train_images']} effectieve samples; "
-            f"{settings['hard_example_replay_panels']} moeilijk(e) panel(en).",
-            flush=True,
-        )
-    command = [sys.executable, str(PADDLEX_ROOT / "main.py"), "-c", str(config),
-               "-o", "Global.mode=train", "-o", f"Global.dataset_dir={dataset}",
-               "-o", f"Global.device={device}", "-o", f"Global.output={output}",
-               "-o", f"Train.epochs_iters={settings['epochs']}",
-               "-o", f"Train.batch_size={settings['batch_size']}",
-               "-o", f"Train.learning_rate={settings['learning_rate']}",
-               "-o", f"Train.warmup_steps={settings['warmup_steps']}",
-               "-o", f"Train.eval_interval={settings['eval_interval']}",
-               "-o", "Train.num_classes=1", "-o", f"Train.pretrain_weight_path={pretrain}"]
+        print("Hard-example sampler gepland: " f"{settings['base_train_images']} basispanelen + {replay_draws} replay-draws " f"= {settings['train_images']} effectieve samples; " f"{settings['hard_example_replay_panels']} moeilijk(e) panel(en).", flush=True)
+    command = [sys.executable, str(PADDLEX_ROOT / "main.py"), "-c", str(config), "-o", "Global.mode=train", "-o", f"Global.dataset_dir={dataset}", "-o", f"Global.device={device}", "-o", f"Global.output={output}", "-o", f"Train.epochs_iters={settings['epochs']}", "-o", f"Train.batch_size={settings['batch_size']}", "-o", f"Train.learning_rate={settings['learning_rate']}", "-o", f"Train.warmup_steps={settings['warmup_steps']}", "-o", f"Train.eval_interval={settings['eval_interval']}", "-o", "Train.num_classes=1", "-o", f"Train.pretrain_weight_path={pretrain}"]
     artifact_dir = output / "evaluation_artifacts"
     run(command, log_path=output / "paddlex_train.log", eval_artifact_dir=artifact_dir)
     if replay_draws:
         replay_marker = artifact_dir / "hard_example_replay_runtime.json"
         if not replay_marker.is_file():
-            raise RuntimeError(
-                "Hard-example replay was gepland maar PaddleDetection heeft geen runtime-marker geschreven; "
-                "training wordt niet als geldig beschouwd."
-            )
+            raise RuntimeError("Hard-example replay was gepland maar PaddleDetection heeft geen runtime-marker geschreven; training wordt niet als geldig beschouwd.")
         runtime_replay = json.loads(replay_marker.read_text(encoding="utf-8-sig"))
         applied = int(runtime_replay.get("extra_draws") or 0)
         if applied != replay_draws:
-            raise RuntimeError(
-                f"Hard-example replay mismatch: gepland {replay_draws}, PaddleDetection gebruikte {applied}."
-            )
+            raise RuntimeError(f"Hard-example replay mismatch: gepland {replay_draws}, PaddleDetection gebruikte {applied}.")
         metadata["hard_example_replay_runtime"] = runtime_replay
     inference = find_inference(output)
     if inference is None:
         weight = find_weight(output)
-        export_root = output / "export"
-        export_root.mkdir(parents=True, exist_ok=True)
-        export_cmd = [sys.executable, str(PADDLEX_ROOT / "main.py"), "-c", str(config),
-                      "-o", "Global.mode=export", "-o", f"Global.device={device}",
-                      "-o", f"Global.output={export_root}", "-o", f"Export.weight_path={weight}"]
+        export_root = output / "export"; export_root.mkdir(parents=True, exist_ok=True)
+        export_cmd = [sys.executable, str(PADDLEX_ROOT / "main.py"), "-c", str(config), "-o", "Global.mode=export", "-o", f"Global.device={device}", "-o", f"Global.output={export_root}", "-o", f"Export.weight_path={weight}"]
         run(export_cmd, log_path=output / "paddlex_export.log")
         inference = find_inference(output)
     if inference is None:
@@ -259,8 +276,7 @@ def boxes_from(result: Any) -> list[dict[str, Any]]:
         coords = item.get("coordinate") or item.get("bbox") or item.get("box")
         if not isinstance(coords, (list, tuple)) or len(coords) != 4: continue
         try:
-            score = float(item.get("score") or item.get("confidence") or 0.0)
-            box = [float(value) for value in coords]
+            score = float(item.get("score") or item.get("confidence") or 0.0); box = [float(value) for value in coords]
         except (TypeError, ValueError): continue
         out.append({"score":score, "coordinate":box, "bbox_format":"xyxy", "label":"table_cell", "class_id":0})
     return out
@@ -279,11 +295,9 @@ def command_predict(args: argparse.Namespace) -> int:
     for index, image in enumerate(images, 1):
         print(f"Predicting {index}/{len(images)}: {image.name}", flush=True)
         found: list[dict[str, Any]] = []
-        for result in model.predict(str(image), batch_size=1, threshold=float(args.threshold)):
-            found.extend(boxes_from(result))
+        for result in model.predict(str(image), batch_size=1, threshold=float(args.threshold)): found.extend(boxes_from(result))
         predictions[image.stem] = found
-    payload = {"model_name":MODEL_NAME, "model_dir":str(model_dir), "device":device,
-               "threshold":float(args.threshold), "created_at":utc_now(), "predictions":predictions}
+    payload = {"model_name":MODEL_NAME, "model_dir":str(model_dir), "device":device, "threshold":float(args.threshold), "created_at":utc_now(), "predictions":predictions}
     output.parent.mkdir(parents=True, exist_ok=True); output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(json.dumps({"status":"ok", "images":len(images), "predictions":sum(len(v) for v in predictions.values()), "output":str(output)}, indent=2), flush=True)
     return 0

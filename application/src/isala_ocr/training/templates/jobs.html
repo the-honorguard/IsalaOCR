@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Wachtrij · IsalaOCR{% endblock %}
 {% block heading %}Wachtrijbeheer{% endblock %}
-{% block subtitle %}Taken bekijken, opnieuw uitvoeren en veilige opruimacties uitvoeren{% endblock %}
+{% block subtitle %}Taken bekijken, annuleren, opnieuw uitvoeren en veilige opruimacties uitvoeren{% endblock %}
 {% block content %}
 <div class="grid cols-4 queue-summary">
   {% for key,label in [('pending','In wachtrij'),('running','Actief'),('completed','Voltooid'),('failed','Mislukt')] %}
@@ -28,7 +28,7 @@
     <tr><th>Status</th><th>Taak</th><th>Aangemaakt</th><th>Voortgang</th><th>Taak-ID</th><th>Bediening</th></tr>
     {% for job in jobs %}
     <tr>
-      <td><span class="job-status {{ job.status }}">{{ {'pending':'In wachtrij','running':'Bezig','completed':'Voltooid','failed':'Mislukt'}.get(job.status,job.status) }}</span></td>
+      <td><span class="job-status {{ job.status }}">{{ {'pending':'In wachtrij','running':'Bezig','completed':'Voltooid','failed':'Mislukt','cancelled':'Geannuleerd'}.get(job.status,job.status) }}</span></td>
       <td><strong>{{ job.action_name }}</strong></td>
       <td>{{ job.created_at or '-' }}</td>
       <td style="min-width:220px">
@@ -38,10 +38,12 @@
       <td class="mono">{{ job.job_id }}</td>
       <td><div class="actions">
         <button type="button" class="ghost" onclick="window.localStorage.setItem('isala-active-job','{{ job.job_id }}');document.getElementById('activity-dock').classList.remove('collapsed');window.location.href='/jobs/manage?job_id={{ job.job_id }}'">Terminal</button>
-        {% if job.status != 'running' %}
+        {% if job.status in ['pending','running'] %}
+        <form method="post" action="/jobs/{{ job.job_id }}/cancel" onsubmit="return confirm('Deze taak annuleren? Alleen deze job en de bijbehorende process-tree worden gestopt.')"><button class="danger">Annuleren</button></form>
+        {% else %}
         <form method="post" action="/jobs/{{ job.job_id }}/retry"><button>Opnieuw</button></form>
         <form method="post" action="/jobs/{{ job.job_id }}/delete" onsubmit="return confirm('Taak en logbestanden definitief verwijderen?')"><button class="danger">Verwijderen</button></form>
-        {% else %}<span class="muted">Actieve taak beveiligd</span>{% endif %}
+        {% endif %}
       </div></td>
     </tr>
     {% else %}<tr><td colspan="6">Geen taken in deze selectie.</td></tr>{% endfor %}
