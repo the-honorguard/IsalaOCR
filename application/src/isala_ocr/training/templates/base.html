@@ -184,17 +184,40 @@ if(comparisonIssueFilter){
     });
   };
 
+  const syncComparisonIssueFilter=()=>{
+    const value=String(comparisonIssueFilter.value||'all');
+    document.querySelectorAll('.comparison-panel-card').forEach(panel=>{
+      let visible=0;
+      panel.querySelectorAll('.comparison-issue-row').forEach(row=>{
+        const open=row.dataset.issueOpen==='1';
+        const show=value==='all'||(value==='open'&&open)||(value!=='open'&&row.dataset.issueType===value);
+        if(value!=='open'&&row.dataset.optimisticHidden==='1')delete row.dataset.optimisticHidden;
+        row.classList.toggle('is-filtered',!show);
+        row.style.display=show?'':'none';
+        if(show)visible+=1;
+      });
+      panel.classList.toggle('is-filtered',visible===0);
+      panel.style.display=visible>0?'':'none';
+    });
+  };
+
+  comparisonIssueFilter.addEventListener('change',()=>{
+    syncComparisonIssueFilter();
+    refreshComparisonPanelCounts();
+  });
+
   comparisonIssueFilter.value='open';
   comparisonIssueFilter.dispatchEvent(new Event('change'));
   refreshComparisonPanelCounts();
+  syncComparisonIssueFilter();
 
   const panelCountObserver=new MutationObserver(mutations=>{
-    if(mutations.some(mutation=>mutation.type==='attributes'&&mutation.attributeName==='data-issue-open')){
+    if(mutations.some(mutation=>mutation.type==='attributes'&&(mutation.attributeName==='data-issue-open'||mutation.attributeName==='data-optimistic-hidden'))){
       refreshComparisonPanelCounts();
+      syncComparisonIssueFilter();
     }
   });
-  document.querySelectorAll('.comparison-issue-row').forEach(row=>panelCountObserver.observe(row,{attributes:true,attributeFilter:['data-issue-open']}));
-  comparisonIssueFilter.addEventListener('change',refreshComparisonPanelCounts);
+  document.querySelectorAll('.comparison-issue-row').forEach(row=>panelCountObserver.observe(row,{attributes:true,attributeFilter:['data-issue-open','data-optimistic-hidden']}));
 }
 </script>
 {% block scripts %}{% endblock %}
