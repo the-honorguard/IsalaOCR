@@ -4,6 +4,9 @@
 # CUDA Paddle runtime must also start successfully through Docker before GPU is
 # selected.  CPU remains a fully supported fallback for CPU-only servers.
 
+. (Join-Path $PSScriptRoot "runtime-preparation.ps1")
+Assert-IsalaRuntimePrepared | Out-Null
+
 function Get-IsalaHostNvidiaState {
     $command = Get-Command "nvidia-smi" -ErrorAction SilentlyContinue
     if ($null -eq $command) {
