@@ -128,7 +128,30 @@ try {
             --build-arg ("BASE_IMAGE={0}" -f $baseImage) `
             --tag $inferenceImage `
             $ProjectRoot
-        if ($LASTEXITCODE -ne 0) { throw "GPU table-inference image build failed." }
+        if ($LASTEXITCODE -ne 0) { throw "[ISALA_TABLE_RUNTIME_BROKEN] GPU table-inference image build failed." }
+
+        # The generic Auto probe only proves that Paddle can see CUDA in the
+        # heavyweight training image. Verify the actual inference image as well,
+        # including the NumPy/pandas ABI and PaddleX/PaddleOCR imports. Keep the
+        # Python one-liner whitespace-free for Windows PowerShell 5.1 argument
+        # handling (see table-execution-device.ps1).
+        $tableSmokeCode = "n=__import__('numpy');pd=__import__('pandas');p=__import__('paddle');__import__('paddlex');__import__('paddleocr');assert(n.__version__=='1.26.4');assert(p.is_compiled_with_cuda());assert(p.device.cuda.device_count()>0);p.device.set_device('gpu:0');print('ISALA_TABLE_GPU_OK:'+n.__version__+':'+pd.__version__)"
+        $tableProbe = Invoke-DockerWithTimeout -Arguments @(
+            "run", "--rm", "--gpus", "all", "--network", "none",
+            "--entrypoint", "python3", $inferenceImage, "-c", $tableSmokeCode
+        ) -TimeoutSeconds 60
+        $tableProbeOutput = Get-IsalaProcessOutputText -Result $tableProbe -Fallback ""
+        if ($tableProbe.TimedOut -or $tableProbe.ExitCode -ne 0 -or $tableProbeOutput -notmatch 'ISALA_TABLE_GPU_OK:') {
+            $tableProbeReason = if ($tableProbe.TimedOut) {
+                "GPU table-inference runtime probe liep in een timeout"
+            } elseif ($tableProbeOutput) {
+                $tableProbeOutput
+            } else {
+                "GPU table-inference runtime probe faalde zonder uitvoer"
+            }
+            throw "[ISALA_TABLE_RUNTIME_BROKEN] GPU table-inference dependency/CUDA smoke-test failed: $tableProbeReason"
+        }
+        Write-Host ("GPU table-inference runtime OK ({0})" -f (($tableProbeOutput -split '[\r\n]') | Where-Object { $_ -match 'ISALA_TABLE_GPU_OK:' } | Select-Object -First 1)) -ForegroundColor Green
 
         $projectId = Get-IsalaActiveProjectId
         $dockerArguments = @(
