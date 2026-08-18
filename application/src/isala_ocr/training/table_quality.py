@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .db import TrainingDatabase
+from .table_cell_ground_truth import ground_truth_review_state, load_table_cell_ground_truth
 
 
 def _ratio(numerator: int, denominator: int) -> float:
@@ -61,11 +62,13 @@ def table_first_quality(
     maximum_false_candidate_rate: float = 0.10,
     maximum_adjustment_rate: float = 0.25,
 ) -> dict[str, Any]:
-    """Measure raw PP-Structure table/cell coverage against explicit review.
+    """Report table-cell quality and expose the authoritative table-first gate.
 
-    This is intentionally an advisory table-first gate, not a detector-training
-    metric. It answers how much of the desired geometry PP-Structure supplied
-    directly before manual additions or a future fallback detector are needed.
+    Before canonical table-cell Ground Truth exists, the historic PP-Structure
+    review metrics remain the gate. Once canonical GT exists, that persistent GT
+    becomes authoritative: Mapping may continue when GT exists, contains cells,
+    and every GT source is explicitly complete. Detector precision/FP/adjustment
+    metrics remain diagnostic only and may no longer close Pipeline B.
     """
     with db.connect() as conn:
         source_rows = conn.execute(
@@ -230,6 +233,41 @@ def table_first_quality(
                 )
                 next_step = "Gebruik de reviewcorrecties als table-cell trainingsdata en fine-tune eerst de wireless table-cell detector voordat de losse box-detector terugkomt."
 
+    canonical_state: dict[str, Any] | None = None
+    if load_table_cell_ground_truth(db.path.parent) is not None:
+        canonical_state = ground_truth_review_state(db.path.parent)
+        canonical_source_count = int(canonical_state.get("source_count") or 0)
+        canonical_cell_count = int(canonical_state.get("gt_cell_count") or 0)
+        canonical_open_count = int(canonical_state.get("open_source_count") or 0)
+        ready = bool(
+            canonical_source_count > 0
+            and canonical_cell_count > 0
+            and canonical_open_count == 0
+        )
+        if ready:
+            state = "canonical_gt_ready"
+            tone = "success"
+            title = "Canonieke table-cell Ground Truth is klaar"
+            summary = (
+                f"{canonical_cell_count} canonieke GT-cellen over {canonical_source_count} bronafbeelding(en); "
+                "0 GT-bronnen staan nog open. Detector-FP's en geometriescores zijn vanaf hier diagnostisch en blokkeren Mapping niet meer."
+            )
+            next_step = "Ga door naar Mapping Studio."
+        elif canonical_source_count == 0 or canonical_cell_count == 0:
+            state = "canonical_gt_empty"
+            tone = "warning"
+            title = "Canonieke Ground Truth ontbreekt"
+            summary = "Er is wel een canoniek GT-bestand, maar het bevat nog geen bruikbare bronnen/cellen."
+            next_step = "Ga terug naar Ground Truth beheren en maak/bevestig de canonieke table-cell GT."
+        else:
+            state = "canonical_gt_needs_review"
+            tone = "warning"
+            title = "Canonieke Ground Truth is nog niet volledig gecontroleerd"
+            summary = (
+                f"{canonical_open_count} van {canonical_source_count} GT-bronafbeelding(en) staan nog open."
+            )
+            next_step = "Open Ground Truth beheren en markeer de resterende bronafbeeldingen als gecontroleerd."
+
     return {
         "strategy": "table_first",
         "ready": ready,
@@ -239,6 +277,13 @@ def table_first_quality(
         "reason": summary,
         "summary": summary,
         "next_step": next_step,
+        "gate_source": "canonical_gt" if canonical_state is not None else "legacy_table_review",
+        "canonical_gt": ({
+            "source_count": int(canonical_state.get("source_count") or 0),
+            "gt_cell_count": int(canonical_state.get("gt_cell_count") or 0),
+            "open_source_count": int(canonical_state.get("open_source_count") or 0),
+            "completed_source_count": int(canonical_state.get("completed_source_count") or 0),
+        } if canonical_state is not None else None),
         "sources": sources,
         "source_count": len(sources),
         "sources_with_tables": sources_with_tables,
