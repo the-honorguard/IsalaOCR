@@ -7,7 +7,7 @@ Push-Location $ProjectRoot
 try {
     . (Join-Path $PSScriptRoot "training-common.ps1")
     Assert-IsalaActionPreflight -ActionId "21"
-Assert-IsalaDetectionGateOpen
+    Assert-IsalaDetectionGateOpen
     Assert-Docker
 
     New-Item -ItemType Directory -Force -Path training\workspace, training\registry | Out-Null
@@ -16,8 +16,10 @@ Assert-IsalaDetectionGateOpen
     $dockerArguments = @(
         "compose",
         "--profile", "training",
-        "run", "--rm", "--build",
+        "run", "--rm", "--pull", "never",
+        "--entrypoint", "python",
         "training-collector",
+        "-m", "isala_ocr.table_first_cli",
         "apply-mappings",
         "--workspace", "/training/workspace",
         "--config", "/app/config/app.yaml"
