@@ -124,11 +124,11 @@ def gpu_memory_mb() -> int | None:
 def safe_gpu_batch(default_batch: int, memory_mb: int | None) -> int:
     """Cap RT-DETR-L defaults before Windows/WSL starts spilling into shared RAM."""
     if memory_mb is None:
-        # Unknown GPU: prefer the conservative 8-GB-class setting over an
-        # optimistic batch 8 that can silently page into shared memory.
-        return min(default_batch, 4)
+        # Unknown GPU: use the conservative 8-GB-class setting so CUDA/WDDM
+        # keeps enough headroom instead of paging into shared system memory.
+        return min(default_batch, 3)
     if memory_mb <= 9216:
-        return min(default_batch, 4)
+        return min(default_batch, 3)
     if memory_mb <= 13312:
         return min(default_batch, 6)
     return default_batch
