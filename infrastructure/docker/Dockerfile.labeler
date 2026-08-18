@@ -34,6 +34,8 @@ COPY application/src/isala_ocr/training/table_cell_ground_truth.py /app/src/isal
 COPY application/src/isala_ocr/training/table_model_comparison.py /app/src/isala_ocr/training/table_model_comparison.py
 COPY application/src/isala_ocr/training/table_model_evaluation_policy.py /app/src/isala_ocr/training/table_model_evaluation_policy.py
 COPY application/src/isala_ocr/training/table_hard_negative_policy.py /app/src/isala_ocr/training/table_hard_negative_policy.py
+COPY application/src/isala_ocr/training/comparison_review_queue.py /app/src/isala_ocr/training/comparison_review_queue.py
+COPY application/src/isala_ocr/training/comparison_review_queue_web.py /app/src/isala_ocr/training/comparison_review_queue_web.py
 COPY application/src/isala_ocr/training/dynamic_locator.py /app/src/isala_ocr/training/dynamic_locator.py
 COPY application/src/isala_ocr/training/header_normalization.py /app/src/isala_ocr/training/header_normalization.py
 COPY application/src/isala_ocr/training/generic_detection.py /app/src/isala_ocr/training/generic_detection.py
