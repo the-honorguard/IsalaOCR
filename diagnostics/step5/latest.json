@@ -1,15 +1,15 @@
 {
     "schema_version":  1,
     "project_id":  "cmr_testcase_01",
-    "status":  "running",
-    "started_at":  "2026-08-18T14:21:39.5633387+02:00",
-    "completed_at":  "",
+    "status":  "completed",
+    "started_at":  "2026-08-18T15:26:23.9895618+02:00",
+    "completed_at":  "2026-08-18T15:44:54.4498467+02:00",
     "requested_device":  "auto",
     "resolved_device":  "gpu",
     "training_backend":  "gpu",
     "inference_backend":  "gpu",
     "gpu_name":  "NVIDIA GeForce RTX 3070",
-    "dataset_id":  "table-cells-20260818T122228346591Z-28e82265",
+    "dataset_id":  "table-cells-20260818T133401650349Z-28e82265",
     "dataset":  {
                     "source_count":  14,
                     "panel_count":  28,
@@ -263,9 +263,72 @@
                                                }
                                            ]
                             },
-    "model_id":  "",
-    "run_id":  "",
-    "training_run":  null,
-    "model_validation":  null,
+    "model_id":  "table-RTDETR-L-table-run-20260818T153557-RTDETR-L",
+    "run_id":  "table-run-20260818T153557-RTDETR-L",
+    "training_run":  {
+                         "training_mode":  "continue",
+                         "parent_model_id":  "table-RTDETR-L-table-run-20260818T132355-RTDETR-L",
+                         "epochs":  40,
+                         "batch_size":  3,
+                         "learning_rate":  3E-05,
+                         "base_train_images":  18,
+                         "hard_example_replay_draws":  9,
+                         "hard_example_replay_panels":  9,
+                         "hard_example_replay_runtime":  {
+                                                             "strategy":  "dynamic_panel_weighted_replay",
+                                                             "base_records":  18,
+                                                             "extra_draws":  9,
+                                                             "effective_records":  27,
+                                                             "panel_count":  9,
+                                                             "budget_ratio":  0.5,
+                                                             "candidate_panel_count":  18,
+                                                             "requested_extra_draws":  36,
+                                                             "dataset":  "/training/workspace/projects/cmr_testcase_01/table_cell_datasets/table-cells-20260818T133401650349Z-28e82265",
+                                                             "annotation":  "annotations/instance_train.json"
+                                                         },
+                         "started_at":  "2026-08-18T13:36:00.815001+00:00",
+                         "completed_at":  "2026-08-18T13:40:22.256021+00:00"
+                     },
+    "model_validation":  {
+                             "dataset_id":  "table-cells-20260818T133401650349Z-28e82265",
+                             "split":  "val",
+                             "confidence":  0.25,
+                             "iou_threshold":  0.5,
+                             "tp":  108,
+                             "fp":  0,
+                             "fn":  0,
+                             "recall":  1.0,
+                             "precision":  1.0,
+                             "f1":  1.0,
+                             "false_positives_per_panel":  0.0,
+                             "panel_count":  4,
+                             "evaluated_at":  "2026-08-18T13:41:01.842744+00:00",
+                             "images":  [
+                                            {
+                                                "file_name":  "a53913ec7d41d58384415386__left-ventricle-volume-result.png",
+                                                "tp":  27,
+                                                "fp":  0,
+                                                "fn":  0
+                                            },
+                                            {
+                                                "file_name":  "a53913ec7d41d58384415386__right-ventricle-volume-result.png",
+                                                "tp":  27,
+                                                "fp":  0,
+                                                "fn":  0
+                                            },
+                                            {
+                                                "file_name":  "bcc4bceea17c19580924f189__left-ventricle-volume-result.png",
+                                                "tp":  27,
+                                                "fp":  0,
+                                                "fn":  0
+                                            },
+                                            {
+                                                "file_name":  "bcc4bceea17c19580924f189__right-ventricle-volume-result.png",
+                                                "tp":  27,
+                                                "fp":  0,
+                                                "fn":  0
+                                            }
+                                        ]
+                         },
     "error":  ""
 }
