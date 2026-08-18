@@ -23,7 +23,7 @@
   </div>
   <div class="actions">
     {% if canonical %}
-    <form method="post" action="/jobs" id="run-all-table-form">
+    <form method="post" action="/jobs" id="run-all-table-form" data-custom-job-submit="1">
       <input type="hidden" name="action_id" value="53">
       <label for="table-execution-device" style="display:grid;gap:5px;min-width:min(340px,100%)">
         <strong>Uitvoermodus</strong>
@@ -107,6 +107,7 @@
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
+    event.stopImmediatePropagation();
     if (button.disabled) return;
     const requested = String(select.value || 'auto');
     const original = button.innerHTML;
