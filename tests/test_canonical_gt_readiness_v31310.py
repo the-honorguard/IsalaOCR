@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from isala_ocr.training.db import TrainingDatabase
 from isala_ocr.training.table_cell_ground_truth import (
     add_ground_truth_cell,
     ground_truth_path,
@@ -11,6 +12,7 @@ from isala_ocr.training.table_cell_ground_truth import (
     set_ground_truth_source_review_completed,
     update_ground_truth_cell,
 )
+from isala_ocr.training.table_quality import table_first_quality
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -73,6 +75,24 @@ def test_new_gt_cell_reopens_source(tmp_path: Path) -> None:
     source = list_ground_truth_sources(tmp_path)[0]
     assert source["review_completed"] is False
     assert source["gt_count"] == 2
+
+
+def test_canonical_gt_is_authoritative_table_first_mapping_gate(tmp_path: Path) -> None:
+    _write_legacy_gt(tmp_path)
+    db = TrainingDatabase(tmp_path / "samples.sqlite3")
+
+    quality = table_first_quality(db)
+    assert quality["ready"] is True
+    assert quality["state"] == "canonical_gt_ready"
+    assert quality["gate_source"] == "canonical_gt"
+    assert quality["canonical_gt"]["gt_cell_count"] == 1
+    assert quality["canonical_gt"]["open_source_count"] == 0
+
+    update_ground_truth_cell(tmp_path, "source-a", "gt-1", (12, 10, 42, 30))
+    quality = table_first_quality(db)
+    assert quality["ready"] is False
+    assert quality["state"] == "canonical_gt_needs_review"
+    assert quality["canonical_gt"]["open_source_count"] == 1
 
 
 def test_gt_studio_exposes_persistent_source_check_and_model_predictions_stay_in_step7() -> None:
