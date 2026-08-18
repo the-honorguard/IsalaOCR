@@ -11,14 +11,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN groupadd --gid "${APP_GID}" isalaocr \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --no-create-home --shell /usr/sbin/nologin isalaocr \
-    && python -m pip install --no-cache-dir "Flask>=3.1,<4" "waitress>=3,<4" "PyYAML>=6,<7"
+    && python -m pip install --no-cache-dir "Flask>=3.1,<4" "waitress>=3,<4" "PyYAML>=6,<7" "Pillow>=10,<13"
 
 WORKDIR /app
 
 # The labeling UI only needs the database and web modules. Deliberately do not
 # install PaddleOCR, PaddlePaddle, OpenCV, pydicom or compressed-DICOM codecs.
-# This keeps the image small and prevents a simple web UI from rebuilding the
-# multi-gigabyte OCR runtime.
+# Pillow is kept because the table hard-negative policy is installed from the
+# training package and its dataset helper creates image crops when invoked.
 COPY application/src/isala_ocr/__init__.py /app/src/isala_ocr/__init__.py
 COPY application/src/isala_ocr/config.py /app/src/isala_ocr/config.py
 COPY application/src/isala_ocr/models.py /app/src/isala_ocr/models.py
@@ -33,6 +33,7 @@ COPY application/src/isala_ocr/training/table_cell_training.py /app/src/isala_oc
 COPY application/src/isala_ocr/training/table_cell_ground_truth.py /app/src/isala_ocr/training/table_cell_ground_truth.py
 COPY application/src/isala_ocr/training/table_model_comparison.py /app/src/isala_ocr/training/table_model_comparison.py
 COPY application/src/isala_ocr/training/table_model_evaluation_policy.py /app/src/isala_ocr/training/table_model_evaluation_policy.py
+COPY application/src/isala_ocr/training/table_hard_negative_policy.py /app/src/isala_ocr/training/table_hard_negative_policy.py
 COPY application/src/isala_ocr/training/dynamic_locator.py /app/src/isala_ocr/training/dynamic_locator.py
 COPY application/src/isala_ocr/training/header_normalization.py /app/src/isala_ocr/training/header_normalization.py
 COPY application/src/isala_ocr/training/generic_detection.py /app/src/isala_ocr/training/generic_detection.py
