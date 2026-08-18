@@ -9,6 +9,34 @@ param(
 $ErrorActionPreference = "Stop"
 Assert-IsalaActionPreflight -ActionId "53"
 
+# The web worker intentionally keeps launcher arguments generic. Read the
+# execution preference directly from the currently running action-53 job so the
+# browser can submit Auto/CPU/GPU without coupling the worker to this action.
+# Direct/CLI callers can still pass -ExecutionDevice explicitly.
+if ($ExecutionDevice -eq "auto") {
+    try {
+        $projectIdForJob = Get-IsalaActiveProjectId
+        $runningJobs = Join-Path $ProjectRoot "training\workspace\webui\jobs\running"
+        $job = Get-ChildItem -LiteralPath $runningJobs -Filter "*.json" -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTimeUtc -Descending |
+            ForEach-Object {
+                try {
+                    $candidate = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+                    if ([string]$candidate.action_id -eq "53" -and [string]$candidate.project_id -eq $projectIdForJob) { $candidate }
+                } catch { }
+            } | Select-Object -First 1
+        if ($null -ne $job -and $null -ne $job.options) {
+            $requestedFromJob = ([string]$job.options.execution_device).Trim().ToLowerInvariant()
+            if ($requestedFromJob -in @("auto", "cpu", "gpu")) {
+                $ExecutionDevice = $requestedFromJob
+            }
+        }
+    }
+    catch {
+        Write-Warning ("Uitvoermodus uit webtaak kon niet worden gelezen; Auto blijft actief: {0}" -f $_.Exception.Message)
+    }
+}
+
 # One complete table-model iteration. The individual scripts remain the source
 # of truth; this wrapper only sequences them and stops immediately on failure.
 # Canonical GT geometry is never changed here. When source-level GT review flags
