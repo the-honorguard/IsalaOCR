@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from isala_ocr.training.table_hard_negative_policy import (
     MAX_REPLAY_WEIGHT,
     REPLAY_BUDGET_RATIO,
     _feedback_from_completed_runs,
     _plan_replay,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _error(source: str, panel: str, *, issue_type: str = "fp", confidence: float = 0.9) -> dict:
@@ -106,3 +111,14 @@ def test_replay_plan_is_train_only_and_budgeted() -> None:
     assert {item["panel_key"] for item in plan["panels"]} == {"source-a::left", "source-b::right"}
     assert all(item["replay_count"] == 1 for item in plan["panels"])
     assert all(item["source_id"] != "source-val" for item in plan["panels"])
+
+
+def test_policy_no_longer_generates_negative_crops_or_duplicate_pngs() -> None:
+    source = (ROOT / "application" / "src" / "isala_ocr" / "training" / "table_hard_negative_policy.py").read_text(encoding="utf-8")
+
+    assert "from PIL" not in source
+    assert "crop.save" not in source
+    assert "HARD_NEGATIVE_COPIES" not in source
+    assert "negative-only crops x3" not in source
+    assert '"panel_weights": {}' in source
+    assert "dynamic_panel_weighted_replay" in source
