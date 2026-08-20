@@ -1,17 +1,31 @@
-schema_version: 1
+schema_version: 2
 use_case_id: philips_cmr_volume_results
 name: Philips CMR Volume Results
 description: >-
-  Specifieke testcase voor Philips CMR-resultaatschermen. De IsalaOCR-tooling blijft
-  generiek; localization data, mappings, modellen en output zijn projectspecifiek.
+  Specifieke testcase voor Philips CMR-resultaatschermen. De IsalaOCR Model Factory
+  blijft generiek; projectspecifieke interpretatie/output hoort bij de optionele
+  Application Processing-fase.
 localization:
   class_names: [field_roi]
   project_specific: true
   unreviewed_policy: ignore
   rejection_reason_required: false
-mapping:
-  seed_profile: philips_cmr_volume
 recognition:
   may_share_models: true
+
+# Fase 2 is optioneel en geen trainingsvoorwaarde. Dit bewaart het reeds gebouwde
+# Mapping Studio-werk zodat het later als application/deployment pipeline kan worden
+# uitgebreid zonder semantiek in de modeltraining te stoppen.
+application_processing:
+  enabled_by_default: false
+  mapping:
+    seed_profile: philips_cmr_volume
+  output:
+    schema: cardiac_measurements
+
+# Backwards-compatible keys for existing routes/jobs. New code should read the
+# application_processing section instead.
+mapping:
+  seed_profile: philips_cmr_volume
 output:
   schema: cardiac_measurements
