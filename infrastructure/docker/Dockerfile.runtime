@@ -8,7 +8,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PADDLE_PDX_CACHE_HOME=/models/paddlex \
-    XDG_CACHE_HOME=/tmp/.cache \
     HOME=/tmp
 
 # BuildKit keeps the apt downloads outside the final image and reuses them
@@ -44,9 +43,9 @@ COPY application/config /app/config
 COPY application/schemas /app/schemas
 
 # These runtime directories are created directly with the application UID/GID.
-# Paddle writes a small kernel/cache tree below $XDG_CACHE_HOME during offline
-# model warm-up. Pre-creating only that cache avoids the former recursive chown
-# of /tmp, /models and /training, which took several minutes on Docker Desktop.
+# Paddle resolves its user cache below $HOME/.cache/paddle during offline model
+# warm-up. Pre-creating only that cache avoids the former recursive chown of
+# /tmp, /models and /training, which took several minutes on Docker Desktop.
 RUN install -d -o "${APP_UID}" -g "${APP_GID}" \
         /output \
         /models \
