@@ -16,6 +16,7 @@ def test_mapping_review_studio_assets_are_loaded_globally_but_noop_off_mapping()
 
     assert "mapping-review-studio.css" in base
     assert "mapping-review-studio.js" in base
+    assert '<script defer src="{{ url_for(\'static\',filename=\'mapping-review-studio.js\',v=app_version) }}"></script>' in base
     assert "const rows = Array.from(document.querySelectorAll('.mapping-relation-row'));" in js
     assert "if (!rows.length" in js
 
@@ -130,4 +131,4 @@ def test_partial_mapping_sync_preserves_other_suggestions(tmp_path):
 
 
 def test_mapping_review_studio_version():
-    assert VERSION.read_text(encoding="utf-8").strip() == "3.14.9"
+    assert VERSION.read_text(encoding="utf-8").strip() == "3.14.10"
