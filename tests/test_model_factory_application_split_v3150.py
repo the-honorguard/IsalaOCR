@@ -57,4 +57,4 @@ def test_architecture_document_preserves_existing_mapping_as_phase_two():
 
 
 def test_architecture_split_version():
-    assert VERSION.read_text(encoding="utf-8").strip() == "3.15.0"
+    assert VERSION.read_text(encoding="utf-8").strip() == "3.15.1"
