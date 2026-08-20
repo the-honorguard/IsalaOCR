@@ -11,6 +11,7 @@ from .mapping import (
     _similarity,
     _unique,
 )
+from .mapping_lateral import ambiguous_lateral_suffixes, lateral_candidate_allowed
 from .relation_feedback import evaluate_feedback, relation_snapshot
 
 
@@ -29,7 +30,13 @@ def suggest_mappings_fast(
     loads the source graph once, resolves each unique value geometry once, and
     writes the selected suggestions in one transaction while preserving the
     existing scoring and validation semantics.
+
+    Bilateral measurements are deliberately conservative: when both LV and RV
+    targets exist for the same metric, a generic relation needs explicit left/
+    right evidence before it may become an automatic suggestion.
     """
+    # Rebuilding Mapping Studio must also remove old automatic guesses that are
+    # no longer valid under the current scorer. Confirmed mappings are preserved.
     database.clear_suggested_mappings(source_id)
     relations = database.list_detected_relations(source_id)
     source = database.get_detection_source(source_id) or {"source_id": source_id}
@@ -47,6 +54,7 @@ def suggest_mappings_fast(
         if str(relation.get("status") or "proposed") != "rejected"
     }
     fields = database.list_field_definitions(active_only=True)
+    lateral_ambiguities = ambiguous_lateral_suffixes(fields)
     existing = database.list_mappings(source_id)
     confirmed_fields = {
         str(item["field_key"])
@@ -108,6 +116,8 @@ def suggest_mappings_fast(
             continue
         aliases = _unique([str(field.get("display_name") or ""), *field.get("aliases", [])])
         for relation, feedback in eligible_relations:
+            if not lateral_candidate_allowed(field, relation, lateral_ambiguities):
+                continue
             label = str(relation.get("label_text") or "")
             label_score = max((_similarity(label, alias) for alias in aliases), default=0.0)
             context = str(relation.get("context_text") or "")
@@ -164,9 +174,10 @@ def suggest_mappings_fast(
 
     if not stored_ids:
         return []
+    stored_id_set = set(stored_ids)
     by_id = {
         str(item["mapping_id"]): item
         for item in database.list_mappings(source_id)
-        if str(item.get("mapping_id") or "") in set(stored_ids)
+        if str(item.get("mapping_id") or "") in stored_id_set
     }
     return [by_id[mapping_id] for mapping_id in stored_ids if mapping_id in by_id]
