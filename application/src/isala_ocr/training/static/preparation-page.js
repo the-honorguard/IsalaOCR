@@ -2,6 +2,12 @@
   const root = document.getElementById('preparation-overview');
   if (!root) return;
 
+  const ONE_CLICK_PREPARATION = Object.freeze({
+    actionId: '1',
+    title: 'Alles voorbereiden',
+    detail: 'Downloadt, bouwt/installeert en controleert alle benodigde runtime- en modelcomponenten in één taak.',
+  });
+
   const summary = root.querySelector('[data-prep-summary]');
   const counts = root.querySelector('[data-prep-counts]');
   const checkedAt = root.querySelector('[data-prep-checked-at]');
@@ -17,6 +23,17 @@
   const repairDetail = root.querySelector('[data-prep-repair-detail]');
   let polling = false;
   let autoRefreshAttempted = false;
+
+  // Stap 1 is een normale workflowstap, geen onderhoudsconsole. De losse
+  // download/install/check-acties blijven backend/CLI-hulpmiddelen maar worden
+  // niet als alternatieve knoppen in de normale WebUI aangeboden.
+  root.querySelector('.preparation-maintenance')?.remove();
+
+  function enforceOneClickAction() {
+    if (repairActionId) repairActionId.value = ONE_CLICK_PREPARATION.actionId;
+    if (repairTitle) repairTitle.textContent = ONE_CLICK_PREPARATION.title;
+    if (repairDetail) repairDetail.textContent = ONE_CLICK_PREPARATION.detail;
+  }
 
   function phaseLabel(phase, kind) {
     if (phase.state === 'ready') return kind === 'download' ? 'Aanwezig' : 'Gevalideerd';
@@ -37,61 +54,10 @@
     if (detail) detail.textContent = phase.detail || '';
   }
 
-  function repairPlan(prep) {
-    const component = Array.isArray(prep.components) ? prep.components[0] : null;
-    if (!component || !component.download) {
-      return {
-        actionId: '19',
-        title: 'Status opnieuw controleren',
-        detail: 'Bepaal opnieuw wat lokaal aanwezig is',
-        message: 'De actuele table-pipeline status kon niet worden bepaald. Controleer de voorbereiding opnieuw.',
-      };
-    }
-    if (component.download.state === 'unknown') {
-      return {
-        actionId: '19',
-        title: 'Status opnieuw controleren',
-        detail: 'Bepaal opnieuw wat lokaal aanwezig is',
-        message: 'De modelcache is nog niet actueel gecontroleerd. Vernieuw eerst de status.',
-      };
-    }
-    if (component.download.state === 'missing') {
-      return {
-        actionId: String(component.download_action_id || '30'),
-        title: 'Table modellen downloaden',
-        detail: 'Vul de lokale PP-Structure/OCR modelcache',
-        message: 'De lokale table/cell-modelcache ontbreekt nog. Download eerst de benodigde PP-Structure/OCR-modellen.',
-      };
-    }
-    if (!component.install || component.install.state === 'unknown') {
-      return {
-        actionId: String(component.check_action_id || '42'),
-        title: 'Table pipeline controleren',
-        detail: 'Voer de offline runtime-validatie uit',
-        message: 'De bestanden zijn aanwezig, maar de offline runtimecheck ontbreekt nog of is verouderd.',
-      };
-    }
-    if (component.install.state === 'missing') {
-      return {
-        actionId: String(component.install_action_id || '35'),
-        title: 'Inference runtime installeren',
-        detail: 'Bouw de PP-OCRv6 + PP-Structure runtime',
-        message: 'De modellen zijn aanwezig, maar de inference-runtime is nog niet geïnstalleerd of gevalideerd.',
-      };
-    }
-    return {
-      actionId: String(component.full_action_id || '14'),
-      title: 'Table pipeline voorbereiden',
-      detail: 'Download, installeer en controleer de table-pipeline',
-      message: 'De voorbereiding is nog niet volledig afgerond.',
-    };
-  }
-
   function render(prep) {
     const total = Number(prep.component_count || 0);
     const ready = Number(prep.ready_count || 0);
     const allReady = Boolean(prep.all_ready);
-    const plan = repairPlan(prep);
 
     if (hero) {
       hero.classList.toggle('ready', allReady);
@@ -101,14 +67,12 @@
     if (mainIcon) mainIcon.textContent = allReady ? '✓' : '!';
     if (mainMessage) {
       mainMessage.textContent = allReady
-        ? 'PP-StructureV3, de OCR-runtime en alle benodigde table/cell-modellen zijn lokaal aanwezig en offline gevalideerd. Je hoeft hier niets meer te installeren.'
-        : plan.message;
+        ? 'Alle benodigde modellen, runtimes en trainingsimages zijn lokaal voorbereid en gevalideerd. Je hoeft hier niets meer te installeren.'
+        : 'De voorbereiding is nog niet compleet. Klik één keer op Alles voorbereiden; deze taak handelt downloads, builds/installaties en validaties zelf af.';
     }
     if (readyAction) readyAction.hidden = !allReady;
     if (repairAction) repairAction.hidden = allReady;
-    if (repairActionId) repairActionId.value = plan.actionId;
-    if (repairTitle) repairTitle.textContent = plan.title;
-    if (repairDetail) repairDetail.textContent = plan.detail;
+    enforceOneClickAction();
 
     if (summary) {
       summary.classList.toggle('ready', allReady);
@@ -126,7 +90,7 @@
     const unknown = Number(prep.unknown_count || 0);
     if (warning) {
       warning.hidden = unknown === 0;
-      warning.textContent = `${unknown} controle(s) zijn niet actueel. Vernieuw de status voordat je verdergaat.`;
+      warning.textContent = `${unknown} controle(s) zijn niet actueel. Dit wordt automatisch geïnventariseerd; de knop Alles voorbereiden blijft de enige handmatige voorbereidingstaak.`;
     }
 
     for (const item of (prep.components || [])) {
@@ -170,6 +134,7 @@
       await enqueueInventoryIfNeeded(prep);
     } catch (_) {
       // Keep the last known status instead of replacing it with a false state.
+      enforceOneClickAction();
     } finally {
       polling = false;
     }
@@ -186,6 +151,7 @@
     }
   });
 
+  enforceOneClickAction();
   refresh();
   window.setInterval(refresh, document.hidden ? 30000 : 10000);
 })();

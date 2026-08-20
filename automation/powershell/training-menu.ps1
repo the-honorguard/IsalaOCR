@@ -76,7 +76,7 @@ function Invoke-IsalaMenuAction {
 }
 
 $workflowSteps = [ordered]@{
-    "1"  = @{ Name = "Voorbereiding"; ActionId = "14" }
+    "1"  = @{ Name = "Voorbereiding"; ActionId = "1" }
     "2"  = @{ Name = "Panelen instellen"; Url = "http://127.0.0.1:8088/process/panel-setup" }
     "3"  = @{ Name = "Tabelstructuur detecteren"; ActionId = "2" }
     "4"  = @{ Name = "Tabelcellen reviewen"; Url = "http://127.0.0.1:8088/detection-review" }
@@ -143,21 +143,8 @@ function Show-IsalaMenu {
 function Invoke-PreparationMenu {
     Write-Host ""
     Write-Host "Stap 1 · Voorbereiding" -ForegroundColor Cyan
-    Write-Host " I. Table pipeline volledig voorbereiden (aanbevolen)"
-    Write-Host " P. Alle downloads parallel"
-    Write-Host " B. Alle installaties/builds"
-    Write-Host " V. Alle installatiechecks"
-    Write-Host " A. Alle componenten voorbereiden (incl. geparkeerde detector stacks)"
-    Write-Host " C. CPU detector / PicoDet-S volledig"
-    Write-Host " R. GPU OCR-recognition volledig"
-    Write-Host " D. GPU PaddleDetection / PicoDet-S volledig"
-    Write-Host " W. PP-OCRv6 pretrained gewicht volledig"
-    Write-Host " S. Status alleen verversen"
-    $sub = ([string](Read-Host "Kies voorbereidingstaak")).Trim().ToUpperInvariant()
-    $map = @{ I="14"; A="1"; P="40"; B="41"; V="47"; C="15"; R="16"; D="17"; W="18"; S="19" }
-    $taskId = $map[$sub]
-    if (-not $taskId) { throw "Onbekende voorbereidingstaak." }
-    Invoke-IsalaMenuAction -ActionId $taskId
+    Write-Host "Eén taak voert alle downloads, builds/installaties en controles uit." -ForegroundColor DarkCyan
+    Invoke-IsalaMenuAction -ActionId "1"
 }
 
 function Invoke-WorkflowStep {
