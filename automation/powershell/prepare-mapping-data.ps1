@@ -6,12 +6,12 @@ Assert-IsalaDetectionGateOpen
 Assert-Docker
 Assert-IsalaRuntimePrepared | Out-Null
 $ProjectInput = Get-IsalaContainerProjectInput
-Write-Host "Pipeline B: creating semantic OCR blocks and mapping suggestions after the table-first gate..."
+Write-Host "Pipeline B: creating semantic OCR blocks and mapping suggestions from canonical table-cell Ground Truth..."
 $args = @(
     "compose","--profile","training","run","--rm","--pull","never",
     "--entrypoint","python",
     "training-collector",
-    "-m","isala_ocr.table_first_cli",
+    "-m","isala_ocr.mapping_gt_cli",
     "collect-mapping",
     "--input",$ProjectInput,
     "--workspace","/training/workspace",

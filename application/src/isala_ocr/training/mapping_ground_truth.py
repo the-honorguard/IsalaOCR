@@ -1,0 +1,434 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+from dataclasses import replace
+from pathlib import Path
+from typing import Any, Sequence
+
+import cv2
+
+from ..config import AppConfig
+from ..image_io import load_input
+from ..models import Box, OCRToken
+from ..ocr.base import OCREngine
+from ..ocr.table_structure import TableCell, TableRegion
+from ..study_info import extract_study_info
+from .db import TrainingDatabase, utc_now
+from .generic_detection import (
+    GENERIC_DETECTOR_VERSION,
+    GenericBlock,
+    detect_generic_structure,
+    integrate_table_regions,
+)
+from .mapping import ensure_default_field_definitions, suggest_mappings
+from .projects import resolve_project_workspace
+from .table_cell_ground_truth import (
+    ensure_table_cell_ground_truth,
+    ground_truth_review_state,
+    list_ground_truth_cells,
+)
+
+LOGGER = logging.getLogger(__name__)
+CANONICAL_MAPPING_GEOMETRY_VERSION = "canonical-table-cell-gt-v1"
+
+
+def _files(path: Path) -> list[Path]:
+    if path.is_file():
+        return [path]
+    if not path.is_dir():
+        raise FileNotFoundError(path)
+    ignored_suffixes = {".ini", ".yaml", ".yml", ".json", ".txt", ".log"}
+    return sorted(
+        item
+        for item in path.rglob("*")
+        if item.is_file()
+        and not any(part.startswith(".") for part in item.relative_to(path).parts)
+        and item.suffix.lower() not in ignored_suffixes
+    )
+
+
+def _intersection_area(left: Box, right: Box) -> int:
+    width = max(0, min(left.x2, right.x2) - max(left.x1, right.x1))
+    height = max(0, min(left.y2, right.y2) - max(left.y1, right.y1))
+    return width * height
+
+
+def _center(box: Box) -> tuple[float, float]:
+    return ((box.x1 + box.x2) / 2.0, (box.y1 + box.y2) / 2.0)
+
+
+def _assign_tokens_to_boxes(tokens: Sequence[OCRToken], boxes: Sequence[Box]) -> dict[int, list[OCRToken]]:
+    """Assign an OCR token to at most one canonical GT cell."""
+    assigned: dict[int, list[OCRToken]] = {index: [] for index in range(len(boxes))}
+    for token in tokens:
+        if token.box is None or not str(token.text or "").strip():
+            continue
+        token_area = max(1, token.box.width * token.box.height)
+        center_x, center_y = _center(token.box)
+        best_index: int | None = None
+        best_score = 0.0
+        for index, cell_box in enumerate(boxes):
+            intersection = _intersection_area(token.box, cell_box)
+            coverage = intersection / token_area
+            center_inside = cell_box.x1 - 2 <= center_x <= cell_box.x2 + 2 and cell_box.y1 - 2 <= center_y <= cell_box.y2 + 2
+            if coverage < 0.30 and not center_inside:
+                continue
+            cell_area = max(1, cell_box.width * cell_box.height)
+            cell_coverage = intersection / cell_area
+            score = 0.75 * coverage + 0.10 * min(1.0, cell_coverage) + (0.15 if center_inside else 0.0)
+            if score > best_score:
+                best_index = index
+                best_score = score
+        if best_index is not None:
+            assigned[best_index].append(token)
+    return assigned
+
+
+def _weighted_text(tokens: Sequence[OCRToken]) -> tuple[str, float]:
+    ordered = sorted(
+        (token for token in tokens if token.box is not None and str(token.text or "").strip()),
+        key=lambda token: (token.box.x1, token.box.y1),
+    )
+    if not ordered:
+        return "", 0.0
+    text = " ".join(str(token.text).strip() for token in ordered)
+    weights = [max(1, len(str(token.text).strip())) for token in ordered]
+    confidence = sum(float(token.confidence) * weight for token, weight in zip(ordered, weights, strict=True)) / sum(weights)
+    return text, confidence
+
+
+def _cluster_rows(boxes: Sequence[Box]) -> list[list[int]]:
+    if not boxes:
+        return []
+    heights = sorted(max(1, box.height) for box in boxes)
+    median_height = heights[len(heights) // 2]
+    tolerance = max(4.0, median_height * 0.55)
+    indices = sorted(range(len(boxes)), key=lambda index: (_center(boxes[index])[1], boxes[index].x1))
+    rows: list[list[int]] = []
+    centers: list[float] = []
+    for index in indices:
+        center_y = _center(boxes[index])[1]
+        selected: int | None = None
+        best_distance = float("inf")
+        for row_index, row_center in enumerate(centers):
+            distance = abs(center_y - row_center)
+            if distance <= tolerance and distance < best_distance:
+                selected = row_index
+                best_distance = distance
+        if selected is None:
+            rows.append([index])
+            centers.append(center_y)
+        else:
+            rows[selected].append(index)
+            centers[selected] = sum(_center(boxes[item])[1] for item in rows[selected]) / len(rows[selected])
+    return [
+        sorted(row, key=lambda index: boxes[index].x1)
+        for _, row in sorted(zip(centers, rows), key=lambda item: item[0])
+    ]
+
+
+def _union(boxes: Sequence[Box]) -> Box:
+    return Box(
+        min(box.x1 for box in boxes),
+        min(box.y1 for box in boxes),
+        max(box.x2 for box in boxes),
+        max(box.y2 for box in boxes),
+    )
+
+
+def canonical_table_regions(
+    workspace: str | Path,
+    source_id: str,
+    tokens: Sequence[OCRToken],
+    *,
+    image_width: int,
+    image_height: int,
+) -> list[TableRegion]:
+    """Reconstruct mapping table regions from canonical GT without model inference.
+
+    Canonical GT owns the geometry after the table-first gate. Full-page OCR is
+    used only to attach text to those already approved cells. No PP-Structure,
+    RT-DETR or active table-cell model is initialized by this function.
+    """
+    raw_cells = list_ground_truth_cells(workspace, source_id)
+    if not raw_cells:
+        raise RuntimeError(f"Canonical table-cell GT has no cells for source {source_id}")
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in raw_cells:
+        panel_id = str(item.get("panel_id") or "unassigned")
+        grouped.setdefault(panel_id, []).append(item)
+
+    regions: list[TableRegion] = []
+    for panel_number, (panel_id, items) in enumerate(sorted(grouped.items()), start=1):
+        boxes: list[Box] = []
+        usable_items: list[dict[str, Any]] = []
+        for item in items:
+            try:
+                box = Box(
+                    int(item["x1"]), int(item["y1"]),
+                    int(item["x2"]), int(item["y2"]),
+                ).clamp(image_width, image_height)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if box.width <= 0 or box.height <= 0:
+                continue
+            boxes.append(box)
+            usable_items.append(item)
+        if not boxes:
+            continue
+
+        assigned = _assign_tokens_to_boxes(tokens, boxes)
+        rows = _cluster_rows(boxes)
+        row_and_column: dict[int, tuple[int, int]] = {}
+        for row_index, row in enumerate(rows):
+            for column_index, box_index in enumerate(row):
+                row_and_column[box_index] = (row_index, column_index)
+
+        table_box = _union(boxes)
+        table_seed = f"{source_id}|{panel_id}|{table_box.to_list()}"
+        table_id = "canonical-" + hashlib.sha256(table_seed.encode("utf-8")).hexdigest()[:24]
+        cells: list[TableCell] = []
+        for box_index, (item, box) in enumerate(zip(usable_items, boxes, strict=True)):
+            row_index, column_index = row_and_column.get(box_index, (0, box_index))
+            text, confidence = _weighted_text(assigned.get(box_index, ()))
+            gt_id = str(item.get("gt_id") or "")
+            if not gt_id:
+                gt_id = "gt-" + hashlib.sha256(
+                    f"{source_id}|{panel_id}|{box.to_list()}".encode("utf-8")
+                ).hexdigest()[:24]
+            cells.append(
+                TableCell(
+                    table_id=table_id,
+                    cell_id=gt_id,
+                    row_index=row_index,
+                    column_index=column_index,
+                    box=box,
+                    text=text,
+                    confidence=float(confidence),
+                )
+            )
+        cells.sort(key=lambda cell: (cell.row_index, cell.column_index, cell.box.x1))
+        regions.append(
+            TableRegion(
+                table_id=table_id,
+                box=table_box,
+                confidence=1.0,
+                cells=tuple(cells),
+                html="",
+            )
+        )
+        LOGGER.debug(
+            "Canonical GT panel %d source=%s panel=%s rows=%d cells=%d",
+            panel_number, source_id, panel_id, len(rows), len(cells),
+        )
+    if not regions:
+        raise RuntimeError(f"Canonical table-cell GT contains no usable cells for source {source_id}")
+    return regions
+
+
+def mark_canonical_geometry(blocks: Sequence[GenericBlock]) -> list[GenericBlock]:
+    """Make provenance explicit after reusing the generic table integration code."""
+    result: list[GenericBlock] = []
+    for block in blocks:
+        if block.block_type == "table_cell":
+            result.append(replace(block, geometry_source="canonical_gt_cell"))
+        elif block.block_type == "table":
+            result.append(replace(block, geometry_source="canonical_gt_table"))
+        else:
+            result.append(block)
+    return result
+
+
+def collect_mapping_from_canonical_gt(
+    input_path: str | Path,
+    workspace: str | Path,
+    config: AppConfig,
+    locator_engine: OCREngine,
+) -> dict[str, object]:
+    """Prepare Mapping Studio using approved canonical GT as geometry authority."""
+    root = resolve_project_workspace(workspace)
+    gt = ensure_table_cell_ground_truth(root)
+    if gt is None:
+        raise RuntimeError("Canonical table-cell Ground Truth is unavailable")
+    state = ground_truth_review_state(root)
+    if not bool(state.get("ready")) or int(state.get("gt_cell_count") or 0) <= 0:
+        raise RuntimeError(
+            "Canonical table-cell Ground Truth is not ready: "
+            f"{int(state.get('open_source_count') or 0)} source(s) are still open."
+        )
+
+    diagnostics_root = root / "generic_detections"
+    blocks_root = root / "detected_blocks"
+    source_renders_root = root / "source_renders"
+    diagnostics_root.mkdir(parents=True, exist_ok=True)
+    blocks_root.mkdir(parents=True, exist_ok=True)
+    source_renders_root.mkdir(parents=True, exist_ok=True)
+    database = TrainingDatabase(root / "samples.sqlite3")
+    ensure_default_field_definitions(database, config.profile)
+    sources = _files(Path(input_path))
+
+    LOGGER.info(
+        "Mapping Studio: canonical GT is authoritative (%d source(s), %d cell(s), revision %s); table-model inference is disabled.",
+        int(state.get("source_count") or 0), int(state.get("gt_cell_count") or 0), str(gt.get("revision") or 0),
+    )
+    LOGGER.info("Mapping Studio: warming up full-page OCR only.")
+    locator_engine.warmup()
+
+    detected_sources = 0
+    failed_sources = 0
+    total_blocks = 0
+    total_relations = 0
+    total_suggestions = 0
+
+    for source_index, source in enumerate(sources, start=1):
+        try:
+            LOGGER.info("Mapping source %d/%d: decoding input.", source_index, len(sources))
+            decoded = load_input(source, config.dicom)
+            height, width = decoded.image.shape[:2]
+            LOGGER.info("Mapping source %d/%d [%s]: full-page OCR.", source_index, len(sources), decoded.source_id)
+            batches = locator_engine.recognize_many([decoded.image])
+            if len(batches) != 1:
+                raise RuntimeError("Generic detector did not return one OCR result for one source")
+            tokens = batches[0]
+            blocks, relations, detector_diagnostics = detect_generic_structure(
+                decoded.source_id, decoded.image.shape, tokens
+            )
+
+            table_regions = canonical_table_regions(
+                root,
+                decoded.source_id,
+                tokens,
+                image_width=width,
+                image_height=height,
+            )
+            gt_cell_count = sum(len(table.cells) for table in table_regions)
+            LOGGER.info(
+                "Mapping source %d/%d [%s]: OCR complete (%d token(s)); using %d canonical GT cell(s) in %d table/panel region(s).",
+                source_index, len(sources), decoded.source_id, len(tokens), gt_cell_count, len(table_regions),
+            )
+            blocks, relations, structural = integrate_table_regions(
+                decoded.source_id, blocks, relations, table_regions
+            )
+            blocks = mark_canonical_geometry(blocks)
+            table_diagnostics = {
+                "enabled": True,
+                "provider": "canonical_table_cell_ground_truth",
+                "engine_version": CANONICAL_MAPPING_GEOMETRY_VERSION,
+                "model_inference": False,
+                "active_table_model_loaded": False,
+                "gt_revision": int(gt.get("revision") or 0),
+                "error": "",
+                **structural,
+            }
+            detector_diagnostics["table_structure"] = table_diagnostics
+            detector_diagnostics["block_count"] = len(blocks)
+            detector_diagnostics["relation_count"] = len(relations)
+
+            render_relative = Path("source_renders") / f"{decoded.source_id}.png"
+            render_path = root / render_relative
+            if not cv2.imwrite(str(render_path), decoded.image):
+                raise RuntimeError(f"Could not save local source render: {render_path}")
+
+            source_block_dir = blocks_root / decoded.source_id
+            source_block_dir.mkdir(parents=True, exist_ok=True)
+            block_payloads: list[dict[str, object]] = []
+            for block in blocks:
+                payload = block.as_dict()
+                box = block.box.clamp(width, height)
+                crop = decoded.image[box.y1:box.y2, box.x1:box.x2]
+                relative = ""
+                if crop.size:
+                    destination = source_block_dir / f"{block.block_id}.png"
+                    if cv2.imwrite(str(destination), crop):
+                        relative = destination.relative_to(root).as_posix()
+                payload["crop_path"] = relative
+                block_payloads.append(payload)
+            relation_payloads = [relation.as_dict() for relation in relations]
+            database.replace_generic_detection(
+                {
+                    "source_id": decoded.source_id,
+                    "image_width": width,
+                    "image_height": height,
+                    "render_path": render_relative.as_posix(),
+                    "detector_version": GENERIC_DETECTOR_VERSION,
+                    "token_count": detector_diagnostics.get("ocr_token_count", 0),
+                },
+                block_payloads,
+                relation_payloads,
+            )
+            suggestions = suggest_mappings(database, decoded.source_id)
+            study_info = extract_study_info(tokens)
+            payload = {
+                "schema_version": "2.1-canonical-gt-mapping",
+                "source_id": decoded.source_id,
+                "detector": detector_diagnostics,
+                "study_info": study_info.as_dict(),
+                "blocks": block_payloads,
+                "relations": relation_payloads,
+                "tables": [table.as_dict() for table in table_regions],
+                "geometry_authority": "canonical_table_cell_ground_truth",
+                "automatic_mapping_suggestions": len(suggestions),
+            }
+            (diagnostics_root / f"{decoded.source_id}.json").write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            detected_sources += 1
+            total_blocks += len(blocks)
+            total_relations += len(relations)
+            total_suggestions += len(suggestions)
+            LOGGER.info(
+                "Mapping source %d/%d [%s]: complete; %d block(s), %d relation(s), %d mapping suggestion(s).",
+                source_index, len(sources), decoded.source_id, len(blocks), len(relations), len(suggestions),
+            )
+        except Exception:
+            failed_sources += 1
+            LOGGER.exception("Mapping source %d/%d failed", source_index, len(sources))
+
+    manifest = {
+        "created_at": utc_now(),
+        "flow": "generic_mapping_canonical_gt",
+        "detector_version": GENERIC_DETECTOR_VERSION,
+        "geometry_authority": "canonical_table_cell_ground_truth",
+        "geometry_version": CANONICAL_MAPPING_GEOMETRY_VERSION,
+        "canonical_gt_revision": int(gt.get("revision") or 0),
+        "canonical_gt_cells": int(state.get("gt_cell_count") or 0),
+        "input_items": len(sources),
+        "detected_sources": detected_sources,
+        "failed_items": failed_sources,
+        "detected_blocks": total_blocks,
+        "proposed_relations": total_relations,
+        "automatic_mapping_suggestions": total_suggestions,
+        "locator_engine": locator_engine.info(),
+        "table_structure_engine": {
+            "enabled": False,
+            "provider": "canonical_table_cell_ground_truth",
+            "reason": "Canonical GT is authoritative after the table-first gate; PP-Structure/RT-DETR inference is intentionally skipped.",
+            "model_inference": False,
+            "active_table_model_loaded": False,
+        },
+        "recognition_engine_reserved_for_mapping_stage": {
+            "enabled": False,
+            "reason": "Value recognition remains a later pipeline action after mappings are confirmed.",
+        },
+        "diagnostics": {
+            "json_directory": "generic_detections",
+            "block_crop_directory": "detected_blocks",
+            "source_render_directory": "source_renders",
+        },
+        "privacy": {
+            "source_filenames_stored": False,
+            "dicom_identifiers_stored": False,
+            "source_id": "first 24 hexadecimal characters of SHA-256 over source bytes",
+        },
+    }
+    (root / "collection_manifest.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    LOGGER.info(
+        "Mapping Studio preparation complete: %d/%d source(s) succeeded; failed=%d. No table-model inference was run.",
+        detected_sources, len(sources), failed_sources,
+    )
+    return manifest
