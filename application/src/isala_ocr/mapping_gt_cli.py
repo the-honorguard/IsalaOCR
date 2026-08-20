@@ -11,7 +11,7 @@ from .logging_utils import configure_logging
 from .ocr.paddle import PaddleEngine
 from .table_first_cli import main as table_first_legacy_main
 from .training.db import TrainingDatabase
-from .training.mapping_ground_truth import collect_mapping_from_canonical_gt
+from .training.mapping_ground_truth_fast import collect_mapping_from_canonical_gt
 from .training.projects import resolve_project_workspace
 from .training.table_cell_ground_truth import ensure_table_cell_ground_truth, ground_truth_review_state
 
