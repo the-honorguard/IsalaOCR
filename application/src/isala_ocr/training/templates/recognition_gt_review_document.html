@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Stap 8 · Recognition-GT · {{ source_id }} · IsalaOCR{% endblock %}
+{% block heading %}Stap 8 · Recognition-GT beoordelen{% endblock %}
+{% block subtitle %}{{ source_id }} · bevestig alleen de letterlijke tekst in iedere crop.{% endblock %}
+{% block content %}
+<section class="card recognition-gt-intro">
+  <div class="toolbar">
+    <div>
+      <span class="eyebrow">MODEL FACTORY · GEEN APPLICATION MAPPING</span>
+      <h2>{{ source_id }}</h2>
+      <p class="muted">Corrigeer de baseline OCR naar exact wat zichtbaar is. Een <strong>-</strong> is hier geldige tekst-GT; missing/null wordt pas later in Application Processing bepaald.</p>
+    </div>
+    <div class="actions"><a class="button" href="/recognition-gt-review">← Bronnen</a><span class="pill warn">{{ counts.pending }} open</span><span class="pill ok">{{ counts.accepted }} goedgekeurd</span></div>
+  </div>
+</section>
+
+<form method="post" class="section-gap">
+  <section class="card">
+    <div class="toolbar">
+      <h3>Recognition-crops</h3>
+      <div class="actions"><button type="submit" name="global_action" value="accept_all_ocr">Alle open baseline-OCR goedkeuren</button><button type="submit" class="primary">Wijzigingen opslaan</button></div>
+    </div>
+    <div class="recognition-gt-grid">
+      {% for sample in samples %}
+      <article class="mapping-relation-card recognition-gt-card">
+        <div class="recognition-gt-crop"><img src="/crop/{{ sample.sample_id }}" alt="Recognition crop" loading="lazy"></div>
+        <div class="recognition-gt-fields">
+          <div class="toolbar compact"><strong>Crop {{ loop.index }}</strong><span class="pill {{ 'ok' if sample.status == 'accepted' else 'warn' if sample.status == 'pending' else '' }}">{{ sample.status }}</span></div>
+          <label>Baseline OCR<input value="{{ sample.raw_ocr }}" readonly></label>
+          <label>Exacte Ground Truth<input name="label_{{ sample.sample_id }}" value="{{ sample.exact_label if sample.exact_label is not none else sample.raw_ocr }}" autocomplete="off"></label>
+          <label>Beoordeling<select name="status_{{ sample.sample_id }}"><option value="keep" selected>Ongewijzigd laten</option><option value="accepted">Goedkeuren / tekst opslaan</option><option value="unreadable">Onleesbaar</option><option value="excluded">Niet gebruiken voor training</option><option value="pending">Terug naar open</option></select></label>
+          <label>Notitie<input name="notes_{{ sample.sample_id }}" value="{{ sample.notes or '' }}"></label>
+          <small class="muted">{{ sample.field_key }} · {{ sample.raw_variant }} · OCR {{ '%.1f'|format((sample.raw_confidence or 0) * 100) }}%</small>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    <div class="actions section-gap"><button type="submit" class="primary">Wijzigingen opslaan</button><a class="button" href="/recognition-gt-review">Terug naar bronnen</a></div>
+  </section>
+</form>
+
+<style>
+.recognition-gt-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px}.recognition-gt-card{display:grid;grid-template-columns:minmax(120px,.7fr) minmax(220px,1.3fr);gap:16px;align-items:start}.recognition-gt-crop{background:#0b1020;border-radius:10px;min-height:92px;display:flex;align-items:center;justify-content:center;padding:10px;overflow:hidden}.recognition-gt-crop img{max-width:100%;max-height:180px;object-fit:contain;image-rendering:auto}.recognition-gt-fields{display:grid;gap:10px}.recognition-gt-fields label{display:grid;gap:4px}.toolbar.compact{margin:0}@media(max-width:760px){.recognition-gt-card{grid-template-columns:1fr}}
+</style>
+{% endblock %}
