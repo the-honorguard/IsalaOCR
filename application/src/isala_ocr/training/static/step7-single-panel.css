@@ -209,7 +209,7 @@ body.step7-single-panel-mode > .shell > .notice {
   width: auto;
   max-width: min(520px, calc(100vw - 28px));
   margin: 0 !important;
-  box-shadow: 0 12px 36px rgba(0,0,0,.38);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .38);
 }
 
 @media (max-width: 1100px) {
@@ -465,4 +465,13 @@ body.step7-single-panel-mode > .shell > .notice {
     min-height: 0;
     font-size: 18px;
   }
+}
+
+/* v3.14.7: remove workflow-internal clutter from the normal Mapping Studio.
+   Filtering/feedback learning and automatic suggestions still run in the
+   backend; the same suggestions remain selected in the relation cards. */
+.mapping-summary + .notice,
+.mapping-feedback-learning,
+.mapping-summary ~ section.card:has(.mapping-suggestion-list) {
+  display: none !important;
 }
