@@ -90,12 +90,23 @@ def build_dataset(
         except (OSError, ValueError, TypeError):
             project_meta = {}
     db = TrainingDatabase(root / "samples.sqlite3")
-    # Recognition training is a Model Factory concern. Application Mapping
-    # samples (mapped_generic) must never leak into the model-training dataset.
-    rows = [
-        row for row in db.accepted()
-        if str(row.get("extraction_method") or "") == RECOGNITION_GT_METHOD
-    ]
+    # Recognition training is a Model Factory concern. The canonical geometry
+    # is authoritative outside the legacy Application ROI-review state, so select
+    # accepted Recognition-GT labels directly instead of using db.accepted().
+    with db.connect() as connection:
+        rows = [
+            dict(row)
+            for row in connection.execute(
+                """
+                SELECT * FROM samples
+                WHERE extraction_method=?
+                  AND status='accepted'
+                  AND exact_label IS NOT NULL
+                ORDER BY source_id, sample_id
+                """,
+                (RECOGNITION_GT_METHOD,),
+            ).fetchall()
+        ]
     if len(rows) < minimum_samples:
         raise ValueError(
             f"Only {len(rows)} accepted Recognition-GT samples are available; minimum is {minimum_samples}. "
