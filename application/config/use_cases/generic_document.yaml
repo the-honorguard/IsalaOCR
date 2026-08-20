@@ -1,17 +1,25 @@
-schema_version: 1
+schema_version: 2
 use_case_id: generic_document
 name: Generic document / custom schema
 description: >-
-  Leeg starttemplate voor een nieuwe use-case. Veldschema, mappings, localization-model
-  en outputdefinitie worden binnen het project opgebouwd.
+  Leeg starttemplate voor een nieuwe use-case. De Model Factory bouwt eerst generieke
+  modelartefacten; semantische mapping en output kunnen later optioneel worden toegevoegd.
 localization:
   class_names: [field_roi]
   project_specific: true
   unreviewed_policy: ignore
   rejection_reason_required: false
-mapping:
-  seed_profile: null
 recognition:
   may_share_models: true
+application_processing:
+  enabled_by_default: false
+  mapping:
+    seed_profile: null
+  output:
+    schema: custom
+
+# Compatibility voor bestaande Mapping Studio-routes/jobs.
+mapping:
+  seed_profile: null
 output:
   schema: custom
