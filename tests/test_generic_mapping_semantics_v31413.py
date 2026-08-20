@@ -1,4 +1,4 @@
-from isala_ocr.training.mapping import _context_score, _similarity
+from isala_ocr.training.mapping import _context_score, _similarity, parse_mapped_value
 from isala_ocr.training.mapping_semantics import is_missing_value_text, schema_candidate_score
 
 
@@ -36,6 +36,7 @@ def test_missing_marker_keeps_semantic_field_mapping_possible_without_a_unit():
         "field_key": "custom.mass",
         "display_name": "Sample mass",
         "group_name": "Measurements",
+        "data_type": "decimal",
         "preferred_unit": "g",
         "aliases": ["Mass"],
     }
@@ -53,6 +54,7 @@ def test_missing_marker_keeps_semantic_field_mapping_possible_without_a_unit():
         similarity=_similarity,
         context_score=_context_score,
     )
+    parsed = parse_mapped_value("-", field)
 
     assert is_missing_value_text("-")
     assert is_missing_value_text("–")
@@ -61,6 +63,11 @@ def test_missing_marker_keeps_semantic_field_mapping_possible_without_a_unit():
     assert evidence["exact_alias"] is True
     assert evidence["unit_match"] is False
     assert evidence["missing_value"] is True
+    assert parsed["raw_text"] == "-"
+    assert parsed["parsed_value"] is None
+    assert parsed["parsed_unit"] == "g"
+    assert parsed["parse_status"] == "missing"
+    assert parsed["range_valid"] is None
 
 
 def test_unrelated_label_does_not_become_a_suggestion_just_from_unit_match():
