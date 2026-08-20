@@ -42,8 +42,18 @@ RUN python -m pip install --no-deps --no-cache-dir .
 COPY application/config /app/config
 COPY application/schemas /app/schemas
 
-RUN mkdir -p /input /output /models/paddlex /models/active-recognition /training/workspace /training/registry \
-    && chown -R "${APP_UID}:${APP_GID}" /output /models /training /tmp
+# These image directories are empty at build time. Creating them directly with
+# the runtime UID/GID avoids recursively chowning /tmp, /models and /training;
+# on Docker Desktop that metadata walk used to take several minutes per rebuild.
+RUN install -d -o "${APP_UID}" -g "${APP_GID}" \
+        /output \
+        /models \
+        /models/paddlex \
+        /models/active-recognition \
+        /training \
+        /training/workspace \
+        /training/registry \
+    && chmod 1777 /tmp
 
 USER ${APP_UID}:${APP_GID}
 
