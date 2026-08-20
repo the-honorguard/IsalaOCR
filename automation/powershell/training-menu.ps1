@@ -10,45 +10,78 @@ if (-not (Get-Command Invoke-IsalaPreflight -ErrorAction SilentlyContinue)) {
 $catalog = Get-IsalaActionCatalog
 $script:CheckOnlyMode = $false
 
+function Get-IsalaWorkflowActionDefinition {
+    param([Parameter(Mandatory = $true)][string]$ActionId)
+    if ($ActionId -eq "23") {
+        # v3.16: Recognition-GT is intentionally independent from Application
+        # Mapping. Keep this lightweight action local until the legacy preflight
+        # catalog is fully retired/reworked.
+        return @{ Name = "Prepare neutral Recognition Ground Truth"; Script = "prepare-recognition-gt.ps1"; Arguments = @{} }
+    }
+    if ($null -eq $catalog) { throw "The action catalog was not initialized." }
+    return $catalog[[string]$ActionId]
+}
+
+function Invoke-IsalaRecognitionGtPreflight {
+    $projectWorkspace = Get-IsalaHostProjectWorkspace
+    $gtPath = Join-Path $projectWorkspace "table_cell_ground_truth.json"
+    if (-not (Test-Path -LiteralPath $gtPath -PathType Leaf)) {
+        throw "Canonical table-cell Ground Truth is missing: $gtPath. Complete Steps 3-4 first."
+    }
+    $renderRoot = Join-Path $projectWorkspace "source_renders"
+    $renderCount = if (Test-Path -LiteralPath $renderRoot -PathType Container) { @(Get-ChildItem -LiteralPath $renderRoot -Filter '*.png' -File -ErrorAction SilentlyContinue).Count } else { 0 }
+    if ($renderCount -lt 1) {
+        throw "No source renders are available for Recognition GT. Run the table/GT flow first."
+    }
+    Assert-IsalaDetectionGateOpen
+    Assert-Docker
+}
+
 function Invoke-IsalaMenuAction {
     param(
         [Parameter(Mandatory = $true)][string]$ActionId,
         [hashtable]$AdditionalArguments = @{}
     )
 
-    if ($null -eq $catalog) { throw "The action catalog was not initialized." }
-    $definition = $catalog[[string]$ActionId]
+    $definition = Get-IsalaWorkflowActionDefinition -ActionId $ActionId
     if ($null -eq $definition) { throw "Unknown internal task identifier: $ActionId" }
     Write-Host ""
     Write-Host ("Checking prerequisites for task: {0}" -f $definition.Name) -ForegroundColor Cyan
-    $allowDockerFailure = ($ActionId -eq "5")
-    try {
-        $preflightOutput = @(Invoke-IsalaPreflight -ActionId $ActionId -EnsureDocker:(-not $allowDockerFailure) -AllowDockerFailure:$allowDockerFailure -SaveReport:$script:CheckOnlyMode)
-        $check = @($preflightOutput | Where-Object {
-            $null -ne $_ -and $null -ne $_.PSObject.Properties['Passed']
-        } | Select-Object -Last 1)
-        if ($check.Count -ne 1) {
-            throw "The preflight did not return its final result object."
+
+    if ($ActionId -eq "23") {
+        Invoke-IsalaRecognitionGtPreflight
+    }
+    else {
+        $allowDockerFailure = ($ActionId -eq "5")
+        try {
+            $preflightOutput = @(Invoke-IsalaPreflight -ActionId $ActionId -EnsureDocker:(-not $allowDockerFailure) -AllowDockerFailure:$allowDockerFailure -SaveReport:$script:CheckOnlyMode)
+            $check = @($preflightOutput | Where-Object {
+                $null -ne $_ -and $null -ne $_.PSObject.Properties['Passed']
+            } | Select-Object -Last 1)
+            if ($check.Count -ne 1) {
+                throw "The preflight did not return its final result object."
+            }
+            $check = $check[0]
         }
-        $check = $check[0]
+        catch {
+            $diagnosticDirectory = Join-Path $ProjectRoot "training\workspace\diagnostics"
+            New-Item -ItemType Directory -Path $diagnosticDirectory -Force -ErrorAction SilentlyContinue | Out-Null
+            $diagnosticPath = Join-Path $diagnosticDirectory ("preflight-crash-action-{0}-{1}.txt" -f $ActionId, (Get-Date -Format "yyyyMMddTHHmmss"))
+            $details = @(
+                "Internal task ID: $ActionId",
+                "Message: $($_.Exception.Message)",
+                "Type: $($_.Exception.GetType().FullName)",
+                "Position: $($_.InvocationInfo.PositionMessage)",
+                "Script stack trace: $($_.ScriptStackTrace)"
+            ) -join [Environment]::NewLine
+            try { [IO.File]::WriteAllText($diagnosticPath, $details, [Text.UTF8Encoding]::new($false)) } catch { }
+            throw ("Preflight implementation failed before the task started: {0}. Diagnostic: {1}" -f $_.Exception.Message, $diagnosticPath)
+        }
+        if (-not [bool]$check.Passed) {
+            throw "Prerequisite check failed. Correct the failed checks before running this task."
+        }
     }
-    catch {
-        $diagnosticDirectory = Join-Path $ProjectRoot "training\workspace\diagnostics"
-        New-Item -ItemType Directory -Path $diagnosticDirectory -Force -ErrorAction SilentlyContinue | Out-Null
-        $diagnosticPath = Join-Path $diagnosticDirectory ("preflight-crash-action-{0}-{1}.txt" -f $ActionId, (Get-Date -Format "yyyyMMddTHHmmss"))
-        $details = @(
-            "Internal task ID: $ActionId",
-            "Message: $($_.Exception.Message)",
-            "Type: $($_.Exception.GetType().FullName)",
-            "Position: $($_.InvocationInfo.PositionMessage)",
-            "Script stack trace: $($_.ScriptStackTrace)"
-        ) -join [Environment]::NewLine
-        try { [IO.File]::WriteAllText($diagnosticPath, $details, [Text.UTF8Encoding]::new($false)) } catch { }
-        throw ("Preflight implementation failed before the task started: {0}. Diagnostic: {1}" -f $_.Exception.Message, $diagnosticPath)
-    }
-    if (-not [bool]$check.Passed) {
-        throw "Prerequisite check failed. Correct the failed checks before running this task."
-    }
+
     if ($script:CheckOnlyMode) {
         Write-Host "Check-only mode: the task was not executed." -ForegroundColor Yellow
         return
@@ -78,20 +111,21 @@ function Invoke-IsalaMenuAction {
 $workflowSteps = [ordered]@{
     "1"  = @{ Name = "Voorbereiding"; ActionId = "1" }
     "2"  = @{ Name = "Panelen instellen"; Url = "http://127.0.0.1:8088/process/panel-setup" }
-    "3"  = @{ Name = "Tabelstructuur detecteren"; ActionId = "2" }
-    "4"  = @{ Name = "Tabelcellen reviewen"; Url = "http://127.0.0.1:8088/detection-review" }
-    "5"  = @{ Name = "Tabeldekking beoordelen"; Url = "http://127.0.0.1:8088/process/table-quality" }
-    "6"  = @{ Name = "Tabelmodel verbeteren/trainen"; Url = "http://127.0.0.1:8088/process/table-model" }
-    "7"  = @{ Name = "Modelvergelijking & vervolg-review"; Url = "http://127.0.0.1:8088/process/table-compare" }
-    "8"  = @{ Name = "Mapping Studio"; ActionId = "20" }
-    "9"  = @{ Name = "Mappings toepassen"; ActionId = "21" }
-    "10" = @{ Name = "Waarden uitlezen"; ActionId = "22" }
-    "11" = @{ Name = "Waarden beoordelen"; Url = "http://127.0.0.1:8088/review" }
-    "12" = @{ Name = "Recognition-dataset bouwen"; ActionId = "24" }
-    "13" = @{ Name = "Recognition-dataset valideren"; ActionId = "25" }
-    "14" = @{ Name = "Recognition-model trainen"; ActionId = "26"; DeviceChoice = $true }
-    "15" = @{ Name = "Recognition-model evalueren"; ActionId = "27" }
-    "16" = @{ Name = "Recognition-model activeren"; ActionId = "28" }
+    "3"  = @{ Name = "Ground Truth maken"; ActionId = "2" }
+    "4"  = @{ Name = "Ground Truth beheren"; Url = "http://127.0.0.1:8088/detection-review" }
+    "5"  = @{ Name = "Detectiemodel trainen & draaien"; Url = "http://127.0.0.1:8088/process/table-quality" }
+    "6"  = @{ Name = "Detectorafwijkingen reviewen"; Url = "http://127.0.0.1:8088/process/table-compare" }
+    "7"  = @{ Name = "Recognition-GT maken"; ActionId = "23" }
+    "8"  = @{ Name = "Recognition-GT beoordelen"; Url = "http://127.0.0.1:8088/recognition-gt-review" }
+    "9"  = @{ Name = "Recognition-dataset bouwen"; ActionId = "24" }
+    "10" = @{ Name = "Recognition-dataset valideren"; ActionId = "25" }
+    "11" = @{ Name = "Recognition-model trainen"; ActionId = "26"; DeviceChoice = $true }
+    "12" = @{ Name = "Recognition-model evalueren"; ActionId = "27" }
+    "13" = @{ Name = "Recognition-model activeren"; ActionId = "28" }
+    "A1" = @{ Name = "Application Mapping Studio"; ActionId = "20" }
+    "A2" = @{ Name = "Application mappings toepassen"; ActionId = "21" }
+    "A3" = @{ Name = "Application output uitlezen"; ActionId = "22" }
+    "A4" = @{ Name = "Application output beoordelen"; Url = "http://127.0.0.1:8088/review" }
     "F1" = @{ Name = "Fallback · losse box-detector dataset/trainen"; Url = "http://127.0.0.1:8088/process/localization-dataset" }
     "F2" = @{ Name = "Fallback · box-detector evalueren"; Url = "http://127.0.0.1:8088/process/localization-evaluate" }
     "F3" = @{ Name = "Fallback · box-detector activeren"; ActionId = "11" }
@@ -99,33 +133,37 @@ $workflowSteps = [ordered]@{
     "F5" = @{ Name = "Fallback · box-detector kwaliteitsrapport"; ActionId = "13" }
 }
 
-
 function Show-IsalaMenu {
     Clear-Host
     $versionFile = Join-Path $ProjectRoot "project\VERSION"
     $displayVersion = ([string](Get-Content -LiteralPath $versionFile -Raw -ErrorAction SilentlyContinue)).Trim()
     if ([string]::IsNullOrWhiteSpace($displayVersion)) { $displayVersion = "unknown" }
-    Write-Host ("IsalaOCR local pipeline v{0}" -f $displayVersion) -ForegroundColor Cyan
+    Write-Host ("IsalaOCR Model Factory v{0}" -f $displayVersion) -ForegroundColor Cyan
     Write-Host ""
     Write-Host "============================================================" -ForegroundColor DarkCyan
-    Write-Host " TABLE-FIRST DETECTIE & CROPGEOMETRIE" -ForegroundColor Yellow
-    Write-Host " Eerst PP-Structure zelfstandig meten; PicoDet staat geparkeerd" -ForegroundColor DarkYellow
+    Write-Host " MODEL FACTORY · GEOMETRIE" -ForegroundColor Yellow
     Write-Host "============================================================" -ForegroundColor DarkCyan
     foreach ($number in 1..6) {
         $key = [string]$number
         if ($number -eq 1) { Write-Host ("{0,2}. {1}" -f $key, $workflowSteps[$key].Name) -ForegroundColor Cyan } else { Write-Host ("{0,2}. {1}" -f $key, $workflowSteps[$key].Name) }
     }
     Write-Host ""
-    Write-Host "------------------- TABLE-FIRST CHECK ----------------------" -ForegroundColor Magenta
-    Write-Host " Mapping / OCR blijft geblokkeerd tot de table coverage voldoende is." -ForegroundColor DarkMagenta
-    Write-Host "------------------------------------------------------------" -ForegroundColor Magenta
-    Write-Host ""
     Write-Host "============================================================" -ForegroundColor DarkCyan
-    Write-Host " VALUE MAPPING & OCR" -ForegroundColor Yellow
+    Write-Host " MODEL FACTORY · RECOGNITION" -ForegroundColor Yellow
+    Write-Host " crop -> exacte tekst; geen functionele mapping" -ForegroundColor DarkYellow
     Write-Host "============================================================" -ForegroundColor DarkCyan
-    foreach ($number in 7..15) {
+    foreach ($number in 7..13) {
         $key = [string]$number
         Write-Host ("{0,2}. {1}" -f $key, $workflowSteps[$key].Name)
+    }
+    Write-Host ""
+    Write-Host "------------------- EINDPRODUCT -----------------------------" -ForegroundColor Green
+    Write-Host " MODEL BUNDLE · detector + recognitionmodel + metadata" -ForegroundColor Green
+    Write-Host "------------------------------------------------------------" -ForegroundColor Green
+    Write-Host ""
+    Write-Host " FASE 2 · APPLICATION PROCESSING · OPTIONEEL" -ForegroundColor Magenta
+    foreach ($key in @("A1","A2","A3","A4")) {
+        Write-Host (" {0}. {1}" -f $key, $workflowSteps[$key].Name) -ForegroundColor Magenta
     }
     Write-Host ""
     Write-Host " GEPARKEERD - BOX DETECTOR FALLBACK" -ForegroundColor DarkGray
