@@ -3,15 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from .db import TrainingDatabase
-from .generic_detection import normalize_text
 from .mapping import (
     _block_box,
     _context_score,
     _pipeline_a_geometry_match,
     _similarity,
-    _unique,
 )
 from .mapping_lateral import ambiguous_lateral_suffixes, lateral_candidate_allowed
+from .mapping_semantics import schema_candidate_score
 from .relation_feedback import evaluate_feedback, relation_snapshot
 
 
@@ -28,12 +27,15 @@ def suggest_mappings_fast(
     geometry again for every field/relation pair. On a Windows/Docker bind mount
     that means thousands of SQLite connections for one source. This version
     loads the source graph once, resolves each unique value geometry once, and
-    writes the selected suggestions in one transaction while preserving the
-    existing scoring and validation semantics.
+    writes the selected suggestions in one transaction.
 
-    Bilateral measurements are deliberately conservative: when both LV and RV
-    targets exist for the same metric, a generic relation needs explicit left/
-    right evidence before it may become an automatic suggestion.
+    Semantic matching is schema-driven: aliases, preferred unit, optional group
+    context, relation type and OCR confidence are the only positive evidence.
+    The engine contains no report- or field-name-specific rules.
+
+    Bilateral measurements remain conservative: when both lateral targets exist
+    for the same metric, a generic relation needs explicit left/right evidence
+    before it may become an automatic suggestion.
     """
     # Rebuilding Mapping Studio must also remove old automatic guesses that are
     # no longer valid under the current scorer. Confirmed mappings are preserved.
@@ -114,26 +116,22 @@ def suggest_mappings_fast(
         field_key = str(field.get("field_key") or "")
         if field_key in confirmed_fields:
             continue
-        aliases = _unique([str(field.get("display_name") or ""), *field.get("aliases", [])])
         for relation, feedback in eligible_relations:
             if not lateral_candidate_allowed(field, relation, lateral_ambiguities):
                 continue
-            label = str(relation.get("label_text") or "")
-            label_score = max((_similarity(label, alias) for alias in aliases), default=0.0)
-            context = str(relation.get("context_text") or "")
-            context_value = _context_score(str(field.get("group_name") or ""), context)
-            unit = normalize_text(str(field.get("preferred_unit") or ""))
-            value_text = normalize_text(str(relation.get("value_text") or ""))
-            unit_bonus = 0.08 if unit and unit in value_text else 0.0
-            table_bonus = 0.10 if str(relation.get("relation_type") or "").startswith("table_") else 0.0
-            score = 0.74 * label_score + 0.12 * max(-1.0, context_value) + unit_bonus + table_bonus
-            score *= 0.76 + 0.24 * float(relation.get("confidence") or 0)
-            score *= float(feedback["multiplier"])
+            score, evidence = schema_candidate_score(
+                field,
+                relation,
+                similarity=_similarity,
+                context_score=_context_score,
+                feedback_multiplier=float(feedback["multiplier"]),
+            )
             if score < minimum_score:
                 continue
             relation_with_feedback = dict(relation)
             relation_with_feedback["feedback_quality"] = float(feedback["quality"])
             relation_with_feedback["feedback_matched_examples"] = int(feedback["matched_examples"])
+            relation_with_feedback["mapping_evidence"] = evidence
             suggestions.append((score, field, relation_with_feedback))
 
     suggestions.sort(key=lambda item: item[0], reverse=True)
@@ -148,6 +146,14 @@ def suggest_mappings_fast(
             relation_id = str(relation["relation_id"])
             if field_key in used_fields or relation_id in used_relations:
                 continue
+            evidence = dict(relation.get("mapping_evidence") or {})
+            evidence_notes = []
+            if evidence.get("exact_alias"):
+                evidence_notes.append("exact_alias")
+            if evidence.get("unit_match"):
+                evidence_notes.append("unit_match")
+            if evidence.get("missing_value"):
+                evidence_notes.append("missing_value")
             mapping_id = database._upsert_mapping_in_connection(
                 db,
                 source_id=source_id,
@@ -159,7 +165,8 @@ def suggest_mappings_fast(
                 status="suggested",
                 mapping_confidence=score,
                 notes=(
-                    "automatic alias/context suggestion"
+                    "automatic schema suggestion"
+                    + (f"; evidence={','.join(evidence_notes)}" if evidence_notes else "")
                     + (
                         f"; feedback_examples={int(relation.get('feedback_matched_examples') or 0)}"
                         if int(relation.get("feedback_matched_examples") or 0)
