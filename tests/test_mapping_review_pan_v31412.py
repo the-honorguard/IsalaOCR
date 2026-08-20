@@ -29,4 +29,4 @@ def test_space_pan_remains_available_as_temporary_override():
 
 
 def test_mapping_review_pan_version():
-    assert VERSION.read_text(encoding="utf-8").strip() == "3.15.1"
+    assert VERSION.read_text(encoding="utf-8").strip() == "3.16.0"
