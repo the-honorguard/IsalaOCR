@@ -7,9 +7,11 @@ from pathlib import Path
 
 from flask import request
 
-from .webui import create_web_app
+from . import webui as webui_module
 from .comparison_review_queue_web import install_comparison_review_queue
 from .job_cancellation import install_job_cancellation
+from .recognition_ground_truth_web import install_recognition_ground_truth_review
+from .recognition_model_factory import install_recognition_model_factory_metadata
 
 
 def _read_json(path: Path) -> dict:
@@ -42,14 +44,7 @@ def _worker_is_live_for(worker: dict, job_id: str) -> bool:
 
 
 def install_stale_job_reconciliation(app, workspace: str | Path) -> None:
-    """Repair stale pending/running status records before v2 duplicate checks.
-
-    The canonical status directory survives WebUI/container restarts. A previous
-    interrupted job can therefore still say `running` even when no worker owns
-    it anymore. The /api/v2/jobs duplicate guard must only block a new job when
-    the queue/worker state proves that the older job is genuinely live.
-    """
-
+    """Repair stale pending/running status records before v2 duplicate checks."""
     jobs_root = Path(workspace) / "webui" / "jobs"
 
     @app.before_request
@@ -97,8 +92,6 @@ def install_stale_job_reconciliation(app, workspace: str | Path) -> None:
             })
             _write_json(status_path, payload)
 
-            # Keep the filesystem lifecycle consistent with the repaired status.
-            # Only stale jobs reach this point; a live worker-owned job is never moved.
             source = running_path if running_path.is_file() else pending_path
             if source.is_file():
                 failed_path = jobs_root / "failed" / source.name
@@ -122,13 +115,17 @@ def main() -> int:
     a = p.parse_args()
     from waitress import serve
 
-    app = create_web_app(
+    # Recognition is a model-training concern. Repair the legacy workflow
+    # metadata before Flask captures ACTIONS/PROCESS_STEPS into its routes.
+    install_recognition_model_factory_metadata(webui_module)
+    app = webui_module.create_web_app(
         a.workspace,
         models_root=a.models,
         output_root=a.output,
         project_root=a.project,
         config_path=a.config,
     )
+    install_recognition_ground_truth_review(app, a.workspace)
     install_comparison_review_queue(app, a.workspace)
     install_job_cancellation(app, a.workspace)
     install_stale_job_reconciliation(app, a.workspace)
