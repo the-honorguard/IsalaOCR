@@ -13,6 +13,7 @@ import cv2
 from .augment import safe_augment
 from .projects import resolve_project_workspace
 from .db import TrainingDatabase, validate_exact_label
+from .recognition_ground_truth import EXTRACTION_METHOD as RECOGNITION_GT_METHOD
 
 
 def _group_split(source_ids: list[str], ratios: tuple[float, float, float], salt: str) -> dict[str, str]:
@@ -89,10 +90,16 @@ def build_dataset(
         except (OSError, ValueError, TypeError):
             project_meta = {}
     db = TrainingDatabase(root / "samples.sqlite3")
-    rows = db.accepted()
+    # Recognition training is a Model Factory concern. Application Mapping
+    # samples (mapped_generic) must never leak into the model-training dataset.
+    rows = [
+        row for row in db.accepted()
+        if str(row.get("extraction_method") or "") == RECOGNITION_GT_METHOD
+    ]
     if len(rows) < minimum_samples:
         raise ValueError(
-            f"Only {len(rows)} accepted samples are available; minimum is {minimum_samples}"
+            f"Only {len(rows)} accepted Recognition-GT samples are available; minimum is {minimum_samples}. "
+            "Create and review Recognition GT before building the dataset."
         )
     for row in rows:
         validate_exact_label(str(row["exact_label"]))
@@ -102,6 +109,8 @@ def build_dataset(
         "augmentations_per_train_sample": augmentations_per_train_sample,
         "split_salt": split_salt,
         "label_policy": "verbatim_no_normalization",
+        "source": "canonical_table_cell_recognition_gt",
+        "extraction_method": RECOGNITION_GT_METHOD,
     }
     dataset_id = _dataset_id(rows, settings)
     destination = root / "datasets" / dataset_id
@@ -173,11 +182,6 @@ def build_dataset(
         (destination / f"{split}.txt").write_text(
             "\n".join(lines) + ("\n" if lines else ""), encoding="utf-8"
         )
-    # Audit-only character inventory. PaddleX requires dataset/dict.txt, but
-    # IsalaOCR deliberately synchronizes that file from the official model
-    # dictionary inside the training runtime. This preserves the pretrained
-    # recognition head and avoids silently shrinking the output vocabulary to
-    # only the characters observed in a small local dataset.
     observed_characters = sorted(char for char in character_counts if char != " ")
     (destination / "characters.txt").write_text(
         "\n".join(observed_characters) + "\n",
