@@ -1,7 +1,7 @@
 import json
+from dataclasses import dataclass
 
 from isala_ocr.models import Box
-from isala_ocr.ocr.table_structure import TableRegion
 from isala_ocr.training.generic_detection import GenericRelation
 from isala_ocr.training.mapping_ground_truth_fast import _enrich_relations_with_panel_context
 from isala_ocr.training.mapping_lateral import (
@@ -9,6 +9,12 @@ from isala_ocr.training.mapping_lateral import (
     lateral_candidate_allowed,
     relation_lateral_side,
 )
+
+
+@dataclass(frozen=True)
+class _Table:
+    table_id: str
+    box: Box
 
 
 def _write_gt(workspace):
@@ -68,7 +74,7 @@ def _write_gt(workspace):
     (workspace / "table_cell_ground_truth.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _relation(relation_id, table_id, label):
+def _relation(relation_id, table_id):
     return GenericRelation(
         relation_id=relation_id,
         source_id="source-1",
@@ -88,12 +94,12 @@ def _relation(relation_id, table_id, label):
 def test_canonical_panel_identity_becomes_mapping_context(tmp_path):
     _write_gt(tmp_path)
     tables = [
-        TableRegion("table-lv", Box(10, 10, 110, 75), 1.0, tuple()),
-        TableRegion("table-rv", Box(210, 10, 310, 75), 1.0, tuple()),
+        _Table("table-lv", Box(10, 10, 110, 75)),
+        _Table("table-rv", Box(210, 10, 310, 75)),
     ]
     relations = [
-        _relation("lv-co", "table-lv", "Cardiac Output"),
-        _relation("rv-edv", "table-rv", "ED Volume"),
+        _relation("lv-co", "table-lv"),
+        _relation("rv-edv", "table-rv"),
     ]
 
     enriched, contexts = _enrich_relations_with_panel_context(
@@ -110,8 +116,8 @@ def test_canonical_panel_identity_becomes_mapping_context(tmp_path):
 
 def test_panel_context_allows_only_correct_bilateral_target(tmp_path):
     _write_gt(tmp_path)
-    table = TableRegion("table-lv", Box(10, 10, 110, 75), 1.0, tuple())
-    relation = _relation("lv-edv", "table-lv", "ED Volume")
+    table = _Table("table-lv", Box(10, 10, 110, 75))
+    relation = _relation("lv-edv", "table-lv")
     enriched, _ = _enrich_relations_with_panel_context(
         tmp_path, "source-1", [table], [relation]
     )
