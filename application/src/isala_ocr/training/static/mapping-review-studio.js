@@ -53,7 +53,7 @@
     <div class="mapping-review-body">
       <section class="mapping-review-viewer">
         <div class="mapping-review-viewbar">
-          <small>Blauw = label · groen = finale Pipeline-A ROI · muiswiel = zoom · spatie + slepen = pannen</small>
+          <small>Blauw = label · groen = finale Pipeline-A ROI · muiswiel = zoom · Pan of spatie + slepen = verplaatsen</small>
           <div class="mapping-review-view-controls">
             <button type="button" class="ghost" id="mapping-review-fit">Fit</button>
             <button type="button" class="ghost" id="mapping-review-zoom-out">−</button>
@@ -61,6 +61,7 @@
             <button type="button" class="ghost" id="mapping-review-zoom-in">+</button>
             <button type="button" class="ghost" id="mapping-review-one-to-one">1:1</button>
             <button type="button" class="ghost" id="mapping-review-focus">Focus</button>
+            <button type="button" class="ghost" id="mapping-review-pan" aria-pressed="false" title="Panmodus aan/uit (P)">✋ Pan</button>
           </div>
         </div>
         <div class="mapping-review-viewport" id="mapping-review-viewport">
@@ -118,7 +119,7 @@
     </div>
     <footer class="mapping-review-foot">
       <div class="mapping-review-progress">
-        <div class="mapping-review-progress-copy"><span id="mapping-review-progress-copy">0 afgehandeld</span><span class="mapping-review-shortcuts">Enter = goedkeuren · ←/→ = navigeren · F/Esc = sluiten</span></div>
+        <div class="mapping-review-progress-copy"><span id="mapping-review-progress-copy">0 afgehandeld</span><span class="mapping-review-shortcuts">Enter = goedkeuren · ←/→ = navigeren · P = pan · F/Esc = sluiten</span></div>
         <div class="mapping-review-progress-track"><span id="mapping-review-progress-bar"></span></div>
       </div>
       <div class="mapping-review-actions">
@@ -162,6 +163,7 @@
   const labelBox = $('mapping-review-label-box');
   const valueBox = $('mapping-review-value-box');
   const zoomLabel = $('mapping-review-zoom-label');
+  const panButton = $('mapping-review-pan');
   const progressCopy = $('mapping-review-progress-copy');
   const progressBar = $('mapping-review-progress-bar');
   const rejectDialog = document.getElementById('mapping-reject-dialog');
@@ -171,10 +173,25 @@
 
   let currentRow = null;
   let zoom = 1;
+  let panMode = false;
   let spaceDown = false;
   let panning = false;
   let panStart = null;
   let autoAdvanceAfterReject = false;
+
+  function syncPanMode() {
+    const ready = panMode || spaceDown;
+    viewport.classList.toggle('pan-ready', ready);
+    panButton.classList.toggle('active', panMode);
+    panButton.setAttribute('aria-pressed', panMode ? 'true' : 'false');
+    panButton.textContent = panMode ? '✋ Pan aan' : '✋ Pan';
+  }
+
+  function togglePanMode() {
+    panMode = !panMode;
+    if (!panMode && !spaceDown) endPan();
+    syncPanMode();
+  }
 
   function isOpenStatus(row) {
     return row.dataset.status === 'open' || row.dataset.status === 'suggested';
@@ -445,6 +462,7 @@
     document.body.classList.add('mapping-review-studio-open');
     const active = rows.find((row) => row.classList.contains('preview-active') && reviewQueue().includes(row));
     renderRow(active || reviewQueue()[0] || null);
+    syncPanMode();
     requestAnimationFrame(fitView);
   }
 
@@ -454,9 +472,10 @@
     studio.hidden = true;
     studio.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('mapping-review-studio-open');
+    panMode = false;
     spaceDown = false;
-    panning = false;
-    viewport.classList.remove('pan-ready', 'panning');
+    endPan();
+    syncPanMode();
     currentRow?.scrollIntoView({block: 'center'});
   }
 
@@ -568,6 +587,7 @@
   skipButton.addEventListener('click', () => move(1));
   approveButton.addEventListener('click', approveCurrent);
   rejectButton.addEventListener('click', proxyFeedbackAction);
+  panButton.addEventListener('click', togglePanMode);
   openOnlyToggle.addEventListener('change', () => {
     const queue = reviewQueue();
     renderRow(currentRow && queue.includes(currentRow) ? currentRow : queue[0] || null);
@@ -599,7 +619,7 @@
   }, {passive: false});
 
   viewport.addEventListener('pointerdown', (event) => {
-    if (!spaceDown || event.button !== 0) return;
+    if (!(panMode || spaceDown) || event.button !== 0) return;
     panning = true;
     panStart = {x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop};
     viewport.classList.add('panning');
@@ -618,6 +638,7 @@
   };
   viewport.addEventListener('pointerup', endPan);
   viewport.addEventListener('pointercancel', endPan);
+  viewport.addEventListener('lostpointercapture', endPan);
 
   const observer = new MutationObserver((mutations) => {
     if (studio.hidden || !currentRow) return;
@@ -653,9 +674,14 @@
       closeStudio();
       return;
     }
+    if ((event.key === 'p' || event.key === 'P') && !editing && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      togglePanMode();
+      return;
+    }
     if (event.code === 'Space' && !editing) {
       spaceDown = true;
-      viewport.classList.add('pan-ready');
+      syncPanMode();
       event.preventDefault();
       return;
     }
@@ -675,7 +701,7 @@
   document.addEventListener('keyup', (event) => {
     if (event.code !== 'Space') return;
     spaceDown = false;
-    viewport.classList.remove('pan-ready');
-    endPan();
+    if (!panMode) endPan();
+    syncPanMode();
   });
 })();
