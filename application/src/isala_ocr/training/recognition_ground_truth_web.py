@@ -91,14 +91,22 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
                 exact = str(request.form.get(f"label_{sample_id}") or sample.get("raw_ocr") or "")
                 notes = str(request.form.get(f"notes_{sample_id}") or "")
                 if global_action == "accept_all_ocr" and str(sample.get("status") or "") == "pending":
-                    action = "accepted"
                     exact = str(sample.get("raw_ocr") or "")
+                    # A truly blank cell has nothing for a text recognizer to
+                    # learn. Keep '-' / '–' / '—' as literal text, but exclude
+                    # empty strings from the recognition dataset.
+                    action = "accepted" if exact != "" else "excluded"
+                    if action == "excluded" and not notes:
+                        notes = "Lege crop: geen recognitionlabel"
                 if action == "keep":
                     continue
                 if action == "accepted":
                     # Recognition GT is verbatim. A lone '-', '–' or '—' is a
                     # legitimate literal label here and is NOT converted to null.
-                    database.review(sample_id, "accepted", exact, notes, "value")
+                    if exact == "":
+                        database.review(sample_id, "excluded", None, notes or "Lege crop: geen recognitionlabel")
+                    else:
+                        database.review(sample_id, "accepted", exact, notes, "value")
                 elif action in {"unreadable", "excluded", "pending"}:
                     database.review(sample_id, action, None, notes)
                 else:
