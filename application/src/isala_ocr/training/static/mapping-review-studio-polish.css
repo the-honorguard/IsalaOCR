@@ -1,0 +1,185 @@
+/* Mapping Review Studio v3.14.11 visual hierarchy polish.
+   The fullscreen inspector should answer one question first:
+   label -> value -> functional field. Debug/provenance stays out of the way. */
+
+.mapping-review-body {
+  grid-template-columns: minmax(0, 1.5fr) minmax(430px, 0.82fr);
+}
+
+.mapping-review-inspector {
+  padding: 14px;
+  background: #09141e;
+}
+
+.mapping-review-section {
+  padding: 14px;
+  border-color: #263847;
+  background: #0c1924;
+}
+
+.mapping-review-kicker {
+  margin-bottom: 8px;
+}
+
+#mapping-review-relation-title {
+  color: #8fa6b8;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.mapping-review-pair {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, .62fr);
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 4px;
+}
+
+.mapping-review-crop {
+  display: flex;
+  min-width: 0;
+  min-height: 86px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 12px 14px;
+  border: 1px solid #2a3d4c;
+  border-radius: 9px;
+  background: #08131c;
+}
+
+.mapping-review-crop > span {
+  order: 1;
+  margin: 0 0 5px;
+  color: #7892a5;
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.mapping-review-crop strong {
+  order: 2;
+  margin: 0;
+  color: #f2f7fa;
+  font-size: clamp(1.05rem, 1.6vw, 1.42rem);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+/* The label thumbnail is secondary evidence. */
+.mapping-review-crop img {
+  order: 3;
+  width: 100%;
+  height: 42px;
+  max-height: 42px;
+  margin-top: 10px;
+  border: 0;
+  border-radius: 5px;
+  color: transparent;
+  background: #111;
+  object-fit: contain;
+  text-indent: -9999px;
+}
+
+/* The value ROI is already highlighted in the large source viewer.
+   Showing a second tiny ROI thumbnail created a broken/duplicated-looking box. */
+.mapping-review-crop:last-child img {
+  display: none !important;
+}
+
+.mapping-review-crop:last-child strong {
+  font-size: clamp(1.22rem, 2vw, 1.7rem);
+}
+
+.mapping-review-arrow {
+  display: grid;
+  place-items: center;
+  padding: 0 2px;
+  color: #53b9f5;
+  font-size: 1.7rem;
+}
+
+/* Keep only information that helps the semantic decision.
+   Pipeline geometry provenance and JSON paths are debugging details. */
+.mapping-review-meta {
+  grid-template-columns: minmax(0, 1fr) minmax(110px, .42fr);
+  margin-top: 10px;
+}
+
+.mapping-review-meta > div:nth-child(3),
+.mapping-review-meta > div:nth-child(4) {
+  display: none;
+}
+
+.mapping-review-meta > div {
+  padding: 7px 9px;
+  background: #0e1d28;
+}
+
+.mapping-review-meta span {
+  color: #7892a5;
+  font-size: .68rem;
+}
+
+.mapping-review-context {
+  margin: 8px 0 0;
+  padding: 7px 9px;
+  border-left: 2px solid #365d76;
+  color: #a8bac7;
+  background: #09151f;
+  font-size: .8rem;
+}
+
+.mapping-review-context:empty {
+  display: none;
+}
+
+.mapping-review-editor {
+  padding-top: 12px;
+}
+
+.mapping-review-editor h3 {
+  margin-bottom: 8px;
+  font-size: .9rem;
+  color: #afc1ce;
+}
+
+.mapping-review-editor select {
+  min-height: 44px;
+  border-color: #3a566a;
+  background: #08131c;
+  font-weight: 700;
+}
+
+.mapping-review-editor textarea {
+  min-height: 40px;
+  height: 40px;
+  resize: vertical;
+}
+
+.mapping-review-field-summary {
+  display: none;
+}
+
+.mapping-review-message {
+  min-height: 18px;
+  margin-top: 8px;
+}
+
+@media (max-width: 1150px) {
+  .mapping-review-body {
+    grid-template-columns: minmax(0, 1fr) 410px;
+  }
+}
+
+@media (max-width: 820px) {
+  .mapping-review-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(300px, 52vh) minmax(0, 1fr);
+  }
+
+  .mapping-review-pair {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, .75fr);
+  }
+}
