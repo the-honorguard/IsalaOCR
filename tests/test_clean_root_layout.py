@@ -3,9 +3,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_project_root_contains_only_start_cmd_as_a_file() -> None:
-    files = sorted(path.name for path in ROOT.iterdir() if path.is_file())
-    assert files == ["START.cmd"]
+def test_preflight_allows_standard_git_metadata_but_not_other_root_files() -> None:
+    preflight = (ROOT / "automation" / "powershell" / "preflight.ps1").read_text(encoding="utf-8")
+    assert '$allowedRootFiles = @("START.cmd", ".gitignore", ".gitattributes")' in preflight
+    assert '$allowedRootFiles -notcontains $_' in preflight
+    whitelist_line = next(line for line in preflight.splitlines() if "$allowedRootFiles =" in line)
+    assert ".gitignore.backup" not in whitelist_line
+    assert "gitignore_generator.ps1" not in whitelist_line
+    assert "gitignore-scan-report.txt" not in whitelist_line
 
 
 def test_operational_content_is_grouped_into_directories() -> None:
