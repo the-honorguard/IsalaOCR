@@ -45,7 +45,7 @@ def default_field_definitions(profile: Profile) -> list[dict[str, Any]]:
         "stroke_volume": ["Slagvolume", "SV"],
         "cardiac_output": ["Hartminuutvolume", "Cardiac output", "CO"],
         "ed_volume_bsa": ["ED-volume/BSA", "ED volume/BSA"],
-        "es_volume_bsa": ["ES-volume/BSA", "ED volume BSA"],
+        "es_volume_bsa": ["ES-volume/BSA", "ES volume/BSA"],
         "ed_wall_mass": ["ED-wandmassa", "ED wall mass"],
     }
     for field in profile.fields:
