@@ -136,15 +136,15 @@ def materialize_recognition_ground_truth(
                 "locator_version": "canonical_table_cell_gt_v1",
                 "crop_sha256": _crop_hash(crop_path),
             })
-            # Geometry has already been approved in the canonical table-cell GT.
-            # Recognition review therefore starts directly at crop -> exact text.
-            database.review_roi(sample_id, "correct", "Canonieke table-cell Ground Truth")
+            # The geometry authority is the canonical table-cell GT itself. Keep
+            # these samples OUT of the legacy Application value/ROI review, which
+            # selects roi_review_status='correct'. Recognition review starts at
+            # the literal crop->text label instead.
+            database.review_roi(sample_id, "deferred", "Geometry authority: canonical table-cell Ground Truth")
             created += int(was_created)
             updated += int(not was_created)
         source_count += 1
 
-    # Deleted/moved canonical cells must never remain eligible for a future
-    # recognition dataset. Preserve their review history, but park them as stale.
     with database.connect() as db:
         rows = db.execute(
             "SELECT sample_id FROM samples WHERE extraction_method=?",
