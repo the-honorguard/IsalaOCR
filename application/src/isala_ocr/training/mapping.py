@@ -16,10 +16,11 @@ if TYPE_CHECKING:
 from .projects import resolve_project_workspace
 from .db import TrainingDatabase, utc_now
 from .generic_detection import normalize_text
+from .mapping_semantics import is_missing_value_text, schema_candidate_score
 from .relation_feedback import evaluate_feedback, relation_snapshot
 
 LOGGER = logging.getLogger(__name__)
-MAPPING_ENGINE_VERSION = "generic-mapping-v3-table-aware"
+MAPPING_ENGINE_VERSION = "generic-mapping-v4-schema-evidence"
 
 
 def _unique(values: Iterable[str]) -> list[str]:
@@ -44,7 +45,7 @@ def default_field_definitions(profile: Profile) -> list[dict[str, Any]]:
         "stroke_volume": ["Slagvolume", "SV"],
         "cardiac_output": ["Hartminuutvolume", "Cardiac output", "CO"],
         "ed_volume_bsa": ["ED-volume/BSA", "ED volume/BSA"],
-        "es_volume_bsa": ["ES-volume/BSA", "ES volume/BSA"],
+        "es_volume_bsa": ["ES-volume/BSA", "ED volume BSA"],
         "ed_wall_mass": ["ED-wandmassa", "ED wall mass"],
     }
     for field in profile.fields:
@@ -213,10 +214,7 @@ def suggest_mappings(
     minimum_score: float = 0.68,
     profile_id: str = "",
 ) -> list[dict[str, Any]]:
-    """Create non-destructive suggestions from neutral relations and schema aliases."""
-    # Recalculation must be deterministic. Old automatic suggestions are tied to
-    # the previous score landscape and would otherwise remain visible even when
-    # they no longer meet the threshold. Confirmed mappings are preserved.
+    """Create non-destructive suggestions from neutral relations and schema metadata."""
     database.clear_suggested_mappings(source_id)
     relations = database.list_detected_relations(source_id)
     source = database.get_detection_source(source_id) or {"source_id": source_id}
@@ -238,7 +236,6 @@ def suggest_mappings(
     for field in fields:
         if field["field_key"] in confirmed_fields:
             continue
-        aliases = _unique([field["display_name"], *field.get("aliases", [])])
         for relation in relations:
             if relation["relation_id"] in confirmed_relations:
                 continue
@@ -247,9 +244,6 @@ def suggest_mappings(
             feedback = feedback_by_relation.get(str(relation["relation_id"]))
             if feedback is None or feedback["hard_reject"]:
                 continue
-            # In table-like rows the nearest value is rank 1; later numbers are
-            # commonly reference-range bounds. Keep them visible in Mappingstudio
-            # but never auto-map them as the measured value.
             if int(relation.get("rank") or 1) != 1:
                 continue
             value_block = database.get_detected_block(str(relation.get("value_block_id") or ""))
@@ -259,26 +253,21 @@ def suggest_mappings(
             if _pipeline_a_geometry_match(
                 database, source_id, semantic_box, source_width, source_height
             ) is None:
-                # Pipeline B may only suggest values that can be attached to a
-                # current/reviewed Pipeline-A crop.
                 continue
-            label = str(relation.get("label_text") or "")
-            if not label:
+            if not str(relation.get("label_text") or ""):
                 continue
-            label_score = max((_similarity(label, alias) for alias in aliases), default=0.0)
-            context = str(relation.get("context_text") or "")
-            context_value = _context_score(str(field.get("group_name") or ""), context)
-            unit = normalize_text(str(field.get("preferred_unit") or ""))
-            value_text = normalize_text(str(relation.get("value_text") or ""))
-            unit_bonus = 0.08 if unit and unit in value_text else 0.0
-            table_bonus = 0.10 if str(relation.get("relation_type") or "").startswith("table_") else 0.0
-            score = 0.74 * label_score + 0.12 * max(-1.0, context_value) + unit_bonus + table_bonus
-            score *= 0.76 + 0.24 * float(relation.get("confidence") or 0)
-            score *= float(feedback["multiplier"])
+            score, evidence = schema_candidate_score(
+                field,
+                relation,
+                similarity=_similarity,
+                context_score=_context_score,
+                feedback_multiplier=float(feedback["multiplier"]),
+            )
             if score >= minimum_score:
                 relation_with_feedback = dict(relation)
                 relation_with_feedback["feedback_quality"] = float(feedback["quality"])
                 relation_with_feedback["feedback_matched_examples"] = int(feedback["matched_examples"])
+                relation_with_feedback["mapping_evidence"] = evidence
                 suggestions.append((score, field, relation_with_feedback))
 
     suggestions.sort(key=lambda item: item[0], reverse=True)
@@ -288,6 +277,14 @@ def suggest_mappings(
     for score, field, relation in suggestions:
         if field["field_key"] in used_fields or relation["relation_id"] in used_relations:
             continue
+        evidence = dict(relation.get("mapping_evidence") or {})
+        evidence_notes = []
+        if evidence.get("exact_alias"):
+            evidence_notes.append("exact_alias")
+        if evidence.get("unit_match"):
+            evidence_notes.append("unit_match")
+        if evidence.get("missing_value"):
+            evidence_notes.append("missing_value")
         mapping = database.upsert_mapping(
             source_id=source_id,
             field_key=field["field_key"],
@@ -298,7 +295,8 @@ def suggest_mappings(
             status="suggested",
             mapping_confidence=score,
             notes=(
-                "automatic alias/context suggestion"
+                "automatic schema suggestion"
+                + (f"; evidence={','.join(evidence_notes)}" if evidence_notes else "")
                 + (f"; feedback_examples={int(relation.get('feedback_matched_examples') or 0)}"
                    if int(relation.get("feedback_matched_examples") or 0) else "")
             ),
@@ -417,9 +415,6 @@ def _pipeline_a_geometry_match(
         candidate_coverage = intersection / _area(box)
         union = _area(semantic_box) + _area(box) - intersection
         iou = intersection / max(1, union)
-        # The semantic OCR token should normally lie substantially inside the
-        # localization box. Candidate coverage prevents a full table region from
-        # winning just because it contains the token.
         score = 0.58 * semantic_coverage + 0.27 * iou + 0.15 * candidate_coverage
         return score, semantic_coverage, iou
 
@@ -444,8 +439,6 @@ def _pipeline_a_geometry_match(
                 },
             ))
 
-    # Reviewed ground truth is authoritative. Pipeline B must never prefer a
-    # fresh machine candidate over geometry a reviewer explicitly corrected.
     if reviewed_matches:
         reviewed_matches.sort(key=lambda item: item[0], reverse=True)
         score, box, diagnostics = reviewed_matches[0]
@@ -454,12 +447,6 @@ def _pipeline_a_geometry_match(
         return box, diagnostics
 
     matches: list[tuple[float, int, Box, dict[str, Any]]] = []
-
-    # On sources that were not manually reviewed, the active localization model
-    # (or fused text/table geometry) still supplies the only permitted crop
-    # geometry. Explicitly rejected or out-of-scope candidates are never
-    # eligible for Pipeline B. A technically correct but irrelevant box remains
-    # localization ignore geometry, not a mapping target.
     source_candidates = candidates if candidates is not None else database.list_detection_candidates(source_id)
     for candidate in source_candidates:
         if str(candidate.get("review_status") or "") == "rejected":
@@ -491,12 +478,12 @@ def _pipeline_a_geometry_match(
 
     if not matches:
         return None
-    # Reviewed GT always wins a near-tie; otherwise geometry fit dominates.
     matches.sort(key=lambda item: (item[0], item[1]), reverse=True)
     score, _priority, box, diagnostics = matches[0]
     diagnostics["semantic_box"] = semantic_box.to_list()
     diagnostics["resolved_box"] = box.to_list()
     return box, diagnostics
+
 
 def resolve_value_roi_box(
     database: TrainingDatabase,
@@ -535,6 +522,7 @@ def resolve_value_roi_box(
         )
     return matched
 
+
 def _crop_hash(crop: Any) -> str:
     import numpy as np
     digest = hashlib.sha256()
@@ -557,9 +545,9 @@ def _joined(tokens: list[Any]) -> tuple[str, float]:
 def parse_mapped_value(raw_text: str, field: dict[str, Any]) -> dict[str, Any]:
     """Parse generic OCR output according to editable field-schema metadata.
 
-    The raw OCR string is never changed. Parsing and range validation are stored
-    as separate derived properties so value review can distinguish OCR errors
-    from interpretation errors.
+    Explicit dash markers represent a field that is present but has no measured
+    value. They are returned as ``parsed_value=None`` with ``parse_status=missing``;
+    the original OCR text remains untouched for audit/debugging.
     """
     text = str(raw_text or "")
     data_type = str(field.get("data_type") or "text").strip().lower()
@@ -572,6 +560,10 @@ def parse_mapped_value(raw_text: str, field: dict[str, Any]) -> dict[str, Any]:
         "parse_status": "ok",
         "range_valid": None,
     }
+    if is_missing_value_text(text):
+        result["parse_status"] = "missing"
+        return result
+
     if data_type in {"text", "code", "date", "boolean"}:
         stripped = text.strip()
         if data_type == "boolean":
@@ -616,12 +608,7 @@ def build_mapping_output_preview(
     relation: dict[str, Any],
     field: dict[str, Any],
 ) -> dict[str, Any]:
-    """Return the exact output shape expected after mapping/value parsing.
-
-    This is intentionally based on the currently detected raw text, not a new OCR
-    call. The Mappingstudio can therefore preview semantics instantly while still
-    making it clear that final recognition occurs after ROI approval.
-    """
+    """Return the exact output shape expected after mapping/value parsing."""
     raw_text = str(relation.get("value_text") or "")
     parsed = parse_mapped_value(raw_text, field)
     field_key = str(field.get("field_key") or "")
@@ -638,9 +625,7 @@ def build_mapping_output_preview(
             "column_index": int(relation.get("value_column_index", -1)),
         },
     }
-    return {
-        "measurements": {field_key: measurement}
-    }
+    return {"measurements": {field_key: measurement}}
 
 
 def materialize_confirmed_mappings(
@@ -652,15 +637,7 @@ def materialize_confirmed_mappings(
     padding_pixels: int = 2,
     recognize: bool = False,
 ) -> dict[str, Any]:
-    """Create value ROI samples only after a mapping has been confirmed.
-
-    Recognition is deliberately optional. The normal process first materializes
-    the crops, lets the user assess ROI geometry, and only then reads approved
-    crops in the separate value-extraction step.
-
-    Heavy image dependencies are imported lazily so the lightweight mapping UI
-    can start without installing the OCR runtime.
-    """
+    """Create value ROI samples only after a mapping has been confirmed."""
     import cv2
     import numpy as np
 
@@ -829,7 +806,6 @@ def materialize_confirmed_mappings(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return manifest
-
 
 
 def recognize_approved_mapped_samples(
