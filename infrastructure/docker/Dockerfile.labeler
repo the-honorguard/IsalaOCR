@@ -15,40 +15,18 @@ RUN groupadd --gid "${APP_GID}" isalaocr \
 
 WORKDIR /app
 
-# The labeling UI only needs the database and web modules. Deliberately do not
-# install PaddleOCR, PaddlePaddle, OpenCV, pydicom or compressed-DICOM codecs.
-# Pillow is kept because the table hard-negative policy is installed from the
-# training package and its dataset helper creates image crops when invoked.
+# The labeling UI deliberately does not install PaddleOCR, PaddlePaddle,
+# OpenCV, pydicom or compressed-DICOM codecs. It does, however, import a broad
+# part of the training package and the optional application-processing helpers.
+# Copy these packages as directories instead of maintaining a fragile list of
+# individual modules: adding a lightweight Python module must never produce an
+# image that builds successfully but crashes at import time.
 COPY application/src/isala_ocr/__init__.py /app/src/isala_ocr/__init__.py
 COPY application/src/isala_ocr/config.py /app/src/isala_ocr/config.py
 COPY application/src/isala_ocr/models.py /app/src/isala_ocr/models.py
 COPY application/src/isala_ocr/geometry.py /app/src/isala_ocr/geometry.py
-COPY application/src/isala_ocr/training/__init__.py /app/src/isala_ocr/training/__init__.py
-COPY application/src/isala_ocr/training/db.py /app/src/isala_ocr/training/db.py
-COPY application/src/isala_ocr/training/localization_dataset.py /app/src/isala_ocr/training/localization_dataset.py
-COPY application/src/isala_ocr/training/detection_gate.py /app/src/isala_ocr/training/detection_gate.py
-COPY application/src/isala_ocr/training/table_quality.py /app/src/isala_ocr/training/table_quality.py
-COPY application/src/isala_ocr/training/table_panels.py /app/src/isala_ocr/training/table_panels.py
-COPY application/src/isala_ocr/training/table_cell_training.py /app/src/isala_ocr/training/table_cell_training.py
-COPY application/src/isala_ocr/training/table_cell_ground_truth.py /app/src/isala_ocr/training/table_cell_ground_truth.py
-COPY application/src/isala_ocr/training/table_model_comparison.py /app/src/isala_ocr/training/table_model_comparison.py
-COPY application/src/isala_ocr/training/table_model_evaluation_policy.py /app/src/isala_ocr/training/table_model_evaluation_policy.py
-COPY application/src/isala_ocr/training/table_hard_negative_policy.py /app/src/isala_ocr/training/table_hard_negative_policy.py
-COPY application/src/isala_ocr/training/comparison_review_queue.py /app/src/isala_ocr/training/comparison_review_queue.py
-COPY application/src/isala_ocr/training/comparison_review_queue_web.py /app/src/isala_ocr/training/comparison_review_queue_web.py
-COPY application/src/isala_ocr/training/dynamic_locator.py /app/src/isala_ocr/training/dynamic_locator.py
-COPY application/src/isala_ocr/training/header_normalization.py /app/src/isala_ocr/training/header_normalization.py
-COPY application/src/isala_ocr/training/generic_detection.py /app/src/isala_ocr/training/generic_detection.py
-COPY application/src/isala_ocr/training/mapping.py /app/src/isala_ocr/training/mapping.py
-COPY application/src/isala_ocr/training/relation_feedback.py /app/src/isala_ocr/training/relation_feedback.py
-COPY application/src/isala_ocr/training/projects.py /app/src/isala_ocr/training/projects.py
-COPY application/src/isala_ocr/training/labeler.py /app/src/isala_ocr/training/labeler.py
-COPY application/src/isala_ocr/training/labeler_server.py /app/src/isala_ocr/training/labeler_server.py
-COPY application/src/isala_ocr/training/job_cancellation.py /app/src/isala_ocr/training/job_cancellation.py
-COPY application/src/isala_ocr/training/webui.py /app/src/isala_ocr/training/webui.py
-COPY application/src/isala_ocr/training/webui_server.py /app/src/isala_ocr/training/webui_server.py
-COPY application/src/isala_ocr/training/templates /app/src/isala_ocr/training/templates
-COPY application/src/isala_ocr/training/static /app/src/isala_ocr/training/static
+COPY application/src/isala_ocr/application_processing /app/src/isala_ocr/application_processing
+COPY application/src/isala_ocr/training /app/src/isala_ocr/training
 
 RUN mkdir -p /training/workspace /tmp \
     && chown -R "${APP_UID}:${APP_GID}" /training /tmp
