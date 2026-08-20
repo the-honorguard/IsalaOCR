@@ -142,4 +142,4 @@ def test_partial_mapping_sync_preserves_other_suggestions(tmp_path):
 
 
 def test_mapping_review_studio_version():
-    assert VERSION.read_text(encoding="utf-8").strip() == "3.14.13"
+    assert VERSION.read_text(encoding="utf-8").strip() == "3.15.0"
