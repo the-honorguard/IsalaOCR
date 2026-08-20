@@ -34,9 +34,9 @@
     <a href="/process/detect-candidates" class="process-tab {% if request.path == '/process/detect-candidates' %}active{% endif %}"><span class="process-tab-number">3</span><span>Ground Truth maken</span></a>
     <a href="/process/detection-review" class="process-tab {% if request.path == '/process/detection-review' or request.path.startswith('/detection-review') %}active{% endif %}"><span class="process-tab-number">4</span><span>Ground Truth beheren</span></a>
 
-    <div class="nav-section nav-pipeline-a">MODEL FACTORY · ITERATIE 5 → 6 → 5</div>
-    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">5</span><span>Model trainen & draaien</span></a>
-    <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' or request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">6</span><span>Afwijkingen reviewen</span></a>
+    <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTOR · 5 → 6 → 5</div>
+    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">5</span><span>Detectiemodel trainen & draaien</span></a>
+    <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' or request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">6</span><span>Detectorafwijkingen reviewen</span></a>
     {% else %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTIE & CROPS</div>
     {% for step in process_steps if step.group == 'detection' %}
@@ -46,18 +46,32 @@
     {% endfor %}
     {% endif %}
 
-    <div class="nav-gate gate-open">
-      <strong>MODEL FACTORY</strong><span>EINDPRODUCT · MODEL</span>
-    </div>
-    <div class="nav-section nav-pipeline-b">FASE 2 · APPLICATION PROCESSING · OPTIONEEL</div>
-    <div class="nav-gate {{ 'gate-open' if pipeline_gate_global.ready else 'gate-closed' }}">
-      <strong>{{ pipeline_gate_global.gate_label or 'MODEL OUTPUT CHECK' }}</strong><span>{{ 'BESCHIKBAAR' if pipeline_gate_global.ready else 'WACHT OP MODEL/GT' }}</span>
-    </div>
-    {% for step in process_steps if step.group == 'value' %}
-    <a href="/process/{{ step.key }}" class="process-tab {% if request.path == '/process/' ~ step.key or (step.key == 'mapping' and request.path.startswith('/mapping')) %}active{% endif %} {% if not pipeline_gate_global.ready %}blocked{% endif %}"{% if not pipeline_gate_global.ready %} title="Optionele Application Processing is nog niet beschikbaar: {{ pipeline_gate_global.reason }} Volgende stap: {{ pipeline_gate_global.next_step or 'rond eerst de Model Factory af.' }}"{% endif %}>
-      <span class="process-tab-number">A{{ loop.index }}</span><span>{{ step.title }}</span>{% if not pipeline_gate_global.ready %}<span class="lock-mark">🔒</span>{% endif %}
-    </a>
+    {% set recognition_keys = ['recognition-gt','recognition-review','recognition-dataset','recognition-validate','recognition-train','recognition-evaluate','recognition-models'] %}
+    <div class="nav-section nav-pipeline-a">MODEL FACTORY · RECOGNITION</div>
+    {% for step in process_steps if step.key in recognition_keys %}
+      {% set recognition_href = '/recognition-gt-review' if step.key == 'recognition-review' else '/process/' ~ step.key %}
+      <a href="{{ recognition_href }}" class="process-tab {% if request.path == recognition_href or (step.key == 'recognition-review' and request.path.startswith('/recognition-gt-review')) %}active{% endif %} {% if not pipeline_gate_global.ready %}blocked{% endif %}"{% if not pipeline_gate_global.ready %} title="Recognitiontraining wacht op afgeronde canonieke geometrie: {{ pipeline_gate_global.reason }}"{% endif %}>
+        <span class="process-tab-number">{{ step.index }}</span><span>{{ step.title }}</span>{% if not pipeline_gate_global.ready %}<span class="lock-mark">🔒</span>{% endif %}
+      </a>
     {% endfor %}
+
+    <div class="nav-gate {{ 'gate-open' if active_model else 'gate-closed' }}">
+      <strong>MODEL FACTORY</strong><span>{{ 'EINDPRODUCT · MODEL BUNDLE' if active_model else 'BOUW MODEL BUNDLE' }}</span>
+    </div>
+
+    {% set application_keys = ['mapping','apply-mapping','value-extract','value-review'] %}
+    {% set application_ready = pipeline_gate_global.ready and active_model %}
+    <div class="nav-section nav-pipeline-b">FASE 2 · APPLICATION PROCESSING · OPTIONEEL</div>
+    <div class="nav-gate {{ 'gate-open' if application_ready else 'gate-closed' }}">
+      <strong>MODEL BUNDLE</strong><span>{{ 'BESCHIKBAAR' if application_ready else 'EERST MODEL FACTORY' }}</span>
+    </div>
+    {% for step in process_steps if step.key in application_keys %}
+      {% set application_href = '/mapping' if step.key == 'mapping' else ('/review' if step.key == 'value-review' else '/process/' ~ step.key) %}
+      <a href="{{ application_href }}" class="process-tab {% if request.path == application_href or (step.key == 'mapping' and request.path.startswith('/mapping')) %}active{% endif %} {% if not application_ready %}blocked{% endif %}"{% if not application_ready %} title="Optionele Application Processing begint pas na de Model Factory en een actief recognitionmodel."{% endif %}>
+        <span class="process-tab-number">A{{ loop.index }}</span><span>{{ step.title }}</span>{% if not application_ready %}<span class="lock-mark">🔒</span>{% endif %}
+      </a>
+    {% endfor %}
+
     {% if localization_strategy == 'table_first' %}
     <div class="nav-section nav-fallback">GEPARKEERD · BOX DETECTOR</div>
     {% for step in process_steps if step.group == 'fallback' %}
@@ -77,7 +91,7 @@
     <a href="/jobs/manage" class="{% if request.path.startswith('/jobs/manage') %}active{% endif %}">Wachtrij</a>
   </nav>
   <div class="sidebar-foot" id="active-model-summary">
-    <span class="dot {% if active_model %}ok{% endif %}"></span>{{ active_model.model_id if active_model else 'Geen actief model' }}
+    <span class="dot {% if active_model %}ok{% endif %}"></span>{{ active_model.model_id if active_model else 'Geen actief recognitionmodel' }}
   </div>
 </aside>
 <main class="shell">
@@ -153,10 +167,10 @@
   if(path==='/process/detect-candidates'){
     setTopbar('Stap 3 · Ground Truth maken','Maak éénmalig een eerste voorstel voor de table-cell Ground Truth binnen de ingestelde panelen.');
   }else if(path==='/process/table-compare'){
-    setTopbar('Stap 6 · Afwijkingen reviewen','Beoordeel alleen de verschillen tussen de actieve modelrun en de canonieke Ground Truth. Het primaire eindproduct van deze workflow is het getrainde model.');
+    setTopbar('Stap 6 · Detectorafwijkingen reviewen','Beoordeel alleen de verschillen tussen de actieve detectorrun en de canonieke Ground Truth. Daarna gaat de Model Factory verder met Recognition GT.');
     document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{
       link.href='/process/table-quality';
-      link.textContent=/volgende trainingsronde/i.test(link.textContent||'')?'Stap 5 · Volgende trainingsronde':'Stap 5 · Alles laten draaien';
+      link.textContent=/volgende trainingsronde/i.test(link.textContent||'')?'Stap 5 · Volgende detectorronde':'Stap 5 · Alles laten draaien';
     });
     const content=document.querySelector('.content');
     if(content){
@@ -167,10 +181,10 @@
     }
   }
   if(path.startsWith('/detection-review')){
-    document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{link.href='/process/table-quality';link.textContent='Naar Stap 5 · Model trainen & draaien →';});
+    document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{link.href='/process/table-quality';link.textContent='Naar Stap 5 · Detectiemodel trainen & draaien →';});
   }
   if(path==='/process/mapping'||path.startsWith('/mapping')){
-    setTopbar('Fase 2 · Application Mapping Studio','Optionele postprocessing: geef bestaande OCR/model-output functionele betekenis zonder die semantiek onderdeel van de modeltraining te maken.');
+    setTopbar('Fase 2 · Application Mapping Studio','Optionele postprocessing ná het Model Bundle: geef OCR/model-output functionele betekenis zonder die semantiek onderdeel van de modeltraining te maken.');
   }
 })();
 </script>
