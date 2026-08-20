@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from flask import abort, flash, redirect, render_template, request, url_for
+
+from .db import TrainingDatabase
+from .projects import resolve_project_workspace
+from .recognition_ground_truth import EXTRACTION_METHOD, recognition_gt_counts
+
+
+def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
+    workspace_root = Path(workspace)
+
+    def current_database() -> TrainingDatabase:
+        project_workspace = resolve_project_workspace(workspace_root)
+        return TrainingDatabase(project_workspace / "samples.sqlite3")
+
+    def source_rows(database: TrainingDatabase) -> list[dict]:
+        with database.connect() as db:
+            rows = db.execute(
+                """
+                SELECT source_id,
+                       COUNT(*) AS total,
+                       SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+                       SUM(CASE WHEN status='accepted' THEN 1 ELSE 0 END) AS accepted,
+                       SUM(CASE WHEN status IN ('unreadable','excluded','no_value') THEN 1 ELSE 0 END) AS excluded
+                FROM samples
+                WHERE extraction_method=?
+                GROUP BY source_id
+                ORDER BY source_id
+                """,
+                (EXTRACTION_METHOD,),
+            ).fetchall()
+        return [
+            {
+                "source_id": str(row["source_id"]),
+                "total": int(row["total"] or 0),
+                "pending": int(row["pending"] or 0),
+                "accepted": int(row["accepted"] or 0),
+                "excluded": int(row["excluded"] or 0),
+            }
+            for row in rows
+        ]
+
+    def source_samples(database: TrainingDatabase, source_id: str) -> list[dict]:
+        with database.connect() as db:
+            rows = db.execute(
+                """
+                SELECT * FROM samples
+                WHERE source_id=? AND extraction_method=? AND roi_review_status='correct'
+                ORDER BY roi_y1, roi_x1, sample_id
+                """,
+                (source_id, EXTRACTION_METHOD),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    @app.before_request
+    def redirect_recognition_review_process_step():
+        if request.method == "GET" and request.path == "/process/recognition-review":
+            return redirect(url_for("recognition_gt_review_home"))
+        return None
+
+    @app.get("/recognition-gt-review")
+    def recognition_gt_review_home():
+        database = current_database()
+        counts = recognition_gt_counts(database)
+        return render_template(
+            "recognition_gt_review.html",
+            sources=source_rows(database),
+            counts=counts,
+            header_counts=counts,
+            header_total_label="Recognition-GT crops",
+            header_pending_label="te beoordelen",
+            header_accepted_label="goedgekeurd",
+        )
+
+    @app.route("/recognition-gt-review/<source_id>", methods=["GET", "POST"])
+    def recognition_gt_review_document(source_id: str):
+        database = current_database()
+        samples = source_samples(database, source_id)
+        if not samples:
+            abort(404)
+
+        if request.method == "POST":
+            global_action = str(request.form.get("global_action") or "").strip().lower()
+            changed = 0
+            for sample in samples:
+                sample_id = str(sample["sample_id"])
+                action = str(request.form.get(f"status_{sample_id}") or "keep").strip().lower()
+                exact = str(request.form.get(f"label_{sample_id}") or sample.get("raw_ocr") or "")
+                notes = str(request.form.get(f"notes_{sample_id}") or "")
+                if global_action == "accept_all_ocr" and str(sample.get("status") or "") == "pending":
+                    action = "accepted"
+                    exact = str(sample.get("raw_ocr") or "")
+                if action == "keep":
+                    continue
+                if action == "accepted":
+                    # Recognition GT is verbatim. A lone '-', '–' or '—' is a
+                    # legitimate literal label here and is NOT converted to null.
+                    database.review(sample_id, "accepted", exact, notes, "value")
+                elif action in {"unreadable", "excluded", "pending"}:
+                    database.review(sample_id, action, None, notes)
+                else:
+                    abort(400)
+                changed += 1
+            flash(f"Recognition-GT opgeslagen: {changed} wijziging(en).", "success")
+            return redirect(url_for("recognition_gt_review_document", source_id=source_id))
+
+        counts = {
+            "total": len(samples),
+            "pending": sum(str(item.get("status") or "") == "pending" for item in samples),
+            "accepted": sum(str(item.get("status") or "") == "accepted" for item in samples),
+        }
+        return render_template(
+            "recognition_gt_review_document.html",
+            source_id=source_id,
+            samples=samples,
+            counts=counts,
+            header_counts=counts,
+            header_total_label="crops",
+            header_pending_label="te beoordelen",
+            header_accepted_label="goedgekeurd",
+        )
