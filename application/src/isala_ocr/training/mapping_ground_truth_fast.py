@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
@@ -22,9 +23,125 @@ from .mapping_ground_truth import (
     mark_canonical_geometry,
 )
 from .projects import resolve_project_workspace
-from .table_cell_ground_truth import ensure_table_cell_ground_truth, ground_truth_review_state
+from .table_cell_ground_truth import (
+    ensure_table_cell_ground_truth,
+    ground_truth_review_state,
+    list_ground_truth_cells,
+)
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _canonical_panel_regions(workspace: str | Path, source_id: str) -> list[dict[str, object]]:
+    """Return semantic panel identity plus its canonical GT bounding box.
+
+    Mapping already knows which canonical panel/table owns every cell. Older
+    Mapping builds dropped that identity after reconstructing the table regions,
+    leaving labels such as ``ED Volume`` or ``Cardiac Output`` ambiguous between
+    LV and RV. Keep the user-defined panel name/id next to the geometry so it can
+    become mapping context without changing the authoritative GT itself.
+    """
+    grouped: dict[str, dict[str, object]] = {}
+    for cell in list_ground_truth_cells(workspace, source_id):
+        panel_id = str(cell.get("panel_id") or "unassigned").strip() or "unassigned"
+        panel_name = str(cell.get("panel_name") or panel_id).strip() or panel_id
+        try:
+            x1 = int(cell["x1"])
+            y1 = int(cell["y1"])
+            x2 = int(cell["x2"])
+            y2 = int(cell["y2"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if x2 <= x1 or y2 <= y1:
+            continue
+        item = grouped.get(panel_id)
+        if item is None:
+            grouped[panel_id] = {
+                "panel_id": panel_id,
+                "panel_name": panel_name,
+                "x1": x1,
+                "y1": y1,
+                "x2": x2,
+                "y2": y2,
+            }
+            continue
+        item["x1"] = min(int(item["x1"]), x1)
+        item["y1"] = min(int(item["y1"]), y1)
+        item["x2"] = max(int(item["x2"]), x2)
+        item["y2"] = max(int(item["y2"]), y2)
+        if panel_name and panel_name != panel_id:
+            item["panel_name"] = panel_name
+    return list(grouped.values())
+
+
+def _panel_overlap_ratio(table: object, panel: dict[str, object]) -> float:
+    box = getattr(table, "box", None)
+    if box is None:
+        return 0.0
+    px1 = int(panel["x1"])
+    py1 = int(panel["y1"])
+    px2 = int(panel["x2"])
+    py2 = int(panel["y2"])
+    intersection_width = max(0, min(int(box.x2), px2) - max(int(box.x1), px1))
+    intersection_height = max(0, min(int(box.y2), py2) - max(int(box.y1), py1))
+    intersection = intersection_width * intersection_height
+    if intersection <= 0:
+        return 0.0
+    table_area = max(1, int(box.x2 - box.x1) * int(box.y2 - box.y1))
+    panel_area = max(1, (px2 - px1) * (py2 - py1))
+    return intersection / max(1, min(table_area, panel_area))
+
+
+def _semantic_panel_context(panel: dict[str, object]) -> str:
+    values: list[str] = []
+    for key in ("panel_name", "panel_id"):
+        value = str(panel.get(key) or "").strip()
+        if value and value.casefold() not in {item.casefold() for item in values}:
+            values.append(value)
+    return " | ".join(values)
+
+
+def _enrich_relations_with_panel_context(
+    workspace: str | Path,
+    source_id: str,
+    table_regions: list[object],
+    relations: list[object],
+) -> tuple[list[object], dict[str, str]]:
+    """Attach canonical panel identity to table relation context.
+
+    The relation scorer already understands explicit LV/RV context. This bridge
+    makes the table identity that was established in Panel Setup/GT available to
+    that scorer, so generic labels can be proposed for the correct functional
+    field instead of forcing manual selection.
+    """
+    panels = _canonical_panel_regions(workspace, source_id)
+    context_by_table: dict[str, str] = {}
+    for table in table_regions:
+        table_id = str(getattr(table, "table_id", "") or "")
+        if not table_id or not panels:
+            continue
+        best_panel = max(panels, key=lambda panel: _panel_overlap_ratio(table, panel))
+        score = _panel_overlap_ratio(table, best_panel)
+        if score < 0.50:
+            continue
+        context = _semantic_panel_context(best_panel)
+        if context:
+            context_by_table[table_id] = context
+
+    enriched: list[object] = []
+    for relation in relations:
+        table_id = str(getattr(relation, "table_id", "") or "")
+        panel_context = context_by_table.get(table_id, "")
+        if not panel_context:
+            enriched.append(relation)
+            continue
+        existing = str(getattr(relation, "context_text", "") or "").strip()
+        if panel_context.casefold() in existing.casefold():
+            merged = existing
+        else:
+            merged = f"{panel_context} | {existing}" if existing else panel_context
+        enriched.append(replace(relation, context_text=merged))
+    return enriched, context_by_table
 
 
 def collect_mapping_from_canonical_gt(
@@ -127,6 +244,21 @@ def collect_mapping_from_canonical_gt(
             blocks, relations, structural = integrate_table_regions(
                 decoded.source_id, blocks, relations, table_regions
             )
+            relations, panel_context_by_table = _enrich_relations_with_panel_context(
+                root,
+                decoded.source_id,
+                list(table_regions),
+                list(relations),
+            )
+            if panel_context_by_table:
+                LOGGER.info(
+                    "Mapping source %d/%d [%s]: canonical panel context preserved for %d table(s): %s.",
+                    source_index,
+                    len(sources),
+                    decoded.source_id,
+                    len(panel_context_by_table),
+                    ", ".join(sorted(set(panel_context_by_table.values()))),
+                )
             blocks = mark_canonical_geometry(blocks)
             structure_seconds = time.perf_counter() - structure_started
 
@@ -137,6 +269,7 @@ def collect_mapping_from_canonical_gt(
                 "model_inference": False,
                 "active_table_model_loaded": False,
                 "gt_revision": int(gt.get("revision") or 0),
+                "semantic_panel_context": panel_context_by_table,
                 "error": "",
                 **structural,
             }
@@ -206,7 +339,7 @@ def collect_mapping_from_canonical_gt(
             diagnostics_started = time.perf_counter()
             study_info = extract_study_info(tokens)
             payload = {
-                "schema_version": "2.2-canonical-gt-mapping-fast",
+                "schema_version": "2.3-canonical-gt-mapping-panel-aware",
                 "source_id": decoded.source_id,
                 "detector": detector_diagnostics,
                 "study_info": study_info.as_dict(),
@@ -216,6 +349,7 @@ def collect_mapping_from_canonical_gt(
                 "geometry_authority": "canonical_table_cell_ground_truth",
                 "automatic_mapping_suggestions": len(suggestions),
                 "materialized_label_crops": len(crop_paths),
+                "semantic_panel_context": panel_context_by_table,
             }
             (diagnostics_root / f"{decoded.source_id}.json").write_text(
                 json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -253,7 +387,7 @@ def collect_mapping_from_canonical_gt(
 
     manifest = {
         "created_at": utc_now(),
-        "flow": "generic_mapping_canonical_gt_fast",
+        "flow": "generic_mapping_canonical_gt_fast_panel_aware",
         "detector_version": GENERIC_DETECTOR_VERSION,
         "geometry_authority": "canonical_table_cell_ground_truth",
         "geometry_version": CANONICAL_MAPPING_GEOMETRY_VERSION,
