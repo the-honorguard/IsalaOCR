@@ -48,7 +48,7 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
             rows = db.execute(
                 """
                 SELECT * FROM samples
-                WHERE source_id=? AND extraction_method=? AND roi_review_status='correct'
+                WHERE source_id=? AND extraction_method=?
                 ORDER BY roi_y1, roi_x1, sample_id
                 """,
                 (source_id, EXTRACTION_METHOD),
