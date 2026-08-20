@@ -8,7 +8,7 @@ def test_runtime_precreates_writable_paddle_cache_without_recursive_chown() -> N
     dockerfile = (ROOT / "infrastructure" / "docker" / "Dockerfile.runtime").read_text(encoding="utf-8")
 
     assert 'chown -R "${APP_UID}:${APP_GID}" /output /models /training /tmp' not in dockerfile
-    assert 'XDG_CACHE_HOME=/tmp/.cache' in dockerfile
+    assert 'HOME=/tmp' in dockerfile
     assert '/tmp/.cache' in dockerfile
     assert '/tmp/.cache/paddle' in dockerfile
     assert 'install -d -o "${APP_UID}" -g "${APP_GID}"' in dockerfile
