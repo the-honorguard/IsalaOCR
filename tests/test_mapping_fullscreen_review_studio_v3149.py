@@ -38,7 +38,18 @@ def test_mapping_review_studio_is_a_real_single_relation_review_queue():
     assert "mapping-review-value-box" in js
     assert "position: fixed" in css
     assert "inset: 0" in css
-    assert "grid-template-columns: minmax(0, 1.65fr) minmax(360px, 0.75fr)" in css
+    assert "grid-template-columns: minmax(0, 1.5fr) minmax(430px, .82fr)" in css
+
+
+def test_mapping_review_inspector_prioritizes_relation_over_debug_details():
+    css = CSS.read_text(encoding="utf-8")
+
+    assert ".mapping-review-crop:last-child img" in css
+    assert "display: none !important" in css
+    assert ".mapping-review-meta > div:nth-child(3)" in css
+    assert ".mapping-review-meta > div:nth-child(4)" in css
+    assert ".mapping-review-field-summary" in css
+    assert "grid-template-columns: minmax(0, 1fr) auto minmax(0, .62fr)" in css
 
 
 def test_mapping_review_studio_has_step6_style_keyboard_and_viewer_controls():
@@ -131,4 +142,4 @@ def test_partial_mapping_sync_preserves_other_suggestions(tmp_path):
 
 
 def test_mapping_review_studio_version():
-    assert VERSION.read_text(encoding="utf-8").strip() == "3.14.10"
+    assert VERSION.read_text(encoding="utf-8").strip() == "3.14.11"
