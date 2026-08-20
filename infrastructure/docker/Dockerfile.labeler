@@ -28,6 +28,10 @@ COPY application/src/isala_ocr/geometry.py /app/src/isala_ocr/geometry.py
 COPY application/src/isala_ocr/application_processing /app/src/isala_ocr/application_processing
 COPY application/src/isala_ocr/training /app/src/isala_ocr/training
 
+# Catch packaging/import regressions during docker build rather than after the
+# container has already been created and the WebUI healthcheck starts failing.
+RUN python -c "import isala_ocr.application_processing; from isala_ocr.training.webui import create_web_app; assert callable(create_web_app)"
+
 RUN mkdir -p /training/workspace /tmp \
     && chown -R "${APP_UID}:${APP_GID}" /training /tmp
 
