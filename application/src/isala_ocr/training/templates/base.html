@@ -28,17 +28,17 @@
   <nav class="process-nav">
     <a href="/" class="{% if request.path=='/' %}active{% endif %}">Overzicht</a>
     {% if localization_strategy == 'table_first' %}
-    <div class="nav-section nav-pipeline-a">TABLE SETUP & GROUND TRUTH</div>
+    <div class="nav-section nav-pipeline-a">MODEL FACTORY · DATA & GROUND TRUTH</div>
     <a href="/process/detection-models" class="process-tab {% if request.path == '/process/detection-models' %}active{% endif %}"><span class="process-tab-number">1</span><span>Voorbereiding</span></a>
     <a href="/process/panel-setup" class="process-tab {% if request.path == '/process/panel-setup' %}active{% endif %}"><span class="process-tab-number">2</span><span>Panelen instellen</span></a>
     <a href="/process/detect-candidates" class="process-tab {% if request.path == '/process/detect-candidates' %}active{% endif %}"><span class="process-tab-number">3</span><span>Ground Truth maken</span></a>
     <a href="/process/detection-review" class="process-tab {% if request.path == '/process/detection-review' or request.path.startswith('/detection-review') %}active{% endif %}"><span class="process-tab-number">4</span><span>Ground Truth beheren</span></a>
 
-    <div class="nav-section nav-pipeline-a">MODEL ITERATIE · 5 → 6 → 5</div>
+    <div class="nav-section nav-pipeline-a">MODEL FACTORY · ITERATIE 5 → 6 → 5</div>
     <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">5</span><span>Model trainen & draaien</span></a>
     <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' or request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">6</span><span>Afwijkingen reviewen</span></a>
     {% else %}
-    <div class="nav-section nav-pipeline-a">DETECTIE & CROPS</div>
+    <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTIE & CROPS</div>
     {% for step in process_steps if step.group == 'detection' %}
     <a href="/process/{{ step.key }}" class="process-tab {% if request.path == '/process/' ~ step.key or (step.key == 'detection-review' and request.path.startswith('/detection-review')) %}active{% endif %}">
       <span class="process-tab-number">{{ step.index }}</span><span>{{ step.title }}</span>
@@ -46,13 +46,16 @@
     {% endfor %}
     {% endif %}
 
-    <div class="nav-gate {{ 'gate-open' if pipeline_gate_global.ready else 'gate-closed' }}">
-      <strong>{{ pipeline_gate_global.gate_label or 'PIPELINE A CHECK' }}</strong><span>{{ 'OPEN' if pipeline_gate_global.ready else 'GESLOTEN' }}</span>
+    <div class="nav-gate gate-open">
+      <strong>MODEL FACTORY</strong><span>EINDPRODUCT · MODEL</span>
     </div>
-    <div class="nav-section nav-pipeline-b">WAARDEN & OCR</div>
+    <div class="nav-section nav-pipeline-b">FASE 2 · APPLICATION PROCESSING · OPTIONEEL</div>
+    <div class="nav-gate {{ 'gate-open' if pipeline_gate_global.ready else 'gate-closed' }}">
+      <strong>{{ pipeline_gate_global.gate_label or 'MODEL OUTPUT CHECK' }}</strong><span>{{ 'BESCHIKBAAR' if pipeline_gate_global.ready else 'WACHT OP MODEL/GT' }}</span>
+    </div>
     {% for step in process_steps if step.group == 'value' %}
-    <a href="/process/{{ step.key }}" class="process-tab {% if request.path == '/process/' ~ step.key or (step.key == 'mapping' and request.path.startswith('/mapping')) %}active{% endif %} {% if not pipeline_gate_global.ready %}blocked{% endif %}"{% if not pipeline_gate_global.ready %} title="Niet beschikbaar: {{ pipeline_gate_global.reason }} Volgende stap: {{ pipeline_gate_global.next_step or 'rond Pipeline A af.' }}"{% endif %}>
-      <span class="process-tab-number">{{ (step.index - 1) if localization_strategy == 'table_first' and step.index else step.index }}</span><span>{{ step.title }}</span>{% if not pipeline_gate_global.ready %}<span class="lock-mark">🔒</span>{% endif %}
+    <a href="/process/{{ step.key }}" class="process-tab {% if request.path == '/process/' ~ step.key or (step.key == 'mapping' and request.path.startswith('/mapping')) %}active{% endif %} {% if not pipeline_gate_global.ready %}blocked{% endif %}"{% if not pipeline_gate_global.ready %} title="Optionele Application Processing is nog niet beschikbaar: {{ pipeline_gate_global.reason }} Volgende stap: {{ pipeline_gate_global.next_step or 'rond eerst de Model Factory af.' }}"{% endif %}>
+      <span class="process-tab-number">A{{ loop.index }}</span><span>{{ step.title }}</span>{% if not pipeline_gate_global.ready %}<span class="lock-mark">🔒</span>{% endif %}
     </a>
     {% endfor %}
     {% if localization_strategy == 'table_first' %}
@@ -150,7 +153,7 @@
   if(path==='/process/detect-candidates'){
     setTopbar('Stap 3 · Ground Truth maken','Maak éénmalig een eerste voorstel voor de table-cell Ground Truth binnen de ingestelde panelen.');
   }else if(path==='/process/table-compare'){
-    setTopbar('Stap 6 · Afwijkingen reviewen','Beoordeel alleen de verschillen tussen de actieve modelrun en de canonieke Ground Truth.');
+    setTopbar('Stap 6 · Afwijkingen reviewen','Beoordeel alleen de verschillen tussen de actieve modelrun en de canonieke Ground Truth. Het primaire eindproduct van deze workflow is het getrainde model.');
     document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{
       link.href='/process/table-quality';
       link.textContent=/volgende trainingsronde/i.test(link.textContent||'')?'Stap 5 · Volgende trainingsronde':'Stap 5 · Alles laten draaien';
@@ -165,6 +168,9 @@
   }
   if(path.startsWith('/detection-review')){
     document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{link.href='/process/table-quality';link.textContent='Naar Stap 5 · Model trainen & draaien →';});
+  }
+  if(path==='/process/mapping'||path.startsWith('/mapping')){
+    setTopbar('Fase 2 · Application Mapping Studio','Optionele postprocessing: geef bestaande OCR/model-output functionele betekenis zonder die semantiek onderdeel van de modeltraining te maken.');
   }
 })();
 </script>
