@@ -244,3 +244,12 @@ body.step7-single-panel-mode > .shell > .notice {
     border-bottom: 1px solid #29475e;
   }
 }
+
+/* Mapping Studio uses the HTML hidden attribute for persisted feedback state.
+   app.css gives the summary an explicit display:grid, so enforce the hidden
+   state at the author layer as well. This prevents a proposed relation from
+   simultaneously rendering the red 'Afgekeurd' panel. */
+.mapping-feedback-summary[hidden],
+.mapping-feedback-actions button[hidden] {
+  display: none !important;
+}
