@@ -59,6 +59,8 @@ def test_missing_marker_keeps_semantic_field_mapping_possible_without_a_unit():
     assert is_missing_value_text("-")
     assert is_missing_value_text("–")
     assert is_missing_value_text("—")
+    assert not is_missing_value_text("-5.2")
+    assert not is_missing_value_text("-5.2 g")
     assert score >= 0.85
     assert evidence["exact_alias"] is True
     assert evidence["unit_match"] is False
@@ -68,6 +70,20 @@ def test_missing_marker_keeps_semantic_field_mapping_possible_without_a_unit():
     assert parsed["parsed_unit"] == "g"
     assert parsed["parse_status"] == "missing"
     assert parsed["range_valid"] is None
+
+
+def test_negative_numeric_value_is_still_parsed_as_a_number():
+    field = {
+        "field_key": "custom.delta",
+        "display_name": "Delta",
+        "data_type": "decimal",
+        "preferred_unit": "g",
+    }
+    parsed = parse_mapped_value("-5.2 g", field)
+
+    assert parsed["parsed_value"] == -5.2
+    assert parsed["parsed_unit"] == "g"
+    assert parsed["parse_status"] == "ok"
 
 
 def test_unrelated_label_does_not_become_a_suggestion_just_from_unit_match():
