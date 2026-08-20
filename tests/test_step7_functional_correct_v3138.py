@@ -17,7 +17,7 @@ def test_step7_geometry_review_has_functionally_correct_decision():
     comparison = COMPARISON.read_text(encoding="utf-8")
     assert 'name="decision" value="functional_ok"' in template
     assert "Functioneel correct ✓" in template
-    assert "functional_ok:'functioneel correct'" in template
+    assert "Functioneel correct" in template
     assert '"functional_ok": "Geometrie functioneel correct bevonden"' in webui
     assert '"functional_ok"' in comparison
 
@@ -30,8 +30,6 @@ def test_step7_geometry_review_shows_coverage_and_excess_metrics():
     assert "waarschijnlijk bruikbaar" in template
     assert AUTO_FUNCTIONAL_GT_COVERAGE == 0.92
     assert AUTO_FUNCTIONAL_PREDICTION_EXCESS == 0.30
-    # The original 95% value remains the stricter containment-recovery gate;
-    # automatic functional acceptance is deliberately a separate policy.
     assert "FUNCTIONAL_GT_COVERAGE = 0.95" in comparison
     assert "FUNCTIONAL_PREDICTION_EXCESS = 0.30" in comparison
     assert '"gt_coverage"' in comparison

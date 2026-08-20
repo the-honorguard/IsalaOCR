@@ -4,6 +4,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "application/src/isala_ocr/training/templates/table_model_comparison.html"
 WEBUI = ROOT / "application/src/isala_ocr/training/webui.py"
 APP_JS = ROOT / "application/src/isala_ocr/training/static/app.js"
+FLOW = ROOT / "application/src/isala_ocr/training/static/step7-review-flow.js"
 
 
 def test_step7_issue_rows_map_hover_to_exact_overlay_boxes():
@@ -19,10 +20,12 @@ def test_step7_issue_rows_map_hover_to_exact_overlay_boxes():
 def test_step7_review_forms_submit_ajax_without_full_page_refresh():
     template = TEMPLATE.read_text(encoding="utf-8")
     webui = WEBUI.read_text(encoding="utf-8")
+    flow = FLOW.read_text(encoding="utf-8")
     assert 'class="comparison-issue-form"' in template
-    assert "event.preventDefault();submitIssueForm(form)" in template
-    assert "'X-Requested-With':'XMLHttpRequest'" in template
     assert "comparison-inline-status" in template
+    assert "event.preventDefault()" in flow
+    assert "event.stopImmediatePropagation()" in flow
+    assert "'X-Requested-With': 'XMLHttpRequest'" in flow
     assert '"counts": {' in webui
     assert '"decision": effective_decision' in webui
     assert 'request.headers.get("X-Requested-With") == "XMLHttpRequest"' in webui

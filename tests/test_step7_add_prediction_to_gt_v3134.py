@@ -105,17 +105,16 @@ def test_fp_can_be_promoted_directly_to_canonical_gt_and_is_idempotent(tmp_path:
 def test_only_fp_predictions_can_use_direct_add_to_gt(tmp_path: Path) -> None:
     _seed(tmp_path)
     state = table_cell_comparison_state(tmp_path)
-    # Fabricate a request for an unknown/non-FP issue by using a GT identifier.
     with pytest.raises(KeyError):
         add_comparison_fp_to_ground_truth(tmp_path, state["candidate"]["run_id"], "not-an-issue")
 
 
-def test_step7_template_exposes_direct_add_to_gt_only_for_fp() -> None:
+def test_direct_add_backend_is_retained_but_not_exposed_in_normal_iteration_ui() -> None:
     root = Path(__file__).resolve().parents[1]
     template = (root / "application/src/isala_ocr/training/templates/table_model_comparison.html").read_text(encoding="utf-8")
     webui = (root / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
-    assert "+ Toevoegen aan GT" in template
-    assert "issue.type == 'fp'" in template
-    assert 'value="add_prediction_to_gt"' in template
+    assert "+ Toevoegen aan GT" not in template
+    assert 'value="add_prediction_to_gt"' not in template
     assert "add_comparison_fp_to_ground_truth" in webui
     assert "trainingsdataset is nu verouderd" in webui
+    assert "GT aanpassen" in template

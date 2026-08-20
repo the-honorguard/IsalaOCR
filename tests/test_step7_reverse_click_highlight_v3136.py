@@ -15,12 +15,13 @@ def test_step7_issue_boxes_click_back_to_linked_issue_row():
     assert "row.scrollIntoView({behavior:'smooth',block:'nearest'})" in template
 
 
-def test_step7_reverse_selection_opens_hidden_issue_without_breaking_open_filter_semantics():
+def test_step7_normal_iteration_has_no_filter_or_nested_review_mode():
     template = TEMPLATE.read_text(encoding="utf-8")
-    assert "const matchesFilter=" in template
-    assert "!rows.some(row=>matchesFilter(row,filter.value))" in template
-    assert "filter.value='all'" in template
-    assert ".comparison-issue-row.is-filtered,.comparison-panel-card.is-filtered{display:none}" in template
+    assert 'id="comparison-issue-filter"' not in template
+    assert "compare-run-selector" not in template
+    assert "Review fullscreen" not in template
+    assert "+ Toevoegen aan GT" not in template
+    assert "data-optimistic-hidden" in template
 
 
 def test_step7_reverse_selection_supports_keyboard_and_pressed_state():
