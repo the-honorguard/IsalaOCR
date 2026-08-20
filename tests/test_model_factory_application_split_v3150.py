@@ -24,11 +24,17 @@ def test_sidebar_separates_model_factory_from_optional_application_processing():
     base = BASE.read_text(encoding="utf-8")
 
     assert "MODEL FACTORY · DATA & GROUND TRUTH" in base
-    assert "MODEL FACTORY · ITERATIE 5 → 6 → 5" in base
-    assert "EINDPRODUCT · MODEL" in base
+    assert "MODEL FACTORY · DETECTOR · 5 → 6 → 5" in base
+    assert "MODEL FACTORY · RECOGNITION" in base
+    assert "EINDPRODUCT · MODEL BUNDLE" in base
     assert "FASE 2 · APPLICATION PROCESSING · OPTIONEEL" in base
     assert '<span class="process-tab-number">A{{ loop.index }}</span>' in base
     assert "Fase 2 · Application Mapping Studio" in base
+
+    recognition = base.index("MODEL FACTORY · RECOGNITION")
+    model_bundle = base.index("EINDPRODUCT · MODEL BUNDLE")
+    application = base.index("FASE 2 · APPLICATION PROCESSING · OPTIONEEL")
+    assert recognition < model_bundle < application
 
 
 def test_application_processing_is_disabled_by_default_in_use_cases():
@@ -51,10 +57,11 @@ def test_semantic_helpers_live_in_application_namespace_with_legacy_shims():
 def test_architecture_document_preserves_existing_mapping_as_phase_two():
     text = ARCH.read_text(encoding="utf-8")
     assert "Primary product: a model bundle" in text
+    assert "Recognition is therefore part of the Model Factory" in text
     assert "Optional phase 2: Application Processing" in text
     assert "Mapping Studio" in text
     assert "compatibility shims" in text
 
 
 def test_architecture_split_version():
-    assert VERSION.read_text(encoding="utf-8").strip() == "3.15.1"
+    assert VERSION.read_text(encoding="utf-8").strip() == "3.16.0"
