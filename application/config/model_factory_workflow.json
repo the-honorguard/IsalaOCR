@@ -1,0 +1,27 @@
+{
+  "model_factory": {
+    "trajectories": {
+      "detection": {
+        "purpose": "Determine where information exists",
+        "steps": [
+          "detection_gt_studio",
+          "detection_dataset",
+          "detection_training",
+          "detection_evaluation",
+          "detection_gt_improvement"
+        ]
+      },
+      "recognition": {
+        "purpose": "Determine what exists inside detected regions",
+        "steps": [
+          "recognition_gt_studio",
+          "recognition_dataset",
+          "recognition_training",
+          "recognition_evaluation",
+          "recognition_gt_improvement"
+        ]
+      }
+    },
+    "rule": "Detection and Recognition never share ground truth or evaluation results."
+  }
+}
