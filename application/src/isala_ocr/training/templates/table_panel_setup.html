@@ -1,27 +1,20 @@
 {% extends 'base.html' %}
+{% block body_class %}table-region-review-page{% endblock %}
 {% block title %}Stap {{ step.index }} · {{ step.title }} · IsalaOCR{% endblock %}
 {% block heading %}Stap {{ step.index }} · {{ step.title }}{% endblock %}
 {% block subtitle %}{{ step.subtitle }}{% endblock %}
 {% block content %}
 <section class="gate-banner {% if panel_state.configured %}gate-banner-open{% else %}gate-banner-closed{% endif %}">
   <div>
-    <span class="gate-kicker">PANEL SETUP</span>
+    <span class="gate-kicker">TABLE REGION · GROUND TRUTH</span>
     <h2>
-      {% if panel_state.definition_count %}
-        {{ panel_state.panel_count }}/{{ panel_state.definition_count }} panel(en) gepositioneerd
-      {% elif panel_state.configured %}
-        {{ panel_state.panel_count }} panel(en) ingesteld
-      {% else %}
-        Bepaal eerst de relevante resultaatpanelen
-      {% endif %}
+      Tabelregio’s per lezing vastleggen
     </h2>
-    <p>De panelnamen komen uit Stap 1. Hier bepaal je alleen de positie en grootte. De coördinaten worden relatief opgeslagen, zodat hetzelfde profiel op volgende CMR-beelden kan worden hergebruikt.</p>
-    {% if panel_state.missing_panel_count %}<p><strong>Nog te tekenen:</strong> {% for item in panel_state.missing_definitions %}{{ item.name }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
-    {% if panel_state.needs_rerun %}<p><strong>Panelprofiel gewijzigd.</strong> De bestaande table-detectie is ouder dan dit profiel. Voer Stap 3 opnieuw uit.</p>{% endif %}
+    <p>Het panelprofiel is de herbruikbare zoekhulp. Met <strong>Tabelregio-GT opslaan</strong> leg je daarnaast per lezing vast waar de volledige tabellen werkelijk staan; die kaders worden de voorbeelden voor de aparte tabelregio-detector.</p>
+    <p>De hoofdroute is: tabelregio-GT → dataset → tabelregio-detector → cellendetectie. Het oude panelprofiel blijft alleen als fallback beschikbaar.</p>
   </div>
   <div class="actions">
-    {% if panel_state.configured %}<a class="button primary" href="/process/detect-candidates">Ga naar Stap 3 · Detecteren</a>{% endif %}
-    <a class="button" href="/process/detection-models#panel-name-setup">Panelnamen wijzigen in Stap 1</a>
+    {% if sources %}<a class="button primary" href="/process/table-region-model">Ga naar Stap 3 · Detector trainen →</a>{% endif %}
   </div>
 </section>
 
@@ -30,41 +23,31 @@
   <h3>Nog geen bronpreview beschikbaar</h3>
   <p>Voor Panel Setup is één volledige bronrender nodig. Maak eenmalig een voorbeeldscan; die draait nog over de volledige screenshot en wordt alleen gebruikt om de panelen te kunnen tekenen.</p>
   <form method="post" action="/jobs"><input type="hidden" name="action_id" value="2"><button class="primary">Voorbeeldscan maken</button></form>
-  <p class="muted">Na voltooiing: ververs deze pagina, teken de panelen en voer Stap 3 daarna opnieuw uit. De voorbeeldscan telt niet als definitieve panelgerichte table-run.</p>
+  <p class="muted">Na voltooiing: ververs deze pagina, teken de tabelregio’s en voer Stap 4 daarna uit. De voorbeeldscan telt niet als definitieve tabelrun.</p>
 </section>
 {% else %}
-<section class="card section-gap panel-setup-toolbar-card">
-  <div class="toolbar">
-    <div class="panel-setup-intro">
-      <span class="eyebrow">REFERENTIEBEELD</span>
-      <h3>Panelprofiel positioneren</h3>
-      <p class="muted">Kies eerst welk ingesteld panel je plaatst. Teken grof, snap desgewenst naar Paddle en pas daarna de grootte aan met de blauwe handgrepen.</p>
-    </div>
+<section class="card section-gap panel-setup-toolbar-card table-region-review-toolbar">
+  <div class="panel-source-bar">
+    <div><span class="eyebrow">REFERENTIEBEELD</span><h3>1 · Kies een lezing</h3><p class="muted">Teken daarna de volledige tabelregio’s op deze lezing.</p></div>
     <div class="panel-source-controls">
       <button type="button" id="panel-prev-source" title="Vorige bron">←</button>
-      <form method="get" action="/process/panel-setup" class="panel-source-form">
-        <label>Bron<select name="source_id">{% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id == source_id %}selected{% endif %}>{{ item.source_id }}</option>{% endfor %}</select></label>
-      </form>
+      <form method="get" action="/process/panel-setup" class="panel-source-form"><label>Lezing<select name="source_id">{% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id == source_id %}selected{% endif %}>{{ item.source_id }}</option>{% endfor %}</select></label></form>
       <button type="button" id="panel-next-source" title="Volgende bron">→</button>
     </div>
   </div>
 
-  <div class="panel-target-row">
-    <label>Panel om te plaatsen
-      <select id="panel-target"></select>
-    </label>
-    <span class="muted">De naam ligt projectbreed vast in Stap 1.</span>
+  <section class="table-definition-card">
+    <div class="table-definition-heading"><div><span class="eyebrow">1A · TABELEN DEFINIËREN</span><h3>Welke tabeltypen komen in dit project voor?</h3><p class="muted">Geef de tabellen een herkenbare naam. Daarna teken je per lezing de bijbehorende volledige regio.</p></div><span id="table-definition-count" class="pill">0 tabellen</span></div>
+    <div id="table-definition-list" class="table-definition-list"></div>
+    <div class="workflow-actions"><button type="button" id="table-definition-add">+ Tabeltype</button><button type="button" id="table-definition-cmr">CMR LV/RV standaardnamen</button><button type="button" id="table-definition-save" class="primary">Tabeldefinities opslaan</button></div>
+    <div id="table-definition-message" class="inline-status"></div>
+  </section>
+
+  <div class="region-workflow-grid">
+    <section class="region-workflow-card region-workflow-primary"><span class="workflow-number">2</span><div><h3>Tabelregio-GT maken</h3><p class="muted">Omkader elke volledige tabel in deze lezing. Gebruik daarna Volledig scherm om nauwkeurig te controleren.</p><div class="workflow-actions"><label>Regio<select id="panel-target"></select></label><button type="button" id="panel-draw" class="primary">+ Tabelregio tekenen</button><button type="button" id="table-region-gt-save" class="primary">✓ GT opslaan</button><button type="button" id="panel-focus" class="primary">⛶ Volledig scherm</button></div></div></section>
   </div>
 
-  <div class="actions panel-setup-actions">
-    <button type="button" id="panel-focus" class="primary">⛶ Volledig scherm</button>
-    <button type="button" id="panel-list-toggle" class="focus-only">Panelenlijst</button>
-    <button type="button" id="panel-draw" class="primary">+ Gekozen panel tekenen</button>
-    <button type="button" id="panel-fit" disabled>✦ Snap naar Paddle-regio</button>
-    {% if suggestions %}<button type="button" id="panel-use-suggestions">Gebruik Paddle-regio's als start</button>{% endif %}
-    <button type="button" id="panel-save" class="primary">Panelkaders opslaan</button>
-    <button type="button" id="panel-reset">Kaders wissen</button>
-  </div>
+  <details class="advanced-panel-tools"><summary>Geavanceerde hulpmiddelen en fallback-panelprofiel</summary><div class="advanced-panel-content"><p class="muted">Deze knoppen zijn alleen nodig voor het herbruikbare fallback-panelprofiel of om Paddle als startpunt te gebruiken. Ze wijzigen niet de per-lezing tabelregio-GT.</p><div class="actions panel-setup-actions"><button type="button" id="panel-list-toggle" class="focus-only">Panelenlijst</button><button type="button" id="panel-fit" disabled>✦ Snap naar Paddle-regio</button>{% if suggestions %}<button type="button" id="panel-use-suggestions">Gebruik Paddle-regio's als start</button>{% endif %}<button type="button" id="panel-save">Fallback-profiel opslaan</button><button type="button" id="panel-reset">Fallback-kaders wissen</button></div></div></details>
   <div id="panel-message" class="inline-status panel-message"></div>
 </section>
 
@@ -78,54 +61,99 @@
       <div id="panel-layer" class="panel-layer"></div>
       <div id="panel-draft" class="panel-draft" hidden></div>
     </div>
-    <p class="panel-resize-help"><strong>Na snap nog aanpassen:</strong> selecteer een groen panel en sleep de blauwe handgrepen aan hoeken of randen. Snap bepaalt alleen het startkader.</p>
+    <p class="panel-resize-help"><strong>Volledige tabelregio tekenen:</strong> selecteer een kader en sleep de blauwe handgrepen aan hoeken of randen. De groene kaders worden als tabelregio-GT opgeslagen.</p>
   </section>
   <aside class="card panel-list-card">
-    <div class="toolbar"><div><span class="eyebrow">PROJECTPROFIEL</span><h3>Ingestelde panelen</h3></div><span id="panel-count" class="pill">0</span></div>
+    <div class="toolbar"><div><span class="eyebrow">DEZE LEZING</span><h3>Getekende tabelregio’s</h3></div><span id="panel-count" class="pill">0</span></div>
     <div id="panel-list" class="panel-list"></div>
-    <div id="panel-empty" class="notice info">Er zijn nog geen panelnamen ingesteld. Ga terug naar <a href="/process/detection-models#panel-name-setup">Stap 1</a> en voer de namen één keer in.</div>
-    <p class="muted">Panelnamen worden in Stap 1 beheerd. Hier wijzig je alleen positie en grootte.</p>
+    <div id="panel-empty" class="notice info">Er zijn nog geen tabelregio’s getekend voor deze lezing. Gebruik “Tabelregio tekenen”.</div>
+    <p class="muted">Elk groen kader staat voor één volledige tabel. Meerdere tabellen per lezing zijn toegestaan.</p>
   </aside>
 </div>
+<div class="review-summary-strip table-region-review-summary"><span><strong id="table-review-count">0</strong> tabelregio’s in deze lezing</span><span class="ok">Geel voorstel = automatisch gevonden</span><span class="ok">Groen kader = GT</span><span>Opslaan gaat automatisch naar de volgende lezing</span></div>
 
 <style>
-.panel-setup-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}.panel-stage{position:relative;line-height:0;user-select:none;touch-action:none;background:#05080c;border:1px solid var(--border);border-radius:10px;overflow:hidden}.panel-stage>img{display:block;width:100%;height:auto}.panel-layer{position:absolute;inset:0;pointer-events:none}.panel-box,.panel-suggestion{position:absolute;box-sizing:border-box;background:transparent}.panel-box{border:2px solid #45d7a0;pointer-events:auto;cursor:pointer}.panel-box.selected{outline:2px solid #65bfff;outline-offset:2px}.panel-label,.panel-suggestion span{position:absolute;left:2px;top:2px;padding:2px 5px;border-radius:4px;font-size:11px;line-height:1.2;background:#071018;color:#fff;white-space:nowrap}.panel-suggestion{border:1px dashed #f2b84b;pointer-events:auto;cursor:pointer;opacity:.72}.panel-draft{position:absolute;border:2px dashed #65bfff;background:rgba(80,170,255,.09);pointer-events:none}.panel-resize-handle{position:absolute;width:12px;height:12px;border:2px solid #071018;border-radius:50%;background:#65bfff;z-index:3}.panel-resize-handle[data-dir="nw"]{left:-7px;top:-7px;cursor:nwse-resize}.panel-resize-handle[data-dir="n"]{left:calc(50% - 6px);top:-7px;cursor:ns-resize}.panel-resize-handle[data-dir="ne"]{right:-7px;top:-7px;cursor:nesw-resize}.panel-resize-handle[data-dir="e"]{right:-7px;top:calc(50% - 6px);cursor:ew-resize}.panel-resize-handle[data-dir="se"]{right:-7px;bottom:-7px;cursor:nwse-resize}.panel-resize-handle[data-dir="s"]{left:calc(50% - 6px);bottom:-7px;cursor:ns-resize}.panel-resize-handle[data-dir="sw"]{left:-7px;bottom:-7px;cursor:nesw-resize}.panel-resize-handle[data-dir="w"]{left:-7px;top:calc(50% - 6px);cursor:ew-resize}.panel-list{display:flex;flex-direction:column;gap:10px}.panel-list-item{border:1px solid var(--border);border-radius:8px;padding:10px}.panel-list-item.selected{border-color:#65bfff}.panel-list-name{display:flex;justify-content:space-between;gap:8px;align-items:center}.panel-list-item .coords{font-size:11px;color:var(--muted);margin-top:6px}.panel-list-item .actions{margin-top:8px}.panel-source-controls{display:flex;align-items:end;gap:6px}.panel-source-controls>button{min-width:38px}.panel-source-form label{display:flex;gap:8px;align-items:center}.panel-source-form select{min-width:240px}.panel-setup-actions{flex-wrap:wrap}.panel-target-row{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:12px 0}.panel-target-row label{min-width:320px}.panel-target-row select{display:block;width:100%;margin-top:4px}.panel-resize-help{margin:10px 0 0;color:var(--muted);line-height:1.45}.focus-only{display:none}
+.table-region-review-toolbar{border-color:#36536b;background:linear-gradient(135deg,rgba(17,40,55,.96),rgba(13,24,35,.98))}.table-region-review-summary{margin:0 0 12px;padding:10px 12px;border:1px solid #2b465b;border-radius:10px;background:rgba(10,20,30,.86);font-size:12px}.table-region-review-summary span{color:#a8bacb}.table-region-review-summary .ok{color:#6ee7b7}
+/* Table Region Review Studio: same composition as the cell reviewer. */
+body.table-region-review-page .gate-banner{display:none}
+body.table-region-review-page .content{max-width:1500px}
+body.table-region-review-page .table-region-review-toolbar{position:sticky;top:10px;z-index:80;margin-top:0;padding:12px 14px}
+body.table-region-review-page .table-region-review-toolbar .table-definition-card{display:none}
+body.table-region-review-page .table-region-review-toolbar .panel-source-bar{padding-bottom:8px}
+body.table-region-review-page .table-region-review-toolbar .region-workflow-grid{display:block;margin-top:8px}
+body.table-region-review-page .table-region-review-toolbar .region-workflow-card{padding:8px 0;border:0;background:transparent}
+body.table-region-review-page .table-region-review-toolbar .region-workflow-card h3,body.table-region-review-page .table-region-review-toolbar .region-workflow-card p{display:none}
+body.table-region-review-page .table-region-review-toolbar .workflow-number{display:none}
+body.table-region-review-page .panel-setup-layout{grid-template-columns:minmax(0,1fr) 320px;margin-top:12px;margin-bottom:92px;align-items:start}
+body.table-region-review-page .panel-canvas-card{padding:10px;background:#070d13}
+body.table-region-review-page .panel-stage{max-height:calc(100vh - 300px);overflow:hidden}
+body.table-region-review-page .panel-list-card{position:sticky;top:120px;max-height:calc(100vh - 150px);overflow:auto}
+body.table-region-review-page .table-region-review-summary{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+body.table-region-review-page .table-region-review-toolbar .advanced-panel-tools{display:none}
+body.table-region-review-page .table-region-review-toolbar .panel-message{display:none}
+@media(min-width:761px){body.table-region-review-page:not(.panel-focus-mode) .region-workflow-grid{position:fixed;left:50%;bottom:14px;z-index:90;width:min(760px,calc(100vw - 360px));transform:translateX(-50%);margin:0;padding:8px 12px;border:1px solid #36536b;border-radius:10px;background:rgba(8,18,27,.96);box-shadow:0 12px 32px rgba(0,0,0,.4);backdrop-filter:blur(10px)}}
+@media(max-width:760px){body.table-region-review-page .panel-setup-layout{grid-template-columns:1fr;margin-bottom:20px}body.table-region-review-page .panel-list-card{position:static;max-height:none}body.table-region-review-page .table-region-review-summary{display:block}body.table-region-review-page .table-region-review-summary span{display:block;margin:3px 0}}
+.panel-setup-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}.panel-stage{position:relative;line-height:0;user-select:none;touch-action:none;background:#05080c;border:1px solid var(--border);border-radius:10px;overflow:hidden}.panel-stage>img{display:block;width:100%;height:auto}.panel-layer{position:absolute;inset:0;pointer-events:none}.panel-box,.panel-suggestion{position:absolute;box-sizing:border-box;background:transparent}.panel-box{border:2px solid #45d7a0;pointer-events:auto;cursor:pointer}.panel-box.selected{outline:2px solid #65bfff;outline-offset:2px}.panel-label,.panel-suggestion span{position:absolute;left:2px;top:2px;padding:2px 5px;border-radius:4px;font-size:11px;line-height:1.2;background:#071018;color:#fff;white-space:nowrap}.panel-suggestion{border:1px dashed #f2b84b;pointer-events:auto;cursor:pointer;opacity:.72}.panel-draft{position:absolute;border:2px dashed #65bfff;background:rgba(80,170,255,.09);pointer-events:none}.panel-resize-handle{position:absolute;width:12px;height:12px;border:2px solid #071018;border-radius:50%;background:#65bfff;z-index:3}.panel-resize-handle[data-dir="nw"]{left:-7px;top:-7px;cursor:nwse-resize}.panel-resize-handle[data-dir="n"]{left:calc(50% - 6px);top:-7px;cursor:ns-resize}.panel-resize-handle[data-dir="ne"]{right:-7px;top:-7px;cursor:nesw-resize}.panel-resize-handle[data-dir="e"]{right:-7px;top:calc(50% - 6px);cursor:ew-resize}.panel-resize-handle[data-dir="se"]{right:-7px;bottom:-7px;cursor:nwse-resize}.panel-resize-handle[data-dir="s"]{left:calc(50% - 6px);bottom:-7px;cursor:ns-resize}.panel-resize-handle[data-dir="sw"]{left:-7px;bottom:-7px;cursor:nesw-resize}.panel-resize-handle[data-dir="w"]{left:-7px;top:calc(50% - 6px);cursor:ew-resize}.panel-list{display:flex;flex-direction:column;gap:10px}.panel-list-item{border:1px solid var(--border);border-radius:8px;padding:10px}.panel-list-item.selected{border-color:#65bfff}.panel-list-name{display:flex;justify-content:space-between;gap:8px;align-items:center}.panel-list-item .coords{font-size:11px;color:var(--muted);margin-top:6px}.panel-list-item .actions{margin-top:8px}.panel-source-controls{display:flex;align-items:end;gap:6px}.panel-source-controls>button{min-width:38px}.panel-source-form label{display:flex;gap:8px;align-items:center}.panel-source-form select{min-width:240px}.panel-setup-actions{flex-wrap:wrap}.panel-target-row{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:12px 0}.panel-target-row label{min-width:320px}.panel-target-row select{display:block;width:100%;margin-top:4px}.panel-resize-help{margin:10px 0 0;color:var(--muted);line-height:1.45}.focus-only{display:none}.panel-source-bar{display:flex;justify-content:space-between;align-items:end;gap:18px;padding-bottom:14px;border-bottom:1px solid var(--border)}.panel-source-bar h3{margin:3px 0}.region-workflow-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:12px;margin-top:14px}.region-workflow-card{display:flex;gap:12px;align-items:flex-start;padding:14px;border:1px solid var(--border);border-radius:10px;background:#0e1822}.region-workflow-primary{border-color:#2f8cbd;background:linear-gradient(135deg,rgba(39,119,163,.16),rgba(14,24,34,.92))}.workflow-number{display:grid;place-items:center;flex:0 0 30px;height:30px;border-radius:50%;background:#263849;color:#fff;font-weight:800}.region-workflow-card h3{margin:0 0 3px}.region-workflow-card p{margin:0 0 10px;font-size:12px}.workflow-actions{display:flex;flex-wrap:wrap;gap:7px;align-items:end}.workflow-actions form{margin:0}.workflow-actions label{font-size:11px;color:var(--muted)}.workflow-actions select{display:block;margin-top:3px;min-width:180px}.advanced-panel-tools{margin-top:12px;border-top:1px solid var(--border);padding-top:10px}.advanced-panel-tools summary{cursor:pointer;color:var(--muted);font-size:12px}.advanced-panel-content{padding-top:8px}.advanced-panel-content .actions{gap:7px}
+.table-definition-card{margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:10px;background:#0b141d}.table-definition-heading{display:flex;justify-content:space-between;align-items:start;gap:14px}.table-definition-heading h3{margin:3px 0}.table-definition-heading p{margin:0;font-size:12px}.table-definition-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin:12px 0}.table-definition-row{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:end;gap:8px;padding:8px;border:1px solid var(--border);border-radius:8px;background:#101b25}.table-definition-row label{font-size:11px;color:var(--muted)}.table-definition-row input{display:block;width:100%;margin-top:3px}.table-definition-row button{padding:6px 8px;font-size:11px}
 body.panel-focus-mode{overflow:hidden}body.panel-focus-mode .panel-setup-layout{position:fixed;inset:0;z-index:10000;display:block;margin:0!important;background:#05080c}body.panel-focus-mode .panel-canvas-card{position:absolute;inset:0;margin:0;padding:0;border:0;border-radius:0;background:#05080c;overflow:hidden}body.panel-focus-mode .panel-stage{position:absolute;margin:0;border:0;border-radius:0;box-shadow:0 0 0 1px rgba(255,255,255,.08)}body.panel-focus-mode .panel-resize-help{position:fixed;left:50%;bottom:12px;z-index:10004;transform:translateX(-50%);margin:0;padding:7px 12px;border:1px solid var(--border);border-radius:8px;background:rgba(10,18,26,.94);max-width:min(760px,calc(100vw - 28px));font-size:12px;line-height:1.35}body.panel-focus-mode .panel-setup-toolbar-card{position:fixed;z-index:10006;top:12px;left:12px;width:min(780px,calc(100vw - 390px));max-height:calc(100vh - 24px);overflow:auto;margin:0;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:rgba(12,22,31,.96);box-shadow:0 12px 36px rgba(0,0,0,.35);backdrop-filter:blur(8px)}body.panel-focus-mode .panel-setup-toolbar-card .panel-setup-intro{display:none}body.panel-focus-mode .panel-setup-toolbar-card .toolbar{align-items:end;gap:8px}body.panel-focus-mode .panel-source-form select{min-width:180px}body.panel-focus-mode .panel-target-row{margin:6px 0;gap:8px}body.panel-focus-mode .panel-target-row label{min-width:250px}body.panel-focus-mode .panel-target-row>.muted{display:none}body.panel-focus-mode .panel-setup-actions{gap:6px}body.panel-focus-mode .panel-setup-actions button{padding-top:7px;padding-bottom:7px}body.panel-focus-mode .panel-message{margin-top:6px;max-height:70px;overflow:auto}body.panel-focus-mode .focus-only{display:inline-flex}body.panel-focus-mode .panel-list-card{position:fixed;z-index:10005;top:12px;right:12px;width:350px;max-height:calc(100vh - 24px);overflow:auto;margin:0;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(12,22,31,.96);box-shadow:0 12px 36px rgba(0,0,0,.35);backdrop-filter:blur(8px)}body.panel-focus-mode.panel-focus-list-hidden .panel-list-card{display:none}body.panel-focus-mode.panel-focus-list-hidden .panel-setup-toolbar-card{width:min(900px,calc(100vw - 24px))}
-@media(max-width:980px){.panel-setup-layout{grid-template-columns:1fr}body.panel-focus-mode .panel-setup-toolbar-card{width:calc(100vw - 24px)}body.panel-focus-mode .panel-list-card{top:auto;bottom:12px;right:12px;width:min(350px,calc(100vw - 24px));max-height:40vh}}@media(max-width:620px){.panel-target-row label{min-width:0;width:100%}.panel-source-controls{width:100%}.panel-source-form{flex:1}.panel-source-form label{width:100%}.panel-source-form select{min-width:0;width:100%}body.panel-focus-mode .panel-setup-toolbar-card{max-height:46vh}body.panel-focus-mode .panel-resize-help{display:none}}
+@media(max-width:980px){.panel-setup-layout{grid-template-columns:1fr}.region-workflow-grid{grid-template-columns:1fr}.panel-source-bar{align-items:start;flex-direction:column}.panel-source-controls{width:100%}body.panel-focus-mode .panel-setup-toolbar-card{width:calc(100vw - 24px)}body.panel-focus-mode .panel-list-card{top:auto;bottom:12px;right:12px;width:min(350px,calc(100vw - 24px));max-height:40vh}}@media(max-width:620px){.panel-target-row label{min-width:0;width:100%}.panel-source-controls{width:100%}.panel-source-form{flex:1}.panel-source-form label{width:100%}.panel-source-form select{min-width:0;width:100%}.workflow-actions{align-items:stretch;flex-direction:column}.workflow-actions>*{width:100%}.workflow-actions select{width:100%}body.panel-focus-mode .panel-setup-toolbar-card{max-height:46vh}body.panel-focus-mode .panel-resize-help{display:none}}
+</style>
+<style>
+/* Fullscreen is a review canvas: keep only compact drawing controls over the image. */
+body.panel-focus-mode .panel-setup-toolbar-card{left:50%;transform:translateX(-50%);width:min(760px,calc(100vw - 24px));max-height:none;overflow:visible;padding:8px 10px}
+body.panel-focus-mode .panel-setup-toolbar-card{top:auto;bottom:16px}
+body.panel-focus-mode .panel-setup-toolbar-card{position:fixed!important;top:auto!important;bottom:16px!important}
+body.panel-focus-mode .panel-resize-help{display:none}
+body.panel-focus-mode .table-definition-card,body.panel-focus-mode .advanced-panel-tools{display:none}
+body.panel-focus-mode .panel-setup-toolbar-card .panel-source-bar{padding-bottom:7px;border-bottom:0}
+body.panel-focus-mode .panel-source-bar>div:first-child p,body.panel-focus-mode .panel-source-bar>div:first-child .eyebrow{display:none}
+body.panel-focus-mode .panel-source-bar h3{font-size:14px;margin:0}
+body.panel-focus-mode .region-workflow-grid{display:block;margin-top:0}
+body.panel-focus-mode .region-workflow-card{padding:7px 0;border:0;background:transparent}
+body.panel-focus-mode .region-workflow-card p,body.panel-focus-mode .region-workflow-card .workflow-number{display:none}
+@media(max-width:700px){body.panel-focus-mode .panel-source-bar{align-items:center;flex-direction:row}body.panel-focus-mode .panel-source-controls{width:auto}}
 </style>
 <script>
 (()=>{
   const stage=document.getElementById('panel-stage'), layer=document.getElementById('panel-layer'), draft=document.getElementById('panel-draft');
-  const list=document.getElementById('panel-list'), empty=document.getElementById('panel-empty'), count=document.getElementById('panel-count'), msg=document.getElementById('panel-message'), target=document.getElementById('panel-target');
-  const drawBtn=document.getElementById('panel-draw'), fitBtn=document.getElementById('panel-fit'), saveBtn=document.getElementById('panel-save'), resetBtn=document.getElementById('panel-reset'), suggestionsBtn=document.getElementById('panel-use-suggestions');
+  const list=document.getElementById('panel-list'), empty=document.getElementById('panel-empty'), count=document.getElementById('panel-count'), reviewCount=document.getElementById('table-review-count'), msg=document.getElementById('panel-message'), target=document.getElementById('panel-target');
+  const definitionList=document.getElementById('table-definition-list'), definitionCount=document.getElementById('table-definition-count'), definitionAdd=document.getElementById('table-definition-add'), definitionCmr=document.getElementById('table-definition-cmr'), definitionSave=document.getElementById('table-definition-save'), definitionMessage=document.getElementById('table-definition-message');
+  const drawBtn=document.getElementById('panel-draw'), fitBtn=document.getElementById('panel-fit'), saveBtn=document.getElementById('panel-save'), regionGtSaveBtn=document.getElementById('table-region-gt-save'), regionDatasetBtn=document.getElementById('table-region-dataset-build'), resetBtn=document.getElementById('panel-reset'), suggestionsBtn=document.getElementById('panel-use-suggestions');
   const focusBtn=document.getElementById('panel-focus'), listToggleBtn=document.getElementById('panel-list-toggle');
   const prevSourceBtn=document.getElementById('panel-prev-source'), nextSourceBtn=document.getElementById('panel-next-source'), sourceForm=document.querySelector('.panel-source-form'), sourceSelect=sourceForm?.querySelector('select[name="source_id"]');
   const W=Number(stage.dataset.width), H=Number(stage.dataset.height); let drawing=false,start=null,selected=-1,resizing=null,dirty=false,focusMode=false;
   const sourceIds=[{% for item in sources %}{{ item.source_id|tojson }}{% if not loop.last %},{% endif %}{% endfor %}];
-  const definitions={{ (panel_profile.definitions or [])|tojson }}.map((d,i)=>({panel_id:d.panel_id||`panel-${i+1}`,name:d.name||`Panel ${i+1}`}));
-  let panels={{ (panel_profile.panels or [])|tojson }}.map((p,i)=>({...p,panel_id:p.panel_id||(definitions[i]?.panel_id||`panel-${i+1}`),name:p.name||(definitions[i]?.name||`Panel ${i+1}`)}));
+  let definitions={{ (panel_profile.definitions or [])|tojson }}.map((d,i)=>({panel_id:d.panel_id||`panel-${i+1}`,name:d.name||`Panel ${i+1}`}));
+  let panels={{ (region_ground_truth or [])|tojson }}.map((p,i)=>({panel_id:(definitions.find(d=>String(d.name||'').trim()===String(p.label||'').trim())?.panel_id)||p.region_id||p.panel_id||(definitions[i]?.panel_id||`panel-${i+1}`),name:p.label||p.name||(definitions[i]?.name||`Tabel ${i+1}`),x1:Number(p.x1)/W,y1:Number(p.y1)/H,x2:Number(p.x2)/W,y2:Number(p.y2)/H}));
+  if(!panels.length) panels={{ (panel_profile.panels or [])|tojson }}.map((p,i)=>({...p,panel_id:p.panel_id||(definitions[i]?.panel_id||`panel-${i+1}`),name:p.name||(definitions[i]?.name||`Tabel ${i+1}`)}));
   const suggestions=[...document.querySelectorAll('.panel-suggestion')].map(el=>({el,x1:Number(el.dataset.x1)/W,y1:Number(el.dataset.y1)/H,x2:Number(el.dataset.x2)/W,y2:Number(el.dataset.y2)/H,kind:el.dataset.kind||'table_region',variant:el.dataset.variant||''}));
+  // First pass: promote the yellow automatic proposals to editable green start
+  // boxes. Once per-source GT exists, the saved GT above remains authoritative.
+  if(!{{ (region_ground_truth or [])|length }} && suggestions.length){
+    panels=suggestions.map((s,i)=>{s.el.hidden=true;const d=definitions[i];const id=d?.panel_id||`proposal-${i+1}`;if(d)d.panel_id=id;return {panel_id:id,name:d?.name||`Tabelvoorstel ${i+1}`,x1:s.x1,y1:s.y1,x2:s.x2,y2:s.y2}});
+  }
   const clamp=v=>Math.max(0,Math.min(1,v));
   const definitionFor=id=>definitions.find(d=>d.panel_id===id)||null;
   const panelIndexFor=id=>panels.findIndex(p=>p.panel_id===id);
   function escapeHtml(v){const d=document.createElement('div');d.textContent=String(v);return d.innerHTML}
   function markDirty(value=true){dirty=value}
   function syncNames(){panels.forEach(p=>{const d=definitionFor(p.panel_id);if(d)p.name=d.name})}
+  function renderDefinitions(){if(!definitionList)return;definitionList.innerHTML='';definitionCount.textContent=`${definitions.length} tabel${definitions.length===1?'':'len'}`;definitions.forEach((item,i)=>{const row=document.createElement('div');row.className='table-definition-row';row.innerHTML=`<span class="workflow-number">${i+1}</span><label>Naam<input type="text" value="${escapeHtml(item.name)}" placeholder="Bijv. Left ventricle Volume Result"></label><button type="button" data-remove>Verwijder</button>`;row.querySelector('input').addEventListener('input',event=>{definitions[i].name=event.target.value});row.querySelector('[data-remove]').addEventListener('click',()=>{definitions.splice(i,1);renderDefinitions();render()});definitionList.appendChild(row)});if(!definitions.length){const note=document.createElement('div');note.className='notice info';note.textContent='Nog geen tabeltypen gedefinieerd. Je kunt ook direct een nieuwe tabelregio tekenen.';definitionList.appendChild(note)}}
   function nextMissingDefinition(){return definitions.find(d=>panelIndexFor(d.panel_id)<0)||definitions[0]||null}
   function currentDefinition(){return definitionFor(target.value)||nextMissingDefinition()}
   function setPanelGeometry(definition,geometry){
     if(!definition){const i=panels.length;panels.push({panel_id:`panel-${i+1}`,name:`Panel ${i+1}`,...geometry});selected=panels.length-1;markDirty();return}
-    const i=panelIndexFor(definition.panel_id),value={panel_id:definition.panel_id,name:definition.name,...geometry};
+    const panelId=definition.panel_id||`panel-${panels.length+1}`;definition.panel_id=panelId;const i=panelIndexFor(panelId),value={panel_id:panelId,name:definition.name,...geometry};
     if(i>=0){panels[i]=value;selected=i}else{panels.push(value);selected=panels.length-1}
-    target.value=definition.panel_id;markDirty();
+    target.value=panelId;markDirty();
   }
   function renderTarget(){
     const current=target.value;target.innerHTML='';
     if(definitions.length){definitions.forEach(d=>{const option=document.createElement('option');option.value=d.panel_id;option.textContent=`${d.name}${panelIndexFor(d.panel_id)>=0?' · geplaatst':' · nog tekenen'}`;target.appendChild(option)});const preferred=definitionFor(current)||nextMissingDefinition()||definitions[0];if(preferred)target.value=preferred.panel_id}
-    else{const option=document.createElement('option');option.value='';option.textContent='Geen panelnamen ingesteld in Stap 1';target.appendChild(option)}
+    else{const option=document.createElement('option');option.value='';option.textContent='Nieuwe tabelregio';target.appendChild(option)}
   }
   function render(){
-    syncNames();layer.innerHTML='';list.innerHTML='';count.textContent=definitions.length?`${panels.length}/${definitions.length}`:String(panels.length);empty.hidden=definitions.length>0||panels.length>0;fitBtn.disabled=selected<0||selected>=panels.length;renderTarget();
+    syncNames();renderDefinitions();layer.innerHTML='';list.innerHTML='';count.textContent=definitions.length?`${panels.length}/${definitions.length}`:String(panels.length);if(reviewCount)reviewCount.textContent=String(panels.length);empty.hidden=definitions.length>0||panels.length>0;fitBtn.disabled=selected<0||selected>=panels.length;renderTarget();
     panels.forEach((p,i)=>{
       const b=document.createElement('div');b.className='panel-box'+(i===selected?' selected':'');b.style.left=`${p.x1*100}%`;b.style.top=`${p.y1*100}%`;b.style.width=`${(p.x2-p.x1)*100}%`;b.style.height=`${(p.y2-p.y1)*100}%`;b.innerHTML=`<span class="panel-label">${escapeHtml(p.name||`Panel ${i+1}`)}</span>`;
       b.addEventListener('pointerdown',e=>{if(drawing)return;e.stopPropagation();selected=i;if(p.panel_id)target.value=p.panel_id;render()});
@@ -138,17 +166,20 @@ body.panel-focus-mode{overflow:hidden}body.panel-focus-mode .panel-setup-layout{
       item.querySelector('[data-delete]')?.addEventListener('click',()=>{panels.splice(i,1);selected=-1;target.value=d.panel_id;markDirty();render()});list.appendChild(item);
     });
   }
+  definitionAdd?.addEventListener('click',()=>{definitions.push({panel_id:'',name:`Tabel ${definitions.length+1}`});render()});
+  definitionCmr?.addEventListener('click',()=>{const existing=new Set(definitions.map(item=>String(item.name||'').toLowerCase()));['Left ventricle Volume Result','Right ventricle Volume Result'].forEach(name=>{if(!existing.has(name.toLowerCase()))definitions.push({panel_id:'',name})});render()});
+  definitionSave?.addEventListener('click',async()=>{const clean=definitions.map(item=>({panel_id:item.panel_id||'',name:String(item.name||'').trim()})).filter(item=>item.name);if(!clean.length){definitionMessage.textContent='Voer minimaal één tabelnaam in.';definitionMessage.className='inline-status error';return}definitionMessage.textContent='Opslaan…';try{const res=await fetch('/api/table-panel-definitions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({definitions:clean})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);definitions=data.profile.definitions||clean;definitionMessage.textContent='Tabeldefinities opgeslagen.';definitionMessage.className='inline-status ok';render()}catch(error){definitionMessage.textContent=error.message||String(error);definitionMessage.className='inline-status error'}});
   function point(e){const r=stage.getBoundingClientRect();return {x:clamp((e.clientX-r.left)/r.width),y:clamp((e.clientY-r.top)/r.height)}}
   function startDrawing(panelId){if(panelId)target.value=panelId;drawing=true;drawBtn.textContent='Klik & sleep op afbeelding…';drawBtn.classList.add('primary');msg.textContent=`Teken het zoekgebied voor ${currentDefinition()?.name||'het panel'}.`;msg.className='inline-status'}
-  drawBtn.addEventListener('click',()=>{if(!definitions.length){msg.textContent='Stel eerst de panelnamen in via Stap 1.';msg.className='inline-status warn';return}if(drawing){drawing=false;drawBtn.textContent='+ Gekozen panel tekenen';return}startDrawing(target.value)});
+  drawBtn.addEventListener('click',()=>{if(drawing){drawing=false;drawBtn.textContent='+ Tabelregio tekenen';return}startDrawing(target.value)});
   stage.addEventListener('pointerdown',e=>{if(!drawing)return;start=point(e);draft.hidden=false;draft.style.left=`${start.x*100}%`;draft.style.top=`${start.y*100}%`;draft.style.width='0';draft.style.height='0';stage.setPointerCapture(e.pointerId)});
   stage.addEventListener('pointermove',e=>{if(!drawing||!start)return;const q=point(e),x1=Math.min(start.x,q.x),y1=Math.min(start.y,q.y),x2=Math.max(start.x,q.x),y2=Math.max(start.y,q.y);draft.style.left=`${x1*100}%`;draft.style.top=`${y1*100}%`;draft.style.width=`${(x2-x1)*100}%`;draft.style.height=`${(y2-y1)*100}%`});
   stage.addEventListener('pointerup',e=>{if(!drawing||!start)return;const q=point(e),x1=Math.min(start.x,q.x),y1=Math.min(start.y,q.y),x2=Math.max(start.x,q.x),y2=Math.max(start.y,q.y);draft.hidden=true;start=null;if(x2-x1>.02&&y2-y1>.02){setPanelGeometry(currentDefinition(),{x1,y1,x2,y2});msg.textContent='Grof zoekgebied geplaatst. Gebruik eventueel Snap als start en maak het daarna ruim genoeg voor alle normale tabelvarianten.';msg.className='inline-status ok';render()}drawing=false;drawBtn.textContent='+ Gekozen panel tekenen'});
   function beginResize(e,index,dir){e.preventDefault();e.stopPropagation();selected=index;const p=panels[index];resizing={index,dir,orig:{x1:p.x1,y1:p.y1,x2:p.x2,y2:p.y2}};window.addEventListener('pointermove',onResizeMove);window.addEventListener('pointerup',endResize,{once:true})}
   function onResizeMove(e){if(!resizing)return;const q=point(e),r=resizing.orig,dir=resizing.dir,min=.012;let {x1,y1,x2,y2}=r;if(dir.includes('w'))x1=Math.min(q.x,x2-min);if(dir.includes('e'))x2=Math.max(q.x,x1+min);if(dir.includes('n'))y1=Math.min(q.y,y2-min);if(dir.includes('s'))y2=Math.max(q.y,y1+min);x1=clamp(x1);y1=clamp(y1);x2=clamp(x2);y2=clamp(y2);if(x2-x1<min||y2-y1<min)return;panels[resizing.index]={...panels[resizing.index],x1,y1,x2,y2};markDirty();render()}
   function endResize(){window.removeEventListener('pointermove',onResizeMove);resizing=null;msg.textContent='Zoekgebied aangepast. Sla het profiel op wanneer het voor de normale tabelvarianten ruim genoeg staat.';msg.className='inline-status ok'}
-  document.querySelectorAll('.panel-suggestion').forEach((el,i)=>el.addEventListener('click',()=>{const d=currentDefinition();if(!d){msg.textContent='Stel eerst panelnamen in via Stap 1.';msg.className='inline-status warn';return}const s=suggestions[i];setPanelGeometry(d,{x1:s.x1,y1:s.y1,x2:s.x2,y2:s.y2});msg.textContent=`Paddle-regio gebruikt als start voor ${d.name}. Maak het zoekgebied daarna zo nodig ruimer voor andere tabelvarianten.`;msg.className='inline-status ok';render()}));
-  suggestionsBtn?.addEventListener('click',()=>{if(!definitions.length){msg.textContent='Stel eerst panelnamen in via Stap 1.';msg.className='inline-status warn';return}const ordered=[...suggestions].sort((a,b)=>a.y1-b.y1||a.x1-b.x1);definitions.forEach((d,i)=>{const s=ordered[i];if(s)setPanelGeometry(d,{x1:s.x1,y1:s.y1,x2:s.x2,y2:s.y2})});msg.textContent='Paddle-regio’s zijn als start over de ingestelde panelnamen verdeeld. Controleer en verruim ieder zoekgebied waar nodig.';msg.className='inline-status ok';render()});
+  document.querySelectorAll('.panel-suggestion').forEach((el,i)=>el.addEventListener('click',()=>{const d=currentDefinition();if(!d){msg.textContent='Stel eerst tabeldefinities in deze stap in.';msg.className='inline-status warn';return}const s=suggestions[i];setPanelGeometry(d,{x1:s.x1,y1:s.y1,x2:s.x2,y2:s.y2});msg.textContent=`Paddle-regio gebruikt als start voor ${d.name}. Maak het zoekgebied daarna zo nodig ruimer voor andere tabelvarianten.`;msg.className='inline-status ok';render()}));
+  suggestionsBtn?.addEventListener('click',()=>{if(!definitions.length){msg.textContent='Stel eerst tabeldefinities in deze stap in.';msg.className='inline-status warn';return}const ordered=[...suggestions].sort((a,b)=>a.y1-b.y1||a.x1-b.x1);definitions.forEach((d,i)=>{const s=ordered[i];if(s)setPanelGeometry(d,{x1:s.x1,y1:s.y1,x2:s.x2,y2:s.y2})});msg.textContent='Paddle-regio’s zijn als start over de ingestelde tabeldefinities verdeeld. Controleer en verruim ieder zoekgebied waar nodig.';msg.className='inline-status ok';render()});
   function paddleSnapMatch(p,s){
     const panelArea=Math.max(1e-9,(p.x2-p.x1)*(p.y2-p.y1)),suggestionArea=Math.max(1e-9,(s.x2-s.x1)*(s.y2-s.y1));
     const ix=Math.max(0,Math.min(p.x2,s.x2)-Math.max(p.x1,s.x1)),iy=Math.max(0,Math.min(p.y2,s.y2)-Math.max(p.y1,s.y1)),inter=ix*iy;
@@ -161,18 +192,21 @@ body.panel-focus-mode{overflow:hidden}body.panel-focus-mode .panel-setup-layout{
   fitBtn.addEventListener('click',()=>{
     if(selected<0||!suggestions.length)return;const p=panels[selected];let best=null,bestMatch=null;
     suggestions.forEach(s=>{const match=paddleSnapMatch(p,s);if(match&&(!bestMatch||match.score>bestMatch.score)){best=s;bestMatch=match}});
-    if(!best){msg.textContent='Nog geen Paddle-suggestie overlapt dit zoekgebied. Laat het grove kader staan of resize het handmatig en voer Stap 3 uit.';msg.className='inline-status warn';return}
+    if(!best){msg.textContent='Nog geen Paddle-suggestie overlapt dit zoekgebied. Laat het grove kader staan of resize het handmatig en voer Stap 4 uit.';msg.className='inline-status warn';return}
     panels[selected]={...panels[selected],x1:best.x1,y1:best.y1,x2:best.x2,y2:best.y2};markDirty();
     msg.textContent=`Gesnapt naar overlappende Paddle-suggestie${best.variant?` (${best.variant.replaceAll('_',' ')})`:''}. Gebruik dit alleen als startpunt en verruim het gebied voor langere tabelvarianten.`;msg.className='inline-status ok';render();
   });
+  function goToNextSource(){const current=sourceIds.indexOf('{{ source_id }}');const next=sourceIds[current+1];if(!next){msg.textContent='GT opgeslagen. Dit was de laatste lezing.';msg.className='inline-status ok';regionGtSaveBtn.disabled=false;return}if(focusMode)sessionStorage.setItem('isala-resume-table-review-focus','1');window.location.href=`/process/panel-setup?source_id=${encodeURIComponent(next)}`}
   saveBtn.addEventListener('click',async()=>{msg.textContent='Opslaan…';msg.className='inline-status';try{const res=await fetch('/api/table-panels',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference_source_id:'{{ source_id }}',reference_width:W,reference_height:H,panels})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);panels=data.profile.panels||panels;markDirty(false);msg.textContent=data.message;msg.className='inline-status ok';render()}catch(err){msg.textContent=err.message||String(err);msg.className='inline-status error'}});
-  resetBtn.addEventListener('click',async()=>{if(!confirm('Alle panelkaders wissen? De panelnamen uit Stap 1 blijven bewaard.'))return;const res=await fetch('/api/table-panels',{method:'DELETE'});const data=await res.json().catch(()=>({}));if(res.ok){panels=[];selected=-1;markDirty(false);render();msg.textContent=data.message||'Panelkaders verwijderd.';msg.className='inline-status ok'}else{msg.textContent=data.error||`HTTP ${res.status}`;msg.className='inline-status error'}});
+  regionGtSaveBtn.addEventListener('click',async()=>{regionGtSaveBtn.disabled=true;msg.textContent='GT opslaan…';msg.className='inline-status';try{const regions=panels.map(p=>({x1:Math.round(p.x1*W),y1:Math.round(p.y1*H),x2:Math.round(p.x2*W),y2:Math.round(p.y2*H),name:p.name||'table'}));const res=await fetch('/api/table-region-ground-truth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:'{{ source_id }}',image_width:W,image_height:H,regions})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);markDirty(false);goToNextSource()}catch(err){regionGtSaveBtn.disabled=false;msg.textContent=err.message||String(err);msg.className='inline-status error'}});
+  regionDatasetBtn?.addEventListener('click',async()=>{msg.textContent='Tabelregio-dataset bouwen…';msg.className='inline-status';try{const res=await fetch('/api/table-region-dataset',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);msg.textContent=`Dataset klaar: ${data.manifest.annotation_count} tabelregio('s) over ${data.manifest.source_count} lezingen.`;msg.className='inline-status ok'}catch(err){msg.textContent=err.message||String(err);msg.className='inline-status error'}});
+  resetBtn.addEventListener('click',async()=>{if(!confirm('Alle tabelregio-kaders wissen? De tabeldefinities blijven bewaard.'))return;const res=await fetch('/api/table-panels',{method:'DELETE'});const data=await res.json().catch(()=>({}));if(res.ok){panels=[];selected=-1;markDirty(false);render();msg.textContent=data.message||'Tabelregio-kaders verwijderd.';msg.className='inline-status ok'}else{msg.textContent=data.error||`HTTP ${res.status}`;msg.className='inline-status error'}});
   target.addEventListener('change',()=>{const i=panelIndexFor(target.value);selected=i;render()});
 
   function layoutFocusStage(){
     if(!focusMode){['width','height','left','top','transform'].forEach(k=>stage.style.removeProperty(k));return}
-    const pad=8, maxW=Math.max(100,window.innerWidth-pad*2), maxH=Math.max(100,window.innerHeight-pad*2), scale=Math.min(maxW/W,maxH/H);
-    stage.style.width=`${Math.max(1,W*scale)}px`;stage.style.height=`${Math.max(1,H*scale)}px`;stage.style.left='50%';stage.style.top='50%';stage.style.transform='translate(-50%,-50%)';
+    const pad=12, controls=document.querySelector('.panel-setup-toolbar-card'), reserved=(controls?.getBoundingClientRect().height||190)+42, availableH=Math.max(120,window.innerHeight-reserved), maxW=Math.max(100,window.innerWidth-pad*2), maxH=Math.max(100,availableH-24), scale=Math.min(maxW/W,maxH/H);
+    stage.style.width=`${Math.max(1,W*scale)}px`;stage.style.height=`${Math.max(1,H*scale)}px`;stage.style.left='50%';stage.style.top=`${availableH/2}px`;stage.style.transform='translate(-50%,-50%)';
   }
   async function setFocusMode(enabled,{manageNative=true}={}){
     focusMode=enabled;document.body.classList.toggle('panel-focus-mode',enabled);
@@ -201,6 +235,7 @@ body.panel-focus-mode{overflow:hidden}body.panel-focus-mode .panel-setup-layout{
   window.addEventListener('beforeunload',e=>{if(!dirty)return;e.preventDefault();e.returnValue=''});
 
   render();
+  if(sessionStorage.getItem('isala-resume-table-review-focus')==='1'){sessionStorage.removeItem('isala-resume-table-review-focus');setFocusMode(true)}
 })();
 </script>
 {% endif %}

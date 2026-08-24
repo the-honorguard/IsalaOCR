@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
-{% block title %}Stap 6 · Afwijkingen reviewen · IsalaOCR{% endblock %}
-{% block heading %}Stap 6 · Afwijkingen reviewen{% endblock %}
+{% block title %}Stap 8 · Afwijkingen reviewen · IsalaOCR{% endblock %}
+{% block heading %}Stap 8 · Afwijkingen reviewen{% endblock %}
 {% block subtitle %}Beoordeel alleen wat het actieve table-cell model anders doet dan de canonieke Ground Truth.{% endblock %}
 {% block content %}
 
@@ -13,19 +13,19 @@
     <p><strong>De Ground Truth blijft leidend.</strong> Deze stap beoordeelt alleen modelgedrag; een modelrun wijzigt de GT nooit automatisch.</p>
   </div>
   <div class="actions">
-    <a class="button primary" href="/process/table-quality">Stap 5 · Model trainen & draaien</a>
-    <a class="button" href="/process/detect-candidates">Stap 3 · Detectie opnieuw uitvoeren</a>
+    <a class="button primary" href="/process/table-model">Stap 7 · Model trainen</a>
+    <a class="button" href="/process/detect-candidates">Stap 4 · Detectie opnieuw uitvoeren</a>
   </div>
 </section>
 
 <section class="card section-gap iteration-explainer">
   <span class="eyebrow">DE LOOP</span>
   <div class="iteration-loop">
-    <div class="iteration-step"><span>1</span><div><strong>Model draaien</strong><small>Stap 5 bouwt/train/activeert en maakt een nieuwe detectierun.</small></div></div>
+    <div class="iteration-step"><span>1</span><div><strong>Model draaien</strong><small>Stap 7 bouwt/train/activeert en maakt een nieuwe detectierun.</small></div></div>
     <div class="iteration-arrow">→</div>
     <div class="iteration-step active"><span>2</span><div><strong>Afwijkingen beoordelen</strong><small>Alleen verschillen met de canonieke GT komen hier terecht.</small></div></div>
     <div class="iteration-arrow">→</div>
-    <div class="iteration-step"><span>3</span><div><strong>Nog een ronde of door</strong><small>Terug naar Stap 5, of verder naar Mapping zodra de GT klaar is.</small></div></div>
+    <div class="iteration-step"><span>3</span><div><strong>Nog een ronde of door</strong><small>Terug naar Stap 7, of verder naar Recognition zodra de GT klaar is.</small></div></div>
   </div>
 </section>
 
@@ -44,7 +44,7 @@
   </div>
   <div class="actions iteration-hero-actions">
     {% if not comparison.history_mode %}<a class="button" href="/process/mapping">Door naar Mapping</a>{% endif %}
-    <a class="button" href="/process/table-quality">Stap 5 · Nieuwe iteratie</a>
+    <a class="button" href="/process/table-model">Stap 7 · Nieuwe iteratie</a>
   </div>
 </section>
 
@@ -160,7 +160,7 @@
 {% endif %}
 
 <section class="notice info section-gap iteration-boundary">
-  <strong>Wanneer ben je klaar?</strong> Niet wanneer het detector-model perfect is, maar wanneer de canonieke GT klopt. Stap 5 ↔ Stap 6 is een optionele verbeterlus voor toekomstige beelden; Mapping en OCR werken vanaf de vastgelegde GT.
+  <strong>Wanneer ben je klaar?</strong> Niet wanneer het detector-model perfect is, maar wanneer de canonieke GT klopt. Stap 7 ↔ Stap 8 is een optionele verbeterlus voor toekomstige beelden; Recognition werkt vanaf de vastgelegde GT.
 </section>
 
 {% endif %}

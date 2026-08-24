@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Stap {{ step.index }} · {{ step.title }} · IsalaOCR{% endblock %}
+{% block heading %}Stap {{ step.index }} · {{ step.title }}{% endblock %}
+{% block subtitle %}{{ step.subtitle }}{% endblock %}
+{% block content %}
+{% set q = table_quality or {} %}
+{% set totals = q.totals or {} %}
+<section class="gate-banner gate-banner-open">
+  <div>
+    <span class="gate-kicker">TABLE STRUCTURE · CELCROPS</span>
+    <h2>Van celposities naar bruikbare tabelstructuur</h2>
+    <p>De celdetector levert hier alleen geometrie. Op basis van cellen die ongeveer dezelfde horizontale positie en afmetingen hebben, bepalen we rijen en kolommen. Daarna worden de afzonderlijke celcrops als invoer voor Recognition klaargezet.</p>
+  </div>
+  <div class="actions"><a class="button" href="/process/detection-review">← Cel-GT controleren</a><a class="button primary" href="/recognition-scope">Naar Stap 7 · Recognition-scope →</a></div>
+</section>
+
+<section class="card section-gap">
+  <div class="toolbar"><div><span class="eyebrow">STRUCTUURANALYSE</span><h3>Wat gebeurt hier?</h3></div><span class="pill {% if totals.desired_total %}ok{% else %}warn{% endif %}">{{ totals.desired_total or 0 }} goedgekeurde cellen</span></div>
+  <div class="grid cols-3">
+    <div><strong>1 · Cellen groeperen</strong><p class="muted">Cellen met vergelijkbare y-posities worden aan dezelfde rij gekoppeld.</p></div>
+    <div><strong>2 · Kolommen afleiden</strong><p class="muted">Cellen met vergelijkbare x-posities vormen een kolom, zonder vaste kolomnamen in de detector te hardcoderen.</p></div>
+    <div><strong>3 · Celcrops maken</strong><p class="muted">Elke goedgekeurde cel wordt als zelfstandige crop doorgegeven aan Recognition.</p></div>
+  </div>
+</section>
+
+<section class="card section-gap">
+  <span class="eyebrow">VOLGENDE STAP</span>
+  <h3>Eerst bepalen wat Recognition nodig heeft</h3>
+  <p class="muted">De volledige tabel blijft beschikbaar voor detectie. In de volgende stap kies je pas welke panelen, rijen en kolommen OCR-trainingsdata mogen leveren. Niet-geselecteerde data wordt niet voor Recognition gebruikt.</p>
+  <div class="actions"><a class="button primary" href="/recognition-scope">Naar Stap 7 · Recognition-scope</a><a class="button" href="/process/table-region-model">Terug naar Stap 3 · Cellen opnieuw detecteren</a></div>
+</section>
+{% endblock %}

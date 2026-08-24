@@ -78,9 +78,22 @@ def recognition_scope_options(workspace: str | Path) -> list[dict[str, Any]]:
         cells = _indexed_cells(list_ground_truth_cells(root, str(source.get("source_id") or "")))
         for cell in cells:
             panel_id = str(cell.get("panel_id") or cell.get("panel_name") or "__default__")
-            item = options.setdefault(panel_id, {"panel_id": panel_id, "panel_name": str(cell.get("panel_name") or panel_id), "columns": set()})
+            panel_name = str(cell.get("panel_name") or panel_id)
+            if panel_id == "__default__":
+                panel_name = "Niet toegewezen"
+            item = options.setdefault(panel_id, {"panel_id": panel_id, "panel_name": panel_name, "columns": set()})
             item["columns"].add(int(cell.get("column_index", -1)))
     return [{**item, "columns": sorted(item["columns"])} for item in sorted(options.values(), key=lambda value: value["panel_name"])]
+
+
+def recognition_scope_preview(workspace: str | Path) -> dict[str, Any]:
+    root = resolve_project_workspace(workspace)
+    for source in list_ground_truth_sources(root):
+        source_id = str(source.get("source_id") or "")
+        cells = _indexed_cells(list_ground_truth_cells(root, source_id))
+        if cells and (root / "source_renders" / f"{source_id}.png").is_file():
+            return {"source_id": source_id, "cells": cells}
+    return {"source_id": "", "cells": []}
 
 
 def _safe_id(value: object) -> str:

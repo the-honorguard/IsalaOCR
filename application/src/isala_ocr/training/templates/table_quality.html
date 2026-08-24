@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
-{% block title %}Stap 5 · Alles laten draaien · IsalaOCR{% endblock %}
-{% block heading %}Stap 5 · Alles laten draaien{% endblock %}
+{% block title %}Stap 7 · Rijen, kolommen en celcrops · IsalaOCR{% endblock %}
+{% block heading %}Stap 7 · Rijen, kolommen en celcrops{% endblock %}
 {% block subtitle %}Maak de huidige Ground Truth gereed, bouw en valideer de dataset, train en activeer een nieuw model en voer dat model direct opnieuw uit.{% endblock %}
 {% block content %}
 {% set q = table_quality %}
@@ -18,7 +18,7 @@
     {% if gt_open %}<p class="warn"><strong>{{ gt_open }} GT-bron{% if gt_open != 1 %}nen{% endif %} nog niet bevestigd.</strong> “Alles laten draaien” markeert deze eerst als gecontroleerd zonder de GT-geometrie te wijzigen.</p>{% endif %}
     {% else %}
     <h2>Eerst de Ground Truth opbouwen</h2>
-    <p>Er is nog geen canonieke table-cell Ground Truth beschikbaar. Maak die eerst in Stap 3 en controleer hem in Stap 4. Daarna bestaat de iteratieve loop alleen nog uit draaien en beoordelen.</p>
+    <p>Er is nog geen canonieke table-cell Ground Truth beschikbaar. Voer eerst Stap 4 uit en controleer hem in Stap 5. Daarna bestaat de iteratieve loop alleen nog uit draaien en beoordelen.</p>
     {% endif %}
   </div>
   <div class="actions">
@@ -37,10 +37,10 @@
       <button class="primary" id="run-all-table-button"><strong>Alles laten draaien</strong><small>GT → dataset → validatie → training → activatie → nieuwe modelrun</small></button>
     </form>
     {% if gt_open %}<button type="button" id="complete-all-step5-gt" class="ghost"><strong>Markeer alle GT's als correct</strong><small>{{ gt_open }} open bron{% if gt_open != 1 %}nen{% endif %}; geometrie blijft ongewijzigd</small></button>{% endif %}
-    <a class="button" href="/process/table-compare">Naar Stap 6 · Beoordelen</a>
+    <a class="button" href="/process/table-compare">Naar Stap 8 · Beoordelen</a>
     {% else %}
-    <a class="button primary" href="/process/detect-candidates">Stap 3 · Ground Truth maken</a>
-    <a class="button" href="/process/detection-review">Stap 4 · Ground Truth beheren</a>
+    <a class="button primary" href="/process/detect-candidates">Stap 4 · Structuur detecteren</a>
+    <a class="button" href="/process/detection-review">Stap 5 · Ground Truth beheren</a>
     {% endif %}
   </div>
 </section>
@@ -68,7 +68,7 @@
   </div>
   <div class="grid cols-2">
     <div><strong>1 · Alles laten draaien</strong><p class="muted">Neem de actuele canonieke GT en expliciete <em>Model fout</em>-feedback, bouw een nieuwe dataset, train en activeer het model en maak meteen een nieuwe prediction-run.</p></div>
-    <div><strong>2 · Beoordelen</strong><p class="muted">Review in Stap 6 alleen de overgebleven afwijkingen als Functioneel correct, Model fout of GT controleren. Daarna kom je hier terug voor de volgende ronde.</p></div>
+    <div><strong>2 · Beoordelen</strong><p class="muted">Review in Stap 8 alleen de overgebleven afwijkingen als Functioneel correct, Model fout of GT controleren. Daarna kom je hier terug voor de volgende ronde.</p></div>
   </div>
 </section>
 

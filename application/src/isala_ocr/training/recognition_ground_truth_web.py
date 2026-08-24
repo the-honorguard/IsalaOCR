@@ -13,6 +13,7 @@ from .recognition_ground_truth import (
     recognition_gt_counts,
     recognition_scope,
     recognition_scope_options,
+    recognition_scope_preview,
     save_recognition_scope,
 )
 
@@ -175,6 +176,7 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
             header_accepted_label="goedgekeurd",
             recognition_scope=recognition_scope(project_root),
             recognition_scope_options=recognition_scope_options(project_root),
+            recognition_scope_preview=recognition_scope_preview(project_root),
         )
 
     @app.get("/recognition-scope")
@@ -184,6 +186,7 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
             "recognition_scope.html",
             recognition_scope=recognition_scope(project_root),
             recognition_scope_options=recognition_scope_options(project_root),
+            recognition_scope_preview=recognition_scope_preview(project_root),
         )
 
     @app.post("/recognition-gt-scope")

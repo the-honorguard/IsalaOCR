@@ -9,7 +9,7 @@ param(
     [string]$TableModelId = "",
 
     [ValidateSet("auto", "cpu", "gpu")]
-    [string]$Device = "cpu"
+    [string]$Device = "auto"
 )
 
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
@@ -26,7 +26,7 @@ try {
     Assert-IsalaActionPreflight -ActionId "2"
     Assert-Docker
 
-    $deviceResolution = Resolve-IsalaTableExecutionDevice -Requested $Device -PrepareGpuRuntime:($Device -eq "gpu")
+$deviceResolution = Resolve-IsalaTableExecutionDevice -Requested $Device -PrepareGpuRuntime:($Device -in @("auto", "gpu"))
     $ResolvedDevice = [string]$deviceResolution.Device
     Write-Host ("Table inference backend: {0} ({1})" -f $ResolvedDevice.ToUpperInvariant(), [string]$deviceResolution.Reason) -ForegroundColor Cyan
 

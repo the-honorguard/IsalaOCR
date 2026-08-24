@@ -110,17 +110,18 @@ function Invoke-IsalaMenuAction {
 
 $workflowSteps = [ordered]@{
     "1"  = @{ Name = "Voorbereiding"; ActionId = "1" }
-    "2"  = @{ Name = "Panelen instellen"; Url = "http://127.0.0.1:8088/process/panel-setup" }
-    "3"  = @{ Name = "Ground Truth maken"; ActionId = "2" }
-    "4"  = @{ Name = "Ground Truth beheren"; Url = "http://127.0.0.1:8088/detection-review" }
-    "5"  = @{ Name = "Detectiemodel trainen & draaien"; Url = "http://127.0.0.1:8088/process/table-quality" }
-    "6"  = @{ Name = "Detectorafwijkingen reviewen"; Url = "http://127.0.0.1:8088/process/table-compare" }
-    "7"  = @{ Name = "Recognition GT Studio"; Url = "http://127.0.0.1:8088/recognition-gt-review" }
-    "8"  = @{ Name = "Recognition Dataset bouwen"; ActionId = "24" }
-    "9"  = @{ Name = "Recognition Dataset valideren"; ActionId = "25" }
-    "10" = @{ Name = "Recognition Model trainen"; ActionId = "26"; DeviceChoice = $true }
-    "11" = @{ Name = "Recognition Model evalueren"; ActionId = "27" }
-    "12" = @{ Name = "Recognition Model activeren"; ActionId = "28" }
+    "2"  = @{ Name = "Tabelregio’s selecteren"; Url = "http://127.0.0.1:8088/process/panel-setup" }
+    "3"  = @{ Name = "Tabelregio trainen & cellen detecteren"; Url = "http://127.0.0.1:8088/process/table-region-model" }
+    "4"  = @{ Name = "Cel-GT beoordelen"; Url = "http://127.0.0.1:8088/detection-review" }
+    "5"  = @{ Name = "Celdetector verbeteren"; Url = "http://127.0.0.1:8088/process/table-model" }
+    "6"  = @{ Name = "Rijen, kolommen en celcrops"; Url = "http://127.0.0.1:8088/process/table-quality" }
+    "7"  = @{ Name = "Recognition-scope instellen"; Url = "http://127.0.0.1:8088/recognition-scope" }
+    "8"  = @{ Name = "Recognition GT Studio"; Url = "http://127.0.0.1:8088/recognition-gt-review" }
+    "9"  = @{ Name = "Recognition Dataset bouwen"; ActionId = "24" }
+    "10" = @{ Name = "Recognition Dataset valideren"; ActionId = "25" }
+    "11" = @{ Name = "Recognition Model trainen"; ActionId = "26"; DeviceChoice = $true }
+    "12" = @{ Name = "Recognition Model beoordelen"; ActionId = "27" }
+    "13" = @{ Name = "Recognition Model activeren"; ActionId = "28" }
     "A1" = @{ Name = "Application Mapping Studio"; ActionId = "20" }
     "A2" = @{ Name = "Application mappings toepassen"; ActionId = "21" }
     "A3" = @{ Name = "Application output uitlezen"; ActionId = "22" }

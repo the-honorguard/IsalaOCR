@@ -103,7 +103,7 @@
 
   <div class="notice warning section-gap" data-prep-warning {% if not preparation.unknown_count %}hidden{% endif %}>{{ preparation.unknown_count }} controle(s) zijn niet actueel. Vernieuw de status voordat je verdergaat.</div>
 
-  <section class="card section-gap panel-definition-setup" id="panel-name-setup">
+  {% if localization_strategy != 'table_first' %}<section class="card section-gap panel-definition-setup" id="panel-name-setup">
     <div class="toolbar">
       <div>
         <span class="eyebrow">EENMALIGE PROJECTSETUP</span>
@@ -161,7 +161,7 @@
   </script>
   <style>
   .panel-definition-list{display:flex;flex-direction:column;gap:8px;margin:14px 0}.panel-definition-row{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:end}.panel-definition-row label{display:block}.panel-definition-row input{display:block;width:100%;margin-top:4px}.panel-definition-number{display:grid;place-items:center;height:38px;border:1px solid var(--border);border-radius:8px;color:var(--muted)}@media(max-width:700px){.panel-definition-row{grid-template-columns:30px minmax(0,1fr)}.panel-definition-row button{grid-column:2}}
-  </style>
+  </style>{% endif %}
 
   <details class="card section-gap preparation-maintenance">
     <summary>Onderhoud / opnieuw installeren</summary>

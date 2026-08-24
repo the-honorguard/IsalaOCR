@@ -1,13 +1,18 @@
 {% extends 'base.html' %}
-{% block title %}Doorsturen naar Stap 6 · IsalaOCR{% endblock %}
-{% block heading %}Stap 6 · Afwijkingen reviewen{% endblock %}
-{% block subtitle %}De aparte modelbeoordelingsstap is vervallen; Stap 5 traint, activeert en draait het model al volledig.{% endblock %}
-{% block head %}<meta http-equiv="refresh" content="0;url=/process/table-compare">{% endblock %}
+{% block title %}Stap 6 · Celdetector verbeteren · IsalaOCR{% endblock %}
+{% block heading %}Stap 6 · Celdetector verbeteren{% endblock %}
+{% block subtitle %}Bouw en train het table-cell model uit de beoordeelde Ground Truth.{% endblock %}
 {% block content %}
 <section class="card">
-  <h2>Deze tussenstap bestaat niet meer</h2>
-  <p>De volledige modelrun zit nu in Stap 5. Je gaat direct door naar Stap 6 om alleen de afwijkingen te beoordelen.</p>
-  <a class="button primary" href="/process/table-compare">Naar Stap 6 · Afwijkingen reviewen</a>
+  <h2>Celdetector verbeteren</h2>
+  <p>Gebruik de acties op deze pagina om de actuele table-cell dataset te bouwen, te valideren en de celdetector te verbeteren. Daarna ga je door naar Stap 7 voor rijen, kolommen en celcrops.</p>
+  <div class="actions">
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="48"><button type="submit">Dataset bouwen</button></form>
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="49"><button type="submit">Dataset valideren</button></form>
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="50"><button type="submit">Train GPU</button></form>
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="51"><button type="submit">Train CPU</button></form>
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="52"><button type="submit">Model activeren</button></form>
+    <a class="button primary" href="/process/table-quality">Naar Stap 7 · Rijen en kolommen →</a>
+  </div>
 </section>
-<script>window.location.replace('/process/table-compare');</script>
 {% endblock %}

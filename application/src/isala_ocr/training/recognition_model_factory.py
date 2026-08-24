@@ -39,7 +39,7 @@ def install_recognition_model_factory_metadata(webui_module: Any) -> None:
 
     inserts = [{
         "key": "recognition-scope",
-        "index": 8,
+        "index": 7,
         "group": "value",
         "title": "Recognition-scope",
         "subtitle": "Kies per project welke panelen en kolommen Recognition-samples leveren.",
@@ -47,12 +47,12 @@ def install_recognition_model_factory_metadata(webui_module: Any) -> None:
         "requirements": ["Canonieke table-cell Ground Truth"],
     }, {
         "key": "recognition-gt-studio",
-        "index": 9,
+        "index": 8,
         "group": "value",
         "title": "Recognition GT Studio",
-        "subtitle": "Maak, bekijk en corrigeer neutrale crop→tekst samples rechtstreeks uit de canonieke table-cell Ground Truth.",
+        "subtitle": "Maak, bekijk en corrigeer neutrale crop→tekst samples rechtstreeks uit de geselecteerde panelen en kolommen.",
         "action_ids": ["23"],
-        "requirements": ["Canonieke table-cell Ground Truth", "Bronrenders", "Pretrained/generieke recognition-runtime"],
+        "requirements": ["Canonieke table-cell Ground Truth", "Recognition-scope", "Bronrenders", "Pretrained/generieke recognition-runtime"],
     }]
     insertion_index = next(
         (index for index, item in enumerate(steps) if str(item.get("key") or "") == "mapping"),
@@ -64,11 +64,11 @@ def install_recognition_model_factory_metadata(webui_module: Any) -> None:
             by_key[item["key"]] = item
 
     recognition_updates = {
-        "recognition-dataset": (10, "Recognition Dataset bouwen", "Bouw uitsluitend uit goedgekeurde Recognition GT Studio crop→exacte-tekst samples."),
-        "recognition-validate": (11, "Recognition Dataset valideren", "Controleer labels, tekenset en PaddleOCR trainingsinvoer."),
-        "recognition-train": (12, "Recognition Model trainen", "Train het recognitionmodel dat pixels in een reeds correcte crop omzet naar letterlijke tekst."),
-        "recognition-evaluate": (13, "Recognition Model evalueren", "Meet exact match en CER op de vaste Recognition-testset."),
-        "recognition-models": (14, "Recognition Model activeren", "Registreer en activeer een voldoende goed recognitionmodel als onderdeel van het Model Bundle."),
+        "recognition-dataset": (9, "Recognition Dataset bouwen", "Bouw uitsluitend uit goedgekeurde Recognition GT Studio crop→exacte-tekst samples."),
+        "recognition-validate": (10, "Recognition Dataset valideren", "Controleer labels, tekenset en PaddleOCR trainingsinvoer."),
+        "recognition-train": (11, "Recognition Model trainen", "Train het recognitionmodel dat pixels in een reeds correcte crop omzet naar letterlijke tekst."),
+        "recognition-evaluate": (12, "Recognition Model beoordelen", "Beoordeel exact match en CER en controleer of de Recognition-output bruikbaar is."),
+        "recognition-models": (13, "Recognition Model activeren", "Registreer en activeer een voldoende goed recognitionmodel als onderdeel van het Model Bundle."),
     }
     for key, (index, title, subtitle) in recognition_updates.items():
         step = by_key.get(key)

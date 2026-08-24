@@ -55,6 +55,26 @@ def test_ppstructure_cells_create_ranked_table_relations() -> None:
     assert ed[0].value_column_index == 1
 
 
+def test_ppstructure_assigns_one_global_column_grid_across_rows() -> None:
+    data = {
+        "table_res_list": [{
+            "cell_box_list": [
+                [10, 10, 110, 35], [120, 10, 220, 35], [230, 10, 330, 35],
+                [10, 40, 110, 65], [230, 40, 330, 65],
+                [10, 70, 220, 95], [230, 70, 330, 95],
+            ]
+        }]
+    }
+    tables = parse_ppstructure_tables(data, source_id="source")
+    cells = tables[0].cells
+
+    assert [(cell.row_index, cell.column_index, cell.column_span) for cell in cells] == [
+        (0, 0, 1), (0, 1, 1), (0, 2, 1),
+        (1, 0, 1), (1, 2, 1),
+        (2, 0, 2), (2, 2, 1),
+    ]
+
+
 def test_table_semantics_snap_to_reviewed_pipeline_a_geometry(tmp_path: Path) -> None:
     db = TrainingDatabase(tmp_path / "samples.sqlite3")
     blocks = [

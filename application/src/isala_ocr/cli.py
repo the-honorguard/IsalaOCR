@@ -34,6 +34,7 @@ from .training.table_cell_training import (
     activate_table_cell_model, build_table_cell_dataset, evaluate_table_cell_predictions,
     register_table_cell_model, validate_table_cell_dataset,
 )
+from .training.table_region_training import build_table_region_dataset
 
 LOGGER = logging.getLogger(__name__)
 
@@ -251,6 +252,13 @@ def _validate_localization_dataset_cmd(args: argparse.Namespace) -> int:
 def _build_table_cell_dataset_cmd(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     result = build_table_cell_dataset(_localization_workspace(config, args.workspace))
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _build_table_region_dataset_cmd(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    result = build_table_region_dataset(_localization_workspace(config, args.workspace))
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
@@ -698,6 +706,11 @@ def build_parser() -> argparse.ArgumentParser:
     table_validate.add_argument("--config", default="/app/config/app.yaml")
     table_validate.add_argument("--dataset", default="latest")
     table_validate.set_defaults(func=_validate_table_cell_dataset_cmd)
+
+    region_build = subparsers.add_parser("build-table-region-dataset", help="Build a COCO table-region dataset from Step-2 region GT")
+    region_build.add_argument("--workspace")
+    region_build.add_argument("--config", default="/app/config/app.yaml")
+    region_build.set_defaults(func=_build_table_region_dataset_cmd)
 
     table_eval = subparsers.add_parser("evaluate-table-cell-predictions", help="Evaluate a trained wireless table-cell detector on a fixed dataset split")
     table_eval.add_argument("--workspace")

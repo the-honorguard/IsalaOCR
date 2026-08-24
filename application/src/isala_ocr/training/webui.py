@@ -39,6 +39,8 @@ from .table_cell_ground_truth import (
     ground_truth_counts, ground_truth_review_state, list_ground_truth_cells, list_ground_truth_sources,
     set_ground_truth_source_review_completed, update_ground_truth_cell,
 )
+from .table_region_ground_truth import list_table_regions, list_table_region_sources, save_table_regions
+from .table_region_training import build_table_region_dataset
 from .table_model_comparison import (
     add_comparison_fp_to_ground_truth, review_comparison_issue, table_cell_comparison_state,
 )
@@ -107,7 +109,11 @@ ACTIONS = {
     "50": "Wireless table-cell detector trainen op GPU",
     "51": "Wireless table-cell detector trainen op CPU",
     "52": "Getraind table-cell model activeren",
-    "53": "Stap 6 volledig uitvoeren (dataset, training en activatie)",
+    "53": "Stap 5 volledig uitvoeren (dataset, training en activatie)",
+    "54": "Tabelregio-dataset bouwen",
+    "55": "Tabelregio-detector trainen op GPU",
+    "56": "Tabelregio-detector trainen op CPU",
+    "57": "Tabelregio-detector activeren",
     "20": "Mappinggegevens voorbereiden na detectiepoort",
     "21": "Bevestigde mappings toepassen en definitieve crops maken",
     "22": "Goedgekeurde crops uitlezen",
@@ -182,6 +188,10 @@ ACTION_DURATION_ESTIMATES = {
     "51": {"label": "± 1–4 uur", "detail": "CPU-alternatief; sterk hardware- en dataset-afhankelijk."},
     "52": {"label": "± 10–30 sec", "detail": "Bestaand getraind table-cell model activeren; er wordt niet opnieuw getraind."},
     "53": {"label": "± 10–30 min", "detail": "Dataset bouwen → valideren → GPU trainen → model activeren."},
+    "54": {"label": "± 10–60 sec", "detail": "Volledige bronbeelden met Stap-2 tabelregio-GT naar COCO omzetten."},
+    "55": {"label": "± 5–20 min", "detail": "PicoDet-S tabelregio-detector trainen op GPU."},
+    "56": {"label": "± 30–120 min", "detail": "PicoDet-S tabelregio-detector trainen op CPU."},
+    "57": {"label": "± 10–30 sec", "detail": "Een bestaand tabelregio-model als voorste detectorlaag activeren."},
     # Legacy aliases remain annotated because older queued/retry jobs can surface in the UI.
     "107": {"label": "± 10–60 sec", "detail": "Legacy recognition-dataset bouwen."},
     "108": {"label": "± 10–30 sec", "detail": "Legacy recognition-dataset valideren."},
@@ -196,13 +206,14 @@ ACTION_DURATION_ESTIMATES = {
 }
 
 PROCESS_STEPS = [
-    {"key": "detection-models","index":1,"group":"detection","title":"Voorbereiding","subtitle":"Controleer of PP-StructureV3 en de inference/table-modelcache beschikbaar zijn.","action_ids":["14","19","30","35","42"],"requirements":["Docker Desktop actief","Inference OCR + tabelmodellen lokaal beschikbaar","Panelnamen éénmalig instellen voor dit project","Geen detector-training nodig voor de table-first proef"]},
-    {"key": "panel-setup","index":2,"group":"detection","title":"Panelen instellen","subtitle":"Bepaal zelf welke resultaatpanelen door de table-pipeline worden geanalyseerd.","action_ids":[],"requirements":["Panelnamen ingesteld in Stap 1","Minimaal één bronpreview","Positioneer en resize ieder functioneel table-panel","Panelen worden projectbreed genormaliseerd opgeslagen"]},
-    {"key": "detect-candidates","index":3,"group":"detection","title":"Tabelstructuur detecteren","subtitle":"Draai PP-StructureV3 en de preprocessing-benchmark afzonderlijk binnen ieder ingesteld panel.","action_ids":["2"],"requirements":["PP-StructureV3 voorbereid","Panelprofiel opgeslagen","Bronnen in input","Losse OCR-/PicoDet-boxes worden niet gemengd"]},
-    {"key": "detection-review","index":4,"group":"detection","title":"Ground Truth beheren","subtitle":"De eerste run bouwt de GT op; daarna toont Stap 4 altijd alleen de canonieke table-cell Ground Truth, onafhankelijk van nieuwe detector-runs.","action_ids":[],"requirements":["Initiële panelgerichte detectie voor de eerste GT","Daarna: canonieke GT uit de eerste table-cell dataset","Bronrender"]},
-    {"key": "table-quality","index":5,"group":"detection","title":"Tabeldekking beoordelen","subtitle":"Meet hoeveel gewenste ROI-geometrie de panelgerichte table pipeline direct levert en wat nog fallback nodig heeft.","action_ids":[],"requirements":["Afgeronde tabelreview","Ruwe PP-Structure cellen","Handmatige aanvullingen tellen als gemiste table coverage"]},
-    {"key": "table-model","index":6,"group":"detection","title":"Tabelmodel verbeteren","subtitle":"Maak van je reviewcorrecties trainingsdata, fine-tune RT-DETR-L wireless table-cell detection en gebruik het nieuwe model in de volgende detectieronde.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde tabelreview","Positieve functionele cellen","Dataset gebouwd en gevalideerd vóór training"]},
-    {"key": "table-compare","index":7,"group":"detection","title":"Modelvergelijking & vervolg-review","subtitle":"Vergelijk een nieuwe Stap-3-run met de vaste Stap-4-ground-truth en het vorige model; review alleen de verschillen.","action_ids":[],"requirements":["Canonieke Ground Truth uit Stap 4","Table-cell dataset uit Stap 6","Nieuwe detectierun uit Stap 3"]},
+    {"key": "detection-models","index":1,"group":"detection","title":"Voorbereiding","subtitle":"Controleer of PP-StructureV3 en de inference/table-modelcache beschikbaar zijn.","action_ids":["14","19","30","35","42"],"requirements":["Docker Desktop actief","Inference OCR + tabelmodellen lokaal beschikbaar","Tabelregio’s en tabelnamen worden in Stap 2 gedefinieerd","Geen detector-training nodig voor de table-first proef"]},
+    {"key": "panel-setup","index":2,"group":"detection","title":"Tabelregio’s selecteren","subtitle":"Beoordeel per lezing de volledige tabelregio’s in de fullscreen reviewer en sla ze op als Ground Truth.","action_ids":[],"requirements":["Minimaal één bronpreview","Per lezing alle volledige tabellen omkaderen","Tabeldefinities en tabelregio-GT opslaan"]},
+    {"key": "table-region-model","index":3,"group":"detection","title":"Tabelregio trainen & cellen detecteren","subtitle":"Bouw de tabelregio-detector, activeer hem en start daarna vanuit dezelfde pagina de celdetectie.","action_ids":["54","55","56","57","2"],"requirements":["Afgeronde tabelregio-review","Dataset gebouwd vóór training","Tabelregio-model geactiveerd vóór celdetectie"]},
+    {"key": "detect-candidates","index":None,"group":"fallback","title":"Cellen detecteren · technische fallback","subtitle":"Losse technische route voor opnieuw draaien van de celdetectie.","action_ids":["2"],"requirements":["Tabelregio-detector voorbereid of handmatige fallback"]},
+    {"key": "detection-review","index":4,"group":"detection","title":"Cel-GT beoordelen","subtitle":"Corrigeer de gedetecteerde celkaders totdat één kader precies één echte cel beschrijft.","action_ids":[],"requirements":["Celdetectie afgerond","Canonieke table-cell Ground Truth","Bronrender"]},
+    {"key": "table-model","index":5,"group":"detection","title":"Celdetector verbeteren","subtitle":"Train optioneel een betere celdetector op de gecorrigeerde één-cel-één-box Ground Truth.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde celreview","Dataset gebouwd en gevalideerd vóór training"]},
+    {"key": "table-quality","index":6,"group":"detection","title":"Rijen, kolommen en celcrops","subtitle":"Gebruik de celposities om rij- en kolomstructuur af te leiden en definitieve individuele celcrops te maken.","action_ids":[],"requirements":["Goedgekeurde celposities","Herkenbare tabelstructuur"]},
+    {"key": "table-compare","index":None,"group":"fallback","title":"Celdetector-afwijkingen reviewen","subtitle":"Optionele verbeterlus voor nieuwe cel-detectorruns; dit is geen OCR-beoordeling.","action_ids":[],"requirements":["Getrainde celdetector","Canonieke cel-GT"]},
 
     # The previous loose field/PicoDet workflow is intentionally parked. Routes,
     # artifacts and jobs stay available so nothing is deleted, but they are no
@@ -213,7 +224,7 @@ PROCESS_STEPS = [
     {"key": "redetect","index":None,"group":"fallback","title":"Detecteren met fallback-model","subtitle":"Legacy/fallback detectierun met een actief field-detector-model.","action_ids":["12"],"requirements":["Actief fallback-model"]},
     {"key": "detection-report","index":None,"group":"fallback","title":"Box-detector kwaliteitsrapport","subtitle":"Legacy/fallback Detection Gate rapport.","action_ids":["13"],"requirements":["Localization-evaluatie"]},
 
-    {"key": "mapping","index":8,"group":"value","title":"Mapping Studio","subtitle":"Pas pas ná een voldoende table-first check functionele betekenis toe op betrouwbare cellen.","action_ids":["20"],"requirements":["TABLE-FIRST CHECK = PASS","Betrouwbare cell-geometrie","Functioneel veldschema"]},
+    {"key": "mapping","index":None,"group":"value","title":"Mapping Studio","subtitle":"Pas pas ná Recognition optioneel functionele betekenis toe op betrouwbare cellen.","action_ids":["20"],"requirements":["Recognition-output","Betrouwbare celgeometrie","Functioneel veldschema"]},
     {"key": "apply-mapping","index":9,"group":"value","title":"Mappings toepassen","subtitle":"Maak definitieve functionele crops uit bevestigde mappings.","action_ids":["21"],"requirements":["Bevestigde mappings"]},
     {"key": "value-extract","index":10,"group":"value","title":"Waarden uitlezen","subtitle":"Lees alleen de definitieve, goedgekeurde crops uit met het actieve recognition-model.","action_ids":["22"],"requirements":["Goedgekeurde definitieve crops","Actief recognition-model"]},
     {"key": "value-review","index":11,"group":"value","title":"Waarden beoordelen","subtitle":"Beoordeel uitsluitend OCR-inhoud; cropgeometrie wordt hier niet meer aangepast.","action_ids":[],"requirements":["Uitgelezen waarden"]},
@@ -642,7 +653,7 @@ def create_web_app(
                     "title": "Voer de table-detectie opnieuw uit",
                     "reason": "Het panelprofiel is nieuwer dan de huidige cell-detectie.",
                     "summary": "De bestaande boxes horen nog bij een oudere/full-image panelkeuze.",
-                    "next_step": "Voer Stap 3 · Tabelstructuur detecteren opnieuw uit.",
+                    "next_step": "Voer Stap 4 · Tabelstructuur detecteren opnieuw uit.",
                     "sources": [], "totals": {}, "thresholds": table_first_thresholds(),
                 }
             try:
@@ -1458,6 +1469,7 @@ def create_web_app(
         readiness = {
             "detection-models": preparation_ready,
             "panel-setup": bool(panel_state.get("configured")),
+            "table-region-model": bool(list_table_region_sources(workspace_root())),
             "detect-candidates": bool(panel_state.get("detection_current")),
             "detection-review": (canonical_table_gt_mode() or (bool(panel_state.get("detection_current")) and detection_reviews.get("candidate_total", 0) > 0)),
             "table-quality": bool(table_quality_state and table_quality_state.get("state") not in {"not_started", "needs_review"}),
@@ -2344,8 +2356,12 @@ def create_web_app(
             "table-model": (
                 str(active_table_model.get('model_id') or 'reviewdata nog niet als actief table-model ingezet')
             ),
+            "table-region-model": (
+                f"{len(list_table_region_sources(workspace_root()))} lezing(en) met tabelregio-GT"
+                if list_table_region_sources(workspace_root()) else "nog geen tabelregio-GT opgeslagen"
+            ),
             "table-compare": (
-                "nieuwe Stap-3-run klaar voor vergelijking" if active_table_model else "eerst een getraind table-model activeren en Stap 3 uitvoeren"
+                "nieuwe Stap-4-run klaar voor vergelijking" if active_table_model else "eerst een getraind tablecelmodel activeren en Stap 4 uitvoeren"
             ),
             "localization-dataset": (
                 (f"{loc_dataset.get('image_count', 0)} beelden · {loc_dataset.get('annotation_count', 0)} boxen · "
@@ -2809,6 +2825,7 @@ def create_web_app(
             if selected is None and sources:
                 selected = sources[0]
                 selected_source_id = str(selected.get("source_id") or "")
+            region_ground_truth = list_table_regions(workspace_root(), selected_source_id) if selected_source_id else []
             suggestions: list[dict[str, Any]] = []
             if selected is not None:
                 try:
@@ -2852,6 +2869,7 @@ def create_web_app(
                 "table_panel_setup.html", step=step, panel_state=panel_state,
                 panel_profile=panel_state.get("profile") or {}, sources=sources, source=selected,
                 source_id=selected_source_id, suggestions=suggestions,
+                region_ground_truth=region_ground_truth,
                 header_counts={
                     "total": int(panel_state.get("panel_count") or 0),
                     "pending": 1 if not panel_state.get("configured") else (1 if panel_state.get("needs_rerun") else 0),
@@ -2860,10 +2878,34 @@ def create_web_app(
                 header_total_label="panelen", header_pending_label="actie nodig", header_accepted_label="opgeslagen",
             )
 
+        if step_key == "table-region-model":
+            region_sources = list_table_region_sources(workspace_root())
+            dataset = None
+            latest_pointer = workspace_root() / "table_region_datasets" / "latest.txt"
+            try:
+                dataset_id = latest_pointer.read_text(encoding="ascii").strip()
+            except OSError:
+                dataset_id = ""
+            if dataset_id:
+                dataset = _read_json(workspace_root() / "table_region_datasets" / dataset_id / "manifest.json", None)
+            reviewed_sources = [item for item in region_sources if item.get("review_completed")]
+            return render_template(
+                "table_region_training.html", step=step,
+                region_sources=region_sources, reviewed_sources=reviewed_sources,
+                dataset=dataset,
+                header_counts={
+                    "total": sum(int(item.get("region_count") or 0) for item in reviewed_sources),
+                    "pending": max(0, len(sources := database.list_detection_sources()) - len(reviewed_sources)),
+                    "accepted": int((dataset or {}).get("annotation_count") or 0),
+                },
+                header_total_label="tabelregio’s", header_pending_label="lezingen open",
+                header_accepted_label="trainingskaders",
+            )
+
         if step_key == "table-quality":
             quality = current_table_first_quality()
             return render_template(
-                "table_quality.html",
+                "table_structure.html",
                 step=step, table_quality=quality,
                 header_counts={
                     "total": int((quality.get("totals") or {}).get("desired_total", 0)),
@@ -3082,7 +3124,7 @@ def create_web_app(
         return jsonify({
             "ok": True,
             "profile": profile,
-            "message": f"{len(profile.get('definitions') or [])} panelnaam/namen opgeslagen. Stap 2 gebruikt deze namen voortaan automatisch.",
+            "message": f"{len(profile.get('definitions') or [])} tabeldefinitie(s) opgeslagen. Stap 2 gebruikt deze namen voortaan automatisch.",
         })
 
     @app.post("/api/table-panels")
@@ -3103,11 +3145,41 @@ def create_web_app(
             return jsonify({"error": str(exc)}), 400
         # A changed panel profile invalidates the previous table/cell measurement.
         # We deliberately preserve the old data for inspection, but the normal
-        # workflow will require Step 3 to be rerun before review can continue.
+        # workflow will require Step 4 to be rerun before review can continue.
         return jsonify({
             "ok": True, "profile": profile,
-            "message": f"{len(profile.get('panels') or [])} panel(en) opgeslagen. Voer Stap 3 opnieuw uit.",
+            "message": f"{len(profile.get('panels') or [])} fallback-panel(en) opgeslagen. Voer Stap 4 opnieuw uit.",
         })
+
+    @app.post("/api/table-region-ground-truth")
+    def table_region_ground_truth_save_api():
+        payload = request.get_json(silent=True) or {}
+        source_id = str(payload.get("source_id") or "").strip()
+        regions = payload.get("regions")
+        if not source_id or not isinstance(regions, list):
+            return jsonify({"error": "source_id en regions zijn verplicht"}), 400
+        try:
+            source = save_table_regions(
+                workspace_root(), source_id,
+                image_width=int(payload.get("image_width") or 0),
+                image_height=int(payload.get("image_height") or 0),
+                regions=regions,
+            )
+        except (TypeError, ValueError, OSError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({
+            "ok": True,
+            "source": source,
+            "message": f"{len(source.get('regions') or [])} tabelregio('s) opgeslagen als GT voor deze lezing.",
+        })
+
+    @app.post("/api/table-region-dataset")
+    def table_region_dataset_build_api():
+        try:
+            manifest = build_table_region_dataset(workspace_root())
+        except (TypeError, ValueError, OSError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"ok": True, "manifest": manifest, "message": "Tabelregio-dataset opgebouwd."})
 
     @app.delete("/api/table-panels")
     def table_panels_reset_api():

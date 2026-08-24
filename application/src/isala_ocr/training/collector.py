@@ -56,6 +56,22 @@ def _table_settings_with_active_model(root: Path, settings: dict, selected_model
     return result, selected
 
 
+def _table_settings_with_active_region_model(root: Path, settings: dict) -> dict:
+    result = dict(settings)
+    pointer = root / "table_region_models" / "active.json"
+    if not pointer.is_file():
+        return result
+    try:
+        payload = json.loads(pointer.read_text(encoding="utf-8-sig"))
+        inference_dir = root / str(payload.get("inference_dir") or "")
+    except (OSError, TypeError, ValueError):
+        return result
+    if inference_dir.is_dir():
+        result["table_region_model_dir"] = str(inference_dir)
+        LOGGER.info("Using active full-page table-region model: %s", payload.get("model_id"))
+    return result
+
+
 def _files(path: Path) -> list[Path]:
     if path.is_file():
         return [path]
@@ -194,6 +210,7 @@ def _collect_localization_detections(
         config.raw.get("training", {}).get("collection", {}).get("table_structure", {}) or {}
     )
     table_settings, active_table_model = _table_settings_with_active_model(root, table_settings, table_model_id)
+    table_settings = _table_settings_with_active_region_model(root, table_settings)
     selected_table_model = active_table_model
     localization_settings = dict(config.raw.get("training", {}).get("localization", {}) or {})
     strategy = str(localization_settings.get("strategy") or "fusion").strip().lower()
@@ -246,8 +263,14 @@ def _collect_localization_detections(
             if table_engine is not None:
                 try:
                     if table_first and bool(table_first_settings.get("preprocessing_benchmark", True)):
+                        learned_region_model = str(table_settings.get("table_region_model_dir") or "").strip()
                         manual_panels = panel_boxes_for_image(panel_profile, width, height)
-                        if manual_panels:
+                        if learned_region_model:
+                            table_regions, table_preprocessing = table_engine.detect_with_benchmark(
+                                decoded.image, source_id=decoded.source_id, fallback_tokens=tokens
+                            )
+                            table_preprocessing["table_region_model"] = learned_region_model
+                        elif manual_panels:
                             table_regions, table_preprocessing = table_engine.detect_panels_with_benchmark(
                                 decoded.image, source_id=decoded.source_id, panels=manual_panels
                             )

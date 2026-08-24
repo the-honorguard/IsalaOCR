@@ -30,13 +30,13 @@
     {% if localization_strategy == 'table_first' %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · DATA & GROUND TRUTH</div>
     <a href="/process/detection-models" class="process-tab {% if request.path == '/process/detection-models' %}active{% endif %}"><span class="process-tab-number">1</span><span>Voorbereiding</span></a>
-    <a href="/process/panel-setup" class="process-tab {% if request.path == '/process/panel-setup' %}active{% endif %}"><span class="process-tab-number">2</span><span>Panelen instellen</span></a>
-    <a href="/process/detect-candidates" class="process-tab {% if request.path == '/process/detect-candidates' %}active{% endif %}"><span class="process-tab-number">3</span><span>Ground Truth maken</span></a>
-    <a href="/process/detection-review" class="process-tab {% if request.path == '/process/detection-review' or request.path.startswith('/detection-review') %}active{% endif %}"><span class="process-tab-number">4</span><span>Ground Truth beheren</span></a>
+    <a href="/process/panel-setup" class="process-tab {% if request.path == '/process/panel-setup' %}active{% endif %}"><span class="process-tab-number">2</span><span>Tabelregio’s selecteren</span></a>
+    <a href="/process/table-region-model" class="process-tab {% if request.path == '/process/table-region-model' %}active{% endif %}"><span class="process-tab-number">3</span><span>Tabelregio trainen & cellen detecteren</span></a>
+    <a href="/process/detection-review" class="process-tab {% if request.path == '/process/detection-review' or request.path.startswith('/detection-review') %}active{% endif %}"><span class="process-tab-number">4</span><span>Cel-GT beoordelen</span></a>
 
-    <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTOR · 5 → 6 → 5</div>
-    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">5</span><span>Detectiemodel trainen & draaien</span></a>
-    <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' or request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">6</span><span>Detectorafwijkingen reviewen</span></a>
+    <div class="nav-section nav-pipeline-a">MODEL FACTORY · CELLEN & STRUCTUUR</div>
+    <a href="/process/table-model" class="process-tab {% if request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">5</span><span>Celdetector verbeteren</span></a>
+    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">6</span><span>Rijen, kolommen en celcrops</span></a>
     {% else %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTIE & CROPS</div>
     {% for step in process_steps if step.group == 'detection' %}
@@ -46,7 +46,7 @@
     {% endfor %}
     {% endif %}
 
-    {% set recognition_keys = ['recognition-scope','recognition-gt-studio','recognition-dataset','recognition-validate','recognition-train','recognition-evaluate','recognition-models'] %}
+    {% set recognition_keys = ['recognition-gt-studio','recognition-scope','recognition-dataset','recognition-validate','recognition-train','recognition-evaluate','recognition-models'] %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · RECOGNITION</div>
     {% for step in process_steps if step.key in recognition_keys %}
       {% set recognition_href = '/recognition-scope' if step.key == 'recognition-scope' else ('/recognition-gt-review' if step.key == 'recognition-gt-studio' else '/process/' ~ step.key) %}
@@ -157,31 +157,16 @@
 <script>
 (() => {
   const path=window.location.pathname;
-  if(path==='/process/table-model'){
-    window.location.replace('/process/table-compare');
-    return;
-  }
   const h1=document.querySelector('.topbar h1');
   const subtitle=document.querySelector('.topbar p');
   const setTopbar=(title,sub)=>{if(h1)h1.textContent=title;if(subtitle)subtitle.textContent=sub;document.title=`${title} · IsalaOCR`;};
   if(path==='/process/detect-candidates'){
-    setTopbar('Stap 3 · Ground Truth maken','Maak éénmalig een eerste voorstel voor de table-cell Ground Truth binnen de ingestelde panelen.');
+    setTopbar('Stap 4 · Tabelstructuur detecteren','Detecteer de rijen en cellen binnen de ingestelde tabelregio’s.');
   }else if(path==='/process/table-compare'){
-    setTopbar('Stap 6 · Detectorafwijkingen reviewen','Beoordeel alleen de verschillen tussen de actieve detectorrun en de canonieke Ground Truth. Daarna gaat de Model Factory verder met Recognition GT.');
-    document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{
-      link.href='/process/table-quality';
-      link.textContent=/volgende trainingsronde/i.test(link.textContent||'')?'Stap 5 · Volgende detectorronde':'Stap 5 · Alles laten draaien';
-    });
-    const content=document.querySelector('.content');
-    if(content){
-      const walker=document.createTreeWalker(content,NodeFilter.SHOW_TEXT);
-      const nodes=[];
-      while(walker.nextNode())nodes.push(walker.currentNode);
-      nodes.forEach(node=>{if(node.nodeValue&&node.nodeValue.includes('Stap 7'))node.nodeValue=node.nodeValue.replaceAll('Stap 7','Stap 6');});
-    }
+    setTopbar('Optioneel · Celdetector-afwijkingen','Beoordeel alleen verschillen tussen een nieuwe celdetectorrun en de canonieke cel-GT.');
   }
   if(path.startsWith('/detection-review')){
-    document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{link.href='/process/table-quality';link.textContent='Naar Stap 5 · Detectiemodel trainen & draaien →';});
+    document.querySelectorAll('a[href="/process/table-model"]').forEach(link=>{link.textContent='Naar Stap 7 · Tabelcelmodel trainen →';});
   }
   if(path==='/process/mapping'||path.startsWith('/mapping')){
     setTopbar('Fase 2 · Application Mapping Studio','Optionele postprocessing ná het Model Bundle: geef OCR/model-output functionele betekenis zonder die semantiek onderdeel van de modeltraining te maken.');

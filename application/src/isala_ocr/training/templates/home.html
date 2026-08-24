@@ -5,7 +5,7 @@
 {% block content %}
 {% if localization_strategy == 'table_first' %}
 <section class="card workflow-map">
-  <div class="toolbar"><div><h3>Table setup & Ground Truth</h3><p class="muted">Stappen 1–4 bouwen de vaste referentie op. Na de eerste canonieke GT gebruik je Stap 3 niet meer voor modeliteraties.</p></div></div>
+  <div class="toolbar"><div><h3>Table setup & Ground Truth</h3><p class="muted">Stappen 1–5 bouwen de vaste referentie op: tabelregio’s selecteren, de regio-detector trainen, structuur detecteren en cellen beoordelen.</p></div></div>
   <div class="stage-rail process-stage-rail">
     {% set s1 = stages|selectattr('key','equalto','detection-models')|list|first %}
     {% set s2 = stages|selectattr('key','equalto','panel-setup')|list|first %}

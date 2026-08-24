@@ -285,6 +285,54 @@ def _cluster_rows(cell_boxes: Sequence[Box]) -> list[list[int]]:
     return [sorted(row, key=lambda idx: cell_boxes[idx].x1) for _, row in ordered_rows]
 
 
+def _global_column_layout(
+    cell_boxes: Sequence[Box], rows: Sequence[Sequence[int]],
+) -> dict[int, tuple[int, int]]:
+    """Assign cells to one shared column grid for the whole table.
+
+    PP-Structure returns cell boxes, but its boxes do not always contain stable
+    row/column indexes.  Numbering cells independently inside every row makes
+    a missing cell shift all following columns.  We therefore cluster the left
+    edges across all rows and use those anchors as the table's global columns.
+    A wide box covering multiple anchors is represented with ``column_span``.
+    This is geometry-only and deliberately does not depend on report-specific
+    coordinates or text labels.
+    """
+    if not cell_boxes:
+        return {}
+
+    widths = sorted(max(1, box.width) for box in cell_boxes)
+    tolerance = max(6.0, min(40.0, widths[len(widths) // 2] * 0.35))
+
+    # Build stable x1 anchors.  A new anchor is created only when a left edge
+    # is materially separated from all existing anchors.
+    anchors: list[float] = []
+    for index in sorted(range(len(cell_boxes)), key=lambda item: cell_boxes[item].x1):
+        x1 = float(cell_boxes[index].x1)
+        if not anchors:
+            anchors.append(x1)
+            continue
+        nearest = min(range(len(anchors)), key=lambda anchor: abs(anchors[anchor] - x1))
+        if abs(anchors[nearest] - x1) <= tolerance:
+            anchors[nearest] = (anchors[nearest] + x1) / 2.0
+        else:
+            anchors.append(x1)
+    anchors.sort()
+
+    result: dict[int, tuple[int, int]] = {}
+    for index, box in enumerate(cell_boxes):
+        start = min(range(len(anchors)), key=lambda anchor: abs(anchors[anchor] - box.x1))
+        # A normal cell ends before the next column's left edge.  The small
+        # tolerance prevents the neighbouring anchor at a shared border from
+        # being counted as a span; genuinely wide boxes still cover it.
+        covered = [
+            anchor for anchor in anchors[start:]
+            if anchor < float(box.x2) - tolerance
+        ]
+        result[index] = (start, max(1, len(covered)))
+    return result
+
+
 def parse_ppstructure_tables(
     data: dict[str, Any],
     *,
@@ -334,10 +382,12 @@ def parse_ppstructure_tables(
             score = raw.get("table_score")
         if score is None:
             score = 0.85
+        global_columns = _global_column_layout(boxes, rows)
         cells: list[TableCell] = []
         for row_index, row in enumerate(rows):
-            for column_index, box_index in enumerate(row):
+            for box_index in row:
                 box = boxes[box_index]
+                column_index, column_span = global_columns.get(box_index, (0, 1))
                 in_cell = primary_by_cell.get(box_index) or internal_by_cell.get(box_index) or []
                 text, confidence = _weighted_text(in_cell)
                 cell_id = hashlib.sha256(
@@ -352,6 +402,7 @@ def parse_ppstructure_tables(
                         box=box,
                         text=text,
                         confidence=confidence,
+                        column_span=column_span,
                     )
                 )
         regions.append(
@@ -530,6 +581,7 @@ class PPStructureTableEngine:
         self.settings = dict(settings)
         self.table_settings = dict(table_settings or {})
         self._pipeline = None
+        self._region_model = None
         self._version = "unknown"
         self._load_error: Exception | None = None
 
@@ -590,6 +642,71 @@ class PPStructureTableEngine:
     def warmup(self) -> None:
         self._load()
 
+    def _load_region_model(self):
+        """Load the optional learned full-page table-region detector."""
+        model_dir = str(self.table_settings.get("table_region_model_dir") or "").strip()
+        if not model_dir:
+            return None
+        if self._region_model is not None:
+            return self._region_model
+        try:
+            from paddlex import create_model
+            self._region_model = create_model(
+                model_name="PicoDet-S", model_dir=model_dir,
+                device=str(self.settings.get("device", "cpu")),
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Tabelregio-detector kon niet worden geladen: {model_dir}") from exc
+        return self._region_model
+
+    def _trained_region_boxes(self, image: np.ndarray) -> list[tuple[Box, float]]:
+        model = self._load_region_model()
+        if model is None:
+            return []
+        threshold = float(self.table_settings.get("table_region_model_threshold", 0.25) or 0.25)
+        boxes: list[tuple[Box, float]] = []
+        for result in model.predict(PaddleEngine._prepare_image(image), batch_size=1, threshold=threshold):
+            data = _json_data(result)
+            raw_boxes = data.get("boxes") if isinstance(data, dict) else None
+            if not isinstance(raw_boxes, list):
+                continue
+            for item in raw_boxes:
+                if not isinstance(item, dict):
+                    continue
+                coordinates = item.get("coordinate") or item.get("bbox") or item.get("box")
+                if not isinstance(coordinates, (list, tuple)) or len(coordinates) != 4:
+                    continue
+                try:
+                    box = Box(*(int(round(float(value))) for value in coordinates))
+                    score = float(item.get("score") or item.get("confidence") or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                if box.x2 > box.x1 and box.y2 > box.y1:
+                    boxes.append((box, max(0.0, min(1.0, score))))
+        return boxes
+
+    def detect_with_trained_regions(
+        self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()
+    ) -> tuple[list[TableRegion], dict[str, Any]]:
+        """Use the learned table-region detector before PP-Structure cell parsing."""
+        height, width = image.shape[:2]
+        regions: list[TableRegion] = []
+        region_boxes = self._trained_region_boxes(image)
+        for index, (box, score) in enumerate(region_boxes, start=1):
+            box = box.clamp(width, height)
+            if box.width < 20 or box.height < 20:
+                continue
+            crop = image[box.y1:box.y2, box.x1:box.x2]
+            local = self._detect_once(crop, source_id=f"{source_id}:table-region-{index}", fallback_tokens=fallback_tokens)
+            regions.extend(_translate_table_regions(local, box.x1, box.y1))
+        return regions, {
+            "enabled": True,
+            "mode": "trained_table_regions",
+            "region_count": len(region_boxes),
+            "cell_count": sum(len(region.cells) for region in regions),
+            "model_threshold": float(self.table_settings.get("table_region_model_threshold", 0.25) or 0.25),
+        }
+
     def _detect_once(self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()) -> list[TableRegion]:
         pipeline = self._load()
         prepared = PaddleEngine._prepare_image(image)
@@ -620,6 +737,8 @@ class PPStructureTableEngine:
         bias localization. The original image always participates and therefore
         remains the safe fallback when contrast preprocessing hurts.
         """
+        if str(self.table_settings.get("table_region_model_dir") or "").strip():
+            return self.detect_with_trained_regions(image, source_id=source_id, fallback_tokens=fallback_tokens)
         variants = self.table_settings.get("preprocessing_variants") or [
             "original", "grayscale", "clahe", "invert_clahe", "adaptive"
         ]
