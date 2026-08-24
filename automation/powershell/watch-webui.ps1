@@ -1,0 +1,55 @@
+[CmdletBinding()]
+param(
+    [int]$PollMilliseconds = 800
+)
+
+$ErrorActionPreference = "Stop"
+$projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$watchRoots = @(
+    (Join-Path $projectRoot "application\src\isala_ocr"),
+    (Join-Path $projectRoot "application\config"),
+    (Join-Path $projectRoot "infrastructure\docker\Dockerfile.labeler"),
+    (Join-Path $projectRoot "infrastructure\docker\compose.yaml")
+)
+$watchExtensions = @('.py', '.html', '.css', '.js', '.yaml', '.yml', '.json')
+
+function Get-WebUiFingerprint {
+    $files = foreach ($root in $watchRoots) {
+        if (Test-Path -LiteralPath $root -PathType Leaf) {
+            Get-Item -LiteralPath $root
+        } elseif (Test-Path -LiteralPath $root -PathType Container) {
+            Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
+                Where-Object { $watchExtensions -contains $_.Extension.ToLowerInvariant() }
+        }
+    }
+    return (($files | Sort-Object FullName | ForEach-Object {
+        "{0}|{1}|{2}" -f $_.FullName, $_.Length, $_.LastWriteTimeUtc.Ticks
+    }) -join "`n")
+}
+
+$lastFingerprint = Get-WebUiFingerprint
+Write-Host "IsalaOCR WebUI watch mode actief." -ForegroundColor Cyan
+Write-Host "Opslaan in application/src, config of Docker-config bouwt de WebUI automatisch opnieuw." -ForegroundColor DarkGray
+Write-Host "Stoppen: Ctrl+C" -ForegroundColor DarkGray
+
+try {
+    while ($true) {
+        Start-Sleep -Milliseconds $PollMilliseconds
+        $fingerprint = Get-WebUiFingerprint
+        if ($fingerprint -eq $lastFingerprint) { continue }
+        $lastFingerprint = $fingerprint
+
+        Write-Host ""
+        Write-Host ("Wijziging gedetecteerd om {0}; WebUI wordt bijgewerkt..." -f (Get-Date -Format 'HH:mm:ss')) -ForegroundColor Yellow
+        try {
+            & (Join-Path $PSScriptRoot "label-training-data.ps1") -NoBrowser
+            if ($LASTEXITCODE -ne 0) { throw "label-training-data.ps1 exit code $LASTEXITCODE" }
+            Write-Host "WebUI bijgewerkt. Dezelfde URL blijft actief." -ForegroundColor Green
+        } catch {
+            Write-Host ("Automatische update mislukt: {0}" -f $_.Exception.Message) -ForegroundColor Red
+            Write-Host "De watcher blijft actief en probeert opnieuw bij de volgende wijziging." -ForegroundColor DarkGray
+        }
+    }
+} finally {
+    Write-Host "WebUI watch mode gestopt." -ForegroundColor DarkGray
+}

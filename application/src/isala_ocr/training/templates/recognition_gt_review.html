@@ -10,7 +10,7 @@
       <h2>Crop → exacte tekst</h2>
       <p class="muted">Hier train je alleen wat er visueel staat. <strong>HR</strong> blijft “HR”, <strong>79 bpm</strong> blijft “79 bpm” en een losse <strong>-</strong> blijft “-”. Er wordt hier niets naar heart_rate, units of null gemapt.</p>
     </div>
-    <div class="actions">
+    <div class="actions recognition-gt-home-actions">
       <form method="post" action="/jobs"><input type="hidden" name="action_id" value="23"><button><strong>Samples vernieuwen</strong></button></form>
       <a class="button primary" href="/process/recognition-dataset">Verder naar Recognition Dataset</a>
     </div>
@@ -26,7 +26,7 @@
 {% else %}
 <section class="card section-gap">
   <div class="toolbar"><h3>Samples</h3><span class="pill">{{ counts.accepted }}/{{ counts.total }} goedgekeurd</span></div>
-  <form class="toolbar compact" method="get">
+  <form class="recognition-gt-home-filter" method="get">
     <label>Status
       <select name="status"><option value="" {% if not status_filter %}selected{% endif %}>Alle statussen</option><option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Nieuw / open</option><option value="accepted" {% if status_filter == 'accepted' %}selected{% endif %}>Goedgekeurd</option><option value="excluded" {% if status_filter == 'excluded' %}selected{% endif %}>Uitgesloten</option><option value="unreadable" {% if status_filter == 'unreadable' %}selected{% endif %}>Onleesbaar</option></select>
     </label>
@@ -39,11 +39,15 @@
     {% for source in sources %}
     <a class="source-row" href="/recognition-gt-review/{{ source.source_id }}">
       <div><strong>{{ source.source_id }}</strong><small>{{ source.total }} crops</small></div>
-      <div class="actions"><span class="pill warn">{{ source.pending }} open</span><span class="pill ok">{{ source.accepted }} goedgekeurd</span>{% if source.excluded %}<span class="pill">{{ source.excluded }} uitgesloten</span>{% endif %}</div>
+      <div class="actions"><span class="pill warn">{{ source.pending }} open</span><span class="pill ok">{{ source.accepted }} goedgekeurd</span>{% if source.excluded %}<span class="pill">{{ source.excluded }} uitgesloten</span>{% endif %}<span class="button primary">Viewer openen →</span></div>
     </a>
     {% endfor %}
   </div>
   <p class="muted section-gap">Open een bron en klik op een crop om in de viewer één recognition-resultaat tegelijk te beoordelen. Alleen goedgekeurde tekst komt daarna in de Recognition Dataset.</p>
 </section>
 {% endif %}
+<style>
+.recognition-gt-home-actions{align-items:flex-end}.recognition-gt-home-actions form{margin:0}.recognition-gt-home-actions .button,.recognition-gt-home-actions button{white-space:nowrap}
+.source-list{display:grid;gap:10px;margin-top:18px}.source-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:#101821;color:var(--text);text-decoration:none;transition:border-color .15s,background .15s}.source-row:hover{border-color:var(--accent);background:#142333}.source-row>div:first-child{display:grid;gap:3px;min-width:0}.source-row>div:first-child strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.source-row small{color:var(--muted)}.source-row .actions{justify-content:flex-end}.source-row .button{pointer-events:none}.recognition-gt-home-filter{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-top:18px}.recognition-gt-home-filter label{min-width:170px}.recognition-gt-home-filter button{height:40px}@media(max-width:760px){.source-row{align-items:flex-start;flex-direction:column}.source-row .actions{width:100%;justify-content:flex-start}.recognition-gt-home-filter{align-items:stretch;flex-direction:column}.recognition-gt-home-filter label,.recognition-gt-home-filter button{width:100%}}
+</style>
 {% endblock %}
