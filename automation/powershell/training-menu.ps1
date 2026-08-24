@@ -115,13 +115,12 @@ $workflowSteps = [ordered]@{
     "4"  = @{ Name = "Ground Truth beheren"; Url = "http://127.0.0.1:8088/detection-review" }
     "5"  = @{ Name = "Detectiemodel trainen & draaien"; Url = "http://127.0.0.1:8088/process/table-quality" }
     "6"  = @{ Name = "Detectorafwijkingen reviewen"; Url = "http://127.0.0.1:8088/process/table-compare" }
-    "7"  = @{ Name = "Recognition-GT maken"; ActionId = "23" }
-    "8"  = @{ Name = "Recognition-GT beoordelen"; Url = "http://127.0.0.1:8088/recognition-gt-review" }
-    "9"  = @{ Name = "Recognition-dataset bouwen"; ActionId = "24" }
-    "10" = @{ Name = "Recognition-dataset valideren"; ActionId = "25" }
-    "11" = @{ Name = "Recognition-model trainen"; ActionId = "26"; DeviceChoice = $true }
-    "12" = @{ Name = "Recognition-model evalueren"; ActionId = "27" }
-    "13" = @{ Name = "Recognition-model activeren"; ActionId = "28" }
+    "7"  = @{ Name = "Recognition GT Studio"; Url = "http://127.0.0.1:8088/recognition-gt-review" }
+    "8"  = @{ Name = "Recognition Dataset bouwen"; ActionId = "24" }
+    "9"  = @{ Name = "Recognition Dataset valideren"; ActionId = "25" }
+    "10" = @{ Name = "Recognition Model trainen"; ActionId = "26"; DeviceChoice = $true }
+    "11" = @{ Name = "Recognition Model evalueren"; ActionId = "27" }
+    "12" = @{ Name = "Recognition Model activeren"; ActionId = "28" }
     "A1" = @{ Name = "Application Mapping Studio"; ActionId = "20" }
     "A2" = @{ Name = "Application mappings toepassen"; ActionId = "21" }
     "A3" = @{ Name = "Application output uitlezen"; ActionId = "22" }
@@ -152,7 +151,7 @@ function Show-IsalaMenu {
     Write-Host " MODEL FACTORY · RECOGNITION" -ForegroundColor Yellow
     Write-Host " crop -> exacte tekst; geen functionele mapping" -ForegroundColor DarkYellow
     Write-Host "============================================================" -ForegroundColor DarkCyan
-    foreach ($number in 7..13) {
+    foreach ($number in 7..12) {
         $key = [string]$number
         Write-Host ("{0,2}. {1}" -f $key, $workflowSteps[$key].Name)
     }

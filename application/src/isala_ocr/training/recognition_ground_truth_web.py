@@ -16,21 +16,31 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
         project_workspace = resolve_project_workspace(workspace_root)
         return TrainingDatabase(project_workspace / "samples.sqlite3")
 
-    def source_rows(database: TrainingDatabase) -> list[dict]:
+    def source_rows(database: TrainingDatabase, status_filter: str = "", sort: str = "source") -> list[dict]:
+        where = "WHERE extraction_method=?"
+        params: list[str] = [EXTRACTION_METHOD]
+        if status_filter:
+            where += " AND status=?"
+            params.append(status_filter)
+        order_by = "source_id"
+        if sort == "errors":
+            order_by = "pending DESC, excluded DESC, source_id"
+        elif sort == "pending":
+            order_by = "pending DESC, source_id"
         with database.connect() as db:
             rows = db.execute(
-                """
+                f"""
                 SELECT source_id,
                        COUNT(*) AS total,
                        SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
                        SUM(CASE WHEN status='accepted' THEN 1 ELSE 0 END) AS accepted,
                        SUM(CASE WHEN status IN ('unreadable','excluded','no_value') THEN 1 ELSE 0 END) AS excluded
                 FROM samples
-                WHERE extraction_method=?
+                {where}
                 GROUP BY source_id
-                ORDER BY source_id
+                ORDER BY {order_by}
                 """,
-                (EXTRACTION_METHOD,),
+                params,
             ).fetchall()
         return [
             {
@@ -57,7 +67,7 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
 
     @app.before_request
     def redirect_recognition_review_process_step():
-        if request.method == "GET" and request.path == "/process/recognition-review":
+        if request.path in {"/process/recognition-gt", "/process/recognition-review", "/process/recognition-gt-studio"}:
             return redirect(url_for("recognition_gt_review_home"))
         return None
 
@@ -65,12 +75,20 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
     def recognition_gt_review_home():
         database = current_database()
         counts = recognition_gt_counts(database)
+        status_filter = str(request.args.get("status") or "").strip().lower()
+        if status_filter not in {"pending", "accepted", "excluded", "unreadable", "no_value"}:
+            status_filter = ""
+        sort = str(request.args.get("sort") or "source").strip().lower()
+        if sort not in {"source", "pending", "errors"}:
+            sort = "source"
         return render_template(
             "recognition_gt_review.html",
-            sources=source_rows(database),
+            sources=source_rows(database, status_filter, sort),
             counts=counts,
+            status_filter=status_filter,
+            sort=sort,
             header_counts=counts,
-            header_total_label="Recognition-GT crops",
+            header_total_label="Recognition samples",
             header_pending_label="te beoordelen",
             header_accepted_label="goedgekeurd",
         )

@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
-{% block title %}Stap 8 · Recognition-GT · {{ source_id }} · IsalaOCR{% endblock %}
-{% block heading %}Stap 8 · Recognition-GT beoordelen{% endblock %}
+{% block title %}Recognition GT Studio · {{ source_id }} · IsalaOCR{% endblock %}
+{% block heading %}Recognition GT Studio{% endblock %}
 {% block subtitle %}{{ source_id }} · bevestig alleen de letterlijke tekst in iedere crop.{% endblock %}
 {% block content %}
 <section class="card recognition-gt-intro">
@@ -10,7 +10,7 @@
       <h2>{{ source_id }}</h2>
       <p class="muted">Corrigeer de baseline OCR naar exact wat zichtbaar is. Een <strong>-</strong> is hier geldige tekst-GT; missing/null wordt pas later in Application Processing bepaald.</p>
     </div>
-    <div class="actions"><a class="button" href="/recognition-gt-review">← Bronnen</a><span class="pill warn">{{ counts.pending }} open</span><span class="pill ok">{{ counts.accepted }} goedgekeurd</span></div>
+    <div class="actions"><a class="button" href="/recognition-gt-review">← Alle samples</a><span class="pill warn">{{ counts.pending }} open</span><span class="pill ok">{{ counts.accepted }} goedgekeurd</span></div>
   </div>
 </section>
 

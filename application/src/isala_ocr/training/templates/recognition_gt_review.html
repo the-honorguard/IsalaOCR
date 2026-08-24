@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
-{% block title %}Stap 8 · Recognition-GT beoordelen · IsalaOCR{% endblock %}
-{% block heading %}Stap 8 · Recognition-GT beoordelen{% endblock %}
-{% block subtitle %}Bevestig per canonieke crop de exacte zichtbare tekst. Functionele betekenis komt pas in Fase 2.{% endblock %}
+{% block title %}Recognition GT Studio · IsalaOCR{% endblock %}
+{% block heading %}Recognition GT Studio{% endblock %}
+{% block subtitle %}Maak, bekijk en corrigeer Recognition samples. Functionele betekenis komt pas in Fase 2.{% endblock %}
 {% block content %}
 <section class="card">
   <div class="toolbar">
@@ -11,21 +11,30 @@
       <p class="muted">Hier train je alleen wat er visueel staat. <strong>HR</strong> blijft “HR”, <strong>79 bpm</strong> blijft “79 bpm” en een losse <strong>-</strong> blijft “-”. Er wordt hier niets naar heart_rate, units of null gemapt.</p>
     </div>
     <div class="actions">
-      <form method="post" action="/jobs"><input type="hidden" name="action_id" value="23"><button><strong>Recognition-GT opnieuw maken</strong></button></form>
-      <a class="button primary" href="/process/recognition-dataset">Verder naar Stap 9 · Dataset bouwen</a>
+      <form method="post" action="/jobs"><input type="hidden" name="action_id" value="23"><button><strong>Samples vernieuwen</strong></button></form>
+      <a class="button primary" href="/process/recognition-dataset">Verder naar Recognition Dataset</a>
     </div>
   </div>
 </section>
 
 {% if not sources %}
 <section class="card section-gap">
-  <h3>Nog geen Recognition-GT</h3>
+  <h3>Nog geen Recognition samples</h3>
   <p>Maak eerst neutrale crops uit de canonieke table-cell Ground Truth.</p>
-  <form method="post" action="/jobs"><input type="hidden" name="action_id" value="23"><button class="primary">Stap 7 · Recognition-GT maken</button></form>
+  <form method="post" action="/jobs"><input type="hidden" name="action_id" value="23"><button class="primary">Recognition samples maken</button></form>
 </section>
 {% else %}
 <section class="card section-gap">
-  <div class="toolbar"><h3>Bronnen</h3><span class="pill">{{ counts.accepted }}/{{ counts.total }} goedgekeurd</span></div>
+  <div class="toolbar"><h3>Samples</h3><span class="pill">{{ counts.accepted }}/{{ counts.total }} goedgekeurd</span></div>
+  <form class="toolbar compact" method="get">
+    <label>Status
+      <select name="status"><option value="" {% if not status_filter %}selected{% endif %}>Alle statussen</option><option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Nieuw / open</option><option value="accepted" {% if status_filter == 'accepted' %}selected{% endif %}>Goedgekeurd</option><option value="excluded" {% if status_filter == 'excluded' %}selected{% endif %}>Uitgesloten</option><option value="unreadable" {% if status_filter == 'unreadable' %}selected{% endif %}>Onleesbaar</option></select>
+    </label>
+    <label>Sortering
+      <select name="sort"><option value="source" {% if sort == 'source' %}selected{% endif %}>Bron</option><option value="pending" {% if sort == 'pending' %}selected{% endif %}>Meeste open</option><option value="errors" {% if sort == 'errors' %}selected{% endif %}>Moeilijkste eerst</option></select>
+    </label>
+    <button class="primary" type="submit">Toepassen</button>
+  </form>
   <div class="source-list">
     {% for source in sources %}
     <a class="source-row" href="/recognition-gt-review/{{ source.source_id }}">

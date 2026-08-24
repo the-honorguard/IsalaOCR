@@ -4,8 +4,7 @@ from typing import Any
 
 
 RECOGNITION_STEP_KEYS = (
-    "recognition-gt",
-    "recognition-review",
+    "recognition-gt-studio",
     "recognition-dataset",
     "recognition-validate",
     "recognition-train",
@@ -37,26 +36,15 @@ def install_recognition_model_factory_metadata(webui_module: Any) -> None:
     steps = webui_module.PROCESS_STEPS
     by_key = {str(item.get("key") or ""): item for item in steps}
 
-    inserts = [
-        {
-            "key": "recognition-gt",
-            "index": 7,
-            "group": "value",
-            "title": "Recognition-GT maken",
-            "subtitle": "Maak neutrale crop→tekst voorbeelden rechtstreeks uit de canonieke table-cell Ground Truth; Application Mapping speelt hier geen rol.",
-            "action_ids": ["23"],
-            "requirements": ["Canonieke table-cell Ground Truth", "Bronrenders", "Pretrained/generieke recognition-runtime"],
-        },
-        {
-            "key": "recognition-review",
-            "index": 8,
-            "group": "value",
-            "title": "Recognition-GT beoordelen",
-            "subtitle": "Bevestig per crop de exacte zichtbare tekst. Een '-' is hier gewone letterlijke Ground Truth en wordt nog niet als missing/null geïnterpreteerd.",
-            "action_ids": [],
-            "requirements": ["Recognition-GT-crops uit Stap 7"],
-        },
-    ]
+    inserts = [{
+        "key": "recognition-gt-studio",
+        "index": 8,
+        "group": "value",
+        "title": "Recognition GT Studio",
+        "subtitle": "Maak, bekijk en corrigeer neutrale crop→tekst samples rechtstreeks uit de canonieke table-cell Ground Truth.",
+        "action_ids": ["23"],
+        "requirements": ["Canonieke table-cell Ground Truth", "Bronrenders", "Pretrained/generieke recognition-runtime"],
+    }]
     insertion_index = next(
         (index for index, item in enumerate(steps) if str(item.get("key") or "") == "mapping"),
         len(steps),
@@ -67,11 +55,11 @@ def install_recognition_model_factory_metadata(webui_module: Any) -> None:
             by_key[item["key"]] = item
 
     recognition_updates = {
-        "recognition-dataset": (9, "Recognition-dataset bouwen", "Bouw uitsluitend uit goedgekeurde Recognition-GT crop→exacte-tekst voorbeelden."),
-        "recognition-validate": (10, "Recognition-dataset valideren", "Controleer labels, tekenset en PaddleOCR trainingsinvoer van de neutrale Recognition-GT dataset."),
-        "recognition-train": (11, "Recognition-model trainen", "Train het recognitionmodel dat pixels in een reeds correcte crop omzet naar letterlijke tekst."),
-        "recognition-evaluate": (12, "Recognition-model evalueren", "Meet exact match en CER op de vaste Recognition-GT testset."),
-        "recognition-models": (13, "Recognition-model activeren", "Registreer en activeer een voldoende goed recognitionmodel als onderdeel van het Model Bundle."),
+        "recognition-dataset": (9, "Recognition Dataset bouwen", "Bouw uitsluitend uit goedgekeurde Recognition GT Studio crop→exacte-tekst samples."),
+        "recognition-validate": (10, "Recognition Dataset valideren", "Controleer labels, tekenset en PaddleOCR trainingsinvoer."),
+        "recognition-train": (11, "Recognition Model trainen", "Train het recognitionmodel dat pixels in een reeds correcte crop omzet naar letterlijke tekst."),
+        "recognition-evaluate": (12, "Recognition Model evalueren", "Meet exact match en CER op de vaste Recognition-testset."),
+        "recognition-models": (13, "Recognition Model activeren", "Registreer en activeer een voldoende goed recognitionmodel als onderdeel van het Model Bundle."),
     }
     for key, (index, title, subtitle) in recognition_updates.items():
         step = by_key.get(key)
