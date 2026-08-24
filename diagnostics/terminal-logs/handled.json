@@ -1,7 +1,7 @@
 {
   "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\diagnostics\\terminal-logs\\startup-20260824-095758-29816.log": {
-    "handled_at": "2026-08-24T10:07:35.1479911+02:00",
-    "reason": "Lege launcher-Mode doorgegeven; startup-wrapper gecorrigeerd"
+    "handled_at": "2026-08-24T10:29:38.6914886+02:00",
+    "reason": "startup.ps1 geeft lege ValueFromRemainingArguments niet langer door aan launcher.ps1; Mode gebruikt weer web-default"
   },
   "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\diagnostics\\terminal-logs\\startup-20260824-100527-33444.log": {
     "handled_at": "2026-08-24T10:07:49.9568182+02:00",
