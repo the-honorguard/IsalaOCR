@@ -210,7 +210,7 @@ PROCESS_STEPS = [
     {"key": "panel-setup","index":2,"group":"detection","title":"Tabelregio’s selecteren","subtitle":"Beoordeel per lezing de volledige tabelregio’s in de fullscreen reviewer en sla ze op als Ground Truth.","action_ids":[],"requirements":["Minimaal één bronpreview","Per lezing alle volledige tabellen omkaderen","Tabeldefinities en tabelregio-GT opslaan"]},
     {"key": "table-region-model","index":3,"group":"detection","title":"Tabelregio trainen & cellen detecteren","subtitle":"Bouw de tabelregio-detector, activeer hem en start daarna vanuit dezelfde pagina de celdetectie.","action_ids":["54","55","56","57","2"],"requirements":["Afgeronde tabelregio-review","Dataset gebouwd vóór training","Tabelregio-model geactiveerd vóór celdetectie"]},
     {"key": "detect-candidates","index":None,"group":"fallback","title":"Cellen detecteren · technische fallback","subtitle":"Losse technische route voor opnieuw draaien van de celdetectie.","action_ids":["2"],"requirements":["Tabelregio-detector voorbereid of handmatige fallback"]},
-    {"key": "detection-review","index":4,"group":"detection","title":"Cel-GT beoordelen","subtitle":"Corrigeer de gedetecteerde celkaders totdat één kader precies één echte cel beschrijft.","action_ids":[],"requirements":["Celdetectie afgerond","Canonieke table-cell Ground Truth","Bronrender"]},
+    {"key": "detection-review","index":4,"group":"detection","title":"Rijen & kolommen bepalen","subtitle":"Controleer de automatisch afgeleide tabelstructuur; losse cellen zijn alleen uitzonderingen.","action_ids":[],"requirements":["Celdetectie afgerond","Automatische rij- en kolomindeling","Bronrender"]},
     {"key": "table-model","index":5,"group":"detection","title":"Celdetector verbeteren","subtitle":"Train optioneel een betere celdetector op de gecorrigeerde één-cel-één-box Ground Truth.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde celreview","Dataset gebouwd en gevalideerd vóór training"]},
     {"key": "table-quality","index":6,"group":"detection","title":"Rijen, kolommen en celcrops","subtitle":"Gebruik de celposities om rij- en kolomstructuur af te leiden en definitieve individuele celcrops te maken.","action_ids":[],"requirements":["Goedgekeurde celposities","Herkenbare tabelstructuur"]},
     {"key": "table-compare","index":None,"group":"fallback","title":"Celdetector-afwijkingen reviewen","subtitle":"Optionele verbeterlus voor nieuwe cel-detectorruns; dit is geen OCR-beoordeling.","action_ids":[],"requirements":["Getrainde celdetector","Canonieke cel-GT"]},
@@ -3249,7 +3249,6 @@ def create_web_app(
         cell_by_id = {str(item.get("cell_id")): item for item in geometry.get("cells", [])}
         tables_for_assist: dict[str, dict[str, Any]] = {}
         if localization_strategy() == "table_first":
-            import math
             from statistics import median
             grouped: dict[str, list[dict[str, Any]]] = {}
             for cell in geometry.get("cells", []):
@@ -3261,11 +3260,12 @@ def create_web_app(
                     rows.setdefault(int(cell.get("row_index", -1)), []).append(cell)
                     columns.setdefault(int(cell.get("column_index", -1)), []).append(cell)
                 multi_rows = {idx: items for idx, items in rows.items() if len(items) >= 2}
-                min_occurrence = max(2, int(math.ceil(max(1, len(multi_rows)) * 0.45)))
-                canonical_columns = sorted(
-                    idx for idx, items in columns.items()
-                    if idx >= 0 and sum(1 for row in multi_rows.values() if any(int(c.get("column_index", -1)) == idx for c in row)) >= min_occurrence
-                )
+                # The structure view must expose every geometrically inferred
+                # column, including sparse columns and columns containing a
+                # merged cell.  Coverage thresholds are useful for conservative
+                # missing-cell suggestions, but must not hide real columns from
+                # the structural review.
+                canonical_columns = sorted(idx for idx in columns if idx >= 0)
                 column_bounds = {
                     idx: [int(round(median([int(c["x1"]) for c in items]))), int(round(median([int(c["x2"]) for c in items])))]
                     for idx, items in columns.items() if idx in canonical_columns
@@ -3290,6 +3290,13 @@ def create_web_app(
                     "canonical_columns": canonical_columns,
                     "column_bounds": column_bounds,
                     "row_bounds": row_bounds,
+                    "table_bounds": [
+                        min(int(cell["x1"]) for cell in cells), min(int(cell["y1"]) for cell in cells),
+                        max(int(cell["x2"]) for cell in cells), max(int(cell["y2"]) for cell in cells),
+                    ] if cells else [0, 0, 0, 0],
+                    "row_count": len(row_bounds),
+                    "column_count": len(canonical_columns),
+                    "cell_count": len(cells),
                     "suggestions": suggestions,
                 }
         # In legacy detector mode, detached reviewed annotations remain first-class
