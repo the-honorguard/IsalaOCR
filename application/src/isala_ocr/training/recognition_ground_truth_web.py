@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from urllib.parse import urlencode
+
 from flask import abort, flash, redirect, render_template, request, url_for
 
 from .db import TrainingDatabase
@@ -62,6 +64,23 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
                 ORDER BY roi_y1, roi_x1, sample_id
                 """,
                 (source_id, EXTRACTION_METHOD),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def all_samples(database: TrainingDatabase, status_filter: str = "") -> list[dict]:
+        where = "WHERE extraction_method=?"
+        params: list[str] = [EXTRACTION_METHOD]
+        if status_filter:
+            where += " AND status=?"
+            params.append(status_filter)
+        with database.connect() as db:
+            rows = db.execute(
+                f"""
+                SELECT * FROM samples
+                {where}
+                ORDER BY source_id, roi_y1, roi_x1, sample_id
+                """,
+                params,
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -145,6 +164,71 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
             counts=counts,
             header_counts=counts,
             header_total_label="crops",
+            header_pending_label="te beoordelen",
+            header_accepted_label="goedgekeurd",
+        )
+
+    @app.route("/recognition-gt-review/sample/<sample_id>", methods=["GET", "POST"])
+    def recognition_gt_review_sample(sample_id: str):
+        database = current_database()
+        status_filter = str(request.values.get("status") or "").strip().lower()
+        if status_filter not in {"pending", "accepted", "excluded", "unreadable", "no_value"}:
+            status_filter = ""
+
+        samples = all_samples(database, status_filter)
+        current = next((item for item in samples if item["sample_id"] == sample_id), None)
+        if current is None:
+            # A sample remains reviewable when it is no longer in the active
+            # filter (for example after accepting a pending item).
+            current = next((item for item in all_samples(database) if item["sample_id"] == sample_id), None)
+        if current is None:
+            abort(404)
+
+        if request.method == "POST":
+            action = str(request.form.get("action") or "").strip().lower()
+            exact = str(request.form.get("exact_label") or "")
+            notes = str(request.form.get("notes") or "")
+            if action == "accept_model":
+                exact = str(current.get("raw_ocr") or "")
+                action = "accepted"
+            if action == "accepted":
+                if exact == "":
+                    database.review(sample_id, "excluded", None, notes or "Lege crop: geen recognitionlabel")
+                else:
+                    database.review(sample_id, "accepted", exact, notes, "value")
+            elif action in {"unreadable", "excluded", "pending"}:
+                database.review(sample_id, action, None, notes)
+            else:
+                abort(400)
+
+            # Continue in the same queue. Prefer the next item, then the
+            # previous one, and finally return to the overview.
+            ids = [str(item["sample_id"]) for item in samples]
+            index = ids.index(sample_id) if sample_id in ids else -1
+            next_id = ids[index + 1] if index >= 0 and index + 1 < len(ids) else None
+            previous_id = ids[index - 1] if index > 0 else None
+            target = next_id or previous_id
+            if target:
+                query = urlencode({"status": status_filter}) if status_filter else ""
+                return redirect(url_for("recognition_gt_review_sample", sample_id=target) + (f"?{query}" if query else ""))
+            return redirect(url_for("recognition_gt_review_home", status=status_filter) if status_filter else url_for("recognition_gt_review_home"))
+
+        # Recompute after the fallback lookup so navigation reflects the
+        # visible queue and not a stale source-page result.
+        ids = [str(item["sample_id"]) for item in samples]
+        index = ids.index(sample_id) if sample_id in ids else -1
+        previous_id = ids[index - 1] if index > 0 else None
+        next_id = ids[index + 1] if index >= 0 and index + 1 < len(ids) else None
+        return render_template(
+            "recognition_gt_review_sample.html",
+            sample=current,
+            previous_id=previous_id,
+            next_id=next_id,
+            status_filter=status_filter,
+            counts=recognition_gt_counts(database),
+            source_url=url_for("recognition_gt_review_document", source_id=current["source_id"]),
+            header_counts=recognition_gt_counts(database),
+            header_total_label="Recognition samples",
             header_pending_label="te beoordelen",
             header_accepted_label="goedgekeurd",
         )

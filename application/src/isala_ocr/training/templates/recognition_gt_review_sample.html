@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block title %}Recognition viewer · {{ sample.sample_id }} · IsalaOCR{% endblock %}
+{% block heading %}Recognition viewer{% endblock %}
+{% block subtitle %}Beoordeel de modeluitvoer tegen de letterlijk zichtbare tekst · {{ sample.source_id }}{% endblock %}
+{% block head %}
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('exact_label');
+  input.focus(); input.select();
+  document.addEventListener('keydown', event => {
+    if (event.ctrlKey && event.key === 'Enter') document.getElementById('accept-corrected').click();
+    if (event.altKey && event.key.toLowerCase() === 'g') document.getElementById('accept-model').click();
+    if (event.altKey && event.key.toLowerCase() === 'o') document.getElementById('unreadable').click();
+    if (event.altKey && event.key.toLowerCase() === 'x') document.getElementById('excluded').click();
+  });
+});
+</script>
+{% endblock %}
+{% block content %}
+<div class="value-review-detail recognition-viewer">
+  <section class="card value-crop-card">
+    <div class="toolbar">
+      <div><span class="eyebrow">RECOGNITION · {{ sample.status }}</span><h2 class="mono">{{ sample.field_key }}</h2></div>
+      <span class="pill">{{ sample.source_id }}</span>
+    </div>
+    <img class="crop value-crop-large recognition-crop-large" src="/crop/{{ sample.sample_id }}" alt="Recognition crop" decoding="async">
+    <div class="value-meta stacked">
+      <span>Modeluitvoer: <b class="mono">{{ sample.raw_ocr if sample.raw_ocr|trim else '∅ leeg' }}</b></span>
+      <span>OCR-confidence: {{ '%.1f%%'|format((sample.raw_confidence or 0) * 100) }}</span>
+      <span>Bron: <span class="mono">{{ sample.source_id }}</span></span>
+    </div>
+  </section>
+  <section class="card">
+    <form method="post">
+      {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+      <label>Exacte tekst voor het recognition-model
+        <input id="exact_label" name="exact_label" class="mono value-input" value="{{ sample.exact_label if sample.exact_label is not none else sample.raw_ocr }}" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="muted">Sla precies op wat in de crop staat. Hoofdletters, spaties, leestekens en een losse “-” blijven behouden.</p>
+      <label>Notitie <textarea name="notes" rows="3">{{ sample.notes or '' }}</textarea></label>
+      <div class="recognition-decision-group">
+        <h3>Modeluitvoer beoordelen</h3>
+        <div class="actions">
+          <button id="accept-model" name="action" value="accept_model" class="good">✓ Modeluitvoer goed (Alt+G)</button>
+          <button id="accept-corrected" name="action" value="accepted" class="primary">✓ Gecorrigeerde tekst opslaan (Ctrl+Enter)</button>
+        </div>
+      </div>
+      <div class="recognition-decision-group">
+        <h3>Niet bruikbaar voor training</h3>
+        <div class="actions">
+          <button id="unreadable" name="action" value="unreadable" class="warning">Onleesbaar (Alt+O)</button>
+          <button id="excluded" name="action" value="excluded">Uitsluiten (Alt+X)</button>
+          <button name="action" value="pending">Terug naar open</button>
+        </div>
+      </div>
+    </form>
+    <div class="actions detail-navigation">
+      {% if previous_id %}<a class="button" href="{{ url_for('recognition_gt_review_sample', sample_id=previous_id, status=status_filter) }}">← Vorige</a>{% endif %}
+      {% if next_id %}<a class="button" href="{{ url_for('recognition_gt_review_sample', sample_id=next_id, status=status_filter) }}">Volgende →</a>{% endif %}
+      <a class="button" href="{{ source_url }}">Bron openen</a>
+      <a class="button" href="{{ url_for('recognition_gt_review_home', status=status_filter) if status_filter else url_for('recognition_gt_review_home') }}">Overzicht</a>
+    </div>
+  </section>
+</div>
+<style>
+.recognition-crop-large{max-height:52vh;min-height:180px;object-fit:contain;background:#fff;border-radius:8px;padding:12px}.recognition-viewer{grid-template-columns:minmax(420px,1.2fr) minmax(380px,.8fr)}.recognition-decision-group{border-top:1px solid var(--line);margin-top:20px;padding-top:16px}.recognition-decision-group h3{margin-bottom:10px}@media(max-width:760px){.recognition-viewer{grid-template-columns:1fr}}
+</style>
+{% endblock %}

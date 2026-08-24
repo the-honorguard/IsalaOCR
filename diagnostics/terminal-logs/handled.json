@@ -1,0 +1,26 @@
+{
+  "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\diagnostics\\terminal-logs\\startup-20260824-095758-29816.log": {
+    "handled_at": "2026-08-24T10:07:35.1479911+02:00",
+    "reason": "Lege launcher-Mode doorgegeven; startup-wrapper gecorrigeerd"
+  },
+  "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\diagnostics\\terminal-logs\\startup-20260824-100527-33444.log": {
+    "handled_at": "2026-08-24T10:07:49.9568182+02:00",
+    "reason": "Transient healthcheck request logging fixed"
+  },
+  "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\diagnostics\\terminal-logs\\startup-20260824-100421-30936.log": {
+    "handled_at": "2026-08-24T10:07:49.9743428+02:00",
+    "reason": "Transient healthcheck request logging fixed"
+  },
+  "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\diagnostics\\terminal-logs\\startup-20260824-095829-29508.log": {
+    "handled_at": "2026-08-24T10:07:49.9819122+02:00",
+    "reason": "Transient healthcheck request logging fixed"
+  },
+  "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\diagnostics\\terminal-logs\\startup-20260824-094925-12120.log": {
+    "handled_at": "2026-08-24T10:15:28.8808129+02:00",
+    "reason": "Runtime opnieuw voorbereid; image READY en Recognition GT succesvol uitgevoerd"
+  },
+  "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\diagnostics\\terminal-logs\\startup-20260824-100623-32332.log": {
+    "handled_at": "2026-08-24T10:15:37.2392271+02:00",
+    "reason": "Recognition GT heeft nu samples.sqlite3 met 891 samples aangemaakt"
+  }
+}

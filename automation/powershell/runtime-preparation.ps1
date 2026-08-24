@@ -17,6 +17,14 @@ function Get-IsalaRuntimeImageName {
 function Test-IsalaComputeRuntimeInput {
     param([Parameter(Mandatory = $true)][System.IO.FileInfo]$File)
 
+    # Python bytecode is generated locally by imports/compile checks and is
+    # never part of the compute runtime image. Counting it here makes a normal
+    # WebUI restart or a local syntax check incorrectly mark the image stale.
+    if ($File.Extension -in @('.pyc', '.pyo') -or
+        $File.FullName -match '(?i)[\\/]__pycache__[\\/]') {
+        return $false
+    }
+
     # The WebUI is built and restarted independently through Dockerfile.labeler.
     # Changes in that presentation/control layer must never force a rebuild of
     # the heavy OCR/mapping runtime used by training-collector/dataset-builder.
@@ -37,7 +45,9 @@ function Test-IsalaComputeRuntimeInput {
         (Join-Path $ProjectRoot "application\src\isala_ocr\training\labeler.py"),
         (Join-Path $ProjectRoot "application\src\isala_ocr\training\labeler_server.py"),
         (Join-Path $ProjectRoot "application\src\isala_ocr\training\comparison_review_queue_web.py"),
-        (Join-Path $ProjectRoot "application\src\isala_ocr\training\job_cancellation.py")
+        (Join-Path $ProjectRoot "application\src\isala_ocr\training\job_cancellation.py"),
+        (Join-Path $ProjectRoot "application\src\isala_ocr\training\recognition_ground_truth_web.py"),
+        (Join-Path $ProjectRoot "application\src\isala_ocr\training\recognition_model_factory.py")
     )
     $fullName = [System.IO.Path]::GetFullPath($File.FullName)
     foreach ($path in $uiOnlyFiles) {

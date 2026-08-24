@@ -79,12 +79,29 @@ function Test-LabelerHealth {
     param([int]$Port)
 
     if ($Port -le 0) { return $false }
+    $request = $null
+    $response = $null
+    $reader = $null
     try {
-        $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/health" -Method Get -TimeoutSec 3
-        return ($null -ne $response -and $response.ok -eq $true)
+        # Startup probes are expected to fail briefly while Docker publishes
+        # the port. Use the .NET request API so a refused connection/timeout is
+        # caught as a normal exception and never emitted by Invoke-RestMethod
+        # into the startup transcript.
+        $request = [Net.HttpWebRequest]::Create("http://127.0.0.1:$Port/health")
+        $request.Method = "GET"
+        $request.Timeout = 3000
+        $request.ReadWriteTimeout = 3000
+        $response = $request.GetResponse()
+        $reader = New-Object IO.StreamReader($response.GetResponseStream())
+        $payload = $reader.ReadToEnd() | ConvertFrom-Json
+        return ($null -ne $payload -and $payload.ok -eq $true)
     }
     catch {
         return $false
+    }
+    finally {
+        if ($null -ne $reader) { $reader.Dispose() }
+        if ($null -ne $response) { $response.Dispose() }
     }
 }
 

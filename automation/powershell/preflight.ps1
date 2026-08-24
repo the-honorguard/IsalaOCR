@@ -314,7 +314,7 @@ function Add-IsalaCommonChecks {
     }
 
     $rootFiles = @(Get-ChildItem -LiteralPath $ProjectRoot -File -Force -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-    $allowedRootFiles = @("START.cmd", ".gitignore", ".gitattributes")
+    $allowedRootFiles = @("START.cmd", "AGENTS.md", ".gitignore", ".gitattributes")
     $unexpected = @($rootFiles | Where-Object { $allowedRootFiles -notcontains $_ })
     if ($unexpected.Count -eq 0) {
         [void]$Results.Add((New-IsalaCheckResult -Scope "Project" -Name "Clean project root" -Status "PASS" -Message "Only START.cmd and standard Git metadata files are present in the project root."))

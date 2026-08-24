@@ -23,9 +23,9 @@
     <div class="recognition-gt-grid">
       {% for sample in samples %}
       <article class="mapping-relation-card recognition-gt-card">
-        <div class="recognition-gt-crop"><img src="/crop/{{ sample.sample_id }}" alt="Recognition crop" loading="lazy"></div>
+        <a class="recognition-gt-crop" href="{{ url_for('recognition_gt_review_sample', sample_id=sample.sample_id) }}"><img src="/crop/{{ sample.sample_id }}" alt="Recognition crop" loading="lazy"></a>
         <div class="recognition-gt-fields">
-          <div class="toolbar compact"><strong>Crop {{ loop.index }}</strong><span class="pill {{ 'ok' if sample.status == 'accepted' else 'warn' if sample.status == 'pending' else '' }}">{{ sample.status }}</span></div>
+          <div class="toolbar compact"><strong><a href="{{ url_for('recognition_gt_review_sample', sample_id=sample.sample_id) }}">Crop {{ loop.index }} · viewer</a></strong><span class="pill {{ 'ok' if sample.status == 'accepted' else 'warn' if sample.status == 'pending' else '' }}">{{ sample.status }}</span></div>
           <label>Baseline OCR<input value="{{ sample.raw_ocr }}" readonly></label>
           <label>Exacte Ground Truth<input name="label_{{ sample.sample_id }}" value="{{ sample.exact_label if sample.exact_label is not none else sample.raw_ocr }}" autocomplete="off"></label>
           <label>Beoordeling<select name="status_{{ sample.sample_id }}"><option value="keep" selected>Ongewijzigd laten</option><option value="accepted">Goedkeuren / tekst opslaan</option><option value="unreadable">Onleesbaar</option><option value="excluded">Niet gebruiken voor training</option><option value="pending">Terug naar open</option></select></label>

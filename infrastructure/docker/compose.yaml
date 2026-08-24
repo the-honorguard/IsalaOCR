@@ -172,6 +172,7 @@ services:
       HOME: /tmp
     volumes:
       - ../../training:/training
+      - ../../models:/models
       - ../../application/config:/app/config:ro
       - ../../automation/training_runtime:/opt/isala-training:ro
     tmpfs: ["/tmp:size=1g,mode=1777"]
