@@ -314,10 +314,10 @@ function Add-IsalaCommonChecks {
     }
 
     $rootFiles = @(Get-ChildItem -LiteralPath $ProjectRoot -File -Force -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-    $allowedRootFiles = @("START.cmd", "AGENTS.md", ".gitignore", ".gitattributes")
+    $allowedRootFiles = @("START.cmd", "run.cmd", "AGENTS.md", ".gitignore", ".gitattributes")
     $unexpected = @($rootFiles | Where-Object { $allowedRootFiles -notcontains $_ })
     if ($unexpected.Count -eq 0) {
-        [void]$Results.Add((New-IsalaCheckResult -Scope "Project" -Name "Clean project root" -Status "PASS" -Message "Only START.cmd and standard Git metadata files are present in the project root."))
+        [void]$Results.Add((New-IsalaCheckResult -Scope "Project" -Name "Clean project root" -Status "PASS" -Message "Only approved startup wrappers and standard Git metadata files are present in the project root."))
     } else {
         [void]$Results.Add((New-IsalaCheckResult -Scope "Project" -Name "Clean project root" -Status "WARN" -Message ("Unexpected root files: " + ($unexpected -join ', ')) -Remediation "Move operational files into the supplied subdirectories."))
     }

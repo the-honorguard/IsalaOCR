@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}Recognition-scope · IsalaOCR{% endblock %}
+{% block heading %}Recognition-scope{% endblock %}
+{% block subtitle %}Stap 8 · bepaal welke panelen en kolommen Recognition-samples leveren{% endblock %}
+{% block content %}
+<section class="card recognition-scope-hero">
+  <div class="eyebrow">MODEL FACTORY · RECOGNITION</div>
+  <h2>Welke tekst moet Recognition leren?</h2>
+  <p class="muted">Selecteer expliciet per paneel de kolommen die in de Recognition-training komen. Deze keuze verandert de detection/table-training niet; die blijft alle cellen gebruiken.</p>
+</section>
+<section class="card section-gap">
+  <div class="toolbar"><div><h3>Panelen en kolommen</h3><p class="muted">Geen selectie betekent: alles meenemen.</p></div><span class="pill {{ 'ok' if recognition_scope.mode == 'selected' else '' }}">{{ 'Aangepaste selectie' if recognition_scope.mode == 'selected' else 'Alles geselecteerd' }}</span></div>
+  {% if recognition_scope_options %}
+  <form method="post" action="/recognition-gt-scope">
+    <div class="recognition-scope-grid">{% for panel in recognition_scope_options %}<fieldset><legend>{{ panel.panel_name }} <small>{{ panel.panel_id }}</small></legend>{% for column in panel.columns %}<label><input type="checkbox" name="scope_entry" value="{{ panel.panel_id }}|{{ column }}" {% if recognition_scope.mode != 'selected' or column in recognition_scope.panels.get(panel.panel_id, []) %}checked{% endif %}> Kolom {{ column + 1 }}</label>{% endfor %}</fieldset>{% endfor %}</div>
+    <div class="actions section-gap"><button type="submit" class="primary">Scope opslaan</button><a class="button" href="/recognition-gt-review">Naar Recognition GT →</a></div>
+  </form>
+  {% else %}<p class="muted">Er is nog geen canonieke Ground Truth om te selecteren.</p>{% endif %}
+</section>
+<style>.recognition-scope-hero{max-width:900px}.recognition-scope-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.recognition-scope-grid fieldset{display:grid;gap:7px;margin:0;padding:12px;border:1px solid var(--line);border-radius:8px;background:#101821}.recognition-scope-grid legend{padding:0 5px;font-weight:700}.recognition-scope-grid legend small{display:block;color:var(--muted);font-weight:400;font-family:ui-monospace,monospace;font-size:11px}.recognition-scope-grid label{display:flex;align-items:center;gap:8px;color:var(--text)}.recognition-scope-grid input{width:auto}</style>
+{% endblock %}

@@ -178,6 +178,31 @@
   let panning = false;
   let panStart = null;
   let autoAdvanceAfterReject = false;
+  const studioStateKey = 'isala-mapping-review-studio-state';
+
+  function rememberStudioState(open) {
+    try {
+      if (!open) {
+        sessionStorage.removeItem(studioStateKey);
+        return;
+      }
+      sessionStorage.setItem(studioStateKey, JSON.stringify({
+        path: window.location.pathname,
+        relationId: currentRow?.dataset.relationId || '',
+      }));
+    } catch (_) {
+      // Private browsing or disabled storage must not affect review itself.
+    }
+  }
+
+  function rememberedRelationId() {
+    try {
+      const state = JSON.parse(sessionStorage.getItem(studioStateKey) || 'null');
+      return state?.path === window.location.pathname ? String(state.relationId || '') : '';
+    } catch (_) {
+      return '';
+    }
+  }
 
   function syncPanMode() {
     const ready = panMode || spaceDown;
@@ -460,8 +485,11 @@
     studio.hidden = false;
     studio.setAttribute('aria-hidden', 'false');
     document.body.classList.add('mapping-review-studio-open');
-    const active = rows.find((row) => row.classList.contains('preview-active') && reviewQueue().includes(row));
+    const remembered = rememberedRelationId();
+    const active = rows.find((row) => row.dataset.relationId === remembered && reviewQueue().includes(row))
+      || rows.find((row) => row.classList.contains('preview-active') && reviewQueue().includes(row));
     renderRow(active || reviewQueue()[0] || null);
+    rememberStudioState(true);
     syncPanMode();
     requestAnimationFrame(fitView);
   }
@@ -472,6 +500,7 @@
     studio.hidden = true;
     studio.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('mapping-review-studio-open');
+    rememberStudioState(false);
     panMode = false;
     spaceDown = false;
     endPan();
@@ -704,4 +733,16 @@
     if (!panMode) endPan();
     syncPanMode();
   });
+
+  // A decision may still cause a server-side form redirect in an older cached
+  // page or after a transient network retry. Restore the overlay on that
+  // navigation so reviewing never falls back to the normal Mapping Studio.
+  try {
+    const state = JSON.parse(sessionStorage.getItem(studioStateKey) || 'null');
+    if (state?.path === window.location.pathname) {
+      window.setTimeout(openStudio, 0);
+    }
+  } catch (_) {
+    // Ignore unavailable or malformed session storage.
+  }
 })();

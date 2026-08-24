@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_preflight_allows_standard_git_metadata_but_not_other_root_files() -> None:
     preflight = (ROOT / "automation" / "powershell" / "preflight.ps1").read_text(encoding="utf-8")
-    assert '$allowedRootFiles = @("START.cmd", ".gitignore", ".gitattributes")' in preflight
+    assert '$allowedRootFiles = @("START.cmd", "run.cmd", "AGENTS.md", ".gitignore", ".gitattributes")' in preflight
     assert '$allowedRootFiles -notcontains $_' in preflight
     whitelist_line = next(line for line in preflight.splitlines() if "$allowedRootFiles =" in line)
     assert ".gitignore.backup" not in whitelist_line
@@ -31,7 +31,7 @@ def test_operational_content_is_grouped_into_directories() -> None:
 
 
 def test_no_secondary_cmd_wrappers_exist() -> None:
-    assert list(ROOT.glob("*.cmd")) == [ROOT / "START.cmd"]
+    assert list(ROOT.glob("*.cmd")) == [ROOT / "START.cmd", ROOT / "run.cmd"]
 
 
 def test_launcher_runs_safe_legacy_layout_migration_first() -> None:
@@ -41,9 +41,8 @@ def test_launcher_runs_safe_legacy_layout_migration_first() -> None:
     assert migration_pos < preflight_pos
 
     migration = (ROOT / "automation" / "powershell" / "layout-migration.ps1").read_text(encoding="utf-8")
+    assert "audit-only" in migration
+    assert "Remove-Item" not in migration
+    assert "Move-Item" not in migration
+    assert "Add-Content" not in migration
     assert '"scripts", "src", "config", "schemas", "training_runtime"' in migration
-    assert 'foreach ($file in @(Get-ChildItem' in migration
-    assert 'if ($file.Name -eq "START.cmd")' in migration
-    assert 'User data directories are never touched' in migration
-    for protected in ("input", "output", "models", "training"):
-        assert f'"{protected}"' not in migration.split('foreach ($name in @("scripts"', 1)[1].split(')) {', 1)[0]

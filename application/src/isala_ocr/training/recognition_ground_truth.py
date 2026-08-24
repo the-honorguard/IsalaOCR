@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,74 @@ from .table_cell_ground_truth import list_ground_truth_cells, list_ground_truth_
 EXTRACTION_METHOD = "canonical_gt_cell"
 STALE_EXTRACTION_METHOD = "canonical_gt_cell_stale"
 PROFILE = "recognition_ground_truth"
+SCOPE_FILENAME = "recognition_scope.json"
+
+
+def recognition_scope(workspace: str | Path) -> dict[str, Any]:
+    root = resolve_project_workspace(workspace)
+    path = root / SCOPE_FILENAME
+    if not path.is_file():
+        return {"mode": "all", "panels": {}}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, TypeError):
+        return {"mode": "all", "panels": {}}
+    if not isinstance(payload, dict) or payload.get("mode") != "selected":
+        return {"mode": "all", "panels": {}}
+    panels = payload.get("panels")
+    if not isinstance(panels, dict):
+        return {"mode": "all", "panels": {}}
+    return {"mode": "selected", "panels": {
+        str(panel): sorted({int(column) for column in columns if str(column).lstrip("-").isdigit()})
+        for panel, columns in panels.items() if isinstance(columns, list)
+    }}
+
+
+def save_recognition_scope(workspace: str | Path, panels: dict[str, list[int]]) -> dict[str, Any]:
+    root = resolve_project_workspace(workspace)
+    payload = {"schema_version": 1, "mode": "selected", "panels": {
+        str(panel): sorted({int(column) for column in columns})
+        for panel, columns in panels.items()
+    }}
+    (root / SCOPE_FILENAME).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return payload
+
+
+def _indexed_cells(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add stable visual column indexes without changing canonical GT."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for cell in cells:
+        key = str(cell.get("panel_id") or cell.get("panel_name") or "__default__")
+        grouped.setdefault(key, []).append(cell)
+    result: list[dict[str, Any]] = []
+    for panel_cells in grouped.values():
+        if any("column_index" in cell for cell in panel_cells):
+            result.extend(panel_cells)
+            continue
+        widths = sorted(max(1, int(cell.get("x2") or 0) - int(cell.get("x1") or 0)) for cell in panel_cells)
+        tolerance = max(8, int(widths[len(widths) // 2] * 0.20)) if widths else 8
+        columns: list[list[dict[str, Any]]] = []
+        for cell in sorted(panel_cells, key=lambda item: (int(item.get("x1") or 0), int(item.get("y1") or 0))):
+            x1 = int(cell.get("x1") or 0)
+            if not columns or abs(x1 - int(columns[-1][0].get("x1") or 0)) > tolerance:
+                columns.append([])
+            columns[-1].append(cell)
+        for column_index, column in enumerate(columns):
+            for cell in column:
+                result.append({**cell, "column_index": column_index})
+    return result
+
+
+def recognition_scope_options(workspace: str | Path) -> list[dict[str, Any]]:
+    root = resolve_project_workspace(workspace)
+    options: dict[str, dict[str, Any]] = {}
+    for source in list_ground_truth_sources(root):
+        cells = _indexed_cells(list_ground_truth_cells(root, str(source.get("source_id") or "")))
+        for cell in cells:
+            panel_id = str(cell.get("panel_id") or cell.get("panel_name") or "__default__")
+            item = options.setdefault(panel_id, {"panel_id": panel_id, "panel_name": str(cell.get("panel_name") or panel_id), "columns": set()})
+            item["columns"].add(int(cell.get("column_index", -1)))
+    return [{**item, "columns": sorted(item["columns"])} for item in sorted(options.values(), key=lambda value: value["panel_name"])]
 
 
 def _safe_id(value: object) -> str:
@@ -62,6 +131,7 @@ def materialize_recognition_ground_truth(
     database = TrainingDatabase(root / "samples.sqlite3")
     output_root = root / "recognition_ground_truth" / "crops"
     output_root.mkdir(parents=True, exist_ok=True)
+    scope = recognition_scope(root)
 
     expected_ids: set[str] = set()
     created = 0
@@ -71,7 +141,10 @@ def materialize_recognition_ground_truth(
 
     for source in list_ground_truth_sources(root):
         source_id = str(source.get("source_id") or "").strip()
-        cells = list_ground_truth_cells(root, source_id)
+        cells = _indexed_cells(list_ground_truth_cells(root, source_id))
+        if scope["mode"] == "selected":
+            selected = {str(panel): set(columns) for panel, columns in scope["panels"].items()}
+            cells = [cell for cell in cells if int(cell.get("column_index", -1)) in selected.get(str(cell.get("panel_id") or cell.get("panel_name") or "__default__"), set())]
         if not source_id or not cells:
             continue
         render_path = root / "source_renders" / f"{source_id}.png"
@@ -166,4 +239,5 @@ def materialize_recognition_ground_truth(
         "stale": len(stale_ids),
         "counts": recognition_gt_counts(database),
         "extraction_method": EXTRACTION_METHOD,
+        "scope": scope,
     }

@@ -46,10 +46,10 @@
     {% endfor %}
     {% endif %}
 
-    {% set recognition_keys = ['recognition-gt-studio','recognition-dataset','recognition-validate','recognition-train','recognition-evaluate','recognition-models'] %}
+    {% set recognition_keys = ['recognition-scope','recognition-gt-studio','recognition-dataset','recognition-validate','recognition-train','recognition-evaluate','recognition-models'] %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · RECOGNITION</div>
     {% for step in process_steps if step.key in recognition_keys %}
-      {% set recognition_href = '/recognition-gt-review' if step.key == 'recognition-gt-studio' else '/process/' ~ step.key %}
+      {% set recognition_href = '/recognition-scope' if step.key == 'recognition-scope' else ('/recognition-gt-review' if step.key == 'recognition-gt-studio' else '/process/' ~ step.key) %}
       <a href="{{ recognition_href }}" class="process-tab {% if request.path == recognition_href or (step.key == 'recognition-gt-studio' and request.path.startswith('/recognition-gt-review')) %}active{% endif %} {% if not pipeline_gate_global.ready %}blocked{% endif %}"{% if not pipeline_gate_global.ready %} title="Recognitiontraining wacht op afgeronde canonieke geometrie: {{ pipeline_gate_global.reason }}"{% endif %}>
         <span class="process-tab-number">{{ step.index }}</span><span>{{ step.title }}</span>{% if not pipeline_gate_global.ready %}<span class="lock-mark">🔒</span>{% endif %}
       </a>
@@ -151,7 +151,7 @@
 <script src="{{ url_for('static',filename='job-runtime.js',v=app_version) }}"></script>
 <script src="{{ url_for('static',filename='step7-review-flow.js',v=app_version,rev='20260817b') }}"></script>
 <script src="{{ url_for('static',filename='step7-single-panel.js',v=app_version,rev='20260817c') }}"></script>
-<script defer src="{{ url_for('static',filename='mapping-review-studio.js',v=app_version) }}"></script>
+<script defer src="{{ url_for('static',filename='mapping-review-studio.js',v=app_version,rev='20260824a') }}"></script>
 <script>document.getElementById('project-switch-select')?.addEventListener('change',()=>document.getElementById('project-switch-form').submit());</script>
 {% if localization_strategy == 'table_first' %}
 <script>

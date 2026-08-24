@@ -28,6 +28,22 @@ window.addEventListener('DOMContentLoaded', () => {
     event.currentTarget.textContent = showingAll ? 'Focusmodus' : 'Alle lezingen tonen';
     if (!showingAll) select(active);
   });
+  document.getElementById('fullscreen-reading')?.addEventListener('click', async event => {
+    const layout = document.querySelector('.recognition-reading-layout');
+    if (!layout) return;
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (layout.requestFullscreen) await layout.requestFullscreen();
+      else layout.classList.toggle('viewer-maximized');
+    } catch (_) {
+      layout.classList.toggle('viewer-maximized');
+    }
+    event.currentTarget.textContent = document.fullscreenElement ? 'Fullscreen sluiten' : 'Fullscreen';
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const button = document.getElementById('fullscreen-reading');
+    if (button) button.textContent = document.fullscreenElement ? 'Fullscreen sluiten' : 'Fullscreen';
+  });
   cards.forEach(card => card.querySelectorAll('[data-reading-action]').forEach(button => button.addEventListener('click', () => {
     const decision = button.dataset.readingAction;
     if (decision === 'next') return next();
@@ -59,7 +75,7 @@ window.addEventListener('DOMContentLoaded', () => {
   <section class="card">
     <div class="toolbar">
       <div><h3>Recognition-lezingen</h3><p class="muted">Eén lezing tegelijk beoordelen. <span class="pill">A goedkeuren</span> <span class="pill">X afwijzen</span> <span class="pill">→ volgende</span></p></div>
-      <div class="actions"><button type="button" id="show-all-readings">Alle lezingen tonen</button><button type="submit" name="global_action" value="accept_all_ocr">Alle open baseline-OCR goedkeuren</button></div>
+      <div class="actions"><button type="button" id="fullscreen-reading">Fullscreen</button><button type="button" id="show-all-readings">Alle lezingen tonen</button><button type="submit" name="global_action" value="accept_all_ocr">Alle open baseline-OCR goedkeuren</button></div>
     </div>
     <div class="recognition-reading-layout">
       <div class="recognition-gt-grid">
@@ -68,7 +84,7 @@ window.addEventListener('DOMContentLoaded', () => {
         <a class="recognition-gt-crop" href="{{ url_for('recognition_gt_review_sample', sample_id=sample.sample_id) }}"><img src="/crop/{{ sample.sample_id }}" alt="Recognition crop" loading="lazy"></a>
         <div class="recognition-gt-fields">
           <div class="toolbar compact"><strong><a href="{{ url_for('recognition_gt_review_sample', sample_id=sample.sample_id) }}">Crop {{ loop.index }} · viewer</a></strong><span class="pill {{ 'ok' if sample.status == 'accepted' else 'warn' if sample.status == 'pending' else '' }}">{{ sample.status }}</span></div>
-          <label>Baseline OCR<input value="{{ sample.raw_ocr }}" readonly></label>
+          <div class="recognition-baseline"><span>Modelvoorspelling</span><strong class="mono">{{ sample.raw_ocr if sample.raw_ocr|trim else '∅ leeg' }}</strong><small>{{ '%.1f'|format((sample.raw_confidence or 0) * 100) }}% confidence</small></div>
           <label>Exacte Ground Truth<input name="label_{{ sample.sample_id }}" value="{{ sample.exact_label if sample.exact_label is not none else sample.raw_ocr }}" autocomplete="off"></label>
           <label>Beoordeling<select name="status_{{ sample.sample_id }}"><option value="keep" selected>Ongewijzigd laten</option><option value="accepted">Goedkeuren / tekst opslaan</option><option value="unreadable">Onleesbaar</option><option value="excluded">Niet gebruiken voor training</option><option value="pending">Terug naar open</option></select></label>
           <label>Notitie<input name="notes_{{ sample.sample_id }}" value="{{ sample.notes or '' }}"></label>
@@ -93,6 +109,7 @@ window.addEventListener('DOMContentLoaded', () => {
 </form>
 
 <style>
-.recognition-gt-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}.recognition-reading-layout{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px}.recognition-gt-card{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(300px,1.2fr);gap:20px;align-items:start}.recognition-reading-layout.focus-mode .recognition-gt-card{display:none}.recognition-reading-layout.focus-mode .recognition-gt-card.active-reading,.recognition-reading-layout.all-readings .recognition-gt-card{display:grid}.recognition-gt-crop{background:#0b1020;border-radius:10px;min-height:240px;display:flex;align-items:center;justify-content:center;padding:16px;overflow:hidden}.recognition-gt-crop img{max-width:100%;max-height:360px;object-fit:contain;image-rendering:auto}.recognition-gt-fields{display:grid;gap:10px}.recognition-gt-fields label{display:grid;gap:4px}.toolbar.compact{margin:0}.reading-actions{display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:14px}.recognition-reading-queue{display:grid;align-content:start;gap:7px}.recognition-reading-queue>strong{margin-bottom:4px}.recognition-reading-queue button{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:7px;align-items:center;text-align:left;padding:8px;background:#101821}.recognition-reading-queue button.active{border-color:var(--accent);background:#172638}.recognition-reading-queue button>span:first-child{color:var(--muted)}.queue-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recognition-reading-queue .pill{padding:3px 6px;font-size:11px}@media(max-width:760px){.recognition-reading-layout{grid-template-columns:1fr}.recognition-reading-queue{order:-1;display:flex;overflow:auto}.recognition-reading-queue>strong{display:none}.recognition-reading-queue button{min-width:130px}.recognition-gt-card{grid-template-columns:1fr}.recognition-gt-crop{min-height:180px}}
+.recognition-gt-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}.recognition-reading-layout{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px}.recognition-gt-card{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(300px,1.2fr);gap:20px;align-items:start}.recognition-reading-layout.focus-mode .recognition-gt-card{display:none}.recognition-reading-layout.focus-mode .recognition-gt-card.active-reading,.recognition-reading-layout.all-readings .recognition-gt-card{display:grid}.recognition-gt-crop{background:#0b1020;border-radius:10px;min-height:240px;display:flex;align-items:center;justify-content:center;padding:16px;overflow:hidden}.recognition-gt-crop img{max-width:100%;max-height:360px;object-fit:contain;image-rendering:auto}.recognition-gt-fields{display:grid;gap:10px}.recognition-gt-fields label{display:grid;gap:4px}.recognition-baseline{display:flex;align-items:baseline;gap:9px;padding:9px 11px;border:1px solid var(--line);border-radius:7px;background:#0d141c}.recognition-baseline span,.recognition-baseline small{color:var(--muted);font-size:12px}.recognition-baseline strong{font-size:15px;color:var(--text);font-weight:600}.recognition-baseline small{margin-left:auto}.toolbar.compact{margin:0}.reading-actions{display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:14px}.recognition-reading-queue{display:grid;align-content:start;gap:7px}.recognition-reading-queue>strong{margin-bottom:4px}.recognition-reading-queue button{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:7px;align-items:center;text-align:left;padding:8px;background:#101821}.recognition-reading-queue button.active{border-color:var(--accent);background:#172638}.recognition-reading-queue button>span:first-child{color:var(--muted)}.queue-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recognition-reading-queue .pill{padding:3px 6px;font-size:11px}@media(max-width:760px){.recognition-reading-layout{grid-template-columns:1fr}.recognition-reading-queue{order:-1;display:flex;overflow:auto}.recognition-reading-queue>strong{display:none}.recognition-reading-queue button{min-width:130px}.recognition-gt-card{grid-template-columns:1fr}.recognition-gt-crop{min-height:180px}.recognition-baseline small{margin-left:0}}
+.recognition-reading-layout:fullscreen{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:18px;align-content:start;padding:20px 24px;background:var(--bg);overflow:auto}.recognition-reading-layout:fullscreen .recognition-gt-card{grid-template-columns:minmax(300px,.9fr) minmax(420px,1.1fr);align-content:start}.recognition-reading-layout:fullscreen .recognition-gt-crop{min-height:360px;max-height:460px}.recognition-reading-layout:fullscreen .recognition-gt-crop img{max-height:330px}.recognition-reading-layout.viewer-maximized{position:fixed;inset:0;z-index:1000;padding:20px 24px;background:var(--bg);overflow:auto}.recognition-reading-layout.viewer-maximized .recognition-gt-card{grid-template-columns:minmax(300px,.9fr) minmax(420px,1.1fr);align-content:start}.recognition-reading-layout.viewer-maximized .recognition-gt-crop{min-height:360px;max-height:460px}.recognition-reading-layout.viewer-maximized .recognition-gt-crop img{max-height:330px}
 </style>
 {% endblock %}

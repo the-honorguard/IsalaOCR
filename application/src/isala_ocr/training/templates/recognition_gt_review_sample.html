@@ -25,7 +25,7 @@ window.addEventListener('DOMContentLoaded', () => {
     </div>
     <img class="crop value-crop-large recognition-crop-large" src="/crop/{{ sample.sample_id }}" alt="Recognition crop" decoding="async">
     <div class="value-meta stacked">
-      <span>Modeluitvoer: <b class="mono">{{ sample.raw_ocr if sample.raw_ocr|trim else '∅ leeg' }}</b></span>
+      <span>Modelvoorspelling: <b class="mono">{{ sample.raw_ocr if sample.raw_ocr|trim else '∅ leeg' }}</b></span>
       <span>OCR-confidence: {{ '%.1f%%'|format((sample.raw_confidence or 0) * 100) }}</span>
       <span>Bron: <span class="mono">{{ sample.source_id }}</span></span>
     </div>

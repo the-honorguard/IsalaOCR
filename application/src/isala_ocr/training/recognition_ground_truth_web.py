@@ -8,7 +8,13 @@ from flask import abort, flash, redirect, render_template, request, url_for
 
 from .db import TrainingDatabase
 from .projects import resolve_project_workspace
-from .recognition_ground_truth import EXTRACTION_METHOD, recognition_gt_counts
+from .recognition_ground_truth import (
+    EXTRACTION_METHOD,
+    recognition_gt_counts,
+    recognition_scope,
+    recognition_scope_options,
+    save_recognition_scope,
+)
 
 
 def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
@@ -93,6 +99,7 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
     @app.get("/recognition-gt-review")
     def recognition_gt_review_home():
         database = current_database()
+        project_root = resolve_project_workspace(workspace_root)
         counts = recognition_gt_counts(database)
         status_filter = str(request.args.get("status") or "").strip().lower()
         if status_filter not in {"pending", "accepted", "excluded", "unreadable", "no_value"}:
@@ -166,7 +173,34 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
             header_total_label="crops",
             header_pending_label="te beoordelen",
             header_accepted_label="goedgekeurd",
+            recognition_scope=recognition_scope(project_root),
+            recognition_scope_options=recognition_scope_options(project_root),
         )
+
+    @app.get("/recognition-scope")
+    def recognition_scope_home():
+        project_root = resolve_project_workspace(workspace_root)
+        return render_template(
+            "recognition_scope.html",
+            recognition_scope=recognition_scope(project_root),
+            recognition_scope_options=recognition_scope_options(project_root),
+        )
+
+    @app.post("/recognition-gt-scope")
+    def recognition_gt_scope_save():
+        project_root = resolve_project_workspace(workspace_root)
+        panels: dict[str, list[int]] = {}
+        for value in request.form.getlist("scope_entry"):
+            panel, separator, column = str(value).partition("|")
+            if not separator:
+                continue
+            try:
+                panels.setdefault(panel, []).append(int(column))
+            except ValueError:
+                continue
+        save_recognition_scope(project_root, panels)
+        flash("Recognition-scope opgeslagen. Vernieuw daarna de Recognition samples.", "success")
+        return redirect(url_for("recognition_gt_review_home"))
 
     @app.route("/recognition-gt-review/sample/<sample_id>", methods=["GET", "POST"])
     def recognition_gt_review_sample(sample_id: str):
