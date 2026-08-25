@@ -14,7 +14,6 @@ from .recognition_ground_truth import (
     recognition_scope,
     recognition_scope_options,
     recognition_scope_preview,
-    recognition_scope_table_sources,
     save_recognition_scope,
 )
 
@@ -186,7 +185,8 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
         return render_template(
             "recognition_scope.html",
             recognition_scope=recognition_scope(project_root),
-            recognition_scope_sources=recognition_scope_table_sources(project_root),
+            recognition_scope_options=recognition_scope_options(project_root),
+            recognition_scope_preview=recognition_scope_preview(project_root),
         )
 
     @app.post("/recognition-gt-scope")
@@ -194,7 +194,7 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
         project_root = resolve_project_workspace(workspace_root)
         tables: dict[str, dict[str, list[int]]] = {}
         for value in request.form.getlist("scope_row"):
-            table, separator, row = str(value).rpartition("|")
+            table, separator, row = str(value).partition("|")
             if not separator:
                 continue
             try:
@@ -202,7 +202,7 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
             except ValueError:
                 continue
         for value in request.form.getlist("scope_column"):
-            table, separator, column = str(value).rpartition("|")
+            table, separator, column = str(value).partition("|")
             if not separator:
                 continue
             try:
