@@ -2905,26 +2905,23 @@ def create_web_app(
             quality = current_table_first_quality()
             preview = recognition_scope_preview(workspace_root())
             studio_cells = list(preview.get("cells") or [])
-            rows: dict[int, list[dict[str, Any]]] = {}
-            columns: dict[int, list[dict[str, Any]]] = {}
+            table_groups: dict[str, list[dict[str, Any]]] = {}
             for cell in studio_cells:
-                rows.setdefault(int(cell.get("row_index", -1)), []).append(cell)
-                columns.setdefault(int(cell.get("column_index", -1)), []).append(cell)
+                table_id = str(cell.get("table_id") or cell.get("panel_id") or cell.get("panel_name") or "__default__")
+                table_groups.setdefault(table_id, []).append(cell)
+            def axis_groups(cells: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+                groups: dict[int, list[dict[str, Any]]] = {}
+                for cell in cells:
+                    groups.setdefault(int(cell.get(key, -1)), []).append(cell)
+                return [
+                    {"index": index, "cells": sorted(items, key=lambda item: int(item.get("column_index" if key == "row_index" else "row_index", -1))),
+                     "x1": min(int(item.get("x1") or 0) for item in items), "y1": min(int(item.get("y1") or 0) for item in items),
+                     "x2": max(int(item.get("x2") or 0) for item in items), "y2": max(int(item.get("y2") or 0) for item in items)}
+                    for index, items in sorted(groups.items()) if index >= 0
+                ]
             studio = {
                 "source_id": str(preview.get("source_id") or ""),
-                "cells": studio_cells,
-                "rows": [
-                    {"index": index, "cells": sorted(items, key=lambda item: int(item.get("column_index", -1))),
-                     "x1": min(int(item.get("x1") or 0) for item in items), "y1": min(int(item.get("y1") or 0) for item in items),
-                     "x2": max(int(item.get("x2") or 0) for item in items), "y2": max(int(item.get("y2") or 0) for item in items)}
-                    for index, items in sorted(rows.items()) if index >= 0
-                ],
-                "columns": [
-                    {"index": index, "cells": sorted(items, key=lambda item: int(item.get("row_index", -1))),
-                     "x1": min(int(item.get("x1") or 0) for item in items), "y1": min(int(item.get("y1") or 0) for item in items),
-                     "x2": max(int(item.get("x2") or 0) for item in items), "y2": max(int(item.get("y2") or 0) for item in items)}
-                    for index, items in sorted(columns.items()) if index >= 0
-                ],
+                "tables": [{"table_id": table_id, "table_name": str(cells[0].get("table_name") or cells[0].get("panel_name") or ("Tabel zonder profiel" if table_id == "__default__" else table_id)), "cells": cells, "rows": axis_groups(cells, "row_index"), "columns": axis_groups(cells, "column_index")} for table_id, cells in sorted(table_groups.items())],
             }
             return render_template(
                 "table_structure.html",

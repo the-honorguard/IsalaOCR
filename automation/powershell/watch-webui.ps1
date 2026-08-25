@@ -1,7 +1,12 @@
 [CmdletBinding()]
 param(
-    [int]$PollMilliseconds = 800
+    [int]$PollMilliseconds = 800,
+    [int]$QuietSeconds = 10
 )
+
+if ($QuietSeconds -lt 0) {
+    throw "QuietSeconds moet nul of groter zijn."
+}
 
 $ErrorActionPreference = "Stop"
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
@@ -29,18 +34,30 @@ function Get-WebUiFingerprint {
 
 $lastFingerprint = Get-WebUiFingerprint
 Write-Host "IsalaOCR WebUI watch mode actief." -ForegroundColor Cyan
-Write-Host "Opslaan in application/src, config of Docker-config bouwt de WebUI automatisch opnieuw." -ForegroundColor DarkGray
+Write-Host ("Opslaan in application/src, config of Docker-config bouwt de WebUI automatisch opnieuw nadat de workspace {0} seconden stil is geweest." -f $QuietSeconds) -ForegroundColor DarkGray
 Write-Host "Stoppen: Ctrl+C" -ForegroundColor DarkGray
+
+$pendingFingerprint = $null
+$pendingSince = $null
 
 try {
     while ($true) {
         Start-Sleep -Milliseconds $PollMilliseconds
         $fingerprint = Get-WebUiFingerprint
-        if ($fingerprint -eq $lastFingerprint) { continue }
-        $lastFingerprint = $fingerprint
+        if ($fingerprint -ne $lastFingerprint) {
+            $lastFingerprint = $fingerprint
+            $pendingFingerprint = $fingerprint
+            $pendingSince = Get-Date
+            Write-Host ("Wijziging gedetecteerd om {0}; wachten tot de workspace {1} seconden stil is..." -f (Get-Date -Format 'HH:mm:ss'), $QuietSeconds) -ForegroundColor DarkYellow
+            continue
+        }
+        if ($null -eq $pendingFingerprint -or $null -eq $pendingSince) { continue }
+        if (((Get-Date) - $pendingSince).TotalSeconds -lt $QuietSeconds) { continue }
+        $pendingFingerprint = $null
+        $pendingSince = $null
 
         Write-Host ""
-        Write-Host ("Wijziging gedetecteerd om {0}; WebUI wordt bijgewerkt..." -f (Get-Date -Format 'HH:mm:ss')) -ForegroundColor Yellow
+        Write-Host ("Workspace is {0} seconden stil; WebUI wordt bijgewerkt om {1}..." -f $QuietSeconds, (Get-Date -Format 'HH:mm:ss')) -ForegroundColor Yellow
         try {
             & (Join-Path $PSScriptRoot "label-training-data.ps1") -NoBrowser
             if ($LASTEXITCODE -ne 0) { throw "label-training-data.ps1 exit code $LASTEXITCODE" }

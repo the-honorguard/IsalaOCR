@@ -61,8 +61,38 @@ def save_recognition_scope(workspace: str | Path, tables: dict[str, dict[str, li
     return payload
 
 
-def _cell_table_id(cell: dict[str, Any]) -> str:
-    return str(cell.get("table_id") or cell.get("panel_id") or cell.get("panel_name") or "__default__")
+def _cell_table_id(cell: dict[str, Any], panels: list[dict[str, Any]] | None = None) -> str:
+    explicit = str(cell.get("table_id") or cell.get("panel_id") or cell.get("panel_name") or "").strip()
+    if explicit:
+        return explicit
+    if panels:
+        center_x = (int(cell.get("x1") or 0) + int(cell.get("x2") or 0)) / 2
+        center_y = (int(cell.get("y1") or 0) + int(cell.get("y2") or 0)) / 2
+        for panel in panels:
+            width = float(panel.get("reference_width") or 0)
+            height = float(panel.get("reference_height") or 0)
+            if width <= 0 or height <= 0:
+                continue
+            x1, y1 = float(panel.get("x1") or 0) * width, float(panel.get("y1") or 0) * height
+            x2, y2 = float(panel.get("x2") or 0) * width, float(panel.get("y2") or 0) * height
+            if x1 <= center_x <= x2 and y1 <= center_y <= y2:
+                return str(panel.get("panel_id") or panel.get("name") or "__default__")
+    return "__default__"
+
+
+def _profile_panels(workspace: str | Path) -> list[dict[str, Any]]:
+    root = resolve_project_workspace(workspace)
+    path = root / "table_panel_profile.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, TypeError):
+        return []
+    panels = payload.get("panels") if isinstance(payload, dict) else None
+    if not isinstance(panels, list):
+        return []
+    reference_width = (payload.get("reference_width") if isinstance(payload, dict) else 0) or 0
+    reference_height = (payload.get("reference_height") if isinstance(payload, dict) else 0) or 0
+    return [{**panel, "reference_width": reference_width, "reference_height": reference_height} for panel in panels if isinstance(panel, dict)]
 
 
 def _cluster_axis(cells: list[dict[str, Any]], axis: str) -> list[list[dict[str, Any]]]:
@@ -86,11 +116,12 @@ def _cluster_axis(cells: list[dict[str, Any]], axis: str) -> list[list[dict[str,
     return [group for _, group in sorted(zip(centers, groups), key=lambda item: item[0])]
 
 
-def _indexed_cells(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _indexed_cells(cells: list[dict[str, Any]], workspace: str | Path | None = None) -> list[dict[str, Any]]:
     """Build occupied row/column raster cells from detection-box center lines."""
     grouped: dict[str, list[dict[str, Any]]] = {}
+    panels = _profile_panels(workspace) if workspace is not None else []
     for cell in cells:
-        grouped.setdefault(_cell_table_id(cell), []).append(cell)
+        grouped.setdefault(_cell_table_id(cell, panels), []).append(cell)
     result: list[dict[str, Any]] = []
     for table_id, table_cells in grouped.items():
         rows = _cluster_axis(table_cells, "y")
@@ -115,7 +146,7 @@ def recognition_scope_options(workspace: str | Path) -> list[dict[str, Any]]:
     root = resolve_project_workspace(workspace)
     options: dict[str, dict[str, Any]] = {}
     for source in list_ground_truth_sources(root):
-        cells = _indexed_cells(list_ground_truth_cells(root, str(source.get("source_id") or "")))
+        cells = _indexed_cells(list_ground_truth_cells(root, str(source.get("source_id") or "")), root)
         for cell in cells:
             table_id = _cell_table_id(cell)
             table_name = str(cell.get("table_name") or cell.get("panel_name") or table_id)
@@ -129,7 +160,7 @@ def recognition_scope_preview(workspace: str | Path) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
     for source in list_ground_truth_sources(root):
         source_id = str(source.get("source_id") or "")
-        cells = _indexed_cells(list_ground_truth_cells(root, source_id))
+        cells = _indexed_cells(list_ground_truth_cells(root, source_id), root)
         if cells and (root / "source_renders" / f"{source_id}.png").is_file():
             return {"source_id": source_id, "cells": cells}
     return {"source_id": "", "cells": []}
@@ -193,7 +224,7 @@ def materialize_recognition_ground_truth(
 
     for source in list_ground_truth_sources(root):
         source_id = str(source.get("source_id") or "").strip()
-        cells = _indexed_cells(list_ground_truth_cells(root, source_id))
+        cells = _indexed_cells(list_ground_truth_cells(root, source_id), root)
         if scope["mode"] == "selected":
             selected = scope.get("tables") or {}
             cells = [
