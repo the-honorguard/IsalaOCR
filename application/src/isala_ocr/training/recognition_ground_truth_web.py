@@ -192,16 +192,24 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
     @app.post("/recognition-gt-scope")
     def recognition_gt_scope_save():
         project_root = resolve_project_workspace(workspace_root)
-        panels: dict[str, list[int]] = {}
-        for value in request.form.getlist("scope_entry"):
-            panel, separator, column = str(value).partition("|")
+        tables: dict[str, dict[str, list[int]]] = {}
+        for value in request.form.getlist("scope_row"):
+            table, separator, row = str(value).partition("|")
             if not separator:
                 continue
             try:
-                panels.setdefault(panel, []).append(int(column))
+                tables.setdefault(table, {"rows": [], "columns": []})["rows"].append(int(row))
             except ValueError:
                 continue
-        save_recognition_scope(project_root, panels)
+        for value in request.form.getlist("scope_column"):
+            table, separator, column = str(value).partition("|")
+            if not separator:
+                continue
+            try:
+                tables.setdefault(table, {"rows": [], "columns": []})["columns"].append(int(column))
+            except ValueError:
+                continue
+        save_recognition_scope(project_root, tables)
         flash("Recognition-scope opgeslagen. Vernieuw daarna de Recognition samples.", "success")
         return redirect(url_for("recognition_gt_review_home"))
 

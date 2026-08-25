@@ -20,54 +20,94 @@ def recognition_scope(workspace: str | Path) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
     path = root / SCOPE_FILENAME
     if not path.is_file():
-        return {"mode": "all", "panels": {}}
+        return {"mode": "all", "tables": {}}
     try:
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError, TypeError):
-        return {"mode": "all", "panels": {}}
+        return {"mode": "all", "tables": {}}
     if not isinstance(payload, dict) or payload.get("mode") != "selected":
-        return {"mode": "all", "panels": {}}
+        return {"mode": "all", "tables": {}}
+    tables = payload.get("tables")
+    if isinstance(tables, dict):
+        return {"mode": "selected", "tables": {
+            str(table): {
+                "rows": sorted({int(row) for row in (item.get("rows") or []) if str(row).lstrip("-").isdigit()}),
+                "columns": sorted({int(column) for column in (item.get("columns") or []) if str(column).lstrip("-").isdigit()}),
+                **({"legacy_columns_only": True} if item.get("legacy_columns_only") else {}),
+            }
+            for table, item in tables.items() if isinstance(item, dict)
+        }}
+    # Read the previous panel/column format so existing projects remain usable.
     panels = payload.get("panels")
-    if not isinstance(panels, dict):
-        return {"mode": "all", "panels": {}}
-    return {"mode": "selected", "panels": {
-        str(panel): sorted({int(column) for column in columns if str(column).lstrip("-").isdigit()})
-        for panel, columns in panels.items() if isinstance(columns, list)
-    }}
+    if isinstance(panels, dict):
+        return {"mode": "selected", "tables": {
+            str(panel): {"rows": [], "columns": sorted({int(column) for column in columns if str(column).lstrip("-").isdigit()}), "legacy_columns_only": True}
+            for panel, columns in panels.items() if isinstance(columns, list)
+        }}
+    return {"mode": "all", "tables": {}}
 
 
-def save_recognition_scope(workspace: str | Path, panels: dict[str, list[int]]) -> dict[str, Any]:
+def save_recognition_scope(workspace: str | Path, tables: dict[str, dict[str, list[int]]]) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
-    payload = {"schema_version": 1, "mode": "selected", "panels": {
-        str(panel): sorted({int(column) for column in columns})
-        for panel, columns in panels.items()
+    payload = {"schema_version": 2, "mode": "selected", "tables": {
+        str(table): {
+            "rows": sorted({int(row) for row in (selection.get("rows") or [])}),
+            "columns": sorted({int(column) for column in (selection.get("columns") or [])}),
+        }
+        for table, selection in tables.items()
+        if isinstance(selection, dict)
     }}
     (root / SCOPE_FILENAME).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return payload
 
 
+def _cell_table_id(cell: dict[str, Any]) -> str:
+    return str(cell.get("table_id") or cell.get("panel_id") or cell.get("panel_name") or "__default__")
+
+
+def _cluster_axis(cells: list[dict[str, Any]], axis: str) -> list[list[dict[str, Any]]]:
+    if not cells:
+        return []
+    starts = [int(cell.get(axis + "1") or 0) for cell in cells]
+    ends = [int(cell.get(axis + "2") or 0) for cell in cells]
+    sizes = sorted(max(1, end - start) for start, end in zip(starts, ends))
+    tolerance = max(8, int(sizes[len(sizes) // 2] * 0.45))
+    groups: list[list[dict[str, Any]]] = []
+    centers: list[float] = []
+    for index in sorted(range(len(cells)), key=lambda item: (starts[item] + ends[item]) / 2):
+        center = (starts[index] + ends[index]) / 2
+        nearest = min(range(len(centers)), key=lambda item: abs(centers[item] - center), default=-1)
+        if nearest < 0 or abs(centers[nearest] - center) > tolerance:
+            groups.append([cells[index]])
+            centers.append(center)
+        else:
+            groups[nearest].append(cells[index])
+            centers[nearest] = sum((int(item.get(axis + "1") or 0) + int(item.get(axis + "2") or 0)) / 2 for item in groups[nearest]) / len(groups[nearest])
+    return [group for _, group in sorted(zip(centers, groups), key=lambda item: item[0])]
+
+
 def _indexed_cells(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Add stable visual column indexes without changing canonical GT."""
+    """Build occupied row/column raster cells from detection-box center lines."""
     grouped: dict[str, list[dict[str, Any]]] = {}
     for cell in cells:
-        key = str(cell.get("panel_id") or cell.get("panel_name") or "__default__")
-        grouped.setdefault(key, []).append(cell)
+        grouped.setdefault(_cell_table_id(cell), []).append(cell)
     result: list[dict[str, Any]] = []
-    for panel_cells in grouped.values():
-        if any("column_index" in cell for cell in panel_cells):
-            result.extend(panel_cells)
-            continue
-        widths = sorted(max(1, int(cell.get("x2") or 0) - int(cell.get("x1") or 0)) for cell in panel_cells)
-        tolerance = max(8, int(widths[len(widths) // 2] * 0.20)) if widths else 8
-        columns: list[list[dict[str, Any]]] = []
-        for cell in sorted(panel_cells, key=lambda item: (int(item.get("x1") or 0), int(item.get("y1") or 0))):
-            x1 = int(cell.get("x1") or 0)
-            if not columns or abs(x1 - int(columns[-1][0].get("x1") or 0)) > tolerance:
-                columns.append([])
-            columns[-1].append(cell)
-        for column_index, column in enumerate(columns):
-            for cell in column:
-                result.append({**cell, "column_index": column_index})
+    for table_id, table_cells in grouped.items():
+        rows = _cluster_axis(table_cells, "y")
+        columns = _cluster_axis(table_cells, "x")
+        row_by_id = {id(cell): row for row, group in enumerate(rows) for cell in group}
+        column_by_id = {id(cell): column for column, group in enumerate(columns) for cell in group}
+        occupied: dict[tuple[int, int], list[dict[str, Any]]] = {}
+        for cell in table_cells:
+            occupied.setdefault((row_by_id[id(cell)], column_by_id[id(cell)]), []).append(cell)
+        for (row_index, column_index), members in sorted(occupied.items()):
+            x1 = round(sum(int(item.get("x1") or 0) for item in columns[column_index]) / len(columns[column_index]))
+            x2 = round(sum(int(item.get("x2") or 0) for item in columns[column_index]) / len(columns[column_index]))
+            y1 = round(sum(int(item.get("y1") or 0) for item in rows[row_index]) / len(rows[row_index]))
+            y2 = round(sum(int(item.get("y2") or 0) for item in rows[row_index]) / len(rows[row_index]))
+            member_ids = ",".join(sorted(str(item.get("gt_id") or item.get("cell_id") or "") for item in members))
+            raster_id = "gt-" + hashlib.sha256(f"{table_id}|{row_index}|{column_index}|{x1},{y1},{x2},{y2}|{member_ids}".encode()).hexdigest()[:24]
+            result.append({**members[0], "gt_id": raster_id, "table_id": table_id, "row_index": row_index, "column_index": column_index, "x1": x1, "y1": y1, "x2": x2, "y2": y2, "provenance": "occupied_detection_raster"})
     return result
 
 
@@ -77,13 +117,12 @@ def recognition_scope_options(workspace: str | Path) -> list[dict[str, Any]]:
     for source in list_ground_truth_sources(root):
         cells = _indexed_cells(list_ground_truth_cells(root, str(source.get("source_id") or "")))
         for cell in cells:
-            panel_id = str(cell.get("panel_id") or cell.get("panel_name") or "__default__")
-            panel_name = str(cell.get("panel_name") or panel_id)
-            if panel_id == "__default__":
-                panel_name = "Niet toegewezen"
-            item = options.setdefault(panel_id, {"panel_id": panel_id, "panel_name": panel_name, "columns": set()})
+            table_id = _cell_table_id(cell)
+            table_name = str(cell.get("table_name") or cell.get("panel_name") or table_id)
+            item = options.setdefault(table_id, {"table_id": table_id, "table_name": table_name, "rows": set(), "columns": set()})
+            item["rows"].add(int(cell.get("row_index", -1)))
             item["columns"].add(int(cell.get("column_index", -1)))
-    return [{**item, "columns": sorted(item["columns"])} for item in sorted(options.values(), key=lambda value: value["panel_name"])]
+    return [{**item, "rows": sorted(item["rows"]), "columns": sorted(item["columns"])} for item in sorted(options.values(), key=lambda value: value["table_name"])]
 
 
 def recognition_scope_preview(workspace: str | Path) -> dict[str, Any]:
@@ -156,8 +195,14 @@ def materialize_recognition_ground_truth(
         source_id = str(source.get("source_id") or "").strip()
         cells = _indexed_cells(list_ground_truth_cells(root, source_id))
         if scope["mode"] == "selected":
-            selected = {str(panel): set(columns) for panel, columns in scope["panels"].items()}
-            cells = [cell for cell in cells if int(cell.get("column_index", -1)) in selected.get(str(cell.get("panel_id") or cell.get("panel_name") or "__default__"), set())]
+            selected = scope.get("tables") or {}
+            cells = [
+                cell for cell in cells
+                if (
+                    (selected.get(_cell_table_id(cell), {}).get("legacy_columns_only") or int(cell.get("row_index", -1)) in set(selected.get(_cell_table_id(cell), {}).get("rows") or []))
+                    and int(cell.get("column_index", -1)) in set(selected.get(_cell_table_id(cell), {}).get("columns") or [])
+                )
+            ]
         if not source_id or not cells:
             continue
         render_path = root / "source_renders" / f"{source_id}.png"

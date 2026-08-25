@@ -34,10 +34,11 @@
     <a href="/process/detect-candidates" class="process-tab {% if request.path == '/process/detect-candidates' %}active{% endif %}"><span class="process-tab-number">3</span><span>Eerste celdetectie</span></a>
     <a href="/process/detection-review" class="process-tab {% if request.path == '/process/detection-review' or request.path.startswith('/detection-review') %}active{% endif %}"><span class="process-tab-number">4</span><span>GT Studio</span></a>
 
-    <div class="nav-section nav-pipeline-a">MODEL FACTORY · TRAINING & TABELLEN</div>
+    <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTOR · 5 → 6 → 5</div>
     <a href="/process/table-model" class="process-tab {% if request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">5</span><span>Celdetector trainen</span></a>
-    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">6</span><span>Tabelstudio</span></a>
-    <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' %}active{% endif %}"><span class="process-tab-number">7</span><span>Detectorafwijkingen reviewen</span></a>
+    <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' %}active{% endif %}"><span class="process-tab-number">6</span><span>Detectorafwijkingen reviewen</span></a>
+    <div class="nav-section nav-pipeline-a">TABELLEN</div>
+    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">·</span><span>Tabelstudio</span></a>
     {% else %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTIE & CROPS</div>
     {% for step in process_steps if step.group == 'detection' %}

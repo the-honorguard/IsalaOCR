@@ -285,6 +285,22 @@ def _cluster_rows(cell_boxes: Sequence[Box]) -> list[list[int]]:
     return [sorted(row, key=lambda idx: cell_boxes[idx].x1) for _, row in ordered_rows]
 
 
+def _cluster_centers(values: Sequence[float], tolerance: float) -> list[list[int]]:
+    """Cluster numeric center positions into ordered raster lines."""
+    groups: list[list[int]] = []
+    centers: list[float] = []
+    for index in sorted(range(len(values)), key=lambda item: values[item]):
+        value = float(values[index])
+        nearest = min(range(len(centers)), key=lambda item: abs(centers[item] - value), default=-1)
+        if nearest < 0 or abs(centers[nearest] - value) > tolerance:
+            groups.append([index])
+            centers.append(value)
+        else:
+            groups[nearest].append(index)
+            centers[nearest] = sum(float(values[item]) for item in groups[nearest]) / len(groups[nearest])
+    return [group for _, group in sorted(zip(centers, groups), key=lambda item: item[0])]
+
+
 def _global_column_layout(
     cell_boxes: Sequence[Box], rows: Sequence[Sequence[int]],
 ) -> dict[int, tuple[int, int]]:
@@ -303,33 +319,12 @@ def _global_column_layout(
 
     widths = sorted(max(1, box.width) for box in cell_boxes)
     tolerance = max(6.0, min(40.0, widths[len(widths) // 2] * 0.35))
-
-    # Build stable x1 anchors.  A new anchor is created only when a left edge
-    # is materially separated from all existing anchors.
-    anchors: list[float] = []
-    for index in sorted(range(len(cell_boxes)), key=lambda item: cell_boxes[item].x1):
-        x1 = float(cell_boxes[index].x1)
-        if not anchors:
-            anchors.append(x1)
-            continue
-        nearest = min(range(len(anchors)), key=lambda anchor: abs(anchors[anchor] - x1))
-        if abs(anchors[nearest] - x1) <= tolerance:
-            anchors[nearest] = (anchors[nearest] + x1) / 2.0
-        else:
-            anchors.append(x1)
-    anchors.sort()
-
+    centers = [(float(box.x1) + float(box.x2)) / 2.0 for box in cell_boxes]
+    columns = _cluster_centers(centers, tolerance)
     result: dict[int, tuple[int, int]] = {}
-    for index, box in enumerate(cell_boxes):
-        start = min(range(len(anchors)), key=lambda anchor: abs(anchors[anchor] - box.x1))
-        # A normal cell ends before the next column's left edge.  The small
-        # tolerance prevents the neighbouring anchor at a shared border from
-        # being counted as a span; genuinely wide boxes still cover it.
-        covered = [
-            anchor for anchor in anchors[start:]
-            if anchor < float(box.x2) - tolerance
-        ]
-        result[index] = (start, max(1, len(covered)))
+    for column_index, column in enumerate(columns):
+        for index in column:
+            result[index] = (column_index, 1)
     return result
 
 

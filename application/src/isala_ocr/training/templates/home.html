@@ -5,7 +5,7 @@
 {% block content %}
 {% if localization_strategy == 'table_first' %}
 <section class="card workflow-map">
-  <div class="toolbar"><div><h3>Table setup & Ground Truth</h3><p class="muted">Stappen 1–5 bouwen de vaste referentie op: tabelregio’s selecteren, de regio-detector trainen, structuur detecteren en cellen beoordelen.</p></div></div>
+  <div class="toolbar"><div><h3>Table setup & Ground Truth</h3><p class="muted">Stappen 1–4 bouwen de vaste referentie op: voorbereiden, tabelregio’s selecteren, eerste celdetectie en GT Studio.</p></div></div>
   <div class="stage-rail process-stage-rail">
     {% set s1 = stages|selectattr('key','equalto','detection-models')|list|first %}
     {% set s2 = stages|selectattr('key','equalto','panel-setup')|list|first %}
@@ -19,16 +19,18 @@
 </section>
 
 <section class="card workflow-map section-gap">
-  <div class="toolbar"><div><span class="eyebrow">ITERATIEVE MODELLOOP</span><h3>5 → 6 → 7 → 5</h3><p class="muted">De Ground Truth blijft staan. Alleen modeloutput en expliciete reviewfeedback veranderen per ronde.</p></div></div>
+  <div class="toolbar"><div><span class="eyebrow">ITERATIEVE MODELLOOP</span><h3>5 → 6 → 5</h3><p class="muted">De Ground Truth blijft staan. Alleen modeloutput en expliciete reviewfeedback veranderen per ronde.</p></div></div>
   <div class="stage-rail process-stage-rail">
     {% set s5 = stages|selectattr('key','equalto','table-model')|list|first %}
-    {% set s6 = stages|selectattr('key','equalto','table-quality')|list|first %}
-    {% set s7 = stages|selectattr('key','equalto','table-compare')|list|first %}
+    {% set s6 = stages|selectattr('key','equalto','table-compare')|list|first %}
     <a href="/process/table-model" class="stage {% if s5 and s5.complete %}complete{% endif %}"><div class="stage-index">5</div><strong>Celdetector trainen</strong><div class="muted">Dataset → validatie → training → activatie → nieuwe detectie.</div></a>
-    <a href="/process/table-quality" class="stage {% if s6 and s6.complete %}complete{% endif %}"><div class="stage-index">6</div><strong>Tabelstudio</strong><div class="muted">Rijen, kolommen en tabelcrops beoordelen.</div></a>
-    <a href="/process/table-compare" class="stage {% if s7 and s7.complete %}complete{% endif %}"><div class="stage-index">7</div><strong>Afwijkingen reviewen</strong><div class="muted">Functioneel correct, Model fout of GT controleren.</div></a>
+    <a href="/process/table-compare" class="stage {% if s6 and s6.complete %}complete{% endif %}"><div class="stage-index">6</div><strong>Afwijkingen reviewen</strong><div class="muted">Functioneel correct, Model fout of GT controleren.</div></a>
     <a href="/process/table-model" class="stage"><div class="stage-index">↻</div><strong>Volgende ronde</strong><div class="muted">Verwerkte feedback opnieuw trainen.</div></a>
   </div>
+</section>
+<section class="card workflow-map section-gap">
+  <div class="toolbar"><div><span class="eyebrow">TABELLEN</span><h3>Tabelstructuur en raster</h3><p class="muted">Na de detectorloop worden de gedetecteerde cellen samengevoegd tot een rij-kolomraster. Alleen bezette kruisingen gaan door naar Recognition.</p></div></div>
+  <div class="stage-rail process-stage-rail"><a href="/process/table-quality" class="stage"><div class="stage-index">·</div><strong>Tabelstudio</strong><div class="muted">Rijen, kolommen en bezette rastercellen bepalen.</div></a></div>
 </section>
 {% else %}
 <section class="card workflow-map">

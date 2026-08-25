@@ -44,6 +44,7 @@ from .table_region_training import build_table_region_dataset
 from .table_model_comparison import (
     add_comparison_fp_to_ground_truth, review_comparison_issue, table_cell_comparison_state,
 )
+from .recognition_ground_truth import recognition_scope_preview
 from .projects import (
     DEFAULT_PROJECT_ID, ProjectManager, load_use_case_templates,
     project_active_recognition_dir, resolve_project_registry,
@@ -211,9 +212,9 @@ PROCESS_STEPS = [
     {"key": "table-region-model","index":None,"group":"fallback","title":"Tabelregio-model · technische optie","subtitle":"Optionele tabelregio-training; dit hoort niet in de eerste GT-reviewflow.","action_ids":["54","55","56","57"],"requirements":["Alleen gebruiken voor een aparte tabelregio-experiment"]},
     {"key": "detect-candidates","index":3,"group":"detection","title":"Eerste celdetectie","subtitle":"Voer de eerste celdetectie uit binnen de ingestelde tabelregio’s. Deze run is alleen het startpunt voor de GT.","action_ids":["2"],"requirements":["Voorbereiding afgerond","Tabelregio’s opgeslagen","Bronnen in input"]},
     {"key": "detection-review","index":4,"group":"detection","title":"GT Studio","subtitle":"Beoordeel de Ground Truth per bron in de zelfstandige Studio-reviewworkflow; tabelanalyse volgt later.","action_ids":[],"requirements":["Eerste celdetectie afgerond","Bronrender","Per bron GT controleren en goedkeuren"]},
-    {"key": "table-model","index":5,"group":"detection","title":"Celdetector trainen","subtitle":"Bouw uit de goedgekeurde GT een dataset, train/activeer de celdetector en maak een nieuwe detectierun.","action_ids":["48","49","50","51","52","53"],"requirements":["GT Studio afgerond","Positieve functionele cellen","Dataset gebouwd en gevalideerd vóór training"]},
-    {"key": "table-quality","index":6,"group":"detection","title":"Tabelstudio","subtitle":"Beoordeel daarna de tabeldekking en tabelstructuur op basis van de getrainde celdetector.","action_ids":[],"requirements":["Celdetector getraind en opnieuw gedraaid","Goedgekeurde celposities"]},
-    {"key": "table-compare","index":7,"group":"detection","title":"Detectorafwijkingen reviewen","subtitle":"Optionele verbeterlus voor nieuwe celdetectorruns; dit is geen eerste GT-review.","action_ids":[],"requirements":["Getrainde celdetector","Canonieke cel-GT"]},
+    {"key": "table-model","index":5,"group":"detection","title":"Celdetector trainen","subtitle":"Bouw uit de reviewcorrecties trainingsdata, train/activeer de celdetector en gebruik het nieuwe model in de volgende detectieronde.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde GT-review","Positieve functionele cellen","Dataset gebouwd en gevalideerd vóór training"]},
+    {"key": "table-compare","index":6,"group":"detection","title":"Detectorafwijkingen reviewen","subtitle":"Vergelijk een nieuwe detectorrun met de vaste Ground Truth en review alleen de verschillen.","action_ids":[],"requirements":["Canonieke Ground Truth uit Stap 4","Table-cell dataset uit Stap 5","Nieuwe detectierun uit Stap 3"]},
+    {"key": "table-quality","index":None,"group":"tables","title":"Tabelstudio","subtitle":"Maak vanuit de getrainde celdetector het rij-kolomraster en bepaal welke bezette rastercellen naar Recognition gaan.","action_ids":[],"requirements":["Celdetector getraind en opnieuw gedraaid","Goedgekeurde celposities"]},
 
     # The previous loose field/PicoDet workflow is intentionally parked. Routes,
     # artifacts and jobs stay available so nothing is deleted, but they are no
@@ -1472,7 +1473,7 @@ def create_web_app(
             "table-region-model": bool(list_table_region_sources(workspace_root())),
             "detect-candidates": bool(panel_state.get("detection_current")),
             "detection-review": (canonical_table_gt_mode() or (bool(panel_state.get("detection_current")) and detection_reviews.get("candidate_total", 0) > 0)),
-            "table-quality": bool(table_quality_state and table_quality_state.get("state") not in {"not_started", "needs_review"}),
+            "table-quality": bool((table_model_state.get("active_model") or {}).get("model_id")),
             "table-model": bool((table_model_state.get("active_model") or {}).get("model_id")),
             "table-compare": bool((table_model_state.get("active_model") or {}).get("model_id")) and bool(table_model_state.get("dataset")) and bool(panel_state.get("detection_current")),
             "localization-dataset": bool(localization_models),
@@ -2348,11 +2349,7 @@ def create_web_app(
                 f"{reviews.get('positive', 0)} bevestigd, "
                 f"{reviews.get('rejected', 0)} afgewezen, {reviews.get('pending', 0)} open"
             ),
-            "table-quality": (
-                f"{float((table_quality_state.get('totals') or {}).get('direct_coverage') or 0):.1%} directe coverage · "
-                f"{int((table_quality_state.get('totals') or {}).get('added') or 0)} fallback-cellen"
-                if table_quality_state else "nog niet beoordeeld"
-            ),
+            "table-quality": "raster en Recognition-scope na nieuwe detectierun beoordelen",
             "table-model": (
                 str(active_table_model.get('model_id') or 'reviewdata nog niet als actief table-model ingezet')
             ),
@@ -2906,9 +2903,32 @@ def create_web_app(
 
         if step_key == "table-quality":
             quality = current_table_first_quality()
+            preview = recognition_scope_preview(workspace_root())
+            studio_cells = list(preview.get("cells") or [])
+            rows: dict[int, list[dict[str, Any]]] = {}
+            columns: dict[int, list[dict[str, Any]]] = {}
+            for cell in studio_cells:
+                rows.setdefault(int(cell.get("row_index", -1)), []).append(cell)
+                columns.setdefault(int(cell.get("column_index", -1)), []).append(cell)
+            studio = {
+                "source_id": str(preview.get("source_id") or ""),
+                "cells": studio_cells,
+                "rows": [
+                    {"index": index, "cells": sorted(items, key=lambda item: int(item.get("column_index", -1))),
+                     "x1": min(int(item.get("x1") or 0) for item in items), "y1": min(int(item.get("y1") or 0) for item in items),
+                     "x2": max(int(item.get("x2") or 0) for item in items), "y2": max(int(item.get("y2") or 0) for item in items)}
+                    for index, items in sorted(rows.items()) if index >= 0
+                ],
+                "columns": [
+                    {"index": index, "cells": sorted(items, key=lambda item: int(item.get("row_index", -1))),
+                     "x1": min(int(item.get("x1") or 0) for item in items), "y1": min(int(item.get("y1") or 0) for item in items),
+                     "x2": max(int(item.get("x2") or 0) for item in items), "y2": max(int(item.get("y2") or 0) for item in items)}
+                    for index, items in sorted(columns.items()) if index >= 0
+                ],
+            }
             return render_template(
                 "table_structure.html",
-                step=step, table_quality=quality,
+                step=step, table_quality=quality, studio=studio,
                 header_counts={
                     "total": int((quality.get("totals") or {}).get("desired_total", 0)),
                     "pending": int((quality.get("totals") or {}).get("pending", 0)),
