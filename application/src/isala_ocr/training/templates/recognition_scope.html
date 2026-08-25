@@ -21,6 +21,42 @@
 </script>
 <script>
 (() => {
+  const form=document.querySelector('form[action="/recognition-gt-scope"]');
+  const message=document.querySelector('#scope-review-message');
+  if(!form)return;
+  let saveVersion=0;
+  const saveScope=async()=>{
+    const version=++saveVersion;
+    if(message)message.textContent='Selectie opslaan…';
+    try{
+      const response=await fetch(form.action,{method:'POST',body:new FormData(form),headers:{'X-Requested-With':'recognition-scope-autosave'}});
+      if(!response.ok)throw new Error('scope save failed');
+      if(version===saveVersion&&message)message.textContent='Selectie opgeslagen.';
+    }catch(_error){
+      if(version===saveVersion&&message)message.textContent='Opslaan mislukt. Probeer opnieuw.';
+    }
+  };
+  form.addEventListener('change',event=>{
+    if(event.target.matches('input[name="scope_row"],input[name="scope_column"]'))saveScope();
+  });
+  window.addEventListener('beforeunload',()=>navigator.sendBeacon(form.action,new FormData(form)));
+})();
+</script>
+<script>
+(() => {
+  const form=document.querySelector('form[action="/recognition-gt-scope"]');
+  const approveButton=document.querySelector('#scope-approve-table');
+  if(!form||!approveButton)return;
+  const saveButton=approveButton.cloneNode(true);
+  saveButton.type='button';
+  saveButton.textContent='Scope opslaan';
+  approveButton.replaceWith(saveButton);
+  form.querySelector('.actions button[type="submit"]')?.remove();
+  saveButton.addEventListener('click',()=>HTMLFormElement.prototype.submit.call(form));
+})();
+</script>
+<script>
+(() => {
   const placeScopePreviews=()=>document.querySelectorAll('.scope-preview').forEach(view=>{
     const image=view.querySelector('.scope-preview-image');
     const overlay=view.querySelector('.scope-preview-overlay');

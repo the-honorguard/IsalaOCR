@@ -210,6 +210,8 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
             except ValueError:
                 continue
         save_recognition_scope(project_root, tables)
+        if request.headers.get("X-Requested-With") == "recognition-scope-autosave":
+            return {"ok": True}
         flash("Recognition-scope opgeslagen. Vernieuw daarna de Recognition samples.", "success")
         return redirect(url_for("recognition_gt_review_home"))
 
