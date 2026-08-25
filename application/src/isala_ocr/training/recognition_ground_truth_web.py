@@ -123,6 +123,7 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
     @app.route("/recognition-gt-review/<source_id>", methods=["GET", "POST"])
     def recognition_gt_review_document(source_id: str):
         database = current_database()
+        project_root = resolve_project_workspace(workspace_root)
         samples = source_samples(database, source_id)
         if not samples:
             abort(404)
