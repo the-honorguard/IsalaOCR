@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import struct
 from pathlib import Path
 from typing import Any
 
@@ -212,40 +211,6 @@ def recognition_scope_preview(workspace: str | Path) -> dict[str, Any]:
                 })
             return {"source_id": source_id, "cells": cells, "tables": tables}
     return {"source_id": "", "cells": [], "tables": []}
-
-
-def recognition_scope_sources(workspace: str | Path) -> list[dict[str, Any]]:
-    """Return the recognition-scope review queue as complete source images.
-
-    Recognition scope is stored by table geometry, but the review workflow is
-    intentionally image-based: every source image is one review item and all
-    of its canonical cells are submitted together.
-    """
-    root = resolve_project_workspace(workspace)
-    sources: list[dict[str, Any]] = []
-    for source in list_ground_truth_sources(root):
-        source_id = str(source.get("source_id") or "").strip()
-        cells = _indexed_cells(list_ground_truth_cells(root, source_id), root)
-        render_path = root / "source_renders" / f"{source_id}.png"
-        if not source_id or not cells or not render_path.is_file():
-            continue
-        try:
-            header = render_path.read_bytes()[:24]
-            if header[:8] == b"\x89PNG\r\n\x1a\n":
-                image_width, image_height = struct.unpack(">II", header[16:24])
-            else:
-                image_width = max(int(item.get("x2") or 0) for item in cells)
-                image_height = max(int(item.get("y2") or 0) for item in cells)
-        except (OSError, struct.error, ValueError):
-            image_width = max(int(item.get("x2") or 0) for item in cells)
-            image_height = max(int(item.get("y2") or 0) for item in cells)
-        sources.append({
-            "source_id": source_id,
-            "image_width": max(1, int(image_width)),
-            "image_height": max(1, int(image_height)),
-            "cells": cells,
-        })
-    return sources
 
 
 def _safe_id(value: object) -> str:
