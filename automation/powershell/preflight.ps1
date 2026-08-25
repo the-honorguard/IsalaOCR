@@ -359,7 +359,10 @@ function Add-IsalaCommonChecks {
     $driveName = if ($driveRoot -and $driveRoot.Length -ge 1) { $driveRoot.Substring(0, 1) } else { "" }
     $drive = if ($driveName) { Get-PSDrive -Name $driveName -ErrorAction SilentlyContinue } else { $null }
     if ($drive) {
-        $freeGb = [Math]::Round($drive.Free / 1GB, 1)
+        # Get-PSDrive can report a stale/zero Free value in some Windows
+        # PowerShell hosts. DriveInfo reads the actual filesystem capacity.
+        $driveInfo = [System.IO.DriveInfo]::new($driveRoot)
+        $freeGb = [Math]::Round($driveInfo.AvailableFreeSpace / 1GB, 1)
         $status = if ($freeGb -lt 15) { "FAIL" } elseif ($freeGb -lt 40) { "WARN" } else { "PASS" }
         [void]$Results.Add((New-IsalaCheckResult -Scope "Storage" -Name "Project drive free space" -Status $status -Message ("{0} GB free on {1}" -f $freeGb, $drive.Root) -Remediation "Keep Docker data on a drive with sufficient free space."))
     }
