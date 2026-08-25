@@ -3,6 +3,9 @@
 {% block heading %}Recognition-scope{% endblock %}
 {% block subtitle %}Stap 8 · bepaal welke rijen en kolommen Recognition-samples leveren{% endblock %}
 {% block content %}
+<script>
+window.addEventListener('load',()=>{document.querySelectorAll('.scope-preview').forEach(view=>{const image=view.querySelector('.scope-preview-image'),overlay=view.querySelector('.scope-preview-overlay');if(!image||!overlay)return;const x1=Number(view.dataset.cropX1),y1=Number(view.dataset.cropY1),x2=Number(view.dataset.cropX2),y2=Number(view.dataset.cropY2),width=x2-x1,height=y2-y1,scale=Math.min((view.parentElement.clientWidth||900)/width,1.25);view.style.width=width*scale+'px';view.style.height=height*scale+'px';image.style.width=(image.naturalWidth||1636)*scale+'px';image.style.maxWidth='none';image.style.position='absolute';image.style.left=-x1*scale+'px';image.style.top=-y1*scale+'px';overlay.style.width=width*scale+'px';overlay.style.height=height*scale+'px';});});
+</script>
 <section class="card recognition-scope-hero"><div class="eyebrow">MODEL FACTORY · RECOGNITION</div><h2>Welke tekst moet Recognition leren?</h2><p class="muted">Beoordeel iedere tabel afzonderlijk. De volledige dataset staat in één queue: rapport en tabel worden niet meer samengevoegd.</p></section>
 <section class="card section-gap"><div class="toolbar"><div><h3>Recognition-scope per tabelbeeld</h3><p class="muted">Selecteer per tabel de rijen en kolommen die in de Recognition-training komen.</p></div><span class="pill {{ 'ok' if recognition_scope.mode == 'selected' else '' }}">{{ recognition_scope_options|length }} tabelbeelden</span></div>
 {% if recognition_scope_options %}<form method="post" action="/recognition-gt-scope">
