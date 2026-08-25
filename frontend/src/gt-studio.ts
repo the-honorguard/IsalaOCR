@@ -1,19 +1,17 @@
 /* Ground Truth Studio review workflow. */
 
 declare const React: any;
-declare const ReactDOM: any;
-declare const window: any;
 
 const h = React.createElement;
 
-type GTReviewStatus =
+export type GTReviewStatus =
   | "new"
   | "reviewing"
   | "corrected"
   | "approved"
   | "training_ready";
 
-interface GTImageReview {
+export interface GTImageReview {
   image_id: string;
   image_url?: string;
   status: GTReviewStatus;
@@ -37,7 +35,7 @@ interface GTStudioProps {
   onToggleTraining?: () => void;
 }
 
-function GTStudio(props: GTStudioProps) {
+export function GTStudio(props: GTStudioProps) {
   const image = props.image;
 
   return h(
@@ -60,20 +58,5 @@ function GTStudio(props: GTStudioProps) {
         h("button", { onClick: props.onToggleTraining }, "Toggle training")
       )
     )
-  );
-}
-
-const bootstrap = window.__ISALA_GT_STUDIO__;
-const root = document.getElementById("gt-studio-root");
-if (root && bootstrap) {
-  ReactDOM.render(
-    h(GTStudio, {
-      image: bootstrap.image,
-      onPrevious: bootstrap.previous,
-      onNext: bootstrap.next,
-      onApprove: bootstrap.approve,
-      onToggleTraining: bootstrap.toggleTraining,
-    }),
-    root,
   );
 }
