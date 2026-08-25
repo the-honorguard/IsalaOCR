@@ -10,7 +10,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".\automation\powershell\watch-webui.ps1"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".\automation\powershell\watch-webui.ps1" -QuietSeconds 30
 set "RESULT=%ERRORLEVEL%"
 if not "%RESULT%"=="0" (
   echo.

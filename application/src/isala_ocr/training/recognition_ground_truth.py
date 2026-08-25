@@ -158,12 +158,59 @@ def recognition_scope_options(workspace: str | Path) -> list[dict[str, Any]]:
 
 def recognition_scope_preview(workspace: str | Path) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
+    profile_panels = {str(panel.get("panel_id") or ""): panel for panel in _profile_panels(root)}
     for source in list_ground_truth_sources(root):
         source_id = str(source.get("source_id") or "")
         cells = _indexed_cells(list_ground_truth_cells(root, source_id), root)
         if cells and (root / "source_renders" / f"{source_id}.png").is_file():
-            return {"source_id": source_id, "cells": cells}
-    return {"source_id": "", "cells": []}
+            grouped: dict[str, list[dict[str, Any]]] = {}
+            for cell in cells:
+                grouped.setdefault(str(cell.get("table_id") or "__default__"), []).append(cell)
+            tables = []
+            for table_id, table_cells in sorted(grouped.items()):
+                panel = profile_panels.get(table_id)
+                if panel:
+                    reference_width = float(panel.get("reference_width") or 0)
+                    reference_height = float(panel.get("reference_height") or 0)
+                    crop = {
+                        "x1": max(0, round(float(panel.get("x1") or 0) * reference_width) - 16),
+                        "y1": max(0, round(float(panel.get("y1") or 0) * reference_height) - 16),
+                        "x2": round(float(panel.get("x2") or 0) * reference_width) + 16,
+                        "y2": round(float(panel.get("y2") or 0) * reference_height) + 16,
+                    }
+                else:
+                    reference_width = max(int(item.get("x2") or 0) for item in table_cells)
+                    reference_height = max(int(item.get("y2") or 0) for item in table_cells)
+                    crop = {
+                        "x1": max(0, min(int(item.get("x1") or 0) for item in table_cells) - 16),
+                        "y1": max(0, min(int(item.get("y1") or 0) for item in table_cells) - 16),
+                        "x2": max(int(item.get("x2") or 0) for item in table_cells) + 16,
+                        "y2": max(int(item.get("y2") or 0) for item in table_cells) + 16,
+                    }
+                def axis_regions(index_key: str) -> list[dict[str, int]]:
+                    grouped: dict[int, list[dict[str, Any]]] = {}
+                    for item in table_cells:
+                        index = int(item.get(index_key) or 0)
+                        grouped.setdefault(index, []).append(item)
+                    return [{
+                        "index": index,
+                        "x1": min(int(item.get("x1") or 0) for item in items),
+                        "y1": min(int(item.get("y1") or 0) for item in items),
+                        "x2": max(int(item.get("x2") or 0) for item in items),
+                        "y2": max(int(item.get("y2") or 0) for item in items),
+                    } for index, items in sorted(grouped.items())]
+                tables.append({
+                    "table_id": table_id,
+                    "table_name": str(table_cells[0].get("table_name") or table_cells[0].get("panel_name") or ("Tabel zonder profiel" if table_id == "__default__" else table_id)),
+                    "cells": table_cells,
+                    "render_width": round(reference_width),
+                    "render_height": round(reference_height),
+                    "rows": axis_regions("row_index"),
+                    "columns": axis_regions("column_index"),
+                    "crop": crop,
+                })
+            return {"source_id": source_id, "cells": cells, "tables": tables}
+    return {"source_id": "", "cells": [], "tables": []}
 
 
 def _safe_id(value: object) -> str:

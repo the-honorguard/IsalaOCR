@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [int]$PollMilliseconds = 800,
-    [int]$QuietSeconds = 10
+    [int]$QuietSeconds = 30
 )
 
 if ($QuietSeconds -lt 0) {
@@ -10,6 +10,12 @@ if ($QuietSeconds -lt 0) {
 
 $ErrorActionPreference = "Stop"
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$watchMutex = New-Object System.Threading.Mutex($false, "IsalaOCR-WebUiWatcher")
+if (-not $watchMutex.WaitOne(0)) {
+    Write-Host "Er draait al een WebUI-watcher; deze tweede watcher wordt gestopt." -ForegroundColor DarkYellow
+    $watchMutex.Dispose()
+    exit 0
+}
 $watchRoots = @(
     (Join-Path $projectRoot "application\src\isala_ocr"),
     (Join-Path $projectRoot "application\config"),
@@ -35,7 +41,7 @@ function Get-WebUiFingerprint {
 $lastFingerprint = Get-WebUiFingerprint
 Write-Host "IsalaOCR WebUI watch mode actief." -ForegroundColor Cyan
 Write-Host ("Opslaan in application/src, config of Docker-config bouwt de WebUI automatisch opnieuw nadat de workspace {0} seconden stil is geweest." -f $QuietSeconds) -ForegroundColor DarkGray
-Write-Host "Stoppen: Ctrl+C" -ForegroundColor DarkGray
+Write-Host "Stoppen: Ctrl+C · Handmatig opnieuw bouwen: R" -ForegroundColor DarkGray
 
 $pendingFingerprint = $null
 $pendingSince = $null
@@ -43,6 +49,25 @@ $pendingSince = $null
 try {
     while ($true) {
         Start-Sleep -Milliseconds $PollMilliseconds
+        try {
+            if (-not [Console]::IsInputRedirected -and [Console]::KeyAvailable) {
+                $key = [Console]::ReadKey($true)
+                if ($key.Key -eq [ConsoleKey]::R) {
+                    Write-Host ""
+                    Write-Host "Handmatige WebUI-rebuild gestart..." -ForegroundColor Yellow
+                    & (Join-Path $PSScriptRoot "label-training-data.ps1") -NoBrowser -ForceRebuild
+                    if ($LASTEXITCODE -ne 0) { throw "label-training-data.ps1 exit code $LASTEXITCODE" }
+                    $lastFingerprint = Get-WebUiFingerprint
+                    $pendingFingerprint = $null
+                    $pendingSince = $null
+                    Write-Host "Handmatige rebuild klaar." -ForegroundColor Green
+                    continue
+                }
+            }
+        } catch {
+            Write-Host ("Handmatige WebUI-rebuild mislukt: {0}" -f $_.Exception.Message) -ForegroundColor Red
+            continue
+        }
         $fingerprint = Get-WebUiFingerprint
         if ($fingerprint -ne $lastFingerprint) {
             $lastFingerprint = $fingerprint
@@ -69,4 +94,6 @@ try {
     }
 } finally {
     Write-Host "WebUI watch mode gestopt." -ForegroundColor DarkGray
+    $watchMutex.ReleaseMutex()
+    $watchMutex.Dispose()
 }

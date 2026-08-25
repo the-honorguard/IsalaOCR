@@ -1,12 +1,50 @@
 param(
     [int]$PreferredPort = 8088,
     [int]$StartupTimeoutSeconds = 300,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$ForceRebuild
 )
 
 $ErrorActionPreference = "Stop"
 if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
     $PSNativeCommandUseErrorActionPreference = $false
+}
+
+function Wait-IsalaWebUiQuiet {
+    param([int]$QuietSeconds = 30)
+    $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+    $watchRoots = @(
+        (Join-Path $root "application\src\isala_ocr"),
+        (Join-Path $root "application\config"),
+        (Join-Path $root "infrastructure\docker\Dockerfile.labeler"),
+        (Join-Path $root "infrastructure\docker\compose.yaml")
+    )
+    $extensions = @('.py', '.html', '.css', '.js', '.yaml', '.yml', '.json')
+    while ($true) {
+        $latest = $null
+        foreach ($watchRoot in $watchRoots) {
+            $files = if (Test-Path -LiteralPath $watchRoot -PathType Leaf) {
+                @(Get-Item -LiteralPath $watchRoot)
+            } elseif (Test-Path -LiteralPath $watchRoot -PathType Container) {
+                @(Get-ChildItem -LiteralPath $watchRoot -Recurse -File -ErrorAction SilentlyContinue |
+                    Where-Object { $extensions -contains $_.Extension.ToLowerInvariant() })
+            } else { @() }
+            foreach ($file in $files) {
+                if ($null -eq $latest -or $file.LastWriteTimeUtc -gt $latest) {
+                    $latest = $file.LastWriteTimeUtc
+                }
+            }
+        }
+        $quietFor = if ($null -eq $latest) { $QuietSeconds } else { ((Get-Date).ToUniversalTime() - $latest).TotalSeconds }
+        if ($quietFor -ge $QuietSeconds) { return }
+        $remaining = [math]::Ceiling($QuietSeconds - $quietFor)
+        Write-Host ("Automatische WebUI-update wacht nog {0} seconden op een stille workspace..." -f $remaining) -ForegroundColor DarkYellow
+        Start-Sleep -Seconds ([math]::Min(5, [math]::Max(1, $remaining)))
+    }
+}
+
+if ($NoBrowser -and -not $ForceRebuild) {
+    Wait-IsalaWebUiQuiet
 }
 . (Join-Path $PSScriptRoot "training-common.ps1")
 Assert-IsalaActionPreflight -ActionId "3"

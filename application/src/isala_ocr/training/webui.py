@@ -2919,9 +2919,12 @@ def create_web_app(
                      "x2": max(int(item.get("x2") or 0) for item in items), "y2": max(int(item.get("y2") or 0) for item in items)}
                     for index, items in sorted(groups.items()) if index >= 0
                 ]
+            def table_record(table_id: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
+                padding = 16
+                return {"table_id": table_id, "table_name": str(cells[0].get("table_name") or cells[0].get("panel_name") or ("Tabel zonder profiel" if table_id == "__default__" else table_id)), "cells": cells, "rows": axis_groups(cells, "row_index"), "columns": axis_groups(cells, "column_index"), "crop": {"x1": max(0, min(int(item.get("x1") or 0) for item in cells) - padding), "y1": max(0, min(int(item.get("y1") or 0) for item in cells) - padding), "x2": max(int(item.get("x2") or 0) for item in cells) + padding, "y2": max(int(item.get("y2") or 0) for item in cells) + padding}}
             studio = {
                 "source_id": str(preview.get("source_id") or ""),
-                "tables": [{"table_id": table_id, "table_name": str(cells[0].get("table_name") or cells[0].get("panel_name") or ("Tabel zonder profiel" if table_id == "__default__" else table_id)), "cells": cells, "rows": axis_groups(cells, "row_index"), "columns": axis_groups(cells, "column_index")} for table_id, cells in sorted(table_groups.items())],
+                "tables": [table_record(table_id, cells) for table_id, cells in sorted(table_groups.items())],
             }
             return render_template(
                 "table_structure.html",
