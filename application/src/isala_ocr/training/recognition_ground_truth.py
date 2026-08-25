@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import struct
 from pathlib import Path
 from typing import Any
 
@@ -214,45 +213,6 @@ def recognition_scope_preview(workspace: str | Path) -> dict[str, Any]:
     return {"source_id": "", "cells": [], "tables": []}
 
 
-def recognition_scope_table_sources(workspace: str | Path) -> list[dict[str, Any]]:
-    """Build one review item for every named table in every source image."""
-    root = resolve_project_workspace(workspace)
-    result: list[dict[str, Any]] = []
-    for source in list_ground_truth_sources(root):
-        source_id = str(source.get("source_id") or "").strip()
-        cells = _indexed_cells(list_ground_truth_cells(root, source_id), root)
-        render_path = root / "source_renders" / f"{source_id}.png"
-        if not source_id or not cells or not render_path.is_file():
-            continue
-        try:
-            header = render_path.read_bytes()[:24]
-            image_width, image_height = struct.unpack(">II", header[16:24])
-        except (OSError, struct.error, ValueError):
-            image_width = max(int(item.get("x2") or 0) for item in cells)
-            image_height = max(int(item.get("y2") or 0) for item in cells)
-        groups: dict[str, list[dict[str, Any]]] = {}
-        for cell in cells:
-            table_id = _cell_table_id(cell)
-            if table_id and table_id != "__default__":
-                groups.setdefault(table_id, []).append(cell)
-        for table_id, table_cells in sorted(groups.items()):
-            padding = 16
-            x1 = max(0, min(int(item.get("x1") or 0) for item in table_cells) - padding)
-            y1 = max(0, min(int(item.get("y1") or 0) for item in table_cells) - padding)
-            x2 = min(int(image_width), max(int(item.get("x2") or 0) for item in table_cells) + padding)
-            y2 = min(int(image_height), max(int(item.get("y2") or 0) for item in table_cells) + padding)
-            result.append({
-                "scope_id": f"{source_id}::{table_id}",
-                "source_id": source_id,
-                "table_id": table_id,
-                "image_width": int(image_width),
-                "image_height": int(image_height),
-                "crop": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
-                "cells": table_cells,
-            })
-    return result
-
-
 def _safe_id(value: object) -> str:
     text = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "").strip()).strip("-._")
     return text or hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:20]
@@ -317,8 +277,8 @@ def materialize_recognition_ground_truth(
             cells = [
                 cell for cell in cells
                 if (
-                    (selected.get(f"{source_id}::{_cell_table_id(cell)}", selected.get(_cell_table_id(cell), {})).get("legacy_columns_only") or int(cell.get("row_index", -1)) in set(selected.get(f"{source_id}::{_cell_table_id(cell)}", selected.get(_cell_table_id(cell), {})).get("rows") or []))
-                    and int(cell.get("column_index", -1)) in set(selected.get(f"{source_id}::{_cell_table_id(cell)}", selected.get(_cell_table_id(cell), {})).get("columns") or [])
+                    (selected.get(_cell_table_id(cell), {}).get("legacy_columns_only") or int(cell.get("row_index", -1)) in set(selected.get(_cell_table_id(cell), {}).get("rows") or []))
+                    and int(cell.get("column_index", -1)) in set(selected.get(_cell_table_id(cell), {}).get("columns") or [])
                 )
             ]
         if not source_id or not cells:
