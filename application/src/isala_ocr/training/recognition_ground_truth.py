@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import struct
 from pathlib import Path
 from typing import Any
 
@@ -146,26 +147,35 @@ def recognition_scope_options(workspace: str | Path) -> list[dict[str, Any]]:
     root = resolve_project_workspace(workspace)
     options: dict[str, dict[str, Any]] = {}
     for source in list_ground_truth_sources(root):
-        cells = _indexed_cells(list_ground_truth_cells(root, str(source.get("source_id") or "")), root)
+        source_id = str(source.get("source_id") or "")
+        cells = _indexed_cells(list_ground_truth_cells(root, source_id), root)
         for cell in cells:
             table_id = _cell_table_id(cell)
-            table_name = str(cell.get("table_name") or cell.get("panel_name") or table_id)
-            item = options.setdefault(table_id, {"table_id": table_id, "table_name": table_name, "rows": set(), "columns": set()})
+            if not table_id or table_id == "__default__":
+                continue
+            scope_id = f"{source_id}::{table_id}"
+            item = options.setdefault(scope_id, {"table_id": scope_id, "table_name": "", "source_id": source_id, "rows": set(), "columns": set()})
             item["rows"].add(int(cell.get("row_index", -1)))
             item["columns"].add(int(cell.get("column_index", -1)))
-    return [{**item, "rows": sorted(item["rows"]), "columns": sorted(item["columns"])} for item in sorted(options.values(), key=lambda value: value["table_name"])]
+    return [{**item, "rows": sorted(item["rows"]), "columns": sorted(item["columns"])} for item in sorted(options.values(), key=lambda value: value["table_id"])]
 
 
 def recognition_scope_preview(workspace: str | Path) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
     profile_panels = {str(panel.get("panel_id") or ""): panel for panel in _profile_panels(root)}
+    all_tables: list[dict[str, Any]] = []
+    first_source_id = ""
     for source in list_ground_truth_sources(root):
         source_id = str(source.get("source_id") or "")
         cells = _indexed_cells(list_ground_truth_cells(root, source_id), root)
         if cells and (root / "source_renders" / f"{source_id}.png").is_file():
+            if not first_source_id:
+                first_source_id = source_id
             grouped: dict[str, list[dict[str, Any]]] = {}
             for cell in cells:
-                grouped.setdefault(str(cell.get("table_id") or "__default__"), []).append(cell)
+                table_id = _cell_table_id(cell)
+                if table_id and table_id != "__default__":
+                    grouped.setdefault(table_id, []).append(cell)
             tables = []
             for table_id, table_cells in sorted(grouped.items()):
                 panel = profile_panels.get(table_id)
@@ -200,8 +210,9 @@ def recognition_scope_preview(workspace: str | Path) -> dict[str, Any]:
                         "y2": max(int(item.get("y2") or 0) for item in items),
                     } for index, items in sorted(grouped.items())]
                 tables.append({
-                    "table_id": table_id,
-                    "table_name": str(table_cells[0].get("table_name") or table_cells[0].get("panel_name") or ("Tabel zonder profiel" if table_id == "__default__" else table_id)),
+                    "table_id": f"{source_id}::{table_id}",
+                    "source_id": source_id,
+                    "table_name": "",
                     "cells": table_cells,
                     "render_width": round(reference_width),
                     "render_height": round(reference_height),
@@ -209,8 +220,8 @@ def recognition_scope_preview(workspace: str | Path) -> dict[str, Any]:
                     "columns": axis_regions("column_index"),
                     "crop": crop,
                 })
-            return {"source_id": source_id, "cells": cells, "tables": tables}
-    return {"source_id": "", "cells": [], "tables": []}
+            all_tables.extend(tables)
+    return {"source_id": first_source_id, "cells": [], "tables": all_tables}
 
 
 def _safe_id(value: object) -> str:
@@ -274,11 +285,14 @@ def materialize_recognition_ground_truth(
         cells = _indexed_cells(list_ground_truth_cells(root, source_id), root)
         if scope["mode"] == "selected":
             selected = scope.get("tables") or {}
+            def selection_for(cell: dict[str, Any]) -> dict[str, Any]:
+                table_id = _cell_table_id(cell)
+                return selected.get(f"{source_id}::{table_id}", selected.get(table_id, {}))
             cells = [
                 cell for cell in cells
                 if (
-                    (selected.get(_cell_table_id(cell), {}).get("legacy_columns_only") or int(cell.get("row_index", -1)) in set(selected.get(_cell_table_id(cell), {}).get("rows") or []))
-                    and int(cell.get("column_index", -1)) in set(selected.get(_cell_table_id(cell), {}).get("columns") or [])
+                    (selection_for(cell).get("legacy_columns_only") or int(cell.get("row_index", -1)) in set(selection_for(cell).get("rows") or []))
+                    and int(cell.get("column_index", -1)) in set(selection_for(cell).get("columns") or [])
                 )
             ]
         if not source_id or not cells:
