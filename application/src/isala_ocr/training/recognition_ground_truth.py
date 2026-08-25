@@ -182,10 +182,12 @@ def recognition_scope_preview(workspace: str | Path) -> dict[str, Any]:
                 if panel:
                     reference_width = float(panel.get("reference_width") or 0)
                     reference_height = float(panel.get("reference_height") or 0)
+                    cell_x1 = min(int(item.get("x1") or 0) for item in table_cells)
+                    cell_x2 = max(int(item.get("x2") or 0) for item in table_cells)
                     crop = {
-                        "x1": max(0, round(float(panel.get("x1") or 0) * reference_width) - 16),
+                        "x1": max(0, min(round(float(panel.get("x1") or 0) * reference_width) - 16, cell_x1 - 16)),
                         "y1": max(0, round(float(panel.get("y1") or 0) * reference_height) - 16),
-                        "x2": round(float(panel.get("x2") or 0) * reference_width) + 16,
+                        "x2": min(round(float(panel.get("x2") or 0) * reference_width) + 16, cell_x2 + 16),
                         "y2": round(float(panel.get("y2") or 0) * reference_height) + 16,
                     }
                 else:
