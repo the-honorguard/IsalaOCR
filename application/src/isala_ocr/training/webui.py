@@ -3376,7 +3376,9 @@ def create_web_app(
                 cb = (assist.get("column_bounds") or {}).get(item["column_index"])
                 item["smart_box"] = [cb[0], rb[0], cb[1], rb[1]] if rb and cb else None
         counts = step4_review_counts(source_id)
-        if request.args.get("view", "gt").strip().lower() != "legacy":
+        # The canonical GT Studio is the full source-review editor. Keep the
+        # compact React page available only as an explicit compatibility view.
+        if request.args.get("view", "legacy").strip().lower() != "legacy":
             studio_sources = (
                 [
                     {"source_id": str(item["source_id"]), "review_completed": bool(item.get("review_completed", True))}
