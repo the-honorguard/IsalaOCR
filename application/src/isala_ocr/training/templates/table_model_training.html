@@ -1,18 +1,18 @@
 {% extends 'base.html' %}
-{% block title %}Stap 6 · Celdetector verbeteren · IsalaOCR{% endblock %}
-{% block heading %}Stap 6 · Celdetector verbeteren{% endblock %}
+{% block title %}Stap 5 · Celdetector trainen · IsalaOCR{% endblock %}
+{% block heading %}Stap 5 · Celdetector trainen{% endblock %}
 {% block subtitle %}Bouw en train het table-cell model uit de beoordeelde Ground Truth.{% endblock %}
 {% block content %}
 <section class="card">
-  <h2>Celdetector verbeteren</h2>
-  <p>Gebruik de acties op deze pagina om de actuele table-cell dataset te bouwen, te valideren en de celdetector te verbeteren. Daarna ga je door naar Stap 7 voor rijen, kolommen en celcrops.</p>
+  <h2>Celdetector trainen</h2>
+  <p>Gebruik de acties op deze pagina om de goedgekeurde GT om te zetten naar een dataset, te valideren, te trainen en daarna een nieuwe celdetectie uit te voeren.</p>
   <div class="actions">
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="48"><button type="submit">Dataset bouwen</button></form>
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="49"><button type="submit">Dataset valideren</button></form>
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="50"><button type="submit">Train GPU</button></form>
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="51"><button type="submit">Train CPU</button></form>
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="52"><button type="submit">Model activeren</button></form>
-    <a class="button primary" href="/process/table-quality">Naar Stap 7 · Rijen en kolommen →</a>
+    <a class="button primary" href="/process/table-quality">Naar Stap 6 · Tabelstudio →</a>
   </div>
 </section>
 {% endblock %}

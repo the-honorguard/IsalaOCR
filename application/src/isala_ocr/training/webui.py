@@ -109,7 +109,7 @@ ACTIONS = {
     "50": "Wireless table-cell detector trainen op GPU",
     "51": "Wireless table-cell detector trainen op CPU",
     "52": "Getraind table-cell model activeren",
-    "53": "Stap 5 volledig uitvoeren (dataset, training en activatie)",
+    "53": "Stap 5 volledig uitvoeren (dataset, training, activatie en nieuwe celdetectie)",
     "54": "Tabelregio-dataset bouwen",
     "55": "Tabelregio-detector trainen op GPU",
     "56": "Tabelregio-detector trainen op CPU",
@@ -187,7 +187,7 @@ ACTION_DURATION_ESTIMATES = {
     "50": {"label": "± 8–20 min", "detail": "Huidig small-reviewed profiel op GPU; dataset/GPU bepalen de werkelijke duur."},
     "51": {"label": "± 1–4 uur", "detail": "CPU-alternatief; sterk hardware- en dataset-afhankelijk."},
     "52": {"label": "± 10–30 sec", "detail": "Bestaand getraind table-cell model activeren; er wordt niet opnieuw getraind."},
-    "53": {"label": "± 10–30 min", "detail": "Dataset bouwen → valideren → GPU trainen → model activeren."},
+    "53": {"label": "± 10–30 min", "detail": "Dataset bouwen → valideren → trainen → activeren → nieuwe celdetectie."},
     "54": {"label": "± 10–60 sec", "detail": "Volledige bronbeelden met Stap-2 tabelregio-GT naar COCO omzetten."},
     "55": {"label": "± 5–20 min", "detail": "PicoDet-S tabelregio-detector trainen op GPU."},
     "56": {"label": "± 30–120 min", "detail": "PicoDet-S tabelregio-detector trainen op CPU."},
@@ -208,12 +208,12 @@ ACTION_DURATION_ESTIMATES = {
 PROCESS_STEPS = [
     {"key": "detection-models","index":1,"group":"detection","title":"Voorbereiding","subtitle":"Controleer of PP-StructureV3 en de inference/table-modelcache beschikbaar zijn.","action_ids":["14","19","30","35","42"],"requirements":["Docker Desktop actief","Inference OCR + tabelmodellen lokaal beschikbaar","Tabelregio’s en tabelnamen worden in Stap 2 gedefinieerd","Geen detector-training nodig voor de table-first proef"]},
     {"key": "panel-setup","index":2,"group":"detection","title":"Tabelregio’s selecteren","subtitle":"Beoordeel per lezing de volledige tabelregio’s in de fullscreen reviewer en sla ze op als Ground Truth.","action_ids":[],"requirements":["Minimaal één bronpreview","Per lezing alle volledige tabellen omkaderen","Tabeldefinities en tabelregio-GT opslaan"]},
-    {"key": "table-region-model","index":3,"group":"detection","title":"Tabelregio trainen & cellen detecteren","subtitle":"Bouw de tabelregio-detector, activeer hem en start daarna vanuit dezelfde pagina de celdetectie.","action_ids":["54","55","56","57","2"],"requirements":["Afgeronde tabelregio-review","Dataset gebouwd vóór training","Tabelregio-model geactiveerd vóór celdetectie"]},
-    {"key": "detect-candidates","index":None,"group":"fallback","title":"Cellen detecteren · technische fallback","subtitle":"Losse technische route voor opnieuw draaien van de celdetectie.","action_ids":["2"],"requirements":["Tabelregio-detector voorbereid of handmatige fallback"]},
-    {"key": "detection-review","index":4,"group":"detection","title":"Rijen & kolommen bepalen","subtitle":"Controleer de automatisch afgeleide tabelstructuur; losse cellen zijn alleen uitzonderingen.","action_ids":[],"requirements":["Celdetectie afgerond","Automatische rij- en kolomindeling","Bronrender"]},
-    {"key": "table-model","index":5,"group":"detection","title":"Celdetector verbeteren","subtitle":"Train optioneel een betere celdetector op de gecorrigeerde één-cel-één-box Ground Truth.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde celreview","Dataset gebouwd en gevalideerd vóór training"]},
-    {"key": "table-quality","index":6,"group":"detection","title":"Rijen, kolommen en celcrops","subtitle":"Gebruik de celposities om rij- en kolomstructuur af te leiden en definitieve individuele celcrops te maken.","action_ids":[],"requirements":["Goedgekeurde celposities","Herkenbare tabelstructuur"]},
-    {"key": "table-compare","index":None,"group":"fallback","title":"Celdetector-afwijkingen reviewen","subtitle":"Optionele verbeterlus voor nieuwe cel-detectorruns; dit is geen OCR-beoordeling.","action_ids":[],"requirements":["Getrainde celdetector","Canonieke cel-GT"]},
+    {"key": "table-region-model","index":None,"group":"fallback","title":"Tabelregio-model · technische optie","subtitle":"Optionele tabelregio-training; dit hoort niet in de eerste GT-reviewflow.","action_ids":["54","55","56","57"],"requirements":["Alleen gebruiken voor een aparte tabelregio-experiment"]},
+    {"key": "detect-candidates","index":3,"group":"detection","title":"Eerste celdetectie","subtitle":"Voer de eerste celdetectie uit binnen de ingestelde tabelregio’s. Deze run is alleen het startpunt voor de GT.","action_ids":["2"],"requirements":["Voorbereiding afgerond","Tabelregio’s opgeslagen","Bronnen in input"]},
+    {"key": "detection-review","index":4,"group":"detection","title":"GT Studio","subtitle":"Beoordeel de Ground Truth per bron in de zelfstandige Studio-reviewworkflow; tabelanalyse volgt later.","action_ids":[],"requirements":["Eerste celdetectie afgerond","Bronrender","Per bron GT controleren en goedkeuren"]},
+    {"key": "table-model","index":5,"group":"detection","title":"Celdetector trainen","subtitle":"Bouw uit de goedgekeurde GT een dataset, train/activeer de celdetector en maak een nieuwe detectierun.","action_ids":["48","49","50","51","52","53"],"requirements":["GT Studio afgerond","Positieve functionele cellen","Dataset gebouwd en gevalideerd vóór training"]},
+    {"key": "table-quality","index":6,"group":"detection","title":"Tabelstudio","subtitle":"Beoordeel daarna de tabeldekking en tabelstructuur op basis van de getrainde celdetector.","action_ids":[],"requirements":["Celdetector getraind en opnieuw gedraaid","Goedgekeurde celposities"]},
+    {"key": "table-compare","index":7,"group":"detection","title":"Detectorafwijkingen reviewen","subtitle":"Optionele verbeterlus voor nieuwe celdetectorruns; dit is geen eerste GT-review.","action_ids":[],"requirements":["Getrainde celdetector","Canonieke cel-GT"]},
 
     # The previous loose field/PicoDet workflow is intentionally parked. Routes,
     # artifacts and jobs stay available so nothing is deleted, but they are no
@@ -603,7 +603,7 @@ def create_web_app(
                 f"{open_sources} van {source_count} bronafbeelding(en) moeten nog expliciet als GT-gecontroleerd worden gemarkeerd. "
                 "Nieuwe modelpredictions tellen hier niet als open kandidaten; die beoordeel je in Stap 7."
             )
-            next_step = "Open Stap 4 · Ground Truth beheren, controleer de bron en kies GT-afbeelding gecontroleerd."
+            next_step = "Open Stap 4 · GT Studio, controleer de bron en kies GT goedkeuren."
         else:
             state = "canonical_gt_ready"
             title = "Canonieke Ground Truth is volledig gecontroleerd"
@@ -611,7 +611,7 @@ def create_web_app(
                 f"Alle {source_count} bronafbeeldingen zijn als GT-gecontroleerd gemarkeerd; de canonieke GT bevat {gt_cells} cellen. "
                 "Een nieuwe Stap-3-run wijzigt deze status niet. Modelverschillen worden uitsluitend in Stap 7 beoordeeld."
             )
-            next_step = "Gebruik Stap 7 voor de actuele modelvergelijking of Stap 6 voor een volgende trainingsdataset."
+            next_step = "Gebruik Stap 7 voor de actuele modelvergelijking of Stap 5 voor een volgende trainingsdataset."
         return {
             "strategy": "table_first", "canonical_ground_truth": True,
             "ready": ready, "state": state, "tone": "success" if ready else "warning",
@@ -653,7 +653,7 @@ def create_web_app(
                     "title": "Voer de table-detectie opnieuw uit",
                     "reason": "Het panelprofiel is nieuwer dan de huidige cell-detectie.",
                     "summary": "De bestaande boxes horen nog bij een oudere/full-image panelkeuze.",
-                    "next_step": "Voer Stap 4 · Tabelstructuur detecteren opnieuw uit.",
+                    "next_step": "Voer Stap 3 · Eerste celdetectie opnieuw uit.",
                     "sources": [], "totals": {}, "thresholds": table_first_thresholds(),
                 }
             try:
@@ -2613,6 +2613,8 @@ def create_web_app(
         step = PROCESS_STEP_BY_KEY.get(step_key)
         if step is None:
             abort(404)
+        if step_key == "detection-review" and request.method == "GET":
+            return redirect(url_for("detection_review_index"))
 
         header_status_filter = str(request.args.get("header_status", "pending")).strip().lower()
         if header_status_filter not in {"all", "pending", "accepted", "rejected", "deferred"}:
@@ -2650,7 +2652,7 @@ def create_web_app(
                         suffix = " (bestond al in GT)" if promoted.get("already_present") else ""
                         message = (
                             "Prediction toegevoegd aan de canonieke Ground Truth" + suffix +
-                            ". De huidige table-cell trainingsdataset is nu verouderd; bouw hem in Stap 6 opnieuw."
+                            ". De huidige table-cell trainingsdataset is nu verouderd; bouw hem in Stap 5 opnieuw."
                         )
                 else:
                     decision = str(request.form.get("decision") or "").strip().lower()
@@ -3354,6 +3356,23 @@ def create_web_app(
                 cb = (assist.get("column_bounds") or {}).get(item["column_index"])
                 item["smart_box"] = [cb[0], rb[0], cb[1], rb[1]] if rb and cb else None
         counts = step4_review_counts(source_id)
+        if request.args.get("view", "gt").strip().lower() != "legacy":
+            studio_sources = (
+                [
+                    {"source_id": str(item["source_id"]), "review_completed": bool(item.get("review_completed", True))}
+                    for item in list_ground_truth_sources(workspace_root())
+                ]
+                if gt_mode else
+                [
+                    {"source_id": str(item["source_id"]), "review_completed": bool(item.get("review_completed"))}
+                    for item in database.list_detection_sources()
+                ]
+            )
+            return render_template(
+                "gt_studio.html", source=source, source_id=source_id,
+                candidates=candidates, manual_annotations=manual_annotations,
+                sources=studio_sources, gt_mode=gt_mode,
+            )
         return render_template(
             "detection_review_studio.html",
             source=source, source_id=source_id, candidates=candidates, gt_mode=gt_mode,
