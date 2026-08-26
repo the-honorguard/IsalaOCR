@@ -10,6 +10,7 @@ RECOGNITION_STEP_KEYS = (
     "recognition-train",
     "recognition-evaluate",
     "recognition-models",
+    "recognition-output-review",
 )
 APPLICATION_STEP_KEYS = (
     "mapping",
@@ -38,7 +39,7 @@ def install_recognition_model_factory_metadata(webui_module: Any) -> None:
 
     inserts = [{
         "key": "recognition-scope",
-        "index": 7,
+        "index": 8,
         "group": "value",
         "title": "Recognition-scope",
         "subtitle": "Kies per project welke panelen en kolommen Recognition-samples leveren.",
@@ -46,7 +47,7 @@ def install_recognition_model_factory_metadata(webui_module: Any) -> None:
         "requirements": ["Canonieke table-cell Ground Truth"],
     }, {
         "key": "recognition-gt-studio",
-        "index": 8,
+        "index": 9,
         "group": "value",
         "title": "Recognition GT Studio",
         "subtitle": "Maak, bekijk en corrigeer neutrale crop→tekst samples rechtstreeks uit de geselecteerde panelen en kolommen.",
@@ -63,10 +64,10 @@ def install_recognition_model_factory_metadata(webui_module: Any) -> None:
             by_key[item["key"]] = item
 
     recognition_updates = {
-        "recognition-dataset": (9, "Recognition Model Factory", "Bouw, train, beoordeel en activeer het Recognition-model vanuit één pagina."),
-        "recognition-train": (10, "Recognition Model trainen", "Train het recognitionmodel dat pixels in een reeds correcte crop omzet naar letterlijke tekst."),
-        "recognition-evaluate": (11, "Recognition Model beoordelen", "Beoordeel exact match en CER en controleer of de Recognition-output bruikbaar is."),
-        "recognition-models": (12, "Recognition Model activeren", "Registreer en activeer een voldoende goed recognitionmodel als onderdeel van het Model Bundle."),
+        "recognition-dataset": (10, "Recognition Model Factory", "Bouw, train, beoordeel en activeer het Recognition-model vanuit één pagina."),
+        "recognition-train": (None, "Recognition-model trainen · legacy", "Legacy-route; gebruik de gecombineerde Recognition Model Factory."),
+        "recognition-evaluate": (None, "Recognition-model beoordelen · legacy", "Legacy-route; gebruik de gecombineerde Recognition Model Factory."),
+        "recognition-models": (None, "Recognition-model activeren · legacy", "Legacy-route; gebruik de gecombineerde Recognition Model Factory."),
     }
     for key, (index, title, subtitle) in recognition_updates.items():
         step = by_key.get(key)

@@ -37,8 +37,8 @@
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTOR · 5 → 6 → 5</div>
     <a href="/process/table-model" class="process-tab {% if request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">5</span><span>Celdetector trainen</span></a>
     <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' %}active{% endif %}"><span class="process-tab-number">6</span><span>Detectorafwijkingen reviewen</span></a>
-    <div class="nav-section nav-pipeline-a">TABELLEN</div>
-    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">6</span><span>Tabelstudio</span></a>
+    <div class="nav-section nav-pipeline-a">TABLE DEFINITION</div>
+    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">7</span><span>Tabelstudio</span></a>
     {% else %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTIE & CROPS</div>
     {% for step in process_steps if step.group == 'detection' %}
@@ -48,11 +48,19 @@
     {% endfor %}
     {% endif %}
 
-    {% set recognition_keys = ['recognition-gt-studio','recognition-scope','recognition-dataset'] %}
-    <div class="nav-section nav-pipeline-a">MODEL FACTORY · RECOGNITION</div>
-    {% for step in process_steps if step.key in recognition_keys %}
+    <div class="nav-section nav-pipeline-a">RECOGNITION PREPARATION</div>
+    {% set recognition_preparation_keys = ['recognition-scope','recognition-gt-studio'] %}
+    {% for step in process_steps if step.key in recognition_preparation_keys %}
       {% set recognition_href = '/recognition-scope' if step.key == 'recognition-scope' else ('/recognition-gt-review' if step.key == 'recognition-gt-studio' else '/process/' ~ step.key) %}
       <a href="{{ recognition_href }}" class="process-tab {% if request.path == recognition_href or (step.key == 'recognition-gt-studio' and request.path.startswith('/recognition-gt-review')) %}active{% endif %}">
+        <span class="process-tab-number">{{ step.index }}</span><span>{{ step.title }}</span>
+      </a>
+    {% endfor %}
+
+    <div class="nav-section nav-pipeline-a">MODEL FACTORY · RECOGNITION</div>
+    {% set recognition_factory_keys = ['recognition-dataset','recognition-output-review'] %}
+    {% for step in process_steps if step.key in recognition_factory_keys %}
+      <a href="/process/{{ step.key }}" class="process-tab {% if request.path == '/process/' ~ step.key %}active{% endif %}">
         <span class="process-tab-number">{{ step.index }}</span><span>{{ step.title }}</span>
       </a>
     {% endfor %}
@@ -62,15 +70,11 @@
     </div>
 
     {% set application_keys = ['mapping','apply-mapping','value-extract','value-review'] %}
-    {% set application_ready = pipeline_gate_global.ready and active_model %}
     <div class="nav-section nav-pipeline-b">FASE 2 · APPLICATION PROCESSING · OPTIONEEL</div>
-    <div class="nav-gate {{ 'gate-open' if application_ready else 'gate-closed' }}">
-      <strong>MODEL BUNDLE</strong><span>{{ 'BESCHIKBAAR' if application_ready else 'EERST MODEL FACTORY' }}</span>
-    </div>
     {% for step in process_steps if step.key in application_keys %}
       {% set application_href = '/mapping' if step.key == 'mapping' else ('/review' if step.key == 'value-review' else '/process/' ~ step.key) %}
-      <a href="{{ application_href }}" class="process-tab {% if request.path == application_href or (step.key == 'mapping' and request.path.startswith('/mapping')) %}active{% endif %} {% if not application_ready %}blocked{% endif %}"{% if not application_ready %} title="Optionele Application Processing begint pas na de Model Factory en een actief recognitionmodel."{% endif %}>
-        <span class="process-tab-number">A{{ loop.index }}</span><span>{{ step.title }}</span>{% if not application_ready %}<span class="lock-mark">🔒</span>{% endif %}
+      <a href="{{ application_href }}" class="process-tab {% if request.path == application_href or (step.key == 'mapping' and request.path.startswith('/mapping')) %}active{% endif %}">
+        <span class="process-tab-number">{{ step.index }}</span><span>{{ step.title }}</span>
       </a>
     {% endfor %}
 

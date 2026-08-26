@@ -214,7 +214,7 @@ PROCESS_STEPS = [
     {"key": "detection-review","index":4,"group":"detection","title":"GT Studio","subtitle":"Beoordeel de Ground Truth per bron in de zelfstandige Studio-reviewworkflow; tabelanalyse volgt later.","action_ids":[],"requirements":["Eerste celdetectie afgerond","Bronrender","Per bron GT controleren en goedkeuren"]},
     {"key": "table-model","index":5,"group":"detection","title":"Celdetector trainen","subtitle":"Bouw uit de reviewcorrecties trainingsdata, train/activeer de celdetector en gebruik het nieuwe model in de volgende detectieronde.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde GT-review","Positieve functionele cellen","Dataset gebouwd en gevalideerd vóór training"]},
     {"key": "table-compare","index":None,"group":"tables","title":"Detectorafwijkingen reviewen","subtitle":"Optionele technische vergelijking van een nieuwe detectorrun met de vaste Ground Truth.","action_ids":[],"requirements":["Canonieke Ground Truth uit Stap 4","Table-cell dataset uit Stap 5","Nieuwe detectierun uit Stap 3"]},
-    {"key": "table-quality","index":6,"group":"tables","title":"Tabelstudio","subtitle":"Maak vanuit de getrainde celdetector het rij-kolomraster en bepaal welke bezette rastercellen naar Recognition gaan.","action_ids":[],"requirements":["Celdetector getraind en opnieuw gedraaid","Goedgekeurde celposities"]},
+    {"key": "table-quality","index":7,"group":"tables","title":"Tabelstudio","subtitle":"Maak vanuit de getrainde celdetector het rij-kolomraster en bepaal welke bezette rastercellen naar Recognition gaan.","action_ids":[],"requirements":["Celdetector getraind en opnieuw gedraaid","Goedgekeurde celposities"]},
 
     # The previous loose field/PicoDet workflow is intentionally parked. Routes,
     # artifacts and jobs stay available so nothing is deleted, but they are no
@@ -225,14 +225,15 @@ PROCESS_STEPS = [
     {"key": "redetect","index":None,"group":"fallback","title":"Detecteren met fallback-model","subtitle":"Legacy/fallback detectierun met een actief field-detector-model.","action_ids":["12"],"requirements":["Actief fallback-model"]},
     {"key": "detection-report","index":None,"group":"fallback","title":"Box-detector kwaliteitsrapport","subtitle":"Legacy/fallback Detection Gate rapport.","action_ids":["13"],"requirements":["Localization-evaluatie"]},
 
-    {"key": "mapping","index":None,"group":"value","title":"Mapping Studio","subtitle":"Pas pas ná Recognition optioneel functionele betekenis toe op betrouwbare cellen.","action_ids":["20"],"requirements":["Recognition-output","Betrouwbare celgeometrie","Functioneel veldschema"]},
-    {"key": "apply-mapping","index":None,"group":"value","title":"Mappings toepassen","subtitle":"Maak definitieve functionele crops uit bevestigde mappings.","action_ids":["21"],"requirements":["Bevestigde mappings"]},
-    {"key": "value-extract","index":None,"group":"value","title":"Waarden uitlezen","subtitle":"Lees alleen de definitieve, goedgekeurde crops uit met het actieve recognition-model.","action_ids":["22"],"requirements":["Goedgekeurde definitieve crops","Actief recognition-model"]},
-    {"key": "value-review","index":None,"group":"value","title":"Waarden beoordelen","subtitle":"Beoordeel uitsluitend OCR-inhoud; cropgeometrie wordt hier niet meer aangepast.","action_ids":[],"requirements":["Uitgelezen waarden"]},
-    {"key": "recognition-dataset","index":9,"group":"value","title":"Recognition-dataset bouwen en valideren","subtitle":"Bouw crop→exacte-tekst trainingsdata en valideer direct in dezelfde taak.","action_ids":["24"],"requirements":["Goedgekeurde Recognition-GT-samples"]},
-    {"key": "recognition-train","index":10,"group":"value","title":"Recognition-model trainen","subtitle":"Train het model dat tekst binnen de reeds correcte crops leest.","action_ids":["26"],"requirements":["Gevalideerde recognition-dataset"]},
-    {"key": "recognition-evaluate","index":11,"group":"value","title":"Recognition-model evalueren","subtitle":"Meet exact match en CER op de vaste recognition-testset.","action_ids":["27"],"requirements":["Getraind/exporteerbaar recognition-model"]},
-    {"key": "recognition-models","index":12,"group":"value","title":"Recognition-model activeren","subtitle":"Registreer en activeer een voldoende goed recognition-model.","action_ids":["28"],"requirements":["Recognition-evaluatie"]},
+    {"key": "mapping","index":12,"group":"value","title":"Mapping Studio","subtitle":"Pas pas ná Recognition optioneel functionele betekenis toe op betrouwbare cellen.","action_ids":["20"],"requirements":["Recognition-output","Betrouwbare celgeometrie","Functioneel veldschema"]},
+    {"key": "apply-mapping","index":13,"group":"value","title":"Mappings toepassen","subtitle":"Maak definitieve functionele crops uit bevestigde mappings.","action_ids":["21"],"requirements":["Bevestigde mappings"]},
+    {"key": "value-extract","index":14,"group":"value","title":"Waarden uitlezen","subtitle":"Lees alleen de definitieve, goedgekeurde crops uit met het actieve recognition-model.","action_ids":["22"],"requirements":["Goedgekeurde definitieve crops","Actief recognition-model"]},
+    {"key": "value-review","index":15,"group":"value","title":"Waarden beoordelen","subtitle":"Beoordeel uitsluitend OCR-inhoud; cropgeometrie wordt hier niet meer aangepast.","action_ids":[],"requirements":["Uitgelezen waarden"]},
+    {"key": "recognition-dataset","index":10,"group":"value","title":"Recognition Model Factory","subtitle":"Bouw, train, beoordeel en activeer het Recognition-model vanuit één pagina.","action_ids":["24","26","27","28"],"requirements":["Goedgekeurde Recognition-GT-samples"]},
+    {"key": "recognition-output-review","index":11,"group":"value","title":"Recognition Model Review","subtitle":"Controleer de modeluitvoer alleen-lezen tegen de vaste Recognition-GT.","action_ids":[],"requirements":["Recognition Model Factory afgerond","Vaste Recognition-testset"]},
+    {"key": "recognition-train","index":None,"group":"value","title":"Recognition-model trainen · legacy","subtitle":"Legacy-route; gebruik de gecombineerde Recognition Model Factory.","action_ids":["26"],"requirements":["Gevalideerde recognition-dataset"]},
+    {"key": "recognition-evaluate","index":None,"group":"value","title":"Recognition-model beoordelen · legacy","subtitle":"Legacy-route; gebruik de gecombineerde Recognition Model Factory.","action_ids":["27"],"requirements":["Getraind/exporteerbaar recognition-model"]},
+    {"key": "recognition-models","index":None,"group":"value","title":"Recognition-model activeren · legacy","subtitle":"Legacy-route; gebruik de gecombineerde Recognition Model Factory.","action_ids":["28"],"requirements":["Recognition-evaluatie"]},
     {"key": "artifacts","index":None,"group":"system","title":"Data & modellen","subtitle":"Beheer datasets, modellen, evaluaties en trainingsruns.","action_ids":[],"requirements":[]},
     {"key": "system-checks","index":None,"group":"system","title":"Systeemcontroles","subtitle":"Controleer Docker, caches, permissies, database en beide pipelines.","action_ids":[],"requirements":[]},
     {"key": "maintenance","index":None,"group":"system","title":"Onderhoud","subtitle":"Veilige opruim- en herstelacties.","action_ids":[],"requirements":[]},
@@ -1507,6 +1508,7 @@ def create_web_app(
             "recognition-train": progress is not None,
             "recognition-evaluate": baseline is not None or custom is not None,
             "recognition-models": active is not None,
+            "recognition-output-review": baseline is not None and custom is not None,
             "system-checks": True,
             "maintenance": True,
         }
@@ -2414,6 +2416,7 @@ def create_web_app(
                 ("baseline evaluatie aanwezig" if snapshot['baseline'] else "nog niet geëvalueerd")
             ),
             "recognition-models": snapshot['active'].get('model_id') if snapshot['active'] else "geen actief recognition-model",
+            "recognition-output-review": f"{snapshot['value'].get('accepted', 0)}/{snapshot['value'].get('total', 0)} resultaten beoordeeld" if snapshot['value'].get('total', 0) else "nog geen uitvoerreview",
             "system-checks": "runtime-, model- en opslagcontroles",
             "maintenance": "veilige herstel- en opruimacties",
         }
@@ -2921,7 +2924,13 @@ def create_web_app(
         if step_key == "table-quality":
             quality = current_table_first_quality()
             preview = recognition_scope_preview(workspace_root())
-            studio_cells = list(preview.get("cells") or [])
+            # The Recognition-scope preview exposes grouped table previews,
+            # while Tabelstudio needs the raw canonical cells for the selected
+            # example source. Reading those cells directly keeps both screens
+            # on the same Step-4 Ground Truth instead of relying on the
+            # preview's intentionally empty aggregate `cells` field.
+            studio_source_id = str(preview.get("source_id") or "")
+            studio_cells = list_ground_truth_cells(workspace_root(), studio_source_id) if studio_source_id else []
             table_groups: dict[str, list[dict[str, Any]]] = {}
             for cell in studio_cells:
                 table_id = str(cell.get("table_id") or cell.get("panel_id") or cell.get("panel_name") or "__default__")
@@ -3087,6 +3096,7 @@ def create_web_app(
             recognition_baseline, recognition_custom = latest_evaluations()
             state.update(
                 detection_gate=current_recognition_gate(),
+                pipeline_gate=current_pipeline_gate(),
                 dataset=latest_dataset_info(),
                 active=active,
                 recognition_baseline=recognition_baseline,
@@ -3767,9 +3777,6 @@ def create_web_app(
 
     @app.get("/mapping")
     def mapping_index():
-        gate = current_pipeline_gate()
-        if not gate.get("ready"):
-            return render_template("mapping_blocked.html", gate=gate)
         sources = database.list_detection_sources()
         if not sources:
             return render_template("mapping_empty.html")
@@ -3779,8 +3786,6 @@ def create_web_app(
 
     @app.post("/mapping/<source_id>/relation-feedback")
     def mapping_relation_feedback(source_id: str):
-        if not current_pipeline_gate().get("ready"):
-            return jsonify({"ok": False, "error": "Pipeline A geometry gate is gesloten"}), 423
         if database.get_detection_source(source_id) is None:
             abort(404)
         payload = request.get_json(silent=True) or request.form
@@ -3824,9 +3829,6 @@ def create_web_app(
 
     @app.route("/mapping/<source_id>", methods=["GET", "POST"])
     def mapping_studio(source_id: str):
-        gate = current_pipeline_gate()
-        if not gate.get("ready"):
-            return render_template("mapping_blocked.html", gate=gate), 423
         source = database.get_detection_source(source_id)
         if source is None:
             abort(404)
@@ -4593,8 +4595,6 @@ def create_web_app(
                      "retried_from":job_id}
         else:
             if action_id not in ACTIONS: abort(400)
-            if action_id in {"20", "21", "22"} and not current_pipeline_gate().get("ready"):
-                abort(423, description="Pipeline A is locked until the active geometry gate passes")
             if action_id in {"24", "25", "26", "27", "28"} and not current_recognition_gate().get("ready"):
                 abort(423, description="Recognition is locked until approved Recognition-GT samples are available")
             new_job_id=f"job-{datetime.now().strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}"
@@ -4627,10 +4627,9 @@ def create_web_app(
         action_id=str(request.form.get("action_id","")).strip()
         if action_id not in ACTIONS:
             abort(400)
-        # Hard server-side pipeline boundary. Hiding buttons is not sufficient:
-        # queued/replayed HTTP requests must not start value processing either.
-            if action_id in {"20", "21", "22"} and not current_pipeline_gate().get("ready"):
-                abort(423, description="Pipeline A is locked until the active geometry gate passes")
+        # Recognition remains a hard server-side boundary. Hiding buttons is
+        # not sufficient because queued/replayed HTTP requests must not start
+        # recognition work without approved Recognition-GT samples.
             if action_id in {"24", "25", "26", "27", "28"} and not current_recognition_gate().get("ready"):
                 abort(423, description="Recognition is locked until approved Recognition-GT samples are available")
         options={}
@@ -4848,9 +4847,6 @@ def create_web_app(
         action_id = str(payload.get("action_id") or "").strip()
         if action_id not in ACTIONS:
             return jsonify({"ok": False, "error": "Onbekende taak"}), 400
-        if action_id in {"20", "21", "22"} and not current_pipeline_gate().get("ready"):
-            gate = current_pipeline_gate()
-            return jsonify({"ok": False, "error": f"Pipeline A is vergrendeld: {gate.get('reason') or 'cropgeometrie nog onvoldoende'}."}), 423
         if action_id in {"24", "25", "26", "27", "28"} and not current_recognition_gate().get("ready"):
             gate = current_recognition_gate()
             return jsonify({"ok": False, "error": f"Recognition is vergrendeld: {gate.get('reason') or 'goedgekeurde Recognition-GT ontbreekt'}."}), 423

@@ -11,7 +11,6 @@ try {
     . (Join-Path $PSScriptRoot "training-common.ps1")
     . (Join-Path $PSScriptRoot "runtime-preparation.ps1")
     Assert-IsalaActionPreflight -ActionId "22"
-    Assert-IsalaDetectionGateOpen
     Assert-Docker
     Assert-IsalaRuntimePrepared | Out-Null
 

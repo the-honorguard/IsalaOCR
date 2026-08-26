@@ -2,7 +2,6 @@ param([string]$SourceId = "")
 . (Join-Path $PSScriptRoot "training-common.ps1")
 . (Join-Path $PSScriptRoot "runtime-preparation.ps1")
 Assert-IsalaActionPreflight -ActionId "20"
-Assert-IsalaDetectionGateOpen
 Assert-Docker
 Assert-IsalaRuntimePrepared | Out-Null
 $ProjectInput = Get-IsalaContainerProjectInput

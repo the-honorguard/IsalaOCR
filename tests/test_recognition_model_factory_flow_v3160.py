@@ -66,8 +66,8 @@ def test_model_factory_order_places_recognition_before_application_processing():
 
     assert '"7"  = @{ Name = "Recognition-GT maken"' in menu
     assert '"13" = @{ Name = "Recognition-model activeren"' in menu
-    assert '"A1" = @{ Name = "Application Mapping Studio"' in menu
-    assert menu.index('"13" = @{ Name = "Recognition-model activeren"') < menu.index('"A1" = @{ Name = "Application Mapping Studio"')
+    assert '"12" = @{ Name = "Application Mapping Studio"' in menu
+    assert menu.index('"13" = @{ Name = "Recognition-model activeren"') < menu.index('"12" = @{ Name = "Application Mapping Studio"')
 
 
 def test_existing_application_mapping_is_preserved_as_optional_phase_two():

@@ -114,17 +114,15 @@ $workflowSteps = [ordered]@{
     "3"  = @{ Name = "Tabelregio trainen & cellen detecteren"; Url = "http://127.0.0.1:8088/process/table-region-model" }
     "4"  = @{ Name = "Cel-GT beoordelen"; Url = "http://127.0.0.1:8088/detection-review" }
     "5"  = @{ Name = "Celdetector verbeteren"; Url = "http://127.0.0.1:8088/process/table-model" }
-    "6"  = @{ Name = "Rijen, kolommen en celcrops"; Url = "http://127.0.0.1:8088/process/table-quality" }
-    "7"  = @{ Name = "Recognition-scope instellen"; Url = "http://127.0.0.1:8088/recognition-scope" }
-    "8"  = @{ Name = "Recognition GT Studio"; Url = "http://127.0.0.1:8088/recognition-gt-review" }
-    "9"  = @{ Name = "Recognition Dataset bouwen en valideren"; ActionId = "24" }
-    "10" = @{ Name = "Recognition Model trainen"; ActionId = "26"; DeviceChoice = $true }
-    "11" = @{ Name = "Recognition Model beoordelen"; ActionId = "27" }
-    "12" = @{ Name = "Recognition Model activeren"; ActionId = "28" }
-    "A1" = @{ Name = "Application Mapping Studio"; ActionId = "20" }
-    "A2" = @{ Name = "Application mappings toepassen"; ActionId = "21" }
-    "A3" = @{ Name = "Application output uitlezen"; ActionId = "22" }
-    "A4" = @{ Name = "Application output beoordelen"; Url = "http://127.0.0.1:8088/review" }
+    "7"  = @{ Name = "Tabelstudio"; Url = "http://127.0.0.1:8088/process/table-quality" }
+    "8"  = @{ Name = "Recognition-scope instellen"; Url = "http://127.0.0.1:8088/recognition-scope" }
+    "9"  = @{ Name = "Recognition GT Studio"; Url = "http://127.0.0.1:8088/recognition-gt-review" }
+    "10" = @{ Name = "Recognition Model Factory"; Url = "http://127.0.0.1:8088/process/recognition-dataset" }
+    "11" = @{ Name = "Recognition Model Review"; Url = "http://127.0.0.1:8088/process/recognition-output-review" }
+    "12" = @{ Name = "Application Mapping Studio"; ActionId = "20" }
+    "13" = @{ Name = "Application mappings toepassen"; ActionId = "21" }
+    "14" = @{ Name = "Application output uitlezen"; ActionId = "22" }
+    "15" = @{ Name = "Application output beoordelen"; Url = "http://127.0.0.1:8088/review" }
     "F1" = @{ Name = "Fallback · losse box-detector dataset/trainen"; Url = "http://127.0.0.1:8088/process/localization-dataset" }
     "F2" = @{ Name = "Fallback · box-detector evalueren"; Url = "http://127.0.0.1:8088/process/localization-evaluate" }
     "F3" = @{ Name = "Fallback · box-detector activeren"; ActionId = "11" }

@@ -30,7 +30,7 @@ def test_user_workflow_uses_one_contiguous_step_sequence() -> None:
     assert next(step for step in workflow if step["key"] == "panel-setup")["index"] == 2
     assert next(step for step in workflow if step["key"] == "table-model")["index"] == 6
     assert next(step for step in workflow if step["key"] == "table-compare")["index"] == 7
-    assert next(step for step in workflow if step["key"] == "mapping")["index"] == 8
+    assert next(step for step in workflow if step["key"] == "mapping")["index"] == 12
     assert all(step["index"] is None for step in steps if step["group"] == "system")
 
 
@@ -78,7 +78,7 @@ def test_internal_action_ids_are_not_rendered_in_primary_ui(tmp_path: Path) -> N
     assert "<strong>17.</strong>" not in prep
 
     mapping = client.get("/process/mapping").get_data(as_text=True)
-    assert "Stap 8 · Mapping Studio" in mapping
+    assert "Stap 12 · Mapping Studio" in mapping
     assert "Stap 20 · Mapping Studio" not in mapping
 
     system = client.get("/process/system-checks").get_data(as_text=True)
