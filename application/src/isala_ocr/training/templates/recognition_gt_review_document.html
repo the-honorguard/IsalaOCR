@@ -5,9 +5,10 @@
 {% block content %}
 <script>
 window.addEventListener('DOMContentLoaded', () => {
-  const cards = [...document.querySelectorAll('[data-reading-card]')];
+  let cards = [...document.querySelectorAll('[data-reading-card]')];
   const queue = document.getElementById('recognition-reading-queue');
   const form = document.getElementById('recognition-review-form');
+  let advanceAfterSave = false;
   let active = cards.find(card => card.dataset.status === 'pending') || cards[0];
   document.querySelector('.recognition-reading-layout')?.classList.add('focus-mode');
   const select = card => {
@@ -18,8 +19,8 @@ window.addEventListener('DOMContentLoaded', () => {
     card.querySelector('input[name^="label_"]')?.focus();
   };
   const next = () => {
-    const index = cards.indexOf(active);
-    select(cards[index + 1] || cards[0]);
+    const openCards = cards.filter(card => document.body.contains(card) && card.dataset.status === 'pending');
+    select(openCards[0] || null);
   };
   queue?.querySelectorAll('[data-queue-id]').forEach(item => item.addEventListener('click', () => select(document.getElementById(item.dataset.queueId))));
   document.getElementById('show-all-readings')?.addEventListener('click', event => {
@@ -27,6 +28,62 @@ window.addEventListener('DOMContentLoaded', () => {
     const showingAll = layout?.classList.toggle('all-readings');
     event.currentTarget.textContent = showingAll ? 'Focusmodus' : 'Alle lezingen tonen';
     if (!showingAll) select(active);
+  });
+  const updateSavedState = payload => {
+    (payload.changed || []).forEach(item => {
+      const card = document.getElementById(`reading-${item.sample_id}`);
+      const queueItem = queue?.querySelector(`[data-queue-id="reading-${CSS.escape(item.sample_id)}"]`);
+      if (!card) return;
+      card.dataset.status = item.status;
+      const pills = card.querySelectorAll('.pill');
+      const statusPill = pills[pills.length - 1];
+      if (statusPill) {
+        statusPill.textContent = item.status;
+        statusPill.className = `pill ${item.status === 'accepted' ? 'ok' : item.status === 'pending' ? 'warn' : ''}`;
+      }
+      if (queueItem) {
+        const queuePill = queueItem.querySelector('.pill');
+        if (queuePill) {
+          queuePill.textContent = item.status;
+          queuePill.className = `pill ${item.status === 'accepted' ? 'ok' : item.status === 'pending' ? 'warn' : ''}`;
+        }
+      }
+      if (item.status !== 'pending') {
+        card.remove();
+        queueItem?.remove();
+        cards = cards.filter(candidate => candidate !== card);
+      }
+    });
+    const counters = document.querySelectorAll('.recognition-gt-intro .pill');
+    if (counters[0] && payload.counts) counters[0].textContent = `${payload.counts.pending} open`;
+    if (counters[1] && payload.counts) counters[1].textContent = `${payload.counts.accepted} goedgekeurd`;
+  };
+  form?.addEventListener('submit', async event => {
+    if (event.submitter?.name === 'global_action') return;
+    event.preventDefault();
+    const saveButtons = [...form.querySelectorAll('button')];
+    saveButtons.forEach(button => { button.disabled = true; });
+    try {
+      const response = await fetch(form.action || window.location.href, {
+        method: 'POST', body: new FormData(form),
+        headers: {'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json'}
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || 'Opslaan mislukt');
+      updateSavedState(payload);
+      const shouldAdvance = advanceAfterSave;
+      advanceAfterSave = false;
+      if (shouldAdvance) {
+        if (payload.remaining > 0) next();
+        else if (payload.next_source_id) window.location.href = `/recognition-gt-review/${encodeURIComponent(payload.next_source_id)}`;
+        else window.location.href = '/recognition-gt-review';
+      }
+    } catch (error) {
+      advanceAfterSave = false;
+      window.alert(error.message || 'Opslaan mislukt');
+    } finally {
+      saveButtons.forEach(button => { button.disabled = false; });
+    }
   });
   document.getElementById('fullscreen-reading')?.addEventListener('click', async event => {
     const layout = document.querySelector('.recognition-reading-layout');
@@ -49,7 +106,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (decision === 'next') return next();
     const status = card.querySelector('select[name^="status_"]');
     if (status) status.value = decision;
-    form?.submit();
+    advanceAfterSave = true;
+    form?.requestSubmit();
   })));
   select(active);
   document.addEventListener('keydown', event => {

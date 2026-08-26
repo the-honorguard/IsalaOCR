@@ -244,10 +244,11 @@ function Get-DockerDesktopExecutable {
         'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Docker Desktop.exe'
     )) {
         try {
-            $entry = Get-ItemProperty -Path $registryPath -ErrorAction Stop
+            $entry = Get-ItemProperty -Path $registryPath -ErrorAction SilentlyContinue
+            if ($null -eq $entry) { continue }
             if ($entry.'(default)') { $candidates.Add([string]$entry.'(default)') }
             elseif ($entry.PSPath) {
-                $defaultValue = (Get-Item -Path $registryPath -ErrorAction Stop).GetValue('')
+                $defaultValue = (Get-Item -Path $registryPath -ErrorAction SilentlyContinue).GetValue('')
                 if ($defaultValue) { $candidates.Add([string]$defaultValue) }
             }
         }
@@ -301,7 +302,11 @@ function Assert-Docker {
 
     Start-DockerDesktopIfNeeded
 
-    $waitSeconds = 180
+    # Docker Desktop can take several minutes to restore its WSL2 VM after a
+    # Windows reboot. Keep the startup task alive long enough for that normal
+    # cold-start path to complete instead of failing while Docker is still
+    # booting.
+    $waitSeconds = 360
     $pollSeconds = 3
     $deadline = (Get-Date).AddSeconds($waitSeconds)
     $attempt = 0

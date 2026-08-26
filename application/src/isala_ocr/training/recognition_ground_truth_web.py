@@ -4,7 +4,7 @@ from pathlib import Path
 
 from urllib.parse import urlencode
 
-from flask import abort, flash, redirect, render_template, request, url_for
+from flask import abort, flash, jsonify, redirect, render_template, request, url_for
 
 from .db import TrainingDatabase
 from .projects import resolve_project_workspace
@@ -74,6 +74,15 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def next_review_source_id(database: TrainingDatabase, source_id: str) -> str | None:
+        sources = [item for item in source_rows(database) if int(item.get("pending") or 0) > 0]
+        ids = [str(item["source_id"]) for item in sources]
+        try:
+            index = ids.index(str(source_id))
+        except ValueError:
+            index = -1
+        return ids[index + 1] if index >= 0 and index + 1 < len(ids) else (ids[0] if ids else None)
+
     def all_samples(database: TrainingDatabase, status_filter: str = "") -> list[dict]:
         where = "WHERE extraction_method=?"
         params: list[str] = [EXTRACTION_METHOD]
@@ -124,13 +133,19 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
     def recognition_gt_review_document(source_id: str):
         database = current_database()
         project_root = resolve_project_workspace(workspace_root)
-        samples = source_samples(database, source_id)
-        if not samples:
+        all_source_samples = source_samples(database, source_id)
+        samples = [item for item in all_source_samples if str(item.get("status") or "") == "pending"]
+        if not all_source_samples:
             abort(404)
+        if request.method == "GET" and not samples:
+            target = next_review_source_id(database, source_id)
+            if target and target != source_id:
+                return redirect(url_for("recognition_gt_review_document", source_id=target))
 
         if request.method == "POST":
             global_action = str(request.form.get("global_action") or "").strip().lower()
             changed = 0
+            changed_samples: list[dict[str, str]] = []
             for sample in samples:
                 sample_id = str(sample["sample_id"])
                 action = str(request.form.get(f"status_{sample_id}") or "keep").strip().lower()
@@ -151,13 +166,37 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
                     # legitimate literal label here and is NOT converted to null.
                     if exact == "":
                         database.review(sample_id, "excluded", None, notes or "Lege crop: geen recognitionlabel")
+                        saved_status = "excluded"
                     else:
                         database.review(sample_id, "accepted", exact, notes, "value")
+                        saved_status = "accepted"
                 elif action in {"unreadable", "excluded", "pending"}:
                     database.review(sample_id, action, None, notes)
+                    saved_status = action
                 else:
                     abort(400)
                 changed += 1
+                changed_samples.append({
+                    "sample_id": sample_id,
+                    "status": saved_status,
+                    "exact_label": exact if saved_status == "accepted" else "",
+                    "notes": notes,
+                })
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest" and not global_action:
+                refreshed = source_samples(database, source_id)
+                remaining = [item for item in refreshed if str(item.get("status") or "") == "pending"]
+                return jsonify({
+                    "ok": True,
+                    "changed": changed_samples,
+                    "remaining": len(remaining),
+                    "next_source_id": next_review_source_id(database, source_id) if not remaining else "",
+                    "counts": {
+                        "total": len(refreshed),
+                        "pending": len(remaining),
+                        "accepted": sum(str(item.get("status") or "") == "accepted" for item in refreshed),
+                        "excluded": sum(str(item.get("status") or "") in {"unreadable", "excluded", "no_value"} for item in refreshed),
+                    },
+                })
             flash(f"Recognition-GT opgeslagen: {changed} wijziging(en).", "success")
             return redirect(url_for("recognition_gt_review_document", source_id=source_id))
 
