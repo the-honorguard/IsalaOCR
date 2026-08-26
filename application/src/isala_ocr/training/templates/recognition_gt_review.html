@@ -17,7 +17,13 @@
   </div>
 </section>
 
-{% if not sources %}
+{% if not sources and status_filter %}
+<section class="card section-gap">
+  <h3>Geen samples met deze filter</h3>
+  <p>Er zijn wel Recognition samples, maar geen samples met status <strong>{{ 'nieuw / open' if status_filter == 'pending' else status_filter }}</strong>.</p>
+  <a class="button primary" href="/recognition-gt-review">Alle samples bekijken</a>
+</section>
+{% elif not sources %}
 <section class="card section-gap">
   <h3>Nog geen Recognition samples</h3>
   <p>Maak eerst neutrale crops uit de canonieke table-cell Ground Truth.</p>
@@ -25,7 +31,7 @@
 </section>
 {% else %}
 <section class="card section-gap">
-  <div class="toolbar"><h3>Samples</h3><span class="pill">{{ counts.accepted }}/{{ counts.total }} goedgekeurd</span></div>
+  <div class="toolbar"><div><h3>Samples</h3><span class="pill">{{ counts.accepted }}/{{ counts.total }} goedgekeurd</span></div><a class="button" href="/recognition-gt-formats">Toegestane formats bekijken</a></div>
   <form class="recognition-gt-home-filter" method="get">
     <label>Status
       <select name="status"><option value="" {% if not status_filter %}selected{% endif %}>Alle statussen</option><option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Nieuw / open</option><option value="accepted" {% if status_filter == 'accepted' %}selected{% endif %}>Goedgekeurd</option><option value="excluded" {% if status_filter == 'excluded' %}selected{% endif %}>Uitgesloten</option><option value="unreadable" {% if status_filter == 'unreadable' %}selected{% endif %}>Onleesbaar</option></select>

@@ -5,17 +5,9 @@
 {% block content %}
 
 {% if not comparison.ready %}
-<section class="gate-banner gate-banner-closed">
-  <div>
-    <span class="gate-kicker">MODELITERATIE</span>
-    <h2>{% if comparison.detection_stale %}Eerst het nieuwe model laten draaien{% else %}Nog geen iteratie om te reviewen{% endif %}</h2>
-    <p>{{ comparison.reason }}</p>
-    <p><strong>De Ground Truth blijft leidend.</strong> Deze stap beoordeelt alleen modelgedrag; een modelrun wijzigt de GT nooit automatisch.</p>
-  </div>
-  <div class="actions">
-    <a class="button primary" href="/process/table-model">Stap 7 · Model trainen</a>
-    <a class="button" href="/process/detect-candidates">Stap 4 · Detectie opnieuw uitvoeren</a>
-  </div>
+<section class="notice warning">
+  <strong>{% if comparison.detection_stale %}Eerst het nieuwe model laten draaien.{% else %}Nog geen iteratie om te reviewen.{% endif %}</strong>
+  {{ comparison.reason }}
 </section>
 
 <section class="card section-gap iteration-explainer">
@@ -35,18 +27,6 @@
 {% set rm = ref.metrics or {} %}
 {% set cm = cur.metrics or {} %}
 {% set delta = comparison.delta or {} %}
-
-<section class="gate-banner {{ 'gate-banner-closed' if comparison.history_mode else 'gate-banner-open' }} iteration-hero">
-  <div>
-    <span class="gate-kicker">{% if comparison.history_mode %}HISTORISCHE RUN · ALLEEN LEZEN{% else %}MODELITERATIE · GT BLIJFT LEIDEND{% endif %}</span>
-    <h2>{% if comparison.review_complete %}Deze reviewronde is klaar{% else %}{{ comparison.open_issue_count }} afwijking{% if comparison.open_issue_count != 1 %}en{% endif %} nog beoordelen{% endif %}</h2>
-    <p>{% if comparison.history_mode %}Deze oude run is alleen voor audit. De huidige workflow gebruikt altijd de nieuwste complete modelrun.{% else %}Het actieve model <strong>{{ comparison.detection_context.model_id }}</strong> is vergeleken met de canonieke Ground Truth. Alleen afwijkingen vragen aandacht. De modelscore bepaalt niet of je naar Mapping mag; de canonieke GT doet dat.{% endif %}</p>
-  </div>
-  <div class="actions iteration-hero-actions">
-    {% if not comparison.history_mode %}<a class="button" href="/process/mapping">Door naar Mapping</a>{% endif %}
-    <a class="button" href="/process/table-model">Stap 7 · Nieuwe iteratie</a>
-  </div>
-</section>
 
 <section class="card section-gap iteration-explainer">
   <div class="iteration-loop">
@@ -77,22 +57,6 @@
 <section class="notice warning section-gap">
   <strong>{{ comparison.gt_worklist|length }} GT-aanpassing{% if comparison.gt_worklist|length != 1 %}en{% endif %} gemarkeerd.</strong>
   Rond deze bewust af in Ground Truth-beheer. Ze worden niet als modelmisser gebruikt zolang de GT zelf ter discussie staat.
-  <a class="button ghost" href="/detection-review">Open Ground Truth-beheer</a>
-</section>
-{% endif %}
-
-{% if comparison.review_complete and not comparison.history_mode and not comparison.gt_worklist %}
-<section class="gate-banner gate-banner-open section-gap iteration-complete">
-  <div>
-    <span class="gate-kicker">ITERATIE BEOORDEELD</span>
-    <h2>Alle afwijkingen zijn verwerkt</h2>
-    <p>{{ (comparison.training_report or {}).get('model_error',0) }} modelfout(en) gaan als feedback mee naar een volgende trainingsronde; {{ (comparison.training_report or {}).get('functional_ok',0) }} geometrie-afwijking(en) zijn als functioneel bruikbaar geaccepteerd.</p>
-    <p><strong>Een volgende trainingsronde is optioneel.</strong> Mapping gebruikt de canonieke GT en hoeft niet te wachten op een perfect detector-model.</p>
-  </div>
-  <div class="actions">
-    <a class="button primary" href="/process/table-quality">Nog een modeliteratie</a>
-    <a class="button" href="/process/mapping">Door naar Mapping</a>
-  </div>
 </section>
 {% endif %}
 
@@ -146,7 +110,6 @@
                 {% endif %}
                 <form method="post" class="comparison-issue-form"><input type="hidden" name="comparison_action" value="review_issue"><input type="hidden" name="run_id" value="{{ cur.run_id }}"><input type="hidden" name="issue_id" value="{{ issue.issue_id }}"><input type="hidden" name="decision" value="model_error"><input type="hidden" name="reference_run_id" value="{{ ref.run_id }}"><input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}"><button class="ghost" title="De canonieke GT klopt; deze afwijking is een fout van het model.">Model fout ✓</button></form>
                 <form method="post" class="comparison-issue-form"><input type="hidden" name="comparison_action" value="review_issue"><input type="hidden" name="run_id" value="{{ cur.run_id }}"><input type="hidden" name="issue_id" value="{{ issue.issue_id }}"><input type="hidden" name="decision" value="gt_check"><input type="hidden" name="reference_run_id" value="{{ ref.run_id }}"><input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}"><button class="ghost" title="De Ground Truth zelf lijkt niet te kloppen; sla dit oordeel op en open de GT Studio.">GT aanpassen</button></form>
-                <a class="button ghost step7-hidden-gt-link" href="/detection-review/{{ panel.source_id }}" aria-hidden="true" tabindex="-1">GT Studio</a>
               {% endif %}
             </div>
           </div>

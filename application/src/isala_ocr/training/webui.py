@@ -44,7 +44,7 @@ from .table_region_training import build_table_region_dataset
 from .table_model_comparison import (
     add_comparison_fp_to_ground_truth, review_comparison_issue, table_cell_comparison_state,
 )
-from .recognition_ground_truth import recognition_scope_preview
+from .recognition_ground_truth import recognition_gt_counts, recognition_scope_preview
 from .projects import (
     DEFAULT_PROJECT_ID, ProjectManager, load_use_case_templates,
     project_active_recognition_dir, resolve_project_registry,
@@ -723,6 +723,24 @@ def create_web_app(
             }
         gate = current_detection_gate()
         return {**gate, "gate_label": "DETECTION GATE"}
+
+    def current_recognition_gate() -> dict[str, Any]:
+        counts = recognition_gt_counts(database)
+        accepted = int(counts.get("accepted") or 0)
+        ready = accepted > 0
+        summary = (
+            f"{accepted} goedgekeurde Recognition-GT-samples beschikbaar. Alleen deze samples worden in de Recognition Dataset opgenomen."
+            if ready else "Er zijn nog geen goedgekeurde Recognition-GT-samples beschikbaar."
+        )
+        return {
+            "ready": ready,
+            "state": "recognition_gt_ready" if ready else "recognition_gt_missing",
+            "tone": "success" if ready else "warning",
+            "gate_label": "RECOGNITION GT CHECK",
+            "reason": summary,
+            "summary": summary,
+            "next_step": "Bouw de Recognition Dataset uit de goedgekeurde samples." if ready else "Open Recognition GT Studio en keur eerst minimaal één sample goed.",
+        }
 
     def navigation_pipeline_gate() -> dict[str, Any]:
         if localization_strategy() == "table_first":
@@ -3068,7 +3086,7 @@ def create_web_app(
         elif step_key.startswith("recognition-"):
             _, active = registry_state()
             state.update(
-                detection_gate=current_pipeline_gate(),
+                detection_gate=current_recognition_gate(),
                 dataset=latest_dataset_info(),
                 active=active,
             )
@@ -4572,8 +4590,10 @@ def create_web_app(
                      "retried_from":job_id}
         else:
             if action_id not in ACTIONS: abort(400)
-            if action_id in {"20","21","22","24","25","26","27","28"} and not current_pipeline_gate().get("ready"):
-                abort(423, description="Pipeline B is locked until the active geometry gate passes")
+            if action_id in {"20", "21", "22"} and not current_pipeline_gate().get("ready"):
+                abort(423, description="Pipeline A is locked until the active geometry gate passes")
+            if action_id in {"24", "25", "26", "27", "28"} and not current_recognition_gate().get("ready"):
+                abort(423, description="Recognition is locked until approved Recognition-GT samples are available")
             new_job_id=f"job-{datetime.now().strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}"
             payload={"job_id":new_job_id,"action_id":action_id,"action_name":ACTIONS[action_id],
                      "project_id":str(old.get("project_id") or project_manager.active_project_id()),
@@ -4591,8 +4611,8 @@ def create_web_app(
 
     @app.post("/jobs/compare-all")
     def create_compare_jobs():
-        if not current_pipeline_gate().get("ready"):
-            abort(423, description="Pipeline A geometry gate is closed")
+        if not current_recognition_gate().get("ready"):
+            abort(423, description="Recognition gate is closed until approved Recognition-GT samples are available")
         payload = enqueue_job("27")
         flash("Recognition-evaluatie en modelvergelijking ingepland.", "success")
         destination = request.referrer or url_for("process_step", step_key="recognition-evaluate")
@@ -4606,8 +4626,10 @@ def create_web_app(
             abort(400)
         # Hard server-side pipeline boundary. Hiding buttons is not sufficient:
         # queued/replayed HTTP requests must not start value processing either.
-        if action_id in {"20","21","22","24","25","26","27","28"} and not current_pipeline_gate().get("ready"):
-            abort(423, description="Pipeline B is locked until the active geometry gate passes")
+            if action_id in {"20", "21", "22"} and not current_pipeline_gate().get("ready"):
+                abort(423, description="Pipeline A is locked until the active geometry gate passes")
+            if action_id in {"24", "25", "26", "27", "28"} and not current_recognition_gate().get("ready"):
+                abort(423, description="Recognition is locked until approved Recognition-GT samples are available")
         options={}
         if action_id == "2":
             table_model_id = str(request.form.get("table_model_id") or "").strip()
@@ -4823,9 +4845,12 @@ def create_web_app(
         action_id = str(payload.get("action_id") or "").strip()
         if action_id not in ACTIONS:
             return jsonify({"ok": False, "error": "Onbekende taak"}), 400
-        if action_id in {"20", "21", "22", "24", "25", "26", "27", "28"} and not current_pipeline_gate().get("ready"):
+        if action_id in {"20", "21", "22"} and not current_pipeline_gate().get("ready"):
             gate = current_pipeline_gate()
-            return jsonify({"ok": False, "error": f"Pipeline B is vergrendeld: {gate.get('reason') or 'cropgeometrie nog onvoldoende'}."}), 423
+            return jsonify({"ok": False, "error": f"Pipeline A is vergrendeld: {gate.get('reason') or 'cropgeometrie nog onvoldoende'}."}), 423
+        if action_id in {"24", "25", "26", "27", "28"} and not current_recognition_gate().get("ready"):
+            gate = current_recognition_gate()
+            return jsonify({"ok": False, "error": f"Recognition is vergrendeld: {gate.get('reason') or 'goedgekeurde Recognition-GT ontbreekt'}."}), 423
         # Prevent double-submit races from a reactive UI. Existing jobs remain
         # selectable in the terminal dock and the client can retry after they finish.
         existing = next((

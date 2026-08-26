@@ -5,11 +5,10 @@
 {% block content %}
 {% if step.group == 'value' and not detection_gate.ready %}
 <section class="gate-banner gate-banner-closed">
-  <div><span class="gate-kicker">{{ detection_gate.gate_label or 'PIPELINE A CHECK' }}</span><h2>Pipeline B is vergrendeld</h2><p>{{ detection_gate.reason }}</p><p><strong>Volgende stap:</strong> {{ detection_gate.next_step or 'Rond eerst de cropgeometrie af.' }}</p></div>
-  <a class="button" href="{{ '/process/table-quality' if localization_strategy == 'table_first' else '/process/detection-report' }}">Bekijk geometriekwaliteit</a>
+  <div><span class="gate-kicker">{{ detection_gate.gate_label or 'PIPELINE A CHECK' }}</span><h2>{{ 'Recognition is vergrendeld' if step.key.startswith('recognition-') else 'Pipeline B is vergrendeld' }}</h2><p>{{ detection_gate.reason }}</p><p><strong>Volgende stap:</strong> {{ detection_gate.next_step or 'Rond eerst de vereiste controle af.' }}</p></div>
 </section>
 {% elif step.group == 'value' %}
-<section class="gate-banner gate-banner-open"><div><span class="gate-kicker">{{ detection_gate.gate_label or 'PIPELINE A CHECK' }}</span><strong>PASS · Mapping & OCR beschikbaar</strong><p>{{ detection_gate.reason }}</p></div></section>
+<section class="gate-banner gate-banner-open"><div><span class="gate-kicker">{{ detection_gate.gate_label or 'PIPELINE A CHECK' }}</span><strong>{{ 'PASS · Recognition Dataset beschikbaar' if step.key.startswith('recognition-') else 'PASS · Mapping & OCR beschikbaar' }}</strong><p>{{ detection_gate.reason }}</p></div></section>
 {% endif %}
 {% if step.group == 'fallback' %}
 <section class="notice info"><strong>Geparkeerde fallback.</strong> Deze pagina hoort niet bij de huidige table-first hoofdflow. Bestaande box-detectorfunctionaliteit blijft beschikbaar om later alleen de gaten op te vullen als Stap 5 daar aanleiding toe geeft.</section>
@@ -33,11 +32,10 @@
       <form method="post" action="/jobs" class="table-detection-form"><input type="hidden" name="action_id" value="2"><label>Model voor deze detectierun<select name="table_model_id"><option value="generic-ppstructure" {% if not table_model.active_model %}selected{% endif %}>PP-Structure baseline · generiek</option>{% for model in table_model.models or [] %}<option value="{{ model.model_id }}" {% if model.active %}selected{% endif %}>{{ model.model_name or model.model_id }}{% if model.active %} · ACTIEF{% endif %} · {{ model.dataset_id or 'dataset onbekend' }}</option>{% endfor %}</select><small class="muted">De keuze wordt alleen aan deze nieuwe prediction-run gekoppeld; het actieve model verandert niet.</small></label><button class="primary"><strong>Table pipeline per panel uitvoeren</strong><span>{{ panel_state.panel_count }} opgeslagen panel(en) · preprocessing wordt per panel gekozen</span></button></form>
       {% else %}
       <button class="primary" disabled title="Niet beschikbaar: er is nog geen panelprofiel. Volgende stap: open Stap 2 en teken minimaal één resultaatpanel."><strong>Table pipeline per panel uitvoeren</strong><span>Niet beschikbaar · panelprofiel ontbreekt</span></button>
-      <a class="button" href="/process/panel-setup">Stap 2 · Panelen instellen</a>
       {% endif %}
     </div>
     {% elif step.key == 'detection-review' %}
-      {% if panel_state and not panel_state.detection_current %}<div class="actions"><button class="primary" disabled title="Niet beschikbaar: de cell-detectie hoort niet bij het actuele panelprofiel. Voer Stap 3 opnieuw uit.">Table Cell Review openen</button><a class="button" href="/process/detect-candidates">Stap 3 opnieuw uitvoeren</a></div>{% else %}<a class="button primary" href="/detection-review">Table Cell Review Studio openen</a>{% endif %}
+      {% if panel_state and not panel_state.detection_current %}<div class="actions"><button class="primary" disabled title="Niet beschikbaar: de cell-detectie hoort niet bij het actuele panelprofiel. Voer Stap 3 opnieuw uit via de linkerzijbalk.">Table Cell Review niet beschikbaar</button></div>{% else %}<p class="muted">Open GT Studio via de linkerzijbalk.</p>{% endif %}
     {% elif step.key == 'localization-dataset' %}
     <div class="process-actions localization-flow-actions">
       <form method="post" action="/jobs"><input type="hidden" name="action_id" value="5"><button class="primary" {% if localization_preview.totals.ready_sources == 0 %}disabled{% endif %}><strong>1 · Dataset bouwen</strong><span>{{ localization_preview.totals.ready_sources }} afgeronde afbeeldingen meenemen</span></button></form>
@@ -88,9 +86,9 @@
     </div>
 
     <div class="preparation-readiness-action">
-      <a class="button primary preparation-next-step" href="/process/panel-setup" data-prep-ready-action {% if not preparation.all_ready %}hidden{% endif %}>
-        Ga naar Stap 2 · Panelen instellen
-      </a>
+      <span class="muted preparation-next-step" data-prep-ready-action {% if not preparation.all_ready %}hidden{% endif %}>
+        Ga verder via de linkerzijbalk: Stap 2 · Panelen instellen
+      </span>
       <form method="post" action="/jobs" data-prep-repair-action {% if preparation.all_ready %}hidden{% endif %}>
         <input type="hidden" name="action_id" data-prep-repair-action-id value="{% if not inference or inference.download.state == 'unknown' %}19{% elif inference.download.state == 'missing' %}30{% elif inference.install.state == 'missing' %}35{% else %}42{% endif %}">
         <button class="primary preparation-repair-button">

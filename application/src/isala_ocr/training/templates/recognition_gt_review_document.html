@@ -9,7 +9,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const queue = document.getElementById('recognition-reading-queue');
   const form = document.getElementById('recognition-review-form');
   let advanceAfterSave = false;
-  let active = cards.find(card => card.dataset.status === 'pending') || cards[0];
+  const initialSampleId = document.querySelector('.recognition-reading-layout')?.dataset.initialSampleId || '';
+  let active = cards.find(card => card.dataset.sampleId === initialSampleId) || cards.find(card => card.dataset.status === 'pending') || cards[0];
   document.querySelector('.recognition-reading-layout')?.classList.add('focus-mode');
   const select = card => {
     if (!card) return;
@@ -75,7 +76,7 @@ window.addEventListener('DOMContentLoaded', () => {
       advanceAfterSave = false;
       if (shouldAdvance) {
         if (payload.remaining > 0) next();
-        else if (payload.next_source_id) window.location.href = `/recognition-gt-review/${encodeURIComponent(payload.next_source_id)}`;
+        else if (payload.next_source_id) window.location.href = `/recognition-gt-review/${encodeURIComponent(payload.next_source_id)}?sort=${encodeURIComponent(payload.sort_mode || 'risk')}${payload.format_signature ? `&format_signature=${encodeURIComponent(payload.format_signature)}` : ''}`;
         else window.location.href = '/recognition-gt-review';
       }
     } catch (error) {
@@ -109,6 +110,18 @@ window.addEventListener('DOMContentLoaded', () => {
     advanceAfterSave = true;
     form?.requestSubmit();
   })));
+  document.addEventListener('click', event => {
+    const button = event.target.closest('[data-symbol]');
+    if (!button) return;
+    const picker = button.closest('[data-symbol-picker]');
+    const input = picker?.querySelector('input, textarea');
+    if (!input) return;
+    const start = Number.isInteger(input.selectionStart) ? input.selectionStart : input.value.length;
+    const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
+    input.setRangeText(button.dataset.symbol || '', start, end, 'end');
+    input.focus();
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+  });
   select(active);
   document.addEventListener('keydown', event => {
     if (!active || event.target.matches('input, textarea, select')) return;
@@ -125,7 +138,7 @@ window.addEventListener('DOMContentLoaded', () => {
       <h2>{{ source_id }}</h2>
       <p class="muted">Corrigeer de baseline OCR naar exact wat zichtbaar is. Een <strong>-</strong> is hier geldige tekst-GT; missing/null wordt pas later in Application Processing bepaald.</p>
     </div>
-    <div class="actions"><a class="button" href="/recognition-gt-review">← Alle samples</a><span class="pill warn">{{ counts.pending }} open</span><span class="pill ok">{{ counts.accepted }} goedgekeurd</span></div>
+    <div class="actions"><a class="button" href="{{ url_for('recognition_gt_formats', signature=format_signature) if format_signature else url_for('recognition_gt_review_home') }}">← Terug naar formatter</a><span class="pill warn">{{ counts.pending }} open</span><span class="pill ok">{{ counts.accepted }} goedgekeurd</span>{% if format_signature %}<span class="pill">Filter: {{ format_signature }}</span>{% endif %}{% if format_profile and format_profile.label_count %}<span class="pill" title="Gebaseerd op goedgekeurde Recognition-GT">Formatprofiel {{ format_profile.label_count }} GT</span>{% endif %}</div>
   </div>
 </section>
 
@@ -133,17 +146,17 @@ window.addEventListener('DOMContentLoaded', () => {
   <section class="card">
     <div class="toolbar">
       <div><h3>Recognition-lezingen</h3><p class="muted">Eén lezing tegelijk beoordelen. <span class="pill">A goedkeuren</span> <span class="pill">X afwijzen</span> <span class="pill">→ volgende</span></p></div>
-      <div class="actions"><button type="button" id="fullscreen-reading">Fullscreen</button><button type="button" id="show-all-readings">Alle lezingen tonen</button><button type="submit" name="global_action" value="accept_all_ocr">Alle open baseline-OCR goedkeuren</button></div>
+      <div class="actions"><a class="button {{ 'primary' if sort_mode == 'risk' else '' }}" href="{{ url_for('recognition_gt_review_document', source_id=source_id, sort='risk', show_all=1 if show_all else 0, format_signature=format_signature) }}">Risico eerst</a><a class="button {{ 'primary' if sort_mode == 'normal' else '' }}" href="{{ url_for('recognition_gt_review_document', source_id=source_id, sort='normal', show_all=1 if show_all else 0, format_signature=format_signature) }}">Normale volgorde</a><button type="button" id="fullscreen-reading">Fullscreen</button><a class="button" id="show-all-readings" href="{{ url_for('recognition_gt_review_document', source_id=source_id, sort=sort_mode, show_all=0 if show_all else 1, format_signature=format_signature) }}">{{ 'Alleen open tonen' if show_all else 'Alle lezingen tonen' }}</a><button type="submit" name="global_action" value="accept_all_ocr">Alle open baseline-OCR goedkeuren</button></div>
     </div>
-    <div class="recognition-reading-layout">
+    <div class="recognition-reading-layout" data-initial-sample-id="{{ selected_sample_id or '' }}">
       <div class="recognition-gt-grid">
       {% for sample in samples %}
-      <article id="reading-{{ sample.sample_id }}" data-reading-card data-status="{{ sample.status }}" class="mapping-relation-card recognition-gt-card">
-        <a class="recognition-gt-crop" href="{{ url_for('recognition_gt_review_sample', sample_id=sample.sample_id) }}"><img src="/crop/{{ sample.sample_id }}" alt="Recognition crop" loading="lazy"></a>
+      <article id="reading-{{ sample.sample_id }}" data-reading-card data-sample-id="{{ sample.sample_id }}" data-status="{{ sample.status }}" class="mapping-relation-card recognition-gt-card">
+        <a class="recognition-gt-crop" href="{{ url_for('recognition_gt_review_sample', sample_id=sample.sample_id, format_signature=format_signature) if format_signature else url_for('recognition_gt_review_sample', sample_id=sample.sample_id) }}"><img src="/crop/{{ sample.sample_id }}" alt="Recognition crop" loading="lazy"></a>
         <div class="recognition-gt-fields">
-          <div class="toolbar compact"><strong><a href="{{ url_for('recognition_gt_review_sample', sample_id=sample.sample_id) }}">Crop {{ loop.index }} · viewer</a></strong><span class="pill {{ 'ok' if sample.status == 'accepted' else 'warn' if sample.status == 'pending' else '' }}">{{ sample.status }}</span></div>
+          <div class="toolbar compact"><strong><a href="{{ url_for('recognition_gt_review_sample', sample_id=sample.sample_id, format_signature=format_signature) if format_signature else url_for('recognition_gt_review_sample', sample_id=sample.sample_id) }}">Crop {{ loop.index }} · viewer</a></strong><span class="pill {{ 'warn' if sample.format_risk_label == 'hoog' else 'warn' if sample.format_risk_label == 'middel' else '' }}" title="{{ sample.format_risk_reason }}">Formatrisico: {{ sample.format_risk_label }}</span></div>
           <div class="recognition-baseline"><span>Modelvoorspelling</span><strong class="mono">{{ sample.raw_ocr if sample.raw_ocr|trim else '∅ leeg' }}</strong><small>{{ '%.1f'|format((sample.raw_confidence or 0) * 100) }}% confidence</small></div>
-          <label>Exacte Ground Truth<input name="label_{{ sample.sample_id }}" value="{{ sample.exact_label if sample.exact_label is not none else sample.raw_ocr }}" autocomplete="off"></label>
+          <label>Exacte Ground Truth<div class="exact-gt-control" data-symbol-picker><input name="label_{{ sample.sample_id }}" value="{{ sample.exact_label if sample.exact_label is not none else sample.raw_ocr }}" autocomplete="off"><details class="symbol-picker"><summary>Ω Symbolen</summary><div class="symbol-palette">{% for symbol in ['±', '°', 'µ', '²', '³', '⁰', '¹', '⁻', '≥', '≤', '≈', '≠', '×', '÷', '·', '−', '–', '—', '…', '∅', '∞'] %}<button type="button" data-symbol="{{ symbol }}">{{ symbol }}</button>{% endfor %}</div></details></div></label>
           <label>Beoordeling<select name="status_{{ sample.sample_id }}"><option value="keep" selected>Ongewijzigd laten</option><option value="accepted">Goedkeuren / tekst opslaan</option><option value="unreadable">Onleesbaar</option><option value="excluded">Niet gebruiken voor training</option><option value="pending">Terug naar open</option></select></label>
           <label>Notitie<input name="notes_{{ sample.sample_id }}" value="{{ sample.notes or '' }}"></label>
           <small class="muted">{{ sample.field_key }} · {{ sample.raw_variant }} · OCR {{ '%.1f'|format((sample.raw_confidence or 0) * 100) }}%</small>
@@ -159,15 +172,16 @@ window.addEventListener('DOMContentLoaded', () => {
       </div>
       <aside id="recognition-reading-queue" class="recognition-reading-queue">
         <strong>Lezingen</strong>
-        {% for sample in samples %}<button type="button" data-queue-id="reading-{{ sample.sample_id }}"><span>{{ loop.index }}</span><span class="queue-label">{{ sample.raw_ocr or '∅ leeg' }}</span><span class="pill {{ 'ok' if sample.status == 'accepted' else 'warn' if sample.status == 'pending' else '' }}">{{ sample.status }}</span></button>{% endfor %}
+    {% for sample in samples %}<button type="button" data-queue-id="reading-{{ sample.sample_id }}" title="{{ sample.format_risk_reason }}"><span>{{ loop.index }}</span><span class="queue-label">{{ sample.raw_ocr or '∅ leeg' }}</span><span class="pill {{ 'warn' if sample.format_risk_label == 'hoog' or sample.format_risk_label == 'middel' else '' }}">{{ sample.format_risk_label }}</span></button>{% endfor %}
       </aside>
     </div>
-    <div class="actions section-gap"><button type="submit" class="primary">Wijzigingen opslaan</button><a class="button" href="/recognition-gt-review">Terug naar bronnen</a></div>
+    <div class="actions section-gap"><button type="submit" class="primary">Wijzigingen opslaan</button><a class="button" href="{{ url_for('recognition_gt_formats', signature=format_signature) if format_signature else url_for('recognition_gt_review_home') }}">Terug naar formatter</a></div>
   </section>
 </form>
 
 <style>
 .recognition-gt-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}.recognition-reading-layout{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px}.recognition-gt-card{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(300px,1.2fr);gap:20px;align-items:start}.recognition-reading-layout.focus-mode .recognition-gt-card{display:none}.recognition-reading-layout.focus-mode .recognition-gt-card.active-reading,.recognition-reading-layout.all-readings .recognition-gt-card{display:grid}.recognition-gt-crop{background:#0b1020;border-radius:10px;min-height:240px;display:flex;align-items:center;justify-content:center;padding:16px;overflow:hidden}.recognition-gt-crop img{max-width:100%;max-height:360px;object-fit:contain;image-rendering:auto}.recognition-gt-fields{display:grid;gap:10px}.recognition-gt-fields label{display:grid;gap:4px}.recognition-baseline{display:flex;align-items:baseline;gap:9px;padding:9px 11px;border:1px solid var(--line);border-radius:7px;background:#0d141c}.recognition-baseline span,.recognition-baseline small{color:var(--muted);font-size:12px}.recognition-baseline strong{font-size:15px;color:var(--text);font-weight:600}.recognition-baseline small{margin-left:auto}.toolbar.compact{margin:0}.reading-actions{display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:14px}.recognition-reading-queue{display:grid;align-content:start;gap:7px}.recognition-reading-queue>strong{margin-bottom:4px}.recognition-reading-queue button{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:7px;align-items:center;text-align:left;padding:8px;background:#101821}.recognition-reading-queue button.active{border-color:var(--accent);background:#172638}.recognition-reading-queue button>span:first-child{color:var(--muted)}.queue-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recognition-reading-queue .pill{padding:3px 6px;font-size:11px}@media(max-width:760px){.recognition-reading-layout{grid-template-columns:1fr}.recognition-reading-queue{order:-1;display:flex;overflow:auto}.recognition-reading-queue>strong{display:none}.recognition-reading-queue button{min-width:130px}.recognition-gt-card{grid-template-columns:1fr}.recognition-gt-crop{min-height:180px}.recognition-baseline small{margin-left:0}}
 .recognition-reading-layout:fullscreen{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:18px;align-content:start;padding:20px 24px;background:var(--bg);overflow:auto}.recognition-reading-layout:fullscreen .recognition-gt-card{grid-template-columns:minmax(300px,.9fr) minmax(420px,1.1fr);align-content:start}.recognition-reading-layout:fullscreen .recognition-gt-crop{min-height:360px;max-height:460px}.recognition-reading-layout:fullscreen .recognition-gt-crop img{max-height:330px}.recognition-reading-layout.viewer-maximized{position:fixed;inset:0;z-index:1000;padding:20px 24px;background:var(--bg);overflow:auto}.recognition-reading-layout.viewer-maximized .recognition-gt-card{grid-template-columns:minmax(300px,.9fr) minmax(420px,1.1fr);align-content:start}.recognition-reading-layout.viewer-maximized .recognition-gt-crop{min-height:360px;max-height:460px}.recognition-reading-layout.viewer-maximized .recognition-gt-crop img{max-height:330px}
+.exact-gt-control{display:flex;align-items:flex-start;gap:8px}.exact-gt-control>input{flex:1;min-width:0}.symbol-picker{position:relative;flex:none}.symbol-picker summary{list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:7px;padding:9px 10px;color:var(--text);background:#101821;white-space:nowrap}.symbol-picker summary::-webkit-details-marker{display:none}.symbol-picker[open] summary{border-color:var(--accent)}.symbol-palette{position:absolute;right:0;top:calc(100% + 6px);z-index:20;display:grid;grid-template-columns:repeat(7, minmax(34px,1fr));gap:5px;padding:8px;border:1px solid var(--line);border-radius:8px;background:#101821;box-shadow:0 10px 28px rgba(0,0,0,.35)}.symbol-palette button{min-width:34px;padding:7px 5px;font-size:16px;border:1px solid var(--line);border-radius:5px;background:#172638;color:var(--text);cursor:pointer}.symbol-palette button:hover{border-color:var(--accent);background:#203650}
 </style>
 {% endblock %}

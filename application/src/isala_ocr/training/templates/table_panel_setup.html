@@ -4,20 +4,6 @@
 {% block heading %}Stap {{ step.index }} · {{ step.title }}{% endblock %}
 {% block subtitle %}{{ step.subtitle }}{% endblock %}
 {% block content %}
-<section class="gate-banner {% if panel_state.configured %}gate-banner-open{% else %}gate-banner-closed{% endif %}">
-  <div>
-    <span class="gate-kicker">TABLE REGION · GROUND TRUTH</span>
-    <h2>
-      Tabelregio’s per lezing vastleggen
-    </h2>
-    <p>Het panelprofiel is de herbruikbare zoekhulp. Met <strong>Tabelregio-GT opslaan</strong> leg je daarnaast per lezing vast waar de volledige tabellen werkelijk staan; die kaders worden de voorbeelden voor de aparte tabelregio-detector.</p>
-    <p>De hoofdroute is: tabelregio-GT → dataset → tabelregio-detector → cellendetectie. Het oude panelprofiel blijft alleen als fallback beschikbaar.</p>
-  </div>
-  <div class="actions">
-    {% if sources %}<a class="button primary" href="/process/table-region-model">Ga naar Stap 3 · Detector trainen →</a>{% endif %}
-  </div>
-</section>
-
 {% if not sources %}
 <section class="card section-gap">
   <h3>Nog geen bronpreview beschikbaar</h3>

@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Recognition-formatprofiel · IsalaOCR{% endblock %}
+{% block heading %}Recognition-formatprofiel{% endblock %}
+{% block subtitle %}Bekijk welke schrijfwijzen uit de goedgekeurde Recognition-GT zijn opgebouwd.{% endblock %}
+{% block content %}
+<section class="card format-page">
+  <div class="toolbar">
+    <div><span class="eyebrow">FORMAT-GT</span><h2>Toegestane formats</h2><p class="muted">Alle formats die in de goedgekeurde GT voorkomen zijn toegestaan. Klik op een format om alle GT-datapoints te bekijken.</p></div>
+    <div class="actions"><span class="pill">{{ format_profile.label_count or 0 }} voorbeelden</span><a class="button" href="/recognition-gt-review">← Recognition GT</a></div>
+  </div>
+  <div class="format-list">
+    {% for item in formats if item.allowed %}
+    <a class="format-row {% if selected_format and selected_format.signature == item.signature %}selected{% endif %}" href="/recognition-gt-formats?signature={{ item.signature|urlencode }}#format-detail">
+      <span class="format-pattern mono">{{ item.signature }}</span><span class="format-family">{{ item.family }}</span><span class="format-count">{{ item.count }} GT-datapoints</span><span>→</span>
+    </a>
+    {% else %}<p class="muted">Nog geen toegestaan formatprofiel beschikbaar.</p>{% endfor %}
+  </div>
+</section>
+
+{% if selected_format %}
+<section id="format-detail" class="card section-gap">
+    <div class="toolbar"><div><h3>Datapoints voor <span class="mono">{{ selected_format.signature }}</span></h3><p class="muted">{{ selected_format.count }} goedgekeurde voorbeelden · familie: {{ selected_format.family }}</p></div><span class="pill {% if selected_format.allowed %}ok{% else %}warn{% endif %}">{% if selected_format.allowed %}toegestaan{% else %}variant{% endif %}</span></div>
+  <div class="format-examples">
+    {% for example in selected_format.examples %}
+    <div class="format-example"><div><strong class="mono">{{ example.exact_label }}</strong><small>GT-label</small></div><div><span class="mono">{{ example.raw_ocr or '∅ leeg' }}</span><small>modelvoorspelling</small></div><div><span class="mono">{{ example.source_id }}</span><small>bron</small></div><a class="button" href="{{ url_for('recognition_gt_review_document', source_id=example.source_id, sample_id=example.sample_id, sort='normal', format_signature=selected_format.signature) }}">Open in Recognition GT Studio →</a></div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+<style>
+.format-page .toolbar{align-items:flex-start}.format-list{display:grid;gap:8px;margin-top:18px}.format-row{display:grid;grid-template-columns:minmax(100px,180px) minmax(120px,1fr) auto 28px;align-items:center;gap:14px;padding:12px 14px;border:1px solid var(--line);border-radius:9px;background:#101821;color:var(--text);text-decoration:none}.format-row:hover,.format-row.selected{border-color:var(--accent);background:#142333}.format-row.variant{border-color:rgba(242,180,75,.55)}.format-pattern{font-size:15px;font-weight:700}.format-family,.format-count{color:var(--muted)}.format-examples{display:grid;gap:8px;margin-top:16px}.format-example{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:14px;align-items:center;padding:11px 13px;border:1px solid var(--line);border-radius:8px;background:#101821}.format-example>div{display:grid;gap:3px;min-width:0}.format-example small{color:var(--muted);font-size:11px}@media(max-width:850px){.format-row{grid-template-columns:1fr auto}.format-row .format-family{grid-column:1}.format-example{grid-template-columns:1fr 1fr}.format-example .button{grid-column:1/-1;justify-self:start}}
+</style>
+{% endblock %}
