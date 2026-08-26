@@ -21,10 +21,11 @@ def test_sidebar_contains_all_process_tabs_and_versioned_assets() -> None:
         "localization-dataset",
         "localization-evaluate", "localization-register", "redetect",
         "detection-report", "mapping", "apply-mapping", "value-extract", "value-review",
-        "recognition-dataset", "recognition-validate", "recognition-train",
+        "recognition-dataset", "recognition-train",
         "recognition-evaluate", "recognition-models", "artifacts", "system-checks", "maintenance",
     ):
         assert f'"key": "{key}"' in webui
+    assert '"key": "recognition-validate"' not in webui
 
 
 def test_worker_writes_separate_lifecycle_log() -> None:

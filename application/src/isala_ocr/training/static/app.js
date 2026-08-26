@@ -70,8 +70,7 @@
 
   const elements = {
     toggle: document.getElementById('activity-toggle'),
-    collapse: document.getElementById('activity-collapse'),
-    refresh: document.getElementById('activity-refresh'),
+    copyAll: document.getElementById('activity-copy-all'),
     select: document.getElementById('activity-job-select'),
     title: document.getElementById('activity-title'),
     subtitle: document.getElementById('activity-subtitle'),
@@ -94,7 +93,6 @@
   let jobs = [];
   let polling = false;
   let pollTimer = null;
-  let forceRefresh = false;
   let lastWorker = {};
   const refreshOnCompleteJobs = new Set();
   let pageReloadScheduled = false;
@@ -329,6 +327,48 @@
     return visible.length ? normalized : '';
   }
 
+  async function copyAllTerminalOutput() {
+    const job = currentJob();
+    if (!job || !elements.copyAll) return;
+    const button = elements.copyAll;
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Terminaloutput ophalen…';
+    try {
+      const streams = [
+        ['STDOUT', 'stdout'],
+        ['STDERR', 'stderr'],
+        ['WORKER', 'worker'],
+      ];
+      const sections = await Promise.all(streams.map(async ([label, stream]) => {
+        const response = await fetch(`/api/jobs/${encodeURIComponent(job.job_id)}/log?stream=${stream}&_=${Date.now()}`, {cache: 'no-store'});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return `===== ${label} =====\n${normalizeLog(await response.text()) || '(geen uitvoer)'}`;
+      }));
+      const text = [`===== ${job.action_name || 'Taak'} · ${job.job_id} =====`, ...sections].join('\n\n');
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const helper = document.createElement('textarea');
+        helper.value = text;
+        helper.style.position = 'fixed';
+        helper.style.opacity = '0';
+        document.body.appendChild(helper);
+        helper.focus();
+        helper.select();
+        if (!document.execCommand('copy')) throw new Error('Klembord niet beschikbaar');
+        helper.remove();
+      }
+      button.textContent = 'Volledige output gekopieerd';
+      window.setTimeout(() => { button.textContent = original; }, 1600);
+    } catch (error) {
+      button.textContent = 'Kopiëren mislukt';
+      window.setTimeout(() => { button.textContent = original; }, 2200);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function loadLog(force = false) {
     const job = currentJob();
     if (!job) {
@@ -427,8 +467,7 @@
       if (state.active_model && elements.activeModel) {
         elements.activeModel.innerHTML = `<span class="dot ok"></span>${escapeHtml(state.active_model.model_id || 'Actief model')}`;
       }
-      await loadLog(forceRefresh);
-      forceRefresh = false;
+      await loadLog(false);
     } catch (error) {
       elements.workerDot.classList.remove('ok');
       elements.workerDot.classList.add('bad-dot');
@@ -477,7 +516,6 @@
       window.dispatchEvent(new CustomEvent('isala:job-created', {detail: payload}));
       renderJobOptions();
       setActiveJob(payload.job_id, false);
-      forceRefresh = true;
       await pollStatus();
     } catch (error) {
       elements.status.textContent = 'Mislukt';
@@ -499,8 +537,7 @@
   });
 
   elements.toggle.addEventListener('click', () => setExpanded(dock.classList.contains('collapsed')));
-  elements.collapse.addEventListener('click', () => setExpanded(false));
-  elements.refresh.addEventListener('click', () => { forceRefresh = true; pollStatus(); });
+  elements.copyAll?.addEventListener('click', copyAllTerminalOutput);
   elements.select.addEventListener('change', () => setActiveJob(elements.select.value, false));
   elements.logTabs.forEach(tab => tab.addEventListener('click', () => setLogStream(tab.dataset.activityLogStream || 'stdout')));
   elements.followLive?.addEventListener('click', followLiveOutput);
@@ -526,7 +563,6 @@
   setExpanded(initiallyExpanded);
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
-      forceRefresh = true;
       pollStatus();
     }
   });

@@ -1,6 +1,5 @@
 . (Join-Path $PSScriptRoot "training-common.ps1")
 Assert-IsalaActionPreflight -ActionId "28"
-Assert-IsalaDetectionGateOpen
 $env:ISALA_NESTED_PREFLIGHT_APPROVED = "1"
 try {
     & (Join-Path $PSScriptRoot "register-recognition-model.ps1")

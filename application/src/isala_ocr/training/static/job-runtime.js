@@ -38,20 +38,26 @@
   document.head.appendChild(style);
 
   const projectId = String(document.getElementById('project-switch-select')?.value || 'default');
-  const byAction = new Map();
+  // Recognition GPU and CPU buttons share action 26, but represent separate
+  // run variants. Keep their runtime indicators separate by action + device.
+  const byVariant = new Map();
+  const variantKey = (actionId, device) => `${actionId}:${device || 'default'}`;
   trackedForms.forEach(form => {
     const actionId = String(form.querySelector('input[name="action_id"]')?.value || '');
-    if (!byAction.has(actionId)) byAction.set(actionId, []);
-    byAction.get(actionId).push(form);
+    const device = String(form.querySelector('input[name="device"]')?.value || '').toLowerCase();
+    const key = variantKey(actionId, device);
+    if (!byVariant.has(key)) byVariant.set(key, {actionId, device, forms: []});
+    byVariant.get(key).forms.push(form);
     if (form.querySelector('.action-runtime-meta')) return;
     const meta = document.createElement('div');
     meta.className = 'action-runtime-meta';
     meta.dataset.actionId = actionId;
+    if (device) meta.dataset.device = device;
     meta.innerHTML = '<div class="action-runtime-line"><span>Laatste run</span><strong>Nog geen meting</strong></div><div class="action-runtime-bar" hidden><span></span></div>';
     form.appendChild(meta);
   });
 
-  const cacheKey = actionId => `isala-job-runtime:${projectId}:${actionId}`;
+  const cacheKey = (actionId, device) => `isala-job-runtime:${projectId}:${variantKey(actionId, device)}`;
 
   function parseTime(value) {
     if (!value) return NaN;
@@ -83,9 +89,9 @@
     return new Date(ms).toLocaleString('nl-NL', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
   }
 
-  function readCached(actionId) {
+  function readCached(actionId, device) {
     try {
-      const raw = window.localStorage.getItem(cacheKey(actionId));
+      const raw = window.localStorage.getItem(cacheKey(actionId, device));
       const parsed = raw ? JSON.parse(raw) : null;
       return parsed && Number(parsed.duration_ms) > 0 ? parsed : null;
     } catch (_) {
@@ -95,15 +101,17 @@
 
   function cacheFinished(job) {
     const actionId = String(job?.action_id || '');
-    if (!byAction.has(actionId) || !['completed', 'failed'].includes(String(job?.status || ''))) return;
+    const device = String(job?.options?.device || '').toLowerCase();
+    const matching = [...byVariant.values()].some(item => item.actionId === actionId && (!item.device || item.device === device));
+    if (!matching || !['completed', 'failed'].includes(String(job?.status || ''))) return;
     const measured = durationMs(job);
     if (!measured) return;
-    const current = readCached(actionId);
+    const current = readCached(actionId, device);
     const finished = parseTime(job.finished_at || job.updated_at);
     const currentFinished = parseTime(current?.finished_at);
     if (current && Number.isFinite(currentFinished) && Number.isFinite(finished) && currentFinished > finished) return;
     try {
-      window.localStorage.setItem(cacheKey(actionId), JSON.stringify({
+      window.localStorage.setItem(cacheKey(actionId, device), JSON.stringify({
         duration_ms: measured,
         status: String(job.status || ''),
         started_at: job.started_at || job.created_at || '',
@@ -119,18 +127,18 @@
       .sort((a, b) => parseTime(b.finished_at || b.updated_at || b.started_at || b.created_at) - parseTime(a.finished_at || a.updated_at || a.started_at || a.created_at))[0] || null;
   }
 
-  function render(actionId, jobs) {
-    const actionJobs = jobs.filter(job => String(job?.action_id || '') === actionId);
+  function render(actionId, device, forms, jobs) {
+    const actionJobs = jobs.filter(job => String(job?.action_id || '') === actionId && (!device || String(job?.options?.device || '').toLowerCase() === device));
     actionJobs.forEach(cacheFinished);
 
     const live = latestByStatus(actionJobs, ['running', 'pending']);
     const latestFinished = latestByStatus(actionJobs, ['completed', 'failed']);
     const latestSuccessful = latestByStatus(actionJobs, ['completed']);
-    const cached = readCached(actionId);
+    const cached = readCached(actionId, device);
     const referenceMs = durationMs(latestSuccessful) || Number(cached?.status === 'completed' ? cached.duration_ms : 0) || durationMs(latestFinished) || Number(cached?.duration_ms || 0);
     const last = latestFinished || cached;
 
-    byAction.get(actionId).forEach(form => {
+    forms.forEach(form => {
       const meta = form.querySelector('.action-runtime-meta');
       if (!meta) return;
       const line = meta.querySelector('.action-runtime-line');
@@ -184,7 +192,7 @@
   }
 
   function renderAll(jobs) {
-    for (const actionId of byAction.keys()) render(actionId, jobs);
+    for (const item of byVariant.values()) render(item.actionId, item.device, item.forms, jobs);
   }
 
   let lastJobs = [];
@@ -204,15 +212,14 @@
       renderAll(lastJobs);
     } finally {
       polling = false;
-      const trackedIds = new Set(byAction.keys());
-      const hasLive = lastJobs.some(job => trackedIds.has(String(job?.action_id || '')) && ['running', 'pending'].includes(String(job?.status || '')));
+      const hasLive = lastJobs.some(job => [...byVariant.values()].some(item => String(job?.action_id || '') === item.actionId && (!item.device || String(job?.options?.device || '').toLowerCase() === item.device)) && ['running', 'pending'].includes(String(job?.status || '')));
       timer = window.setTimeout(poll, document.hidden ? 30000 : (hasLive ? 2000 : 15000));
     }
   }
 
   window.addEventListener('isala:job-created', event => {
     const job = event.detail || {};
-    if (!byAction.has(String(job.action_id || ''))) return;
+    if (![...byVariant.values()].some(item => String(job.action_id || '') === item.actionId && (!item.device || String(job?.options?.device || '').toLowerCase() === item.device))) return;
     lastJobs = [job, ...lastJobs.filter(item => item.job_id !== job.job_id)];
     renderAll(lastJobs);
     if (timer) window.clearTimeout(timer);
@@ -221,7 +228,7 @@
 
   window.addEventListener('isala:job-status', event => {
     const job = event.detail || {};
-    if (!byAction.has(String(job.action_id || ''))) return;
+    if (![...byVariant.values()].some(item => String(job.action_id || '') === item.actionId && (!item.device || String(job?.options?.device || '').toLowerCase() === item.device))) return;
     lastJobs = [job, ...lastJobs.filter(item => item.job_id !== job.job_id)];
     renderAll(lastJobs);
   });

@@ -26,7 +26,7 @@ from .localization import (
 )
 from .mapping import ensure_default_field_definitions, suggest_mappings
 from .table_quality import table_first_quality
-from .table_panels import load_panel_profile, panel_boxes_for_image
+from .table_panels import load_panel_profile
 from .table_cell_training import active_table_cell_model, list_table_cell_models
 
 LOGGER = logging.getLogger(__name__)
@@ -264,26 +264,18 @@ def _collect_localization_detections(
                 try:
                     if table_first and bool(table_first_settings.get("preprocessing_benchmark", True)):
                         learned_region_model = str(table_settings.get("table_region_model_dir") or "").strip()
-                        manual_panels = panel_boxes_for_image(panel_profile, width, height)
                         if learned_region_model:
                             table_regions, table_preprocessing = table_engine.detect_with_benchmark(
                                 decoded.image, source_id=decoded.source_id, fallback_tokens=tokens
                             )
                             table_preprocessing["table_region_model"] = learned_region_model
-                        elif manual_panels:
-                            table_regions, table_preprocessing = table_engine.detect_panels_with_benchmark(
-                                decoded.image, source_id=decoded.source_id, panels=manual_panels
-                            )
-                            table_preprocessing["panel_profile_updated_at"] = str(panel_profile.get("updated_at") or "")
                         else:
-                            # Bootstrap pass: generate a full-image render and table suggestions so
-                            # the user can draw authoritative panels in Panel Setup. This output is
-                            # intentionally marked as provisional and should be rerun after panels are saved.
+                            # Table regions are detected from the full image. Manual table-region
+                            # GT is supervision for review/training, not a hard runtime crop.
                             table_regions, table_preprocessing = table_engine.detect_with_benchmark(
                                 decoded.image, source_id=decoded.source_id, fallback_tokens=tokens
                             )
-                            table_preprocessing["panel_setup_required"] = True
-                            table_preprocessing["panel_mode"] = "bootstrap_suggestion"
+                            table_preprocessing["panel_mode"] = "detected_full_image"
                     else:
                         table_regions = table_engine.detect(
                             decoded.image, source_id=decoded.source_id, fallback_tokens=tokens
@@ -372,10 +364,11 @@ def _collect_localization_detections(
                     "selection": "explicit" if table_model_id else "generic-default",
                 }),
                 "panel_profile": ({
-                    "mode": str(panel_profile.get("mode") or "manual"),
-                    "updated_at": str(panel_profile.get("updated_at") or ""),
-                    "panel_count": len(panel_profile.get("panels") or []),
-                    "panels": list(panel_profile.get("panels") or []),
+                    "mode": "detected_full_image",
+                    "updated_at": "",
+                    "panel_count": 0,
+                    "panels": [],
+                    "legacy_profile_updated_at": str(panel_profile.get("updated_at") or ""),
                 } if table_first else {}),
                 "candidates": candidate_payloads,
                 "tables": [

@@ -118,7 +118,7 @@ ACTIONS = {
     "20": "Mappinggegevens voorbereiden na detectiepoort",
     "21": "Bevestigde mappings toepassen en definitieve crops maken",
     "22": "Goedgekeurde crops uitlezen",
-    "24": "Recognition-dataset bouwen",
+    "24": "Recognition-dataset bouwen en valideren",
     "25": "Recognition-dataset valideren",
     "26": "Recognition-model trainen",
     "27": "Recognition-model evalueren en vergelijken",
@@ -213,8 +213,8 @@ PROCESS_STEPS = [
     {"key": "detect-candidates","index":3,"group":"detection","title":"Eerste celdetectie","subtitle":"Voer de eerste celdetectie uit binnen de ingestelde tabelregio’s. Deze run is alleen het startpunt voor de GT.","action_ids":["2"],"requirements":["Voorbereiding afgerond","Tabelregio’s opgeslagen","Bronnen in input"]},
     {"key": "detection-review","index":4,"group":"detection","title":"GT Studio","subtitle":"Beoordeel de Ground Truth per bron in de zelfstandige Studio-reviewworkflow; tabelanalyse volgt later.","action_ids":[],"requirements":["Eerste celdetectie afgerond","Bronrender","Per bron GT controleren en goedkeuren"]},
     {"key": "table-model","index":5,"group":"detection","title":"Celdetector trainen","subtitle":"Bouw uit de reviewcorrecties trainingsdata, train/activeer de celdetector en gebruik het nieuwe model in de volgende detectieronde.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde GT-review","Positieve functionele cellen","Dataset gebouwd en gevalideerd vóór training"]},
-    {"key": "table-compare","index":6,"group":"detection","title":"Detectorafwijkingen reviewen","subtitle":"Vergelijk een nieuwe detectorrun met de vaste Ground Truth en review alleen de verschillen.","action_ids":[],"requirements":["Canonieke Ground Truth uit Stap 4","Table-cell dataset uit Stap 5","Nieuwe detectierun uit Stap 3"]},
-    {"key": "table-quality","index":None,"group":"tables","title":"Tabelstudio","subtitle":"Maak vanuit de getrainde celdetector het rij-kolomraster en bepaal welke bezette rastercellen naar Recognition gaan.","action_ids":[],"requirements":["Celdetector getraind en opnieuw gedraaid","Goedgekeurde celposities"]},
+    {"key": "table-compare","index":None,"group":"tables","title":"Detectorafwijkingen reviewen","subtitle":"Optionele technische vergelijking van een nieuwe detectorrun met de vaste Ground Truth.","action_ids":[],"requirements":["Canonieke Ground Truth uit Stap 4","Table-cell dataset uit Stap 5","Nieuwe detectierun uit Stap 3"]},
+    {"key": "table-quality","index":6,"group":"tables","title":"Tabelstudio","subtitle":"Maak vanuit de getrainde celdetector het rij-kolomraster en bepaal welke bezette rastercellen naar Recognition gaan.","action_ids":[],"requirements":["Celdetector getraind en opnieuw gedraaid","Goedgekeurde celposities"]},
 
     # The previous loose field/PicoDet workflow is intentionally parked. Routes,
     # artifacts and jobs stay available so nothing is deleted, but they are no
@@ -226,14 +226,13 @@ PROCESS_STEPS = [
     {"key": "detection-report","index":None,"group":"fallback","title":"Box-detector kwaliteitsrapport","subtitle":"Legacy/fallback Detection Gate rapport.","action_ids":["13"],"requirements":["Localization-evaluatie"]},
 
     {"key": "mapping","index":None,"group":"value","title":"Mapping Studio","subtitle":"Pas pas ná Recognition optioneel functionele betekenis toe op betrouwbare cellen.","action_ids":["20"],"requirements":["Recognition-output","Betrouwbare celgeometrie","Functioneel veldschema"]},
-    {"key": "apply-mapping","index":9,"group":"value","title":"Mappings toepassen","subtitle":"Maak definitieve functionele crops uit bevestigde mappings.","action_ids":["21"],"requirements":["Bevestigde mappings"]},
-    {"key": "value-extract","index":10,"group":"value","title":"Waarden uitlezen","subtitle":"Lees alleen de definitieve, goedgekeurde crops uit met het actieve recognition-model.","action_ids":["22"],"requirements":["Goedgekeurde definitieve crops","Actief recognition-model"]},
-    {"key": "value-review","index":11,"group":"value","title":"Waarden beoordelen","subtitle":"Beoordeel uitsluitend OCR-inhoud; cropgeometrie wordt hier niet meer aangepast.","action_ids":[],"requirements":["Uitgelezen waarden"]},
-    {"key": "recognition-dataset","index":12,"group":"value","title":"Recognition-dataset bouwen","subtitle":"Bouw crop→exacte-tekst trainingsdata uit goedgekeurde waarden.","action_ids":["24"],"requirements":["Beoordeelde exacte waarden"]},
-    {"key": "recognition-validate","index":13,"group":"value","title":"Recognition-dataset valideren","subtitle":"Controleer labels, tekenset en PaddleOCR trainingsinvoer.","action_ids":["25"],"requirements":["Gebouwde recognition-dataset"]},
-    {"key": "recognition-train","index":14,"group":"value","title":"Recognition-model trainen","subtitle":"Train het model dat tekst binnen de reeds correcte crops leest.","action_ids":["26"],"requirements":["Gevalideerde recognition-dataset"]},
-    {"key": "recognition-evaluate","index":15,"group":"value","title":"Recognition-model evalueren","subtitle":"Meet exact match en CER op de vaste recognition-testset.","action_ids":["27"],"requirements":["Getraind/exporteerbaar recognition-model"]},
-    {"key": "recognition-models","index":16,"group":"value","title":"Recognition-model activeren","subtitle":"Registreer en activeer een voldoende goed recognition-model.","action_ids":["28"],"requirements":["Recognition-evaluatie"]},
+    {"key": "apply-mapping","index":None,"group":"value","title":"Mappings toepassen","subtitle":"Maak definitieve functionele crops uit bevestigde mappings.","action_ids":["21"],"requirements":["Bevestigde mappings"]},
+    {"key": "value-extract","index":None,"group":"value","title":"Waarden uitlezen","subtitle":"Lees alleen de definitieve, goedgekeurde crops uit met het actieve recognition-model.","action_ids":["22"],"requirements":["Goedgekeurde definitieve crops","Actief recognition-model"]},
+    {"key": "value-review","index":None,"group":"value","title":"Waarden beoordelen","subtitle":"Beoordeel uitsluitend OCR-inhoud; cropgeometrie wordt hier niet meer aangepast.","action_ids":[],"requirements":["Uitgelezen waarden"]},
+    {"key": "recognition-dataset","index":9,"group":"value","title":"Recognition-dataset bouwen en valideren","subtitle":"Bouw crop→exacte-tekst trainingsdata en valideer direct in dezelfde taak.","action_ids":["24"],"requirements":["Goedgekeurde Recognition-GT-samples"]},
+    {"key": "recognition-train","index":10,"group":"value","title":"Recognition-model trainen","subtitle":"Train het model dat tekst binnen de reeds correcte crops leest.","action_ids":["26"],"requirements":["Gevalideerde recognition-dataset"]},
+    {"key": "recognition-evaluate","index":11,"group":"value","title":"Recognition-model evalueren","subtitle":"Meet exact match en CER op de vaste recognition-testset.","action_ids":["27"],"requirements":["Getraind/exporteerbaar recognition-model"]},
+    {"key": "recognition-models","index":12,"group":"value","title":"Recognition-model activeren","subtitle":"Registreer en activeer een voldoende goed recognition-model.","action_ids":["28"],"requirements":["Recognition-evaluatie"]},
     {"key": "artifacts","index":None,"group":"system","title":"Data & modellen","subtitle":"Beheer datasets, modellen, evaluaties en trainingsruns.","action_ids":[],"requirements":[]},
     {"key": "system-checks","index":None,"group":"system","title":"Systeemcontroles","subtitle":"Controleer Docker, caches, permissies, database en beide pipelines.","action_ids":[],"requirements":[]},
     {"key": "maintenance","index":None,"group":"system","title":"Onderhoud","subtitle":"Veilige opruim- en herstelacties.","action_ids":[],"requirements":[]},
@@ -1505,7 +1504,6 @@ def create_web_app(
             "value-extract": mapped.get("recognized", 0) > 0,
             "value-review": value.get("total", 0) > 0 and value.get("pending", 0) == 0,
             "recognition-dataset": dataset is not None and bool(dataset.get("exists")),
-            "recognition-validate": bool(validation and validation.get("status") == "ok"),
             "recognition-train": progress is not None,
             "recognition-evaluate": baseline is not None or custom is not None,
             "recognition-models": active is not None,
@@ -1606,7 +1604,9 @@ def create_web_app(
             items = [item for item in items if str(item.get("action_id") or "") in wanted]
         if job_type is not None:
             items = [item for item in items if str(item.get("job_type") or "") == str(job_type)]
-        items.sort(key=lambda x: x.get("updated_at", x.get("created_at", "")), reverse=True)
+        # Queue order is based on creation time. Using updated_at made older
+        # jobs jump around whenever their worker status/log snapshot changed.
+        items.sort(key=lambda x: (str(x.get("created_at") or ""), str(x.get("job_id") or "")), reverse=True)
         items = items[:max(0, int(limit))]
 
         needs_training_progress = any(
@@ -2408,7 +2408,6 @@ def create_web_app(
             "value-extract": f"{snapshot['mapped'].get('recognized', 0)} goedgekeurde crops uitgelezen",
             "value-review": f"{snapshot['value'].get('accepted', 0)} goedgekeurd, {snapshot['value'].get('pending', 0)} open",
             "recognition-dataset": snapshot['dataset']['dataset_id'] if snapshot['dataset'] else "nog niet gebouwd",
-            "recognition-validate": snapshot['validation'].get('status', 'onbekend') if snapshot['validation'] else "nog niet gevalideerd",
             "recognition-train": f"{float(snapshot['progress'].get('progress_percent', 0)):.1f}%" if snapshot['progress'] else "nog geen recognition-training",
             "recognition-evaluate": (
                 "custom evaluatie aanwezig" if snapshot['custom'] else
@@ -3085,10 +3084,14 @@ def create_web_app(
             header_counts = value
         elif step_key.startswith("recognition-"):
             _, active = registry_state()
+            recognition_baseline, recognition_custom = latest_evaluations()
             state.update(
                 detection_gate=current_recognition_gate(),
                 dataset=latest_dataset_info(),
                 active=active,
+                recognition_baseline=recognition_baseline,
+                recognition_custom=recognition_custom,
+                recognition_comparison=latest_comparison(),
             )
         elif step.get("group") == "value":
             state["detection_gate"] = current_pipeline_gate()

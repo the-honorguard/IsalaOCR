@@ -10,10 +10,12 @@ from typing import Any
 from .db import TrainingDatabase, utc_now
 from .localization_dataset import resolve_localization_splits
 from .projects import resolve_project_workspace
-from .table_panels import load_panel_profile, panel_boxes_for_image
+from ..models import Box
 from .table_cell_ground_truth import (
     bootstrap_table_cell_ground_truth, ensure_table_cell_ground_truth, list_ground_truth_cells, list_ground_truth_sources,
 )
+from .table_region_ground_truth import list_table_regions
+from .table_panels import load_panel_profile, panel_boxes_for_image
 
 MODEL_NAME = "RT-DETR-L_wireless_table_cell_det"
 DATASET_DIRNAME = "table_cell_datasets"
@@ -155,12 +157,77 @@ def _latest_training_feedback(root: Path) -> dict[str, Any]:
         return {"available": False, "fingerprint": "", "model_error_count": 0, "panel_weights": {}}
 
 
+def _training_panels(
+    root: Path, db: TrainingDatabase, sources: list[dict[str, Any]], canonical: dict[str, Any] | None
+) -> dict[str, list[dict[str, Any]]]:
+    """Return per-source regions for dataset crops.
+
+    Reviewed table-region GT is preferred for training crops. Detector regions are
+    the fallback for projects without region GT, and canonical cell GT is the
+    stable last fallback. None of these becomes a hard runtime crop for Step 3.
+    """
+    result: dict[str, list[dict[str, Any]]] = {}
+    canonical_sources = (canonical or {}).get("sources") if isinstance(canonical, dict) else {}
+    legacy_profile = load_panel_profile(root)
+    for source in sources:
+        source_id = str(source.get("source_id") or "")
+        regions = list_table_regions(root, source_id)
+        if not regions:
+            geometry = db.list_detection_table_geometry(source_id)
+            regions = geometry.get("regions") or []
+        panels: list[dict[str, Any]] = []
+        for region in regions:
+            try:
+                box = Box(int(region["x1"]), int(region["y1"]), int(region["x2"]), int(region["y2"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            panels.append({
+                "panel_id": str(region.get("table_id") or region.get("region_id") or f"table-{len(panels) + 1}"),
+                "name": str(region.get("table_id") or region.get("label") or f"Tabel {len(panels) + 1}"),
+                "box": box,
+                "x1": box.x1, "y1": box.y1, "x2": box.x2, "y2": box.y2,
+            })
+        if not panels and isinstance(canonical_sources, dict):
+            cells = (canonical_sources.get(source_id) or {}).get("cells") or []
+            grouped: dict[str, list[dict[str, Any]]] = {}
+            for cell in cells:
+                grouped.setdefault(str(cell.get("table_id") or cell.get("panel_id") or "__default__"), []).append(cell)
+            for table_id, table_cells in grouped.items():
+                try:
+                    box = Box(
+                        min(int(item["x1"]) for item in table_cells),
+                        min(int(item["y1"]) for item in table_cells),
+                        max(int(item["x2"]) for item in table_cells),
+                        max(int(item["y2"]) for item in table_cells),
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continue
+                panels.append({"panel_id": table_id, "name": table_id, "box": box, "x1": box.x1, "y1": box.y1, "x2": box.x2, "y2": box.y2})
+        if not panels and legacy_profile.get("panels"):
+            # Compatibility fallback for older workspaces that predate detected
+            # table-region geometry. New runs take the branches above first.
+            width = int(source.get("image_width") or legacy_profile.get("reference_width") or 0)
+            height = int(source.get("image_height") or legacy_profile.get("reference_height") or 0)
+            for item in panel_boxes_for_image(legacy_profile, width, height):
+                box = item["box"]
+                panels.append({
+                    "panel_id": str(item.get("panel_id") or ""), "name": str(item.get("name") or ""), "box": box,
+                    "x1": box.x1, "y1": box.y1, "x2": box.x2, "y2": box.y2,
+                })
+        if panels:
+            result[source_id] = panels
+    return result
+
+
 def table_cell_dataset_preview(workspace: str | Path) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
     db = TrainingDatabase(root / "samples.sqlite3")
-    profile = load_panel_profile(root)
-    panels = list(profile.get("panels") or [])
     sources, by_source, canonical = _dataset_source_state(root, db)
+    panels_by_source = _training_panels(root, db, sources, canonical)
+    panels = [
+        {"source_id": source_id, "panel_id": item["panel_id"], "name": item["name"], "x1": item["x1"], "y1": item["y1"], "x2": item["x2"], "y2": item["y2"]}
+        for source_id, items in panels_by_source.items() for item in items
+    ]
     source_ids = [str(item["source_id"]) for item in sources]
     split = resolve_localization_splits(root, source_ids)
     annotations = [item for source_id in source_ids for item in by_source.get(source_id, [])]
@@ -191,11 +258,6 @@ def build_table_cell_dataset(workspace: str | Path) -> dict[str, Any]:
 
     root = resolve_project_workspace(workspace)
     db = TrainingDatabase(root / "samples.sqlite3")
-    profile = load_panel_profile(root)
-    profile_panels = list(profile.get("panels") or [])
-    if not profile_panels:
-        raise ValueError("Stel eerst de table-panelen in")
-
     sources, by_source, canonical = _dataset_source_state(root, db)
     if not sources:
         raise ValueError("Rond eerst minimaal één table-cell review volledig af")
@@ -213,6 +275,13 @@ def build_table_cell_dataset(workspace: str | Path) -> dict[str, Any]:
         all_annotations.extend(by_source.get(source_id, []))
     if not all_annotations:
         raise ValueError("De afgeronde table-review bevat nog geen positieve functionele cellen")
+    panels_by_source = _training_panels(root, db, sources, canonical)
+    if not panels_by_source:
+        raise ValueError("Er zijn nog geen gedetecteerde tabelregio’s beschikbaar")
+    profile_panels = [
+        {"source_id": source_id, "panel_id": item["panel_id"], "name": item["name"], "x1": item["x1"], "y1": item["y1"], "x2": item["x2"], "y2": item["y2"]}
+        for source_id, items in panels_by_source.items() for item in items
+    ]
 
     review_fingerprint = _review_fingerprint(
         source_splits=source_splits, panels=profile_panels, annotations=all_annotations
@@ -248,9 +317,9 @@ def build_table_cell_dataset(workspace: str | Path) -> dict[str, Any]:
         with Image.open(render_path) as image:
             image = image.convert("RGB")
             width, height = image.size
-            panel_boxes = panel_boxes_for_image(profile, width, height)
+            panel_boxes = panels_by_source.get(source_id, [])
             if not panel_boxes:
-                raise ValueError(f"Geen panelgeometrie beschikbaar voor {source_id}")
+                raise ValueError(f"Geen gedetecteerde tabelregio beschikbaar voor {source_id}")
             source_annotations = by_source.get(source_id, [])
             for panel in panel_boxes:
                 box = panel["box"]
@@ -361,7 +430,8 @@ def build_table_cell_dataset(workspace: str | Path) -> dict[str, Any]:
         } if training_feedback.get("available") else {},
         "hard_example_panel_count": hard_example_panel_count,
         "hard_example_image_count": hard_example_image_count,
-        "panel_profile_updated_at": str(profile.get("updated_at") or ""),
+        "panel_profile_updated_at": "",
+        "panel_geometry_source": "table_region_gt_or_detected_regions_or_canonical_gt",
         "source_splits": source_splits,
         "source_count": len(sources),
         "panel_count": len(panel_records),

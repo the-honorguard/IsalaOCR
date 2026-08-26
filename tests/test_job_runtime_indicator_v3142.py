@@ -37,5 +37,7 @@ def test_runtime_indicator_prefers_real_worker_progress_when_available() -> None
 
 def test_runtime_indicator_is_scoped_per_project_and_action() -> None:
     script = RUNTIME.read_text(encoding="utf-8")
-    assert "isala-job-runtime:${projectId}:${actionId}" in script
+    assert "isala-job-runtime:${projectId}:${variantKey(actionId, device)}" in script
+    assert "input[name=\"device\"]" in script
+    assert "job?.options?.device" in script
     assert "input[name=\"action_id\"]" in script

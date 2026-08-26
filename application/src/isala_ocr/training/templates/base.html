@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{% block title %}IsalaOCR{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static',filename='app.css',v=app_version) }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='app.css',v=app_version,rev='20260826a') }}">
   <link rel="stylesheet" href="{{ url_for('static',filename='step7-review.css',v=app_version,rev='20260817b') }}">
   <link rel="stylesheet" href="{{ url_for('static',filename='step7-single-panel.css',v=app_version,rev='20260817c') }}">
   <link rel="stylesheet" href="{{ url_for('static',filename='mapping-review-studio.css',v=app_version) }}">
@@ -38,7 +38,7 @@
     <a href="/process/table-model" class="process-tab {% if request.path == '/process/table-model' %}active{% endif %}"><span class="process-tab-number">5</span><span>Celdetector trainen</span></a>
     <a href="/process/table-compare" class="process-tab {% if request.path == '/process/table-compare' %}active{% endif %}"><span class="process-tab-number">6</span><span>Detectorafwijkingen reviewen</span></a>
     <div class="nav-section nav-pipeline-a">TABELLEN</div>
-    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">·</span><span>Tabelstudio</span></a>
+    <a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">6</span><span>Tabelstudio</span></a>
     {% else %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTIE & CROPS</div>
     {% for step in process_steps if step.group == 'detection' %}
@@ -48,7 +48,7 @@
     {% endfor %}
     {% endif %}
 
-    {% set recognition_keys = ['recognition-gt-studio','recognition-scope','recognition-dataset','recognition-validate','recognition-train','recognition-evaluate','recognition-models'] %}
+    {% set recognition_keys = ['recognition-gt-studio','recognition-scope','recognition-dataset'] %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · RECOGNITION</div>
     {% for step in process_steps if step.key in recognition_keys %}
       {% set recognition_href = '/recognition-scope' if step.key == 'recognition-scope' else ('/recognition-gt-review' if step.key == 'recognition-gt-studio' else '/process/' ~ step.key) %}
@@ -132,8 +132,7 @@
         <div class="activity-progress-label"><span id="activity-progress-text">0%</span><span id="activity-progress-detail">Geen taak geselecteerd</span></div>
         <div class="progress large activity-progress"><span id="activity-progress-bar" style="--value:0%"></span></div>
       </div>
-      <button type="button" class="ghost" id="activity-refresh">Vernieuwen</button>
-      <button type="button" class="ghost" id="activity-collapse">Inklappen</button>
+      <button type="button" class="ghost" id="activity-copy-all">Volledige terminaloutput kopiëren</button>
     </div>
     <div class="activity-terminal-wrap">
       <div class="activity-log-tabs" role="tablist" aria-label="Taakuitvoer stream">
@@ -149,8 +148,8 @@
 </section>
 
 <script>window.ISALA_ACTION_DURATION_ESTIMATES={{ action_duration_estimates|tojson }};</script>
-<script src="{{ url_for('static',filename='app.js',v=app_version) }}"></script>
-<script src="{{ url_for('static',filename='job-runtime.js',v=app_version) }}"></script>
+<script src="{{ url_for('static',filename='app.js',v=app_version,rev='20260826a') }}"></script>
+<script src="{{ url_for('static',filename='job-runtime.js',v=app_version,rev='20260826b') }}"></script>
 <script src="{{ url_for('static',filename='step7-review-flow.js',v=app_version,rev='20260817b') }}"></script>
 <script src="{{ url_for('static',filename='step7-single-panel.js',v=app_version,rev='20260817c') }}"></script>
 <script defer src="{{ url_for('static',filename='mapping-review-studio.js',v=app_version,rev='20260824a') }}"></script>
@@ -167,7 +166,7 @@
   }else if(path==='/process/detection-review'||path.startsWith('/detection-review')){
     setTopbar('Stap 4 · GT Studio','Beoordeel één bron tegelijk en keur de Ground Truth goed; tabelstudio volgt later.');
   }else if(path==='/process/table-compare'){
-    setTopbar('Stap 7 · Detectorafwijkingen','Beoordeel alleen verschillen tussen een nieuwe celdetectorrun en de canonieke cel-GT.');
+    setTopbar('Detectorafwijkingen review','Beoordeel optioneel verschillen tussen een nieuwe celdetectorrun en de canonieke cel-GT.');
   }
   if(path==='/process/mapping'||path.startsWith('/mapping')){
     setTopbar('Fase 2 · Application Mapping Studio','Optionele postprocessing ná het Model Bundle: geef OCR/model-output functionele betekenis zonder die semantiek onderdeel van de modeltraining te maken.');

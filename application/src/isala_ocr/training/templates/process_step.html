@@ -14,6 +14,26 @@
 <section class="notice info"><strong>Geparkeerde fallback.</strong> Deze pagina hoort niet bij de huidige table-first hoofdflow. Bestaande box-detectorfunctionaliteit blijft beschikbaar om later alleen de gaten op te vullen als Stap 5 daar aanleiding toe geeft.</section>
 {% endif %}
 
+{% if step.key == 'recognition-dataset' %}
+{% set baseline_metrics = (recognition_baseline.metrics if recognition_baseline else {}) %}
+{% set custom_metrics = (recognition_custom.metrics if recognition_custom else {}) %}
+{% set comparison_outcomes = (recognition_comparison.outcomes if recognition_comparison else {}) %}
+<section class="card section-gap">
+  <div class="toolbar"><div><h3>Laatste evaluatie · datapunten</h3><p class="muted">Beide modellen zijn op exact dezelfde Recognition-testset getest.</p></div>{% if recognition_comparison %}<span class="pill {{ 'ok' if recognition_comparison.custom_is_better else 'warn' }}">{{ 'Nieuw model beter' if recognition_comparison.custom_is_better else 'Geen verbetering bevestigd' }}</span>{% endif %}</div>
+  <div class="grid cols-3">
+    <div><span class="muted">Test-crops</span><div class="metric">{{ (custom_metrics.samples or baseline_metrics.samples or 0) }}</div></div>
+    <div><span class="muted">Exact-match · oud</span><div class="metric">{{ '%.1f%%'|format((baseline_metrics.exact_match_accuracy or 0)*100) }}</div></div>
+    <div><span class="muted">Exact-match · nieuw</span><div class="metric ok">{{ '%.1f%%'|format((custom_metrics.exact_match_accuracy or 0)*100) }}</div></div>
+  </div>
+  <div class="grid cols-3 section-gap">
+    <div><span class="muted">CER · oud</span><div class="metric">{{ '%.3f%%'|format((baseline_metrics.character_error_rate or 0)*100) }}</div></div>
+    <div><span class="muted">CER · nieuw</span><div class="metric ok">{{ '%.3f%%'|format((custom_metrics.character_error_rate or 0)*100) }}</div></div>
+    <div><span class="muted">Alleen nieuw correct</span><div class="metric ok">{{ comparison_outcomes.custom_only_correct or 0 }}</div></div>
+  </div>
+  {% if recognition_comparison %}<p class="muted compact">Beide correct: {{ comparison_outcomes.both_correct or 0 }} · Alleen oud correct: {{ comparison_outcomes.baseline_only_correct or 0 }} · Beide fout: {{ comparison_outcomes.both_wrong or 0 }} · Verschillende uitkomst: {{ comparison_outcomes.disagreements or 0 }}</p>{% endif %}
+</section>
+{% endif %}
+
 {% if step.key != 'detection-models' %}
 <div class="process-step-header">
   <section class="card"><h3>Benodigd</h3>{% if step.requirements %}<ul class="requirements-list">{% for item in step.requirements %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}<p class="muted">Geen aanvullende vereisten.</p>{% endif %}</section>
@@ -28,14 +48,14 @@
     </div>
     {% elif step.key == 'detect-candidates' %}
     <div class="process-actions">
-      {% if panel_state and panel_state.configured %}
-      <form method="post" action="/jobs" class="table-detection-form"><input type="hidden" name="action_id" value="2"><label>Model voor deze detectierun<select name="table_model_id"><option value="generic-ppstructure" {% if not table_model.active_model %}selected{% endif %}>PP-Structure baseline · generiek</option>{% for model in table_model.models or [] %}<option value="{{ model.model_id }}" {% if model.active %}selected{% endif %}>{{ model.model_name or model.model_id }}{% if model.active %} · ACTIEF{% endif %} · {{ model.dataset_id or 'dataset onbekend' }}</option>{% endfor %}</select><small class="muted">De keuze wordt alleen aan deze nieuwe prediction-run gekoppeld; het actieve model verandert niet.</small></label><button class="primary"><strong>Table pipeline per panel uitvoeren</strong><span>{{ panel_state.panel_count }} opgeslagen panel(en) · preprocessing wordt per panel gekozen</span></button></form>
+      {% if detection_sources %}
+      <form method="post" action="/jobs" class="table-detection-form"><input type="hidden" name="action_id" value="2"><label>Model voor deze detectierun<select name="table_model_id"><option value="generic-ppstructure" {% if not table_model.active_model %}selected{% endif %}>PP-Structure baseline · generiek</option>{% for model in table_model.models or [] %}<option value="{{ model.model_id }}" {% if model.active %}selected{% endif %}>{{ model.model_name or model.model_id }}{% if model.active %} · ACTIEF{% endif %} · {{ model.dataset_id or 'dataset onbekend' }}</option>{% endfor %}</select><small class="muted">De regio’s worden full-image gedetecteerd. Een actief regio-/celdetector-model kan per run worden gekozen.</small></label><button class="primary"><strong>Tabelregio’s en cellen detecteren</strong><span>{{ detection_sources|length }} bron(nen) · full-image detectie</span></button></form>
       {% else %}
-      <button class="primary" disabled title="Niet beschikbaar: er is nog geen panelprofiel. Volgende stap: open Stap 2 en teken minimaal één resultaatpanel."><strong>Table pipeline per panel uitvoeren</strong><span>Niet beschikbaar · panelprofiel ontbreekt</span></button>
+      <button class="primary" disabled title="Niet beschikbaar: er is nog geen bronrender. Open Stap 2 en maak eerst een voorbeeldscan."><strong>Tabelregio’s en cellen detecteren</strong><span>Niet beschikbaar · bronrender ontbreekt</span></button>
       {% endif %}
     </div>
     {% elif step.key == 'detection-review' %}
-      {% if panel_state and not panel_state.detection_current %}<div class="actions"><button class="primary" disabled title="Niet beschikbaar: de cell-detectie hoort niet bij het actuele panelprofiel. Voer Stap 3 opnieuw uit via de linkerzijbalk.">Table Cell Review niet beschikbaar</button></div>{% else %}<p class="muted">Open GT Studio via de linkerzijbalk.</p>{% endif %}
+      {% if not detection_sources %}<div class="actions"><button class="primary" disabled title="Niet beschikbaar: voer eerst Stap 3 uit.">GT Studio niet beschikbaar</button></div>{% else %}<p class="muted">Open GT Studio via de linkerzijbalk.</p>{% endif %}
     {% elif step.key == 'localization-dataset' %}
     <div class="process-actions localization-flow-actions">
       <form method="post" action="/jobs"><input type="hidden" name="action_id" value="5"><button class="primary" {% if localization_preview.totals.ready_sources == 0 %}disabled{% endif %}><strong>1 · Dataset bouwen</strong><span>{{ localization_preview.totals.ready_sources }} afgeronde afbeeldingen meenemen</span></button></form>
@@ -45,6 +65,7 @@
     </div>
     {% elif step.key == 'mapping' %}<div class="actions"><a class="button primary {% if not detection_gate.ready %}disabled{% endif %}" href="/mapping"{% if not detection_gate.ready %} title="Niet beschikbaar: {{ detection_gate.reason }} Volgende stap: {{ detection_gate.next_step or ('rond de TABLE-FIRST CHECK af.' if localization_strategy == 'table_first' else 'open Detectiekwaliteit en haal de Detection Gate.') }}"{% endif %}>Mapping Studio openen</a>{% if detection_gate.ready %}<form method="post" action="/jobs"><input type="hidden" name="action_id" value="20"><button>Mappingvoorstellen opnieuw opbouwen</button></form>{% endif %}</div>
     {% elif step.key == 'value-review' %}<a class="button primary {% if not detection_gate.ready %}disabled{% endif %}" href="/review"{% if not detection_gate.ready %} title="Niet beschikbaar: {{ detection_gate.reason }} Volgende stap: {{ detection_gate.next_step or ('rond de TABLE-FIRST CHECK af.' if localization_strategy == 'table_first' else 'open Detectiekwaliteit en haal de Detection Gate.') }}"{% endif %}>Waardenreview openen</a>
+    {% elif step.key == 'recognition-dataset' %}<div class="process-actions recognition-factory-actions"><form method="post" action="/jobs"><input type="hidden" name="action_id" value="24"><button class="primary"><strong>1 · Dataset bouwen en valideren</strong><span>Alleen goedgekeurde Recognition-GT-crops opnemen</span></button></form><form method="post" action="/jobs"><input type="hidden" name="action_id" value="26"><input type="hidden" name="device" value="gpu"><button class="primary"><strong>2 · GPU-model trainen</strong><span>Train met de actuele Recognition-dataset</span></button></form><form method="post" action="/jobs"><input type="hidden" name="action_id" value="26"><input type="hidden" name="device" value="cpu"><button><strong>2 · CPU-model trainen</strong><span>Langzamer alternatief voor dezelfde dataset</span></button></form><form method="post" action="/jobs"><input type="hidden" name="action_id" value="27"><button><strong>3 · Modellen beoordelen</strong><span>Vergelijk PP-OCRv6 met het nieuwste model</span></button></form><form method="post" action="/jobs"><input type="hidden" name="action_id" value="28"><button class="primary"><strong>4 · Model activeren</strong><span>Maak het gekozen model actief</span></button></form></div>
     {% elif step.key == 'recognition-train' %}<div class="process-actions"><form method="post" action="/jobs"><input type="hidden" name="action_id" value="26"><input type="hidden" name="device" value="gpu"><button class="primary"><strong>GPU</strong> Recognition-model trainen</button></form><form method="post" action="/jobs"><input type="hidden" name="action_id" value="26"><input type="hidden" name="device" value="cpu"><button><strong>CPU</strong> Recognition-model trainen</button></form></div>
     {% elif actions %}<div class="process-actions">{% for id,name in actions.items() %}<form method="post" action="/jobs"><input type="hidden" name="action_id" value="{{ id }}"><button class="primary" {% if step.group == 'value' and not detection_gate.ready %}disabled title="Niet beschikbaar: {{ detection_gate.reason }} Volgende stap: {{ detection_gate.next_step or ('rond de TABLE-FIRST CHECK af.' if localization_strategy == 'table_first' else 'open Detectiekwaliteit en haal de Detection Gate.') }}"{% endif %}>{{ name }}</button></form>{% endfor %}</div>
     {% elif step.key == 'system-checks' %}<a class="button primary" href="/jobs/manage">Wachtrij en worker controleren</a>
@@ -310,7 +331,7 @@
 {% elif step.key == 'value-review' %}
 <div class="grid cols-3 section-gap"><section class="card"><span class="muted">Waarden</span><div class="metric">{{ value.total }}</div></section><section class="card"><span class="muted">Open</span><div class="metric warn">{{ value.pending }}</div></section><section class="card"><span class="muted">Goedgekeurd</span><div class="metric ok">{{ value.accepted }}</div></section></div>
 
-{% elif step.key in ['recognition-dataset','recognition-validate','recognition-train','recognition-evaluate','recognition-models'] %}
+{% elif step.key in ['recognition-dataset','recognition-train','recognition-evaluate','recognition-models'] %}
 <section class="card section-gap"><h3>Recognition is Pipeline B</h3><p class="muted">Deze dataset en modellen leren uitsluitend <strong>wat er binnen een reeds correcte crop staat</strong>. Ze veranderen geen bounding boxes.</p>{% if dataset %}<p>Laatste dataset: <span class="mono">{{ dataset.id or dataset.dataset_id }}</span></p>{% endif %}{% if active %}<p>Actief model: <span class="mono">{{ active.model_id }}</span></p>{% endif %}</section>
 {% endif %}
 

@@ -527,7 +527,10 @@ def _training_status(args: argparse.Namespace) -> int:
 
 def _build_dataset(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    workspace = _require_detection_gate(config, args.workspace)
+    # Recognition training consumes only accepted Recognition-GT samples. It
+    # is independent from the table/field geometry gate and open GT sources
+    # are naturally excluded by the accepted-sample query in build_dataset.
+    workspace = _training_workspace(config, args.workspace, configure_active_recognition=False)
     settings = config.raw.get("training", {}).get("dataset", {})
     manifest = build_dataset(
         workspace,
@@ -562,7 +565,10 @@ def _resolve_dataset(workspace: Path, value: str) -> Path:
 
 def _evaluate(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    workspace = _require_detection_gate(config, args.workspace)
+    # Recognition evaluation belongs to Pipeline B and consumes the accepted
+    # Recognition-GT dataset. It must not depend on the legacy Step-4 field
+    # localization/detection gate.
+    workspace = _training_workspace(config, args.workspace, configure_active_recognition=False)
     dataset = _resolve_dataset(workspace, args.dataset)
     if args.device:
         config.raw.setdefault("ocr", {})["device"] = args.device
@@ -595,7 +601,6 @@ def _compare(args: argparse.Namespace) -> int:
 
 def _register(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    _require_detection_gate(config, args.workspace)
     manifest = register_model(
         _training_registry(config, args.registry, args.workspace),
         args.run,
@@ -608,7 +613,6 @@ def _register(args: argparse.Namespace) -> int:
 
 def _activate(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    _require_detection_gate(config, args.workspace)
     threshold = (
         args.minimum_exact_match
         if args.minimum_exact_match is not None

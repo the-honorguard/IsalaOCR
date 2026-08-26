@@ -128,7 +128,22 @@ try { & (Join-Path $PSScriptRoot "preparation-status.ps1") } catch { Write-Warni
 try{
     while($true){
         Set-WorkerState -State "idle"
-        $job=Get-ChildItem (Join-Path $JobsRoot "pending") -Filter "*.json" -File|Sort-Object Name|Select-Object -First 1
+        # Use the persisted creation timestamp for FIFO ordering. Sorting only
+        # by the filename makes jobs created in the same second depend on the
+        # random suffix in job_id.
+        $job=Get-ChildItem (Join-Path $JobsRoot "pending") -Filter "*.json" -File |
+            ForEach-Object {
+                $queued = $null
+                try { $queued = Get-Content $_.FullName -Raw | ConvertFrom-Json } catch { }
+                [pscustomobject]@{
+                    FullName = $_.FullName
+                    Name = $_.Name
+                    BaseName = $_.BaseName
+                    CreatedAt = [string]$queued.created_at
+                }
+            } |
+            Sort-Object @{Expression={ if ([string]::IsNullOrWhiteSpace($_.CreatedAt)) { "9999-12-31T23:59:59.9999999Z" } else { $_.CreatedAt } }}, Name |
+            Select-Object -First 1
         if($null -eq $job){Start-Sleep -Seconds $PollSeconds;continue}
         Write-Host "[$(Get-Date -Format HH:mm:ss)] Taak gevonden: $($job.BaseName)" -ForegroundColor Cyan
         $running=Join-Path (Join-Path $JobsRoot "running") $job.Name

@@ -12,7 +12,6 @@ param(
 . (Join-Path $PSScriptRoot "training-common.ps1")
 $ContainerWorkspace = Get-IsalaContainerWorkspace
 Assert-IsalaActionPreflight -ActionId $PreflightActionId
-Assert-IsalaDetectionGateOpen
 Assert-Docker
 Assert-TrainingImagePrepared -Device $Device | Out-Null
 if ($Dataset -eq "latest") { $Dataset = Get-LatestDatasetId }

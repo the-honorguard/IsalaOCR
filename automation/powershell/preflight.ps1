@@ -75,7 +75,7 @@ function Get-IsalaActionCatalog {
         "20" = @{ Name = "Prepare Mapping Studio data after geometry gate"; Script = "prepare-mapping-data.ps1"; Profile = "mapping-prepare" }
         "21" = @{ Name = "Apply confirmed mappings / create final crops"; Script = "apply-mappings.ps1"; Profile = "mapping-apply" }
         "22" = @{ Name = "Read values from approved mapped crops"; Script = "read-mapped-values.ps1"; Profile = "value-read" }
-        "24" = @{ Name = "Build recognition dataset"; Script = "build-training-dataset.ps1"; Profile = "dataset-build" }
+        "24" = @{ Name = "Build and validate recognition dataset"; Script = "build-training-dataset.ps1"; Profile = "dataset-build" }
         "25" = @{ Name = "Validate recognition dataset"; Script = "check-training-dataset.ps1"; Profile = "dataset-check" }
         "26" = @{ Name = "Train recognition model"; Script = "train-recognition-model.ps1"; Profile = "recognition-train"; Arguments = @{ Device = "gpu" } }
         "27" = @{ Name = "Evaluate and compare recognition model"; Script = "evaluate-recognition-pipeline.ps1"; Profile = "recognition-evaluate" }

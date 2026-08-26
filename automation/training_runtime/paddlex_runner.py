@@ -745,6 +745,9 @@ def train(args: argparse.Namespace) -> int:
         f"Train.learning_rate={args.learning_rate}",
         f"Train.pretrain_weight_path={pretrain}",
         f"Train.log_interval={args.log_interval}",
+        # PaddleOCR still enables the removed VisualDL integration in some
+        # shipped recognition configs. IsalaOCR has its own live/run logging.
+        "Global.use_visualdl=False",
     ]
     if args.resume:
         overrides.append(f"Train.resume_path={args.resume}")

@@ -55,6 +55,31 @@ def _group_split(source_ids: list[str], ratios: tuple[float, float, float], salt
     return assignment
 
 
+def _sample_split(sample_ids: list[str], ratios: tuple[float, float, float], salt: str) -> dict[str, str]:
+    """Split individual samples when too few sources exist for three groups."""
+    train_ratio, val_ratio, test_ratio = ratios
+    ordered = sorted(
+        set(sample_ids),
+        key=lambda value: hashlib.sha256(f"{salt}:sample:{value}".encode()).hexdigest(),
+    )
+    count = len(ordered)
+    val_count = max(1, round(count * val_ratio)) if val_ratio and count >= 3 else 0
+    test_count = max(1, round(count * test_ratio)) if test_ratio and count >= 3 else 0
+    while val_count + test_count >= count and test_count > 0:
+        test_count -= 1
+    while val_count + test_count >= count and val_count > 0:
+        val_count -= 1
+    train_count = count - val_count - test_count
+    assignment: dict[str, str] = {}
+    for index, sample_id in enumerate(ordered):
+        assignment[sample_id] = (
+            "train" if index < train_count
+            else "val" if index < train_count + val_count
+            else "test"
+        )
+    return assignment
+
+
 def _dataset_id(rows: list[dict[str, Any]], settings: dict[str, Any]) -> str:
     digest = hashlib.sha256()
     for row in rows:
@@ -92,7 +117,7 @@ def build_dataset(
     db = TrainingDatabase(root / "samples.sqlite3")
     # Recognition training is a Model Factory concern. The canonical geometry
     # is authoritative outside the legacy Application ROI-review state, so select
-    # accepted Recognition-GT labels directly instead of using db.accepted().
+    # accepted Recognition-GT labels directly instead of the legacy ROI helper.
     with db.connect() as connection:
         rows = [
             dict(row)
@@ -130,8 +155,11 @@ def build_dataset(
     for split in ("train", "val", "test"):
         (destination / "images" / split).mkdir(parents=True, exist_ok=True)
 
-    assignments = _group_split(
-        [str(row["source_id"]) for row in rows],
+    source_ids = [str(row["source_id"]) for row in rows]
+    source_grouped = len(set(source_ids)) >= 3
+    assignments = _group_split(source_ids, (train_ratio, val_ratio, test_ratio), split_salt) if source_grouped else {}
+    sample_assignments = {} if source_grouped else _sample_split(
+        [str(row["sample_id"]) for row in rows],
         (train_ratio, val_ratio, test_ratio),
         split_salt,
     )
@@ -140,7 +168,7 @@ def build_dataset(
     character_counts: Counter[str] = Counter()
 
     for row in rows:
-        split = assignments[str(row["source_id"])]
+        split = assignments[str(row["source_id"])] if source_grouped else sample_assignments[str(row["sample_id"])]
         label = str(row["exact_label"])
         character_counts.update(label)
         source = root / str(row["crop_path"])
@@ -213,9 +241,10 @@ def build_dataset(
         **project_meta,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "settings": settings,
+            "split_policy": "source_grouped" if source_grouped else "sample_fallback_because_fewer_than_3_recognition_sources",
         "original_samples": dict(original_counts),
         "samples_including_augmentation": dict(total_counts),
-        "source_groups": Counter(assignments.values()),
+        "source_groups": Counter((assignments if source_grouped else sample_assignments).values()),
         "field_counts": dict(Counter(str(row["field_key"]) for row in rows)),
         "content_class_counts": dict(
             Counter(str(row.get("content_class", "value")) for row in rows)

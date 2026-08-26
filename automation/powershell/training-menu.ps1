@@ -117,11 +117,10 @@ $workflowSteps = [ordered]@{
     "6"  = @{ Name = "Rijen, kolommen en celcrops"; Url = "http://127.0.0.1:8088/process/table-quality" }
     "7"  = @{ Name = "Recognition-scope instellen"; Url = "http://127.0.0.1:8088/recognition-scope" }
     "8"  = @{ Name = "Recognition GT Studio"; Url = "http://127.0.0.1:8088/recognition-gt-review" }
-    "9"  = @{ Name = "Recognition Dataset bouwen"; ActionId = "24" }
-    "10" = @{ Name = "Recognition Dataset valideren"; ActionId = "25" }
-    "11" = @{ Name = "Recognition Model trainen"; ActionId = "26"; DeviceChoice = $true }
-    "12" = @{ Name = "Recognition Model beoordelen"; ActionId = "27" }
-    "13" = @{ Name = "Recognition Model activeren"; ActionId = "28" }
+    "9"  = @{ Name = "Recognition Dataset bouwen en valideren"; ActionId = "24" }
+    "10" = @{ Name = "Recognition Model trainen"; ActionId = "26"; DeviceChoice = $true }
+    "11" = @{ Name = "Recognition Model beoordelen"; ActionId = "27" }
+    "12" = @{ Name = "Recognition Model activeren"; ActionId = "28" }
     "A1" = @{ Name = "Application Mapping Studio"; ActionId = "20" }
     "A2" = @{ Name = "Application mappings toepassen"; ActionId = "21" }
     "A3" = @{ Name = "Application output uitlezen"; ActionId = "22" }

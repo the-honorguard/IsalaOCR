@@ -35,6 +35,36 @@ def test_activity_dock_is_rendered_on_every_page(tmp_path: Path) -> None:
     assert 'id="activity-dock"' in text
     assert 'id="activity-terminal"' in text
     assert 'id="activity-progress-bar"' in text
+    assert 'id="activity-copy-all"' in text
+    assert 'id="activity-refresh"' not in text
+    assert 'id="activity-collapse"' not in text
+
+
+def test_job_statuses_are_ordered_by_creation_not_status_update(tmp_path: Path) -> None:
+    app, workspace = make_app(tmp_path)
+    status_root = workspace / "webui" / "jobs" / "status"
+    status_root.mkdir(parents=True, exist_ok=True)
+    old_job = {
+        "job_id": "job-20260826T100000-old",
+        "action_id": "23",
+        "action_name": "Oude taak",
+        "status": "completed",
+        "created_at": "2026-08-26T10:00:00+00:00",
+        "updated_at": "2026-08-26T11:00:00+00:00",
+    }
+    new_job = {
+        "job_id": "job-20260826T105000-new",
+        "action_id": "23",
+        "action_name": "Nieuwe taak",
+        "status": "failed",
+        "created_at": "2026-08-26T10:50:00+00:00",
+        "updated_at": "2026-08-26T10:51:00+00:00",
+    }
+    (status_root / f"{old_job['job_id']}.json").write_text(json.dumps(old_job), encoding="utf-8")
+    (status_root / f"{new_job['job_id']}.json").write_text(json.dumps(new_job), encoding="utf-8")
+
+    jobs = app.test_client().get("/api/status").get_json()["jobs"]
+    assert [job["job_id"] for job in jobs[:2]] == [new_job["job_id"], old_job["job_id"]]
 
 
 def test_ajax_job_is_immediately_visible_before_worker_poll(tmp_path: Path) -> None:
@@ -99,6 +129,8 @@ def test_worker_script_writes_heartbeat_and_current_job() -> None:
     assert "heartbeat_at" in text
     assert "current_job_id" in text
     assert "while(-not $proc.HasExited)" in text
+    assert "CreatedAt = [string]$queued.created_at" in text
+    assert "Sort-Object @{Expression={ if ([string]::IsNullOrWhiteSpace($_.CreatedAt))" in text
 
 
 def test_webui_start_replaces_an_obsolete_worker_process_tree() -> None:

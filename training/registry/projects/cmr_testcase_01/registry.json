@@ -97,6 +97,374 @@
       },
       "source_run": "run-20260806T110815-PP-OCRv6_medium_rec",
       "inference_dir": "inference"
+    },
+    {
+      "model_id": "isala-rec-20260826T124231Z-1p0000",
+      "registered_at": "2026-08-26T12:42:32.579278+00:00",
+      "dataset_id": "ds-20260826T102512930757Z-d956cf6d42",
+      "metrics": {
+        "samples": 70,
+        "exact_matches": 70,
+        "exact_match_accuracy": 1.0,
+        "total_edit_distance": 0,
+        "expected_characters": 698,
+        "character_error_rate": 0.0,
+        "per_field": {
+          "recognition.gt-0305a36b010a2d56be4abec2": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-0566dacd9bd5b75c7c728816": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-06ed0fa1f2e6a2e31c9bbb11": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-07fc28a08015e8f8c77c0586": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-0bf710b76b6ea19660709676": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-0dc0ab181b1cc3b9de0d13bb": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-1125c016c647de7322d5f8b6": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-1c47f1f7e816fd0fb2350f8d": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-1d0c67b05ac5c95fd5d86e8f": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-1d2bf81e23c7f99cc7db72b0": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-23a7f25ba74914154dbad1f8": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-24a08e11a69c324d29065f07": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-2ca9b98ad9e164c2793585f0": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-31f02820a20739df03e939e0": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-338984aa544aef729c01b58a": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-3501c7ba55a726a91cb63e61": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-36fd151a0195bc61c90d5f0a": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-39702c380242056376e208c5": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-3ac4ac9565794fce32301442": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-3df07288d6cff82012595c60": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-3eaa0e5fcb41aebffeafb832": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-49788f14d4da32237b7e8d90": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-4a09b0ec129ff4968bb69f4f": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-4a7f3443b3af8a818cf63e1a": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-54aa8cff0f45835247471baa": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-5643fdc833e92614f9be3913": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-5a956d3a83d307aa12126769": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-5da1abafe4707b58fbed6457": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-5fb134a57cdc7207c503807d": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-622703137d27bab193a65d23": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-62e3c8252140f0f4389cc941": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-6601654f08acee41b3f5f131": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-7090c5cb5c4fd3f311fbecf0": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-713e5e8d7e2352ab58b6c8a9": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-76693c80b421bf9f15886cdd": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-79d6909adc28479eeb4da7b0": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-7a2d55f92255fdbd98598ae8": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-7aa5fcdd5683b28f9e7c7c7e": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-7e8ac248bdba4688519d4b83": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-840babac6938c924ea05852e": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-87e2eda45be970f9cae9318a": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-8a3dc47a5f3fa6c2e1cb6aa6": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-8b73eb4b839db8221fedd721": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-8c0386b27f8ed01db59d836d": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-8e268dfae2b4ee5404944f98": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-8fcfc8063ae15d0152e89ad8": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-9b4ad96ba0a7b99741f6851f": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-9ca86d46d990cefd2dd1868e": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-9cba8edf726dc46bafc91fd2": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-9fcfacb30578c628ec7f2215": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-a8ce75f9a884cfde3fed33ab": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-a8eebfca62a59674808c04a8": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-b052cdc0635d21f05b1bf409": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-b2fc34fa53a478beee6b2eb0": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-b45184994d7f0adabf3ff176": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-c0f9821272943a241d56cd97": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-c79240369d2672eb90e1448f": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-ceed30809471eaf2574fa108": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-d4c195ccaba17cd2b2c94647": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-d643d2fd887920fa827f8ecf": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-ddf36f2a7f156cdcba71824b": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-de70e427e931bd6cf1b47722": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-e803962e8dbe4029fc2fd9ea": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-e921f8c33ca7f62ad1a78221": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-e92bfc7bca6073317ac6b782": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-eb6149b09d33643f0b03e8e9": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-f588c06624db00800c3e5513": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-f65832a7afa843ef7363f73b": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-f9a1cc1554c84e82cd85015f": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          },
+          "recognition.gt-ff74a583951d0e2586fb6bb2": {
+            "samples": 1,
+            "exact_match_accuracy": 1.0,
+            "character_error_rate": 0.0
+          }
+        },
+        "confusion_pairs": []
+      },
+      "source_run": "run-20260826T123330-PP-OCRv6_medium_rec",
+      "inference_dir": "inference"
     }
   ]
 }
