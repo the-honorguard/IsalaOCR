@@ -52,6 +52,7 @@ def evaluate_model(
         item = by_image.get(relative, {})
         metadata.append(
             {
+                "sample_id": item.get("sample_id", ""),
                 "image": relative,
                 "expected": label,
                 "field_key": item.get("field_key", "unknown"),
@@ -189,6 +190,11 @@ def compare_evaluations(
             outcome_counts["disagreements"] += 1
         sample_comparisons.append(
             {
+                # Keep the canonical Recognition-GT identity alongside the
+                # frozen dataset image. The Step-11 review can then display
+                # the current authoritative crop instead of accidentally
+                # showing a stale copy from an older dataset build.
+                "sample_id": str(new.get("sample_id") or old.get("sample_id") or ""),
                 "image": key[0],
                 "source_id": key[1],
                 "field_key": key[2],

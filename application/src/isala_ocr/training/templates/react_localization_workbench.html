@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
-{% block title %}{{ step.index }} · {{ step.title }} · IsalaOCR{% endblock %}
-{% block heading %}{{ step.index }} · {{ step.title }}{% endblock %}
+{% block title %}{% if step.index %}Stap {{ step.index }} · {% endif %}{{ step.title }} · IsalaOCR{% endblock %}
+{% block heading %}{% if step.index %}Stap {{ step.index }} · {% endif %}{{ step.title }}{% endblock %}
 {% block subtitle %}Bouw en valideer de dataset en train daarna een detector.{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='react/localization-workbench.css', v=app_version) }}">

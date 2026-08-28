@@ -61,6 +61,17 @@ def test_generic_alias_remains_valid_if_only_one_lateral_target_exists() -> None
     assert lateral_candidate_allowed(lv, relation, ambiguities) is True
 
 
+def test_custom_group_context_is_used_for_bilateral_prefixed_fields() -> None:
+    aorta = _field("ao_flow", "Aortic measurements")
+    pulmonary = _field("pa_flow", "Pulmonary measurements")
+    ambiguities = ambiguous_lateral_suffixes([aorta, pulmonary])
+    relation = {"label_text": "Flow", "context_text": "Aortic measurements"}
+
+    assert ambiguities == {"flow"}
+    assert lateral_candidate_allowed(aorta, relation, ambiguities) is True
+    assert lateral_candidate_allowed(pulmonary, relation, ambiguities) is False
+
+
 def test_fast_mapper_applies_lateral_guard_and_clears_old_suggestions() -> None:
     source = (ROOT / "application" / "src" / "isala_ocr" / "training" / "mapping_fast.py").read_text(encoding="utf-8")
 

@@ -31,6 +31,10 @@ def field_lateral_side(field: dict[str, Any]) -> str:
     left = bool(tokens & _LEFT_TERMS) or any(phrase in group for phrase in _LEFT_PHRASES)
     right = bool(tokens & _RIGHT_TERMS) or any(phrase in group for phrase in _RIGHT_PHRASES)
     if left == right:
+        # Custom schemas may distinguish the same metric by any configured
+        # table/group name, not only by left/right anatomy.
+        if group and group != "study information":
+            return group
         return ""
     return "left" if left else "right"
 
@@ -39,6 +43,10 @@ def field_lateral_suffix(field: dict[str, Any]) -> str:
     key = str(field.get("field_key") or "").casefold()
     if key.startswith("lv_") or key.startswith("rv_"):
         return key[3:]
+    # Custom bilateral families may use a project-specific prefix, e.g.
+    # ``aorta_flow`` and ``pulmonary_flow``. Dotted study fields are excluded.
+    if "." not in key and "_" in key:
+        return key.split("_", 1)[1]
     return ""
 
 
@@ -50,11 +58,7 @@ def ambiguous_lateral_suffixes(fields: Iterable[dict[str, Any]]) -> set[str]:
         if not suffix or not side:
             continue
         sides_by_suffix.setdefault(suffix, set()).add(side)
-    return {
-        suffix
-        for suffix, sides in sides_by_suffix.items()
-        if "left" in sides and "right" in sides
-    }
+    return {suffix for suffix, sides in sides_by_suffix.items() if len(sides) > 1}
 
 
 def relation_lateral_side(relation: dict[str, Any]) -> str:
@@ -77,6 +81,38 @@ def relation_lateral_side(relation: dict[str, Any]) -> str:
     return ""
 
 
+def _relation_context(relation: dict[str, Any]) -> str:
+    """Return all configured/read table context available for one relation."""
+    parts = [
+        relation.get("label_text"), relation.get("context_text"),
+        relation.get("panel_name"), relation.get("panel_label"),
+        relation.get("table_name"), relation.get("table_label"),
+        relation.get("column_header"), relation.get("header_text"),
+    ]
+    return normalize_text(" ".join(str(part or "") for part in parts))
+
+
+def _field_group_matches_context(field: dict[str, Any], relation: dict[str, Any]) -> bool:
+    """Match a configured field group to a configured/read table identity.
+
+    This is deliberately vocabulary-neutral. ``Left ventricle`` is only one
+    possible group; project schemas can use any table names (for example
+    ``Aortic measurements`` and ``Pulmonary measurements``).
+    """
+    group = normalize_text(str(field.get("group_name") or ""))
+    context = _relation_context(relation)
+    if not group or not context or group in {"study information", ""}:
+        return False
+    if group in context:
+        return True
+    group_tokens = set(group.split())
+    context_tokens = set(context.split())
+    # Shared generic words (for example ``measurements`` or ``ventricle``)
+    # are not enough to identify a table. Require every configured group token
+    # unless the group is deliberately a single-word name.
+    return len(group_tokens & context_tokens) >= len(group_tokens)
+
+
 def lateral_candidate_allowed(
     field: dict[str, Any],
     relation: dict[str, Any],
@@ -86,5 +122,9 @@ def lateral_candidate_allowed(
     suffix = field_lateral_suffix(field)
     side = field_lateral_side(field)
     if not suffix or not side or suffix not in ambiguous_suffixes:
+        return True
+    # Prefer the configured table/group identity. This supports arbitrary
+    # bilateral or multi-table schemas instead of requiring LV/RV vocabulary.
+    if _field_group_matches_context(field, relation):
         return True
     return relation_lateral_side(relation) == side

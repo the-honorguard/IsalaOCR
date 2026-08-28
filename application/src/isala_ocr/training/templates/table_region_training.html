@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
-{% block title %}Stap {{ step.index }} · {{ step.title }} · IsalaOCR{% endblock %}
-{% block heading %}Stap {{ step.index }} · {{ step.title }}{% endblock %}
+{% block title %}{% if step.index %}Stap {{ step.index }} · {% endif %}{{ step.title }} · IsalaOCR{% endblock %}
+{% block heading %}{% if step.index %}Stap {{ step.index }} · {% endif %}{{ step.title }}{% endblock %}
 {% block subtitle %}{{ step.subtitle }}{% endblock %}
 {% block content %}
 <section class="gate-banner {% if reviewed_sources %}gate-banner-open{% else %}gate-banner-closed{% endif %}">

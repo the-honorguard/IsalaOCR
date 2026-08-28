@@ -125,6 +125,19 @@ def test_relation_reassignment_is_one_to_one_and_retires_old_roi(tmp_path: Path)
     assert sample["exact_label"] is None
 
 
+def test_confirmed_label_is_learned_as_reusable_field_alias(tmp_path: Path) -> None:
+    db = TrainingDatabase(tmp_path / "samples.sqlite3")
+    _seed_detection(db)
+    db.upsert_field_definition("field.alpha", "Alpha", data_type="decimal", preferred_unit="ml")
+    db.upsert_mapping(
+        source_id="source", field_key="field.alpha", relation_id="relation-a",
+        label_block_id="label-a", value_block_id="value-a", status="confirmed",
+    )
+    field = db.get_field_definition("field.alpha")
+    assert field is not None
+    assert "Alpha" in field["aliases"]
+
+
 def test_changing_mapping_geometry_retires_existing_roi(tmp_path: Path) -> None:
     db = TrainingDatabase(tmp_path / "samples.sqlite3")
     _seed_detection(db)

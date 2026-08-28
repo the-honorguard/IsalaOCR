@@ -248,8 +248,8 @@ def test_dutch_alias_and_panel_context_create_reviewable_mapping_suggestion(tmp_
 def test_mapping_actions_have_stage_specific_preflight_without_requiring_input_files() -> None:
     preflight = (ROOT / "automation" / "powershell" / "preflight.ps1").read_text(encoding="utf-8")
     assert '"20" = @{ Name = "Prepare Mapping Studio data after geometry gate"; Script = "prepare-mapping-data.ps1"; Profile = "mapping-prepare" }' in preflight
-    assert '"21" = @{ Name = "Apply confirmed mappings / create final crops"; Script = "apply-mappings.ps1"; Profile = "mapping-apply" }' in preflight
-    assert '"22" = @{ Name = "Read values from approved mapped crops"; Script = "read-mapped-values.ps1"; Profile = "value-read" }' in preflight
+    assert '"21" = @{ Name = "Apply current raster/cell mappings"; Script = "apply-mappings.ps1"; Profile = "mapping-apply" }' in preflight
+    assert '"22" = @{ Name = "Read values from current raster/cells"; Script = "read-mapped-values.ps1"; Profile = "value-read" }' in preflight
     mapping_block = preflight.split('"mapping-apply" {', 1)[1].split('"value-read" {', 1)[0]
     value_block = preflight.split('"value-read" {', 1)[1].split('"label" {', 1)[0]
     assert "Get-IsalaInputFileCount" not in mapping_block

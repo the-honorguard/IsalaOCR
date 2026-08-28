@@ -190,8 +190,8 @@ try{
                     $safeProfile=([string]$data.options.mapping_profile_id).Replace('"','""')
                     if(-not [string]::IsNullOrWhiteSpace($safeProfile)){$powerShellCommand += ' "{0}"' -f $safeProfile}
                 }
-                elseif([string]$data.action_id -in @("20","21","22")){$safeSource=([string]$data.options.source_id).Replace('"','""');if(-not [string]::IsNullOrWhiteSpace($safeSource)){$powerShellCommand += ' "{0}"' -f $safeSource}}
-                elseif([string]$data.action_id -eq "2"){$safeTableModel=([string]$data.options.table_model_id).Replace('"','""');if(-not [string]::IsNullOrWhiteSpace($safeTableModel)){$powerShellCommand += ' "{0}"' -f $safeTableModel}}
+                elseif([string]$data.action_id -in @("20","21","22","58")){$safeSource=([string]$data.options.source_id).Replace('"','""');if(-not [string]::IsNullOrWhiteSpace($safeSource)){$powerShellCommand += ' "{0}"' -f $safeSource}}
+                elseif([string]$data.action_id -eq "2"){$safeTableModel=([string]$data.options.table_model_id).Replace('"','""');if([bool]$data.options.render_only){$powerShellCommand += ' "__render_only__"'}elseif(-not [string]::IsNullOrWhiteSpace($safeTableModel)){$powerShellCommand += ' "{0}"' -f $safeTableModel}}
                 elseif([string]$data.action_id -eq "26"){$safeDevice=([string]$data.options.device).Replace('"','""');if(-not [string]::IsNullOrWhiteSpace($safeDevice)){$powerShellCommand += ' "{0}"' -f $safeDevice}}
             }
             $jobProjectId=([string]$data.project_id).Replace('"','')

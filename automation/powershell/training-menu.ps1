@@ -212,7 +212,10 @@ function Invoke-WorkflowStep {
 
 if ($RunAction) {
     $extra = @{}
-    if ($RunAction -eq "2" -and $ActionValue) {
+    if ($RunAction -eq "2" -and $ActionValue -eq "__render_only__") {
+        $extra.RenderOnly = $true
+    }
+    elseif ($RunAction -eq "2" -and $ActionValue) {
         $extra.TableModelId = $ActionValue
     }
     elseif ($RunAction -in @("20","21","22") -and $ActionValue) {

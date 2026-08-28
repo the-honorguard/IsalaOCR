@@ -16,6 +16,7 @@ from .ocr.recognition import PaddleRecognitionEngine
 from .ocr.tesseract import TesseractEngine
 from .pipeline import process_file
 from .training.collector import collect_mapping_detections, collect_samples
+from .training.source_preview import prepare_source_renders
 from .training.dataset import build_dataset
 from .training.db import TrainingDatabase, utc_now
 from .training.evaluator import compare_evaluations, evaluate_model
@@ -172,6 +173,9 @@ def _collect_training(args: argparse.Namespace) -> int:
             "IsalaOCR 3.7 Pipeline A requires training.collection.flow=generic_mapping; "
             "legacy profile extraction is not allowed in the field-detection action."
         )
+    if args.render_only:
+        print(json.dumps(prepare_source_renders(args.input, workspace, config), indent=2))
+        return 0
     if args.device:
         config.raw.setdefault("ocr", {})["device"] = args.device
     if args.model:
@@ -636,6 +640,7 @@ def _apply_mappings(args: argparse.Namespace) -> int:
         source_id=args.source_id,
         padding_pixels=args.padding,
         recognize=False,
+        reuse_existing_recognition=True,
     )
     print(json.dumps(manifest, indent=2, ensure_ascii=False))
     return 1 if manifest.get("failed_sources") else 0
@@ -840,6 +845,7 @@ def build_parser() -> argparse.ArgumentParser:
     collect_parser.add_argument("--model")
     collect_parser.add_argument("--table-model-id", help="Explicit table-cell model for this detection run; use generic-ppstructure for the baseline")
     collect_parser.add_argument("--device")
+    collect_parser.add_argument("--render-only", action="store_true", help="Create full source renders without OCR or cell detection")
     collect_parser.add_argument("--padding", type=int)
     collect_parser.add_argument(
         "--locator", choices=["dynamic", "fixed"],

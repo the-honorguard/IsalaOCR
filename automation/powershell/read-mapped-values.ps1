@@ -14,7 +14,7 @@ try {
     Assert-Docker
     Assert-IsalaRuntimePrepared | Out-Null
 
-    Write-Host "Reading values from approved mapped ROI crops..."
+    Write-Host "Reading values from the current raster/cell mappings..."
     $dockerArguments = @(
         "compose", "--profile", "training", "run", "--rm", "--pull", "never",
         "--entrypoint", "python",

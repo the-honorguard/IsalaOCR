@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Datablok vergelijken · {{ source_id }}{% endblock %}
+{% block heading %}Datablok vergelijken{% endblock %}
+{% block subtitle %}<span class="mono">{{ source_id }}</span> · output naast de DICOM controleren{% endblock %}
+{% block content %}
+<div class="toolbar"><div class="actions"><a class="button" href="/process/value-review">← Alle datablokken</a></div><div class="actions"><a class="button" href="/extracted-output/{{ source_id }}.json" target="_blank">JSON openen</a></div></div>
+<section class="output-review-layout">
+  <section class="card output-review-image">
+    <div class="toolbar"><h3>DICOM-bron</h3><span class="pill">{{ measurements|length }} metingen</span></div>
+    {% if render_exists %}<div class="output-image-stage" style="--image-width:{{ image_width }};--image-height:{{ image_height }}"><img src="/source-render/{{ source_id }}.png" alt="DICOM-bron" width="{{ image_width }}" height="{{ image_height }}">{% for item in measurements %}{% if item.roi and item.roi|length == 4 %}<span class="output-box" title="{{ item.display_name }}" style="left:{{ item.roi[0]/image_width*100 }}%;top:{{ item.roi[1]/image_height*100 }}%;width:{{ (item.roi[2]-item.roi[0])/image_width*100 }}%;height:{{ (item.roi[3]-item.roi[1])/image_height*100 }}%"></span>{% endif %}{% endfor %}</div>{% else %}<p class="muted">Bronrender ontbreekt.</p>{% endif %}
+  </section>
+  <section class="card output-review-data">
+    <div class="toolbar"><h3>Datablok</h3><span class="pill ok">{{ generated_at }}</span></div>
+    <div class="output-measurements">{% for item in measurements %}<article class="output-measurement"><div><strong>{{ item.display_name }}</strong><small class="mono">{{ item.field_key }}</small></div><div class="output-value mono">{% if item.parsed_value is not none %}{{ item.parsed_value }}{% else %}{{ item.raw_text or '—' }}{% endif %}{% if item.parsed_unit %} <span>{{ item.parsed_unit }}</span>{% endif %}</div><div class="output-meta"><span>OCR {{ '%.1f%%'|format(item.confidence*100) }}</span><span>Mapping {{ '%.1f%%'|format(item.mapping_confidence*100) }}</span><span class="mono">{{ item.roi|join(', ') }}</span></div></article>{% else %}<p class="muted">Geen metingen in dit datablok.</p>{% endfor %}</div>
+  </section>
+</section>
+<style>.output-review-layout{display:grid;grid-template-columns:minmax(360px,1fr) minmax(420px,1.15fr);gap:14px}.output-review-image{position:sticky;top:12px;align-self:start}.output-image-stage{position:relative;overflow:auto;max-height:calc(100vh - 170px);background:#081017;border:1px solid var(--line);border-radius:8px;text-align:center}.output-image-stage img{display:block;width:100%;height:auto}.output-box{position:absolute;border:2px solid #4ec18a;background:rgba(78,193,138,.10);pointer-events:none}.output-measurements{display:grid;gap:8px}.output-measurement{display:grid;grid-template-columns:1fr auto;gap:5px 12px;padding:11px;border:1px solid var(--line);border-radius:8px;background:#0d151e}.output-measurement small{display:block;margin-top:3px;color:var(--muted)}.output-value{font-size:16px;font-weight:700;color:#dff5e9}.output-value span{font-size:12px;color:var(--muted)}.output-meta{grid-column:1/-1;display:flex;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:11px}@media(max-width:900px){.output-review-layout{grid-template-columns:1fr}.output-review-image{position:static}}</style>
+{% endblock %}

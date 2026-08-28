@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
@@ -17,6 +18,7 @@ from urllib.parse import urlencode
 from flask import Flask, Response, abort, flash, g, has_request_context, jsonify, redirect, render_template, request, send_file, stream_with_context, url_for
 
 from ..config import load_config
+from ..image_io import load_input
 from .db import MISSING_MARKERS, TrainingDatabase, VALID_OCR_CONTENT_FILTERS
 from .header_normalization import (
     build_header_normalization_model, canonical_screen_label, load_header_aliases,
@@ -26,6 +28,8 @@ from .mapping import (
     apply_mapping_profile, build_mapping_output_preview, ensure_default_field_definitions,
     resolve_value_roi_box, suggest_mappings,
 )
+from .generic_detection import normalize_text
+from .mapping_lateral import field_lateral_side, field_lateral_suffix, relation_lateral_side
 from .relation_feedback import RELATION_FEEDBACK_REASONS
 from .localization_dataset import (
     derived_detection_gate_state, localization_dataset_preview, localization_dataset_image_path, localization_evaluation_details,
@@ -34,6 +38,7 @@ from .localization_dataset import (
 from .table_quality import table_first_quality
 from .table_panels import clear_panel_geometry, load_panel_profile, save_panel_definitions, save_panel_profile
 from .table_cell_training import active_table_cell_model, table_cell_training_state
+from .source_preview import prepare_source_renders
 from .table_cell_ground_truth import (
     add_ground_truth_cell, delete_ground_truth_cell, ensure_table_cell_ground_truth,
     ground_truth_counts, ground_truth_review_state, list_ground_truth_cells, list_ground_truth_sources,
@@ -120,8 +125,9 @@ ACTIONS = {
     "56": "Tabelregio-detector trainen op CPU",
     "57": "Tabelregio-detector activeren",
     "20": "Mappinggegevens voorbereiden na detectiepoort",
-    "21": "Bevestigde mappings toepassen en definitieve crops maken",
-    "22": "Goedgekeurde crops uitlezen",
+    "21": "Nieuwe raster/celkaders toepassen op de bevestigde mappings",
+    "22": "Waarden uit het nieuwe raster uitlezen",
+    "58": "Nieuw raster toepassen en waarden uitlezen",
     "24": "Recognition-dataset bouwen en valideren",
     "25": "Recognition-dataset valideren",
     "26": "Recognition-model trainen",
@@ -163,8 +169,9 @@ ACTION_DURATION_ESTIMATES = {
     "18": {"label": "± 1–5 min", "detail": "Pretrained recognition-gewicht installeren."},
     "19": {"label": "± 5–20 sec", "detail": "Alleen lokale status en aanwezige artifacts controleren."},
     "20": {"label": "± 10–60 sec", "detail": "Mappingvoorstellen opbouwen uit bestaande detecties."},
-    "21": {"label": "± 10–60 sec", "detail": "Definitieve crops genereren uit bevestigde mappings."},
+    "21": {"label": "± 10–60 sec", "detail": "Actuele raster/celkaders toepassen op bevestigde mappings."},
     "22": {"label": "± 1–10 min", "detail": "Afhankelijk van aantal crops en actief recognition-model."},
+    "58": {"label": "± 2–11 min", "detail": "Nieuwe raster/celkaders toepassen en daarna de waarden uitlezen."},
     "24": {"label": "± 10–60 sec", "detail": "Recognition-dataset opbouwen uit goedgekeurde waarden."},
     "25": {"label": "± 10–30 sec", "detail": "Recognition-dataset valideren."},
     "26": {"label": "± 10–45 min", "detail": "Recognition-training; afhankelijk van dataset en GPU."},
@@ -222,6 +229,8 @@ PROCESS_STEPS = [
     {"key": "table-compare","index":None,"group":"tables","title":"Detectorafwijkingen reviewen","subtitle":"Optionele technische vergelijking van een nieuwe detectorrun met de vaste Ground Truth.","action_ids":[],"requirements":["Canonieke Ground Truth uit Stap 4","Table-cell dataset uit Stap 5","Nieuwe detectierun uit Stap 3"]},
     {"key": "table-quality","index":7,"group":"tables","title":"Tabelstudio","subtitle":"Maak vanuit de getrainde celdetector het rij-kolomraster en bepaal welke bezette rastercellen naar Recognition gaan.","action_ids":[],"requirements":["Celdetector getraind en opnieuw gedraaid","Goedgekeurde celposities"]},
 
+    {"key": "recognition-gt-studio","index":9,"group":"value","title":"Recognition GT Studio","subtitle":"Controleer de Recognition-tekst uit de bestaande cellen en keur de trainingsvoorbeelden goed.","action_ids":[],"requirements":["Tabelstudio afgerond","Recognition-samples beschikbaar"]},
+
     # The previous loose field/PicoDet workflow is intentionally parked. Routes,
     # artifacts and jobs stay available so nothing is deleted, but they are no
     # longer part of the primary table-first sequence.
@@ -232,9 +241,8 @@ PROCESS_STEPS = [
     {"key": "detection-report","index":None,"group":"fallback","title":"Box-detector kwaliteitsrapport","subtitle":"Legacy/fallback Detection Gate rapport.","action_ids":["13"],"requirements":["Localization-evaluatie"]},
 
     {"key": "mapping","index":12,"group":"value","title":"Mapping Studio","subtitle":"Pas pas ná Recognition optioneel functionele betekenis toe op betrouwbare cellen.","action_ids":["20"],"requirements":["Recognition-output","Betrouwbare celgeometrie","Functioneel veldschema"]},
-    {"key": "apply-mapping","index":13,"group":"value","title":"Mappings toepassen","subtitle":"Maak definitieve functionele crops uit bevestigde mappings.","action_ids":["21"],"requirements":["Bevestigde mappings"]},
-    {"key": "value-extract","index":14,"group":"value","title":"Waarden uitlezen","subtitle":"Lees alleen de definitieve, goedgekeurde crops uit met het actieve recognition-model.","action_ids":["22"],"requirements":["Goedgekeurde definitieve crops","Actief recognition-model"]},
-    {"key": "value-review","index":15,"group":"value","title":"Waarden beoordelen","subtitle":"Beoordeel uitsluitend OCR-inhoud; cropgeometrie wordt hier niet meer aangepast.","action_ids":[],"requirements":["Uitgelezen waarden"]},
+    {"key": "apply-mapping","index":13,"group":"value","title":"Application output","subtitle":"Pas de actuele raster/celkaders toe en lees daarna automatisch de waarden uit met het actieve recognition-model.","action_ids":["58"],"requirements":["Bevestigde mappings","Actuele raster/celgeometrie","Actief recognition-model"]},
+    {"key": "value-review","index":14,"group":"value","title":"Waarden beoordelen","subtitle":"Beoordeel uitsluitend OCR-inhoud; raster- en celgeometrie wordt hier niet meer aangepast.","action_ids":[],"requirements":["Uitgelezen waarden"]},
     {"key": "recognition-dataset","index":10,"group":"value","title":"Recognition Model Factory","subtitle":"Bouw, train, beoordeel en activeer het Recognition-model vanuit één pagina.","action_ids":["24","26","27","28"],"requirements":["Goedgekeurde Recognition-GT-samples"]},
     {"key": "recognition-output-review","index":11,"group":"value","title":"Recognition Model Review","subtitle":"Controleer de modeluitvoer alleen-lezen tegen de vaste Recognition-GT.","action_ids":[],"requirements":["Recognition Model Factory afgerond","Vaste Recognition-testset"]},
     {"key": "recognition-train","index":None,"group":"value","title":"Recognition-model trainen · legacy","subtitle":"Legacy-route; gebruik de gecombineerde Recognition Model Factory.","action_ids":["26"],"requirements":["Gevalideerde recognition-dataset"]},
@@ -1030,13 +1038,14 @@ def create_web_app(
         return rows
 
     def value_review_counts() -> dict[str, int]:
-        """Return value-review counts for spatially approved crops only."""
+        """Return value-review counts for the current mapped application output."""
         with database.connect() as db:
             rows = db.execute(
                 """
                 SELECT status, COUNT(*) AS amount
                 FROM samples
-                WHERE roi_review_status='correct'
+                WHERE extraction_method='mapped_generic'
+                  AND roi_review_status='correct'
                   AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
                 GROUP BY status
                 """
@@ -1055,7 +1064,7 @@ def create_web_app(
         return counts
 
     def value_source_rows() -> list[dict[str, Any]]:
-        """Group only ROI-approved samples for the value-review step."""
+        """Group only current mapped samples for the value-review step."""
         with database.connect() as db:
             rows = db.execute(
                 """
@@ -1067,7 +1076,8 @@ def create_web_app(
                        AVG(raw_confidence) average_confidence,
                        MAX(updated_at) updated_at
                 FROM samples
-                WHERE roi_review_status='correct'
+                WHERE extraction_method='mapped_generic'
+                  AND roi_review_status='correct'
                   AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
                 GROUP BY source_id
                 ORDER BY updated_at DESC, source_id
@@ -1080,7 +1090,8 @@ def create_web_app(
             rows = db.execute(
                 """
                 SELECT * FROM samples
-                WHERE source_id=? AND roi_review_status='correct'
+                WHERE source_id=? AND extraction_method='mapped_generic'
+                  AND roi_review_status='correct'
                   AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
                 ORDER BY roi_y1, roi_x1, field_key
                 """,
@@ -1210,10 +1221,12 @@ def create_web_app(
                 snapshot_age_seconds = max(0.0, (datetime.now(timezone.utc) - checked_at.astimezone(timezone.utc)).total_seconds())
             except ValueError:
                 snapshot_age_seconds = None
-        # preparation_status.json is a host-side inventory snapshot. Docker images can
-        # disappear after cleanup/restart, so an old green snapshot must never be
-        # presented as current truth. The browser queues action 19 when this is stale.
-        status_fresh = snapshot_age_seconds is not None and snapshot_age_seconds <= 180.0
+        # preparation_status.json is a host-side inventory snapshot. A WebUI or
+        # Docker restart does not change the model inventory, so a three-minute
+        # wall-clock expiry made a valid preparation look broken on every later
+        # restart. The explicit preparation/check actions remain the authority
+        # when files, images or the runtime actually change.
+        status_fresh = snapshot_age_seconds is not None and snapshot_age_seconds <= 86400.0
 
         definitions = [
             ("inference", "Inference OCR + tabelmodellen", "PP-OCRv6 en PP-Structure modelcache voor offline inferentie.", "14", "30", "35", "42"),
@@ -1481,6 +1494,7 @@ def create_web_app(
         table_quality_state = current_table_first_quality() if localization_strategy() == "table_first" else None
         table_model_state = table_cell_training_state(workspace_root()) if localization_strategy() == "table_first" else {}
         panel_state = table_panel_state() if localization_strategy() == "table_first" else {"configured": True, "detection_current": True, "panel_count": 0}
+        input_state = input_selection_state()
         mapping = database.mapping_counts()
         mapped = mapped_sample_state()
         loc_state = localization_dataset_readiness_state(localization_datasets)
@@ -1493,7 +1507,12 @@ def create_web_app(
         preparation_ready = bool(inference_component.get("ready")) if localization_strategy() == "table_first" else bool(prep["ready"])
         readiness = {
             "detection-models": preparation_ready,
-            "input-selection": bool(input_selection_state().get("has_manifest")),
+            # A saved checkbox manifest alone is not enough: Step 2 needs the
+            # selected input to have gone through the initial source scan so a
+            # real source render is available for drawing table regions.
+            "input-selection": bool(input_state.get("has_manifest"))
+                and bool(input_state.get("selected"))
+                and bool(detection_sources),
             "panel-setup": bool(panel_state.get("configured")),
             "table-region-model": bool(list_table_region_sources(workspace_root())),
             "detect-candidates": bool(panel_state.get("detection_current")),
@@ -1511,6 +1530,7 @@ def create_web_app(
             "apply-mapping": mapped.get("total", 0) > 0,
             "value-extract": mapped.get("recognized", 0) > 0,
             "value-review": value.get("total", 0) > 0 and value.get("pending", 0) == 0,
+            "recognition-gt-studio": int(recognition_gt_counts(database).get("accepted") or 0) > 0,
             "recognition-dataset": dataset is not None and bool(dataset.get("exists")),
             "recognition-train": progress is not None,
             "recognition-evaluate": baseline is not None or custom is not None,
@@ -2413,8 +2433,8 @@ def create_web_app(
                 f"{snapshot['mapping'].get('confirmed', 0)} bevestigd, {snapshot['mapping'].get('suggested', 0)} voorgesteld"
                 if gate.get('ready') else f"geblokkeerd · {gate.get('gate_label') or 'Pipeline A'}"
             ),
-            "apply-mapping": f"{snapshot['mapped'].get('total', 0)} finale crops gemaakt",
-            "value-extract": f"{snapshot['mapped'].get('recognized', 0)} goedgekeurde crops uitgelezen",
+            "apply-mapping": f"{snapshot['mapped'].get('total', 0)} actuele raster/celkaders toegepast",
+            "value-extract": f"{snapshot['mapped'].get('recognized', 0)} actuele rasterwaarden uitgelezen",
             "value-review": f"{snapshot['value'].get('accepted', 0)} goedgekeurd, {snapshot['value'].get('pending', 0)} open",
             "recognition-dataset": snapshot['dataset']['dataset_id'] if snapshot['dataset'] else "nog niet gebouwd",
             "recognition-train": f"{float(snapshot['progress'].get('progress_percent', 0)):.1f}%" if snapshot['progress'] else "nog geen recognition-training",
@@ -2452,12 +2472,30 @@ def create_web_app(
         _, active = registry_state()
         active_project = request_cached("active_project", project_manager.active)
         available_projects = request_cached("available_projects", project_manager.list_projects)
+        pipeline_gate = navigation_pipeline_gate()
+        recognition_gate = current_recognition_gate()
+        workflow_step_access = workflow_navigation_access()
+        workflow_gates = {
+            # The first GT/Table menu is the entry point and must remain open.
+            "gt_workflow": True,
+            # Recognition GT may only be opened after the canonical table gate.
+            "recognition_preparation": bool(workflow_step_access.get("recognition-gt-studio")),
+            # Recognition dataset/model work requires approved Recognition GT.
+            "recognition_factory": bool(workflow_step_access.get("recognition-dataset")),
+            # The bundle is available only after a model has been activated.
+            "model_bundle": bool(active),
+            # Application processing is downstream of the active bundle.
+            "application": bool(workflow_step_access.get("mapping")),
+        }
         return {
             "app_version": app_version,
             "active_model": active,
             "process_steps": PROCESS_STEPS,
             "detection_gate_global": (navigation_detection_gate() if localization_strategy() != "table_first" else {"ready": False, "state": "parked"}),
             "pipeline_gate_global": navigation_pipeline_gate(),
+            "recognition_gate_global": recognition_gate,
+            "workflow_gates": workflow_gates,
+            "workflow_step_access": workflow_step_access,
             "localization_strategy": localization_strategy(),
             "active_project": active_project,
             "available_projects": available_projects,
@@ -2735,6 +2773,8 @@ def create_web_app(
             if request.method != "GET":
                 abort(405)
             return redirect(url_for("process_step", step_key=legacy_step_aliases[step_key]))
+        if step_key == "value-extract" and request.method == "GET":
+            return redirect(url_for("process_step", step_key="apply-mapping"))
         step = PROCESS_STEP_BY_KEY.get(step_key)
         if step is None:
             abort(404)
@@ -2759,8 +2799,17 @@ def create_web_app(
                 input_selection_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
                 flash(f"Inputselectie opgeslagen: {len(selected)} van {len(available)} afbeeldingen geselecteerd.", "success")
                 if request.form.get("start_processing") == "1":
-                    job = enqueue_job("2", {"table_model_id": "generic-ppstructure"})
-                    return redirect(url_for("process_step", step_key="input-selection", job_id=job["job_id"]))
+                    if loaded_config is None:
+                        flash("Bronpreview kan niet worden voorbereid: de actieve configuratie ontbreekt.", "error")
+                        return redirect(url_for("process_step", step_key="input-selection"))
+                    try:
+                        result = prepare_source_renders("/input", workspace_root(), loaded_config)
+                        flash(f"{result['sources']} volledige bronpreview(s) voorbereid. Panel Setup is nu beschikbaar.", "success")
+                        return redirect(url_for("process_step", step_key="panel-setup"))
+                    except Exception as exc:
+                        _record_webui_error("source_render_prepare", exc)
+                        flash(f"Bronpreview voorbereiden mislukt: {type(exc).__name__}: {exc}", "error")
+                        return redirect(url_for("process_step", step_key="input-selection"))
                 return redirect(url_for("process_step", step_key="input-selection"))
             selection = input_selection_state()
             existing_sources = {str(item["source_id"]) for item in database.list_detection_sources()}
@@ -2768,7 +2817,7 @@ def create_web_app(
                 item["processed"] = item["source_id"] in existing_sources
                 if item["processed"]:
                     item["preview_url"] = url_for("source_render", source_id=item["source_id"])
-                elif Path(item["key"]).suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
+                elif Path(item["key"]).suffix.lower() in {".dcm", ".dicom", ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
                     item["preview_url"] = url_for("input_preview", relative_path=item["key"])
             return render_template(
                 "input_selection.html", step=step, selection=selection,
@@ -3400,7 +3449,19 @@ def create_web_app(
             }
         elif step_key == "value-review":
             value = value_review_counts()
-            state.update(detection_gate=current_pipeline_gate(), value=value)
+            outputs = []
+            for source in database.list_detection_sources():
+                current_source = str(source.get("source_id") or "")
+                output_path = workspace_root() / "extracted_output" / f"{current_source}.json"
+                payload = _read_json(output_path, {}) if output_path.is_file() else {}
+                measurements = payload.get("measurements") if isinstance(payload, dict) else {}
+                if isinstance(measurements, dict) and measurements:
+                    outputs.append({
+                        "source_id": current_source,
+                        "measurement_count": len(measurements),
+                        "generated_at": payload.get("generated_at") or "",
+                    })
+            state.update(detection_gate=current_pipeline_gate(), value=value, outputs=outputs)
             header_counts = value
         elif step_key.startswith("recognition-"):
             _, active = registry_state()
@@ -4196,6 +4257,67 @@ def create_web_app(
             for panel in panel_profile.get("panels") or []
             if str(panel.get("panel_id") or "")
         }
+
+    def workflow_navigation_access() -> dict[str, bool]:
+        """Return which primary workflow step may be opened next.
+
+        A step is navigable only when every preceding primary step is complete.
+        The current incomplete step remains open so the user can finish it.
+        Fallback, system and maintenance routes are intentionally excluded.
+        """
+        sequence = [
+            "detection-models", "input-selection", "panel-setup", "detect-candidates",
+            "detection-review", "table-model", "table-compare", "table-quality",
+            "recognition-gt-studio", "recognition-dataset", "recognition-output-review",
+            "mapping", "apply-mapping", "value-review",
+        ] if localization_strategy() == "table_first" else [
+            step["key"] for step in PROCESS_STEPS
+            if step.get("group") in {"detection", "value"}
+            and step.get("index") is not None
+        ]
+        readiness = request_cached("workflow_readiness", lambda: process_snapshot().get("readiness", {}))
+        access: dict[str, bool] = {}
+        previous_complete = True
+        for key in sequence:
+            access[key] = previous_complete
+            previous_complete = bool(readiness.get(key))
+        return access
+
+    @app.before_request
+    def enforce_primary_workflow_gate():
+        """Prevent bypassing the sidebar gates through a hand-typed URL."""
+        if request.method != "GET":
+            return None
+        path_to_step = {
+            "/mapping": "mapping",
+            "/process/value-review": "value-review",
+            "/recognition-gt-review": "recognition-gt-studio",
+            "/recognition-scope": "recognition-gt-studio",
+        }
+        step_key = path_to_step.get(request.path)
+        if step_key is None and request.path.startswith("/mapping-labels"):
+            step_key = "mapping"
+        if step_key is None and request.path.startswith("/recognition-gt-"):
+            step_key = "recognition-gt-studio"
+        if step_key is None and request.path.startswith("/process/"):
+            candidate = request.path.removeprefix("/process/").strip("/")
+            if candidate in PROCESS_STEP_BY_KEY:
+                step_key = candidate
+        if not step_key:
+            return None
+        access = workflow_navigation_access()
+        if step_key not in access:
+            return None
+        if access.get(step_key):
+            return None
+        sequence = list(access)
+        target = next((key for key in sequence if access.get(key)), "detection-models")
+        flash("Deze stap is nog vergrendeld. Rond eerst de vorige stap af.", "warning")
+        if target == "recognition-gt-studio":
+            return redirect(url_for("recognition_gt_review_home"))
+        if target == "mapping":
+            return redirect(url_for("mapping_index"))
+        return redirect(url_for("process_step", step_key=target))
         geometry = database.list_detection_table_geometry(source_id)
         image_width = float(source.get("image_width") or panel_profile.get("reference_width") or 0)
         image_height = float(source.get("image_height") or panel_profile.get("reference_height") or 0)
@@ -4225,7 +4347,19 @@ def create_web_app(
 
         def relation_panel_id(relation: dict[str, Any]) -> str:
             parts = [part.strip() for part in str(relation.get("context_text") or "").split("|")]
-            return parts[1] if len(parts) > 1 and parts[1] in panel_by_id else ""
+            # Panel context is persisted as human-readable name plus optional
+            # id. Older mapping runs only persisted the name, so do not assume
+            # that the id is always the second token. The selected Table/Panel
+            # remains the semantic disambiguator for generic labels such as
+            # ``ED Volume``; no report-specific label is hardcoded here.
+            normalized_parts = {normalize_text(part) for part in parts if part}
+            for panel_id, panel in panel_by_id.items():
+                panel_name = normalize_text(str(panel.get("name") or ""))
+                if normalize_text(panel_id) in normalized_parts or (
+                    panel_name and panel_name in normalized_parts
+                ):
+                    return panel_id
+            return ""
 
         def relation_raster_row(relation: dict[str, Any], panel_id: str) -> int:
             rows = raster_rows.get(panel_id) or {}
@@ -4263,8 +4397,30 @@ def create_web_app(
         ))
         relations_by_id = {str(item["relation_id"]): item for item in relations}
 
+        def generic_field_options() -> list[dict[str, Any]]:
+            options: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for field in fields:
+                family = field_lateral_suffix(field) or str(field.get("field_key") or "")
+                if not family or family in seen:
+                    continue
+                seen.add(family)
+                display_name = str(field.get("display_name") or family)
+                group_name = str(field.get("group_name") or "")
+                prefix = f"{group_name} "
+                if prefix and display_name.casefold().startswith(prefix.casefold()):
+                    display_name = display_name[len(prefix):]
+                options.append({"family": family, "display_name": display_name})
+            return options
+
+        field_options = generic_field_options()
+
         if request.method == "POST":
             action = str(request.form.get("label_mapping_action") or "save").strip().lower()
+            if action == "rebuild":
+                job = enqueue_job("20")
+                flash("Mappingvoorstellen opnieuw opgebouwd; controleer de nieuwe voorstellen zodra de taak gereed is.", "success")
+                return redirect(url_for("label_mapping_studio", source_id=source_id, job_id=job["job_id"]))
             if action != "save":
                 abort(400)
             assignments = [
@@ -4276,6 +4432,26 @@ def create_web_app(
                 for relation_id in request.form.getlist("relation_id")
                 if relation_id in relations_by_id
             ]
+            resolution_error = ""
+            for assignment in assignments:
+                selected = assignment["field_key"]
+                if not selected.startswith("family:"):
+                    continue
+                family = selected.removeprefix("family:")
+                relation = relations_by_id[assignment["relation_id"]]
+                side = relation_lateral_side(relation)
+                candidates = [
+                    field for field in fields
+                    if (field_lateral_suffix(field) or str(field.get("field_key") or "")) == family
+                    and (not side or not field_lateral_side(field) or field_lateral_side(field) == side)
+                ]
+                if len(candidates) != 1:
+                    resolution_error = f"Kan algemene veldnaam '{family}' niet eenduidig koppelen aan de gekozen tabel/panel."
+                    break
+                assignment["field_key"] = str(candidates[0]["field_key"])
+            if resolution_error:
+                flash(f"Labelmappings niet opgeslagen: {resolution_error}", "error")
+                return redirect(url_for("label_mapping_studio", source_id=source_id))
             try:
                 result = database.sync_relation_mappings(source_id, assignments)
             except (KeyError, ValueError) as exc:
@@ -4312,6 +4488,7 @@ def create_web_app(
             relation_groups=relation_groups,
             mappings_by_relation=mappings_by_relation,
             fields=fields,
+            field_options=field_options,
             table_roles_configured=bool(column_roles),
             header_counts={
                 "total": len(relations),
@@ -4344,7 +4521,7 @@ def create_web_app(
 
     def input_selection_state() -> dict[str, Any]:
         root = Path("/input")
-        ignored = {".ini", ".yaml", ".yml", ".json", ".txt", ".log", ".gitkeep"}
+        ignored = {".ini", ".yaml", ".yml", ".json", ".txt", ".log", ".ps1", ".cmd", ".bat", ".gitkeep"}
         files = []
         if root.is_dir():
             for path in sorted(root.rglob("*")):
@@ -4773,10 +4950,24 @@ def create_web_app(
 
     @app.get("/input-preview/<path:relative_path>")
     def input_preview(relative_path: str):
-        """Serve only raster input files for the pre-scan selection screen."""
+        """Serve a safe visual preview for the pre-scan input selection screen."""
         root = Path("/input").resolve()
         path = (root / relative_path).resolve()
-        if root not in path.parents or not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
+        suffix = path.suffix.lower()
+        if root not in path.parents or not path.is_file():
+            abort(404)
+        if suffix in {".dcm", ".dicom"}:
+            try:
+                settings = loaded_config.dicom if loaded_config is not None else {}
+                decoded = load_input(path, settings)
+                import cv2
+                ok, encoded = cv2.imencode(".jpg", decoded.image, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
+                if not ok:
+                    abort(404)
+                return send_file(io.BytesIO(encoded.tobytes()), mimetype="image/jpeg", max_age=0)
+            except Exception:
+                abort(404)
+        if suffix not in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
             abort(404)
         return send_file(path, max_age=0)
 
@@ -4795,6 +4986,25 @@ def create_web_app(
         if not path.is_file():
             abort(404)
         return send_file(path, mimetype="application/json", max_age=0)
+
+    @app.get("/output-review/<source_id>")
+    def output_review(source_id: str):
+        path = safe_workspace_file(Path("extracted_output") / f"{source_id}.json")
+        if not path.is_file():
+            abort(404)
+        payload = _read_json(path, {})
+        measurements = []
+        for field_key, value in (payload.get("measurements") or {}).items():
+            if isinstance(value, dict):
+                measurements.append({"field_key": field_key, **value})
+        source = database.get_detection_source(source_id) or {}
+        return render_template(
+            "output_review.html", source_id=source_id, measurements=measurements,
+            generated_at=payload.get("generated_at") or "",
+            image_width=int(source.get("image_width") or 1),
+            image_height=int(source.get("image_height") or 1),
+            render_exists=(workspace_root() / "source_renders" / f"{source_id}.png").is_file(),
+        )
 
     @app.get("/locator-overlay/<source_id>.png")
     def locator_overlay(source_id:str):
@@ -4893,6 +5103,9 @@ def create_web_app(
 
     @app.get("/review")
     def review_home():
+        return redirect(url_for("process_step", step_key="value-review"))
+
+        # Legacy manual value-review route retained below for old links/jobs.
         sources = value_source_rows()
         counts = value_review_counts()
         pending = database.list_samples(
@@ -4908,6 +5121,8 @@ def create_web_app(
 
     @app.route("/review/document/<source_id>", methods=["GET", "POST"])
     def review_document(source_id: str):
+        if request.method == "GET" and request.args.get("legacy") != "1":
+            return redirect(url_for("process_step", step_key="value-review"))
         samples = value_source_samples(source_id)
         if not samples:
             flash(

@@ -159,6 +159,20 @@ function Get-IsalaRuntimePreparationState {
 function Assert-IsalaRuntimePrepared {
     $state = Get-IsalaRuntimePreparationState
     if (-not [bool]$state.Ready) {
+        # Action buttons should repair a stale shared runtime when possible.
+        # A code change in the compute layer is expected during development;
+        # forcing the user to open Stap 1 first turns a normal rebuild into a
+        # misleading action failure.  The explicit preparation page remains
+        # available for diagnostics and manual component preparation.
+        if ($state.State -in @("missing", "stale")) {
+            Write-Host "Shared runtime is $($state.State); rebuilding it automatically before this action..." -ForegroundColor Yellow
+            & docker compose --profile setup build model-prep
+            if ($LASTEXITCODE -eq 0) {
+                $state = Get-IsalaRuntimePreparationState
+            }
+        }
+    }
+    if (-not [bool]$state.Ready) {
         $imageStamp = if ($null -ne $state.ImageCreatedUtc) { ([DateTime]$state.ImageCreatedUtc).ToString("o") } else { "missing/unknown" }
         $inputStamp = if ($null -ne $state.LatestInputUtc) { ([DateTime]$state.LatestInputUtc).ToString("o") } else { "unknown" }
         throw @"

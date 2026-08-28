@@ -544,12 +544,15 @@ def resolve_value_roi_box(
     block: dict[str, Any] | None = None,
     annotations: list[dict[str, Any]] | None = None,
     candidates: list[dict[str, Any]] | None = None,
+    table_id: str = "",
+    row_index: int = -1,
+    column_index: int = -1,
 ) -> tuple[Box, dict[str, Any]]:
-    """Attach Pipeline-B semantics to crop geometry produced by Pipeline A.
+    """Attach Pipeline-B semantics to the confirmed canonical table-cell geometry.
 
     ``padding_pixels`` is retained for API compatibility but intentionally is not
-    applied here: a reviewed/candidate localization box is the crop geometry.
-    Pipeline B may recognize its contents, never silently resize it.
+    applied here: the confirmed table cell is the crop geometry.  The legacy
+    Pipeline-A lookup remains only for mappings that predate table geometry.
     """
     del padding_pixels
     block = block if block is not None else database.get_detected_block(value_block_id)
@@ -559,6 +562,52 @@ def resolve_value_roi_box(
         raise ValueError(f"Detected block is not a value: {value_block_id}")
 
     source_id = str(block["source_id"])
+    canonical_table_id = str(table_id or block.get("table_id") or "").strip()
+    canonical_row = int(row_index if int(row_index) >= 0 else block.get("row_index", -1))
+    canonical_column = int(column_index if int(column_index) >= 0 else block.get("column_index", -1))
+    if canonical_table_id and canonical_row >= 0 and canonical_column >= 0:
+        geometry = database.list_detection_table_geometry(source_id)
+        cells = geometry.get("cells") or []
+        exact = [
+            cell for cell in cells
+            if str(cell.get("table_id") or "") == canonical_table_id
+            and int(cell.get("row_index", -1)) == canonical_row
+            and int(cell.get("column_index", -1)) == canonical_column
+        ]
+        if not exact:
+            # The relation keeps the canonical-GT table id, while the persisted
+            # table materialization may have its own stable table id.  Row and
+            # value-column are still authoritative; use the value block only to
+            # disambiguate repeated tables on the same source.
+            semantic_box = _block_box(block).clamp(image_width, image_height)
+            same_position = [
+                cell for cell in cells
+                if int(cell.get("row_index", -1)) == canonical_row
+                and int(cell.get("column_index", -1)) == canonical_column
+            ]
+            def overlap(cell: dict[str, Any]) -> float:
+                candidate = Box(int(cell["x1"]), int(cell["y1"]), int(cell["x2"]), int(cell["y2"]))
+                ix1, iy1 = max(candidate.x1, semantic_box.x1), max(candidate.y1, semantic_box.y1)
+                ix2, iy2 = min(candidate.x2, semantic_box.x2), min(candidate.y2, semantic_box.y2)
+                intersection = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+                union = candidate.width * candidate.height + semantic_box.width * semantic_box.height - intersection
+                return intersection / union if union else 0.0
+            exact = sorted(same_position, key=overlap, reverse=True)
+        if exact:
+            cell = exact[0]
+            box = Box(
+                int(cell["x1"]), int(cell["y1"]),
+                int(cell["x2"]), int(cell["y2"]),
+            ).clamp(image_width, image_height)
+            return box, {
+                "geometry_source": "canonical_table_cell_geometry",
+                "table_id": str(cell.get("table_id") or canonical_table_id),
+                "row_index": canonical_row,
+                "column_index": canonical_column,
+                "cell_id": str(cell.get("cell_id") or ""),
+                "resolved_box": box.to_list(),
+            }
+
     semantic_box = _block_box(block).clamp(image_width, image_height)
     matched = _pipeline_a_geometry_match(
         database, source_id, semantic_box, image_width, image_height,
@@ -685,6 +734,7 @@ def materialize_confirmed_mappings(
     source_id: str | None = None,
     padding_pixels: int = 2,
     recognize: bool = False,
+    reuse_existing_recognition: bool = False,
 ) -> dict[str, Any]:
     """Create value ROI samples only after a mapping has been confirmed."""
     import cv2
@@ -707,6 +757,7 @@ def materialize_confirmed_mappings(
     refreshed = 0
     failed = 0
     output_sources: list[str] = []
+    current_sample_ids: set[str] = set()
     crop_root = root / "crops" / "original"
     header_root = root / "header_crops"
     output_root = root / "extracted_output"
@@ -732,6 +783,9 @@ def materialize_confirmed_mappings(
                     box, geometry = resolve_value_roi_box(
                         database, str(mapping["value_block_id"]), width, height,
                         padding_pixels=padding_pixels,
+                        table_id=str(mapping.get("table_id") or ""),
+                        row_index=int(mapping.get("row_index", -1)),
+                        column_index=int(mapping.get("value_column_index", -1)),
                     )
                 except KeyError as exc:
                     raise ValueError(f"Mapped value block no longer exists: {mapping['value_block_id']}") from exc
@@ -757,15 +811,25 @@ def materialize_confirmed_mappings(
             for mapping, box, crop, tokens, geometry in zip(source_mappings, boxes, crops, recognized, geometry_diagnostics, strict=True):
                 field_key = str(mapping["field_key"])
                 destination = source_crop_dir / f"{field_key}.png"
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                if not cv2.imwrite(str(destination), crop):
-                    raise RuntimeError(f"Could not save mapped crop: {destination}")
-                raw_text, raw_confidence = _joined(tokens) if recognize else ("", 0.0)
+                if recognize or not reuse_existing_recognition:
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    if not cv2.imwrite(str(destination), crop):
+                        raise RuntimeError(f"Could not save mapped crop: {destination}")
+                if recognize:
+                    raw_text, raw_confidence = _joined(tokens)
+                    raw_variant = "recognition_only_mapped_generic"
+                elif reuse_existing_recognition:
+                    raw_text = str(mapping.get("value_text") or "")
+                    raw_confidence = float(mapping.get("value_confidence") or 0.0)
+                    raw_variant = "existing_recognition_output"
+                else:
+                    raw_text, raw_confidence = "", 0.0
+                    raw_variant = "awaiting_value_recognition"
                 label_block = database.get_detected_block(str(mapping.get("label_block_id") or "")) if mapping.get("label_block_id") else None
                 header_relative = ""
                 header_hash = ""
                 label_coords = [-1, -1, -1, -1]
-                if label_block is not None:
+                if recognize and label_block is not None:
                     label_box = Box(int(label_block["x1"]), int(label_block["y1"]), int(label_block["x2"]), int(label_block["y2"])).padded(2).clamp(width, height)
                     header_crop = image[label_box.y1:label_box.y2, label_box.x1:label_box.x2]
                     if header_crop.size:
@@ -775,6 +839,7 @@ def materialize_confirmed_mappings(
                             header_hash = _crop_hash(header_crop)
                             label_coords = label_box.to_list()
                 sample_id = f"{current_source}_{field_key}"
+                current_sample_ids.add(sample_id)
                 inserted = database.upsert_sample(
                     {
                         "sample_id": sample_id,
@@ -782,10 +847,10 @@ def materialize_confirmed_mappings(
                         "profile": "generic_mapping",
                         "field_key": field_key,
                         "field_label": str(mapping.get("display_name") or field_key),
-                        "crop_path": destination.relative_to(root).as_posix(),
+                        "crop_path": destination.relative_to(root).as_posix() if (recognize or not reuse_existing_recognition) else "",
                         "raw_ocr": raw_text,
                         "raw_confidence": raw_confidence,
-                        "raw_variant": ("recognition_only_mapped_generic" if recognize else "awaiting_value_recognition"),
+                        "raw_variant": raw_variant,
                         "image_width": width,
                         "image_height": height,
                         "roi_x1": box.x1,
@@ -802,7 +867,9 @@ def materialize_confirmed_mappings(
                         "locator_label_y2": label_coords[3],
                         "header_crop_path": header_relative,
                         "header_crop_sha256": header_hash,
-                        "crop_sha256": _crop_hash(crop),
+                        "crop_sha256": _crop_hash(crop) if recognize else hashlib.sha256(
+                            f"{current_source}:{box.to_list()}".encode("utf-8")
+                        ).hexdigest(),
                     }
                 )
                 # Mapping reuses the already reviewed Pipeline-A/canonical
@@ -815,7 +882,7 @@ def materialize_confirmed_mappings(
                 )
                 created += int(inserted)
                 refreshed += int(not inserted)
-                parsed = parse_mapped_value(raw_text, mapping) if recognize else {
+                parsed = parse_mapped_value(raw_text, mapping) if (recognize or reuse_existing_recognition) else {
                     "raw_text": "", "data_type": mapping.get("data_type") or "text",
                     "parsed_value": None,
                     "parsed_unit": mapping.get("preferred_unit") or mapping.get("unit_text") or "",
@@ -847,6 +914,38 @@ def materialize_confirmed_mappings(
             failed += 1
             LOGGER.exception("Could not materialize mapped fields for source %s", current_source)
 
+    # A new table/raster mapping pass is authoritative for the application
+    # output.  Older mapped_generic rows belong to an earlier geometry pass and
+    # must not remain in the ROI-review queue or be read by the next OCR run.
+    # Keep them as historical records, but move them out of the active method.
+    stale_samples = 0
+    if failed == 0:
+        with database.connect() as db:
+            rows = db.execute(
+                "SELECT sample_id, source_id FROM samples WHERE extraction_method='mapped_generic'"
+            ).fetchall()
+            processed_sources = set(output_sources)
+            stale_ids = [
+                str(row["sample_id"])
+                for row in rows
+                if (
+                    str(row["sample_id"]) not in current_sample_ids
+                    and (source_id is None or str(row["source_id"]) in processed_sources)
+                )
+            ]
+            if stale_ids:
+                db.executemany(
+                    """
+                    UPDATE samples
+                    SET extraction_method='mapped_generic_stale',
+                        roi_review_status='deferred',
+                        updated_at=datetime('now')
+                    WHERE sample_id=? AND extraction_method='mapped_generic'
+                    """,
+                    [(sample_id,) for sample_id in stale_ids],
+                )
+                stale_samples = len(stale_ids)
+
     manifest = {
         "created_at": utc_now(),
         "mapping_engine": MAPPING_ENGINE_VERSION,
@@ -856,6 +955,9 @@ def materialize_confirmed_mappings(
         "added_samples": created,
         "refreshed_samples": refreshed,
         "failed_sources": failed,
+        "active_sample_count": len(current_sample_ids),
+        "stale_samples_archived": stale_samples,
+        "geometry_authority": "current_confirmed_mapping_from_canonical_table_cells",
         "recognition_deferred": not recognize,
         "recognition_engine": engine.info() if engine is not None and recognize else None,
     }

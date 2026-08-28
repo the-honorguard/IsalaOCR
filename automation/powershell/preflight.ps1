@@ -74,8 +74,9 @@ function Get-IsalaActionCatalog {
         "56" = @{ Name = "Train full-page table-region detector on CPU"; Script = "train-table-region-model.ps1"; Profile = "table-region-train"; Arguments = @{ Device = "cpu" } }
         "57" = @{ Name = "Activate full-page table-region detector"; Script = "activate-table-region-model.ps1"; Profile = "table-region-activate" }
         "20" = @{ Name = "Prepare Mapping Studio data after geometry gate"; Script = "prepare-mapping-data.ps1"; Profile = "mapping-prepare" }
-        "21" = @{ Name = "Apply confirmed mappings / create final crops"; Script = "apply-mappings.ps1"; Profile = "mapping-apply" }
-        "22" = @{ Name = "Read values from approved mapped crops"; Script = "read-mapped-values.ps1"; Profile = "value-read" }
+        "21" = @{ Name = "Apply current raster/cell mappings"; Script = "apply-mappings.ps1"; Profile = "mapping-apply" }
+        "22" = @{ Name = "Read values from current raster/cells"; Script = "read-mapped-values.ps1"; Profile = "value-read" }
+        "58" = @{ Name = "Apply mappings and read current raster/cell values"; Script = "run-mapped-values.ps1"; Profile = "mapping-apply" }
         "24" = @{ Name = "Build and validate recognition dataset"; Script = "build-training-dataset.ps1"; Profile = "dataset-build" }
         "25" = @{ Name = "Validate recognition dataset"; Script = "check-training-dataset.ps1"; Profile = "dataset-check" }
         "26" = @{ Name = "Train recognition model"; Script = "train-recognition-model.ps1"; Profile = "recognition-train"; Arguments = @{ Device = "gpu" } }
@@ -829,7 +830,7 @@ function Invoke-IsalaPreflight {
                 [void]$results.Add((New-IsalaCheckResult -Scope "Taakcontrole" -Name "Preflight implementation" -Status "FAIL" `
                     -Message $_.Exception.Message -Remediation "Install the latest complete release; the checker itself failed before the task was executed."))
             }
-            if ($ActionId -in @("1","2","3","5","6","7","8","11","12","14","15","16","17","18","20","21","22","24","25","26","27","28","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","54","55","56","57","60")) {
+        if ($ActionId -in @("1","2","3","5","6","7","8","11","12","14","15","16","17","18","20","21","22","24","25","26","27","28","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","54","55","56","57","58","60")) {
                 try {
                     [void]$results.Add((Invoke-IsalaContainerPermissionCheck))
                 }

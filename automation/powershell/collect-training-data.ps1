@@ -8,6 +8,8 @@ param(
 
     [string]$TableModelId = "",
 
+    [switch]$RenderOnly,
+
     [ValidateSet("auto", "cpu", "gpu")]
     [string]$Device = "auto"
 )
@@ -92,9 +94,14 @@ $deviceResolution = Resolve-IsalaTableExecutionDevice -Requested $Device -Prepar
 
     Write-Host "Host input path: $hostInputPath"
     Write-Host "Processable input files found: $($inputFiles.Count)"
-    Write-Host "Detecting PP-Structure table regions and cell geometry in: $normalizedInput"
-    Write-Host "Table-first mode does not mix loose OCR text boxes or the active PicoDet/field detector into this pass."
-    Write-Host "Pipeline A does not persist OCR values, field mappings or measurement output."
+    if ($RenderOnly) {
+        Write-Host "Creating full source renders only in: $normalizedInput"
+        Write-Host "Render-only mode does not run OCR, PP-Structure, cell detection or mapping."
+    } else {
+        Write-Host "Detecting PP-Structure table regions and cell geometry in: $normalizedInput"
+        Write-Host "Table-first mode does not mix loose OCR text boxes or the active PicoDet/field detector into this pass."
+        Write-Host "Pipeline A does not persist OCR values, field mappings or measurement output."
+    }
 
     New-Item -ItemType Directory -Force -Path training\workspace, training\registry | Out-Null
 
@@ -110,6 +117,9 @@ $deviceResolution = Resolve-IsalaTableExecutionDevice -Requested $Device -Prepar
     }
     if (-not [string]::IsNullOrWhiteSpace($TableModelId)) {
         $collectArguments += @("--table-model-id", $TableModelId)
+    }
+    if ($RenderOnly) {
+        $collectArguments += "--render-only"
     }
 
     if ($ResolvedDevice -eq "gpu") {

@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
-{% block title %}Mappingstudio · {{ source_id }}{% endblock %}
-{% block heading %}Mappingstudio{% endblock %}
+{% block title %}Stap 12 · Mapping Studio · {{ source_id }}{% endblock %}
+{% block heading %}Stap 12 · Mapping Studio{% endblock %}
 {% block subtitle %}<span class="mono">{{ source_id }}</span> · detecties koppelen aan functionele outputvelden{% endblock %}
 {% block content %}
 <div class="toolbar mapping-toolbar">
@@ -184,7 +184,7 @@
 
 {% set confirmed = mappings|selectattr('status','equalto','confirmed')|list %}
 {% if confirmed %}
-<section class="card" style="margin-top:18px"><h3>Bevestigde mappings</h3><div class="table-wrap"><table><tr><th>Functioneel veld</th><th>Label</th><th>Waarde</th><th>Bronstructuur</th><th>Confidence</th><th></th></tr>{% for item in confirmed %}<tr><td><strong>{{ item.display_name }}</strong><small class="mono muted">{{ item.field_key }}</small></td><td>{{ item.label_text or '—' }}</td><td>{{ item.value_text }}</td><td>{% if item.relation_type=='table_cell' %}Tabel · rij {{ item.row_index + 1 }} · kolom {{ item.value_column_index + 1 }}{% else %}{{ item.relation_type or 'handmatig' }}{% endif %}</td><td>{{ '%.1f%%'|format(item.mapping_confidence*100) }}</td><td><form method="post"><input type="hidden" name="mapping_action" value="delete"><input type="hidden" name="mapping_id_single" value="{{ item.mapping_id }}"><button class="danger ghost">Verwijderen</button></form></td></tr>{% endfor %}</table></div></section>
+<section class="card" style="margin-top:18px"><h3>Bevestigde labelregels</h3><p class="muted">Een bevestiging leert het systeem de waargenomen labelvorm aan het gekozen outputveld te koppelen. De bron- en block-ID zijn alleen auditinformatie; nieuwe DICOM’s worden op labeltekst en actuele tabelcellen gemapt.</p><div class="table-wrap"><table><tr><th>Outputveld</th><th>Geleerd label</th><th>Waardevoorbeeld</th><th></th></tr>{% for item in confirmed %}<tr><td><strong>{{ item.display_name }}</strong><small class="mono muted">{{ item.field_key }}</small></td><td>{{ item.label_text or '—' }}</td><td>{{ item.value_text }}</td><td><form method="post"><input type="hidden" name="mapping_action" value="delete"><input type="hidden" name="mapping_id_single" value="{{ item.mapping_id }}"><button class="danger ghost">Verwijderen</button></form></td></tr>{% endfor %}</table></div></section>
 {% endif %}
 {% endblock %}
 {% block scripts %}

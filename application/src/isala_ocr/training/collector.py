@@ -26,7 +26,9 @@ from .localization import (
     text_geometry_candidates, write_candidate_crops,
 )
 from .mapping import ensure_default_field_definitions, suggest_mappings
+from .mapping_fast import suggest_mappings_fast
 from .mapping_ground_truth import canonical_table_regions, mark_canonical_geometry
+from .mapping_ground_truth_fast import _enrich_relations_with_panel_context
 from .table_quality import table_first_quality
 from .table_panels import load_panel_profile
 from .table_cell_training import active_table_cell_model, list_table_cell_models
@@ -618,11 +620,19 @@ def _collect_mapping_detections(
                     blocks, relations, structural = integrate_table_regions(
                         decoded.source_id, blocks, relations, table_regions
                     )
+                    # Preserve the semantic Table/Panel choice next to every
+                    # generic label. This is what disambiguates identical
+                    # labels (for example ED Volume) without binding a rule to
+                    # this source image.
+                    relations, panel_context_by_table = _enrich_relations_with_panel_context(
+                        root, decoded.source_id, list(table_regions), list(relations)
+                    )
                     blocks = mark_canonical_geometry(blocks)
                     table_diagnostics.update({
                         "enabled": True,
                         "provider": "canonical_table_cell_ground_truth",
                         "model_inference": False,
+                        "semantic_panel_context": panel_context_by_table,
                         **structural,
                     })
                 except Exception as exc:
@@ -680,7 +690,11 @@ def _collect_mapping_detections(
                 block_payloads,
                 relation_payloads,
             )
-            suggestions = suggest_mappings(database, decoded.source_id)
+            suggestions = (
+                suggest_mappings_fast(database, decoded.source_id)
+                if strategy == "table_first"
+                else suggest_mappings(database, decoded.source_id)
+            )
             study_info = extract_study_info(tokens)
             payload = {
                 "schema_version": "2.0",

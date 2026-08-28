@@ -6,11 +6,14 @@ import shutil
 import time
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 
 from ..config import AppConfig
+from ..dicom import hash_file
 from ..image_io import load_input
+from ..models import Box
 from ..ocr.base import OCREngine
 from ..study_info import extract_study_info
 from .db import TrainingDatabase, utc_now
@@ -131,17 +134,26 @@ def _enrich_relations_with_panel_context(
 
     enriched: list[object] = []
     for relation in relations:
-        table_id = str(getattr(relation, "table_id", "") or "")
+        table_id = str(
+            (relation.get("table_id") if isinstance(relation, dict) else getattr(relation, "table_id", ""))
+            or ""
+        )
         panel_context = context_by_table.get(table_id, "")
         if not panel_context:
             enriched.append(relation)
             continue
-        existing = str(getattr(relation, "context_text", "") or "").strip()
+        existing = str(
+            (relation.get("context_text") if isinstance(relation, dict) else getattr(relation, "context_text", ""))
+            or ""
+        ).strip()
         if panel_context.casefold() in existing.casefold():
             merged = existing
         else:
             merged = f"{panel_context} | {existing}" if existing else panel_context
-        enriched.append(replace(relation, context_text=merged))
+        if isinstance(relation, dict):
+            enriched.append({**relation, "context_text": merged})
+        else:
+            enriched.append(replace(relation, context_text=merged))
     return enriched, context_by_table
 
 
@@ -159,6 +171,86 @@ def collect_mapping_from_canonical_gt(
     is unnecessary and particularly expensive on Windows/Docker bind mounts.
     """
     root = resolve_project_workspace(workspace)
+    # Pipeline B must consume the outputs of the preceding Detection and
+    # Recognition stages.  It is a semantic mapping rebuild, not another
+    # image/OCR run.  The existing detected_blocks/detected_relations rows are
+    # the canonical input here; only field_mappings are regenerated.
+    database = TrainingDatabase(root / "samples.sqlite3")
+    ensure_default_field_definitions(database, config.profile)
+    existing_sources = database.list_detection_sources()
+    if not existing_sources:
+        raise RuntimeError(
+            "Mapping kan niet worden opgebouwd: er is geen bestaande Detection/Recognition-output. "
+            "Voer eerst de voorafgaande detectie- en recognitionstappen uit."
+        )
+    database.clear_all_mappings()
+    total_suggestions = 0
+    processed_sources = 0
+    for source in existing_sources:
+        source_id = str(source.get("source_id") or "").strip()
+        if not source_id:
+            continue
+        relations = database.list_detected_relations(source_id)
+        relation_count = len(relations)
+        if relation_count <= 0:
+            LOGGER.warning(
+                "Mapping source [%s]: existing Detection/Recognition-output contains no relations; skipped.",
+                source_id,
+            )
+            continue
+        # The mapping rebuild intentionally reuses Detection/Recognition
+        # output. Reattach the user-configured table/panel identity to those
+        # existing relations so a generic label (for example ``ED Volume``)
+        # can resolve to the correct side on any new report layout.
+        geometry = database.list_detection_table_geometry(source_id)
+        table_regions = []
+        for region in geometry.get("regions", []):
+            try:
+                box = Box(
+                    int(region["x1"]), int(region["y1"]),
+                    int(region["x2"]), int(region["y2"]),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            table_regions.append(SimpleNamespace(
+                table_id=str(region.get("table_id") or ""),
+                box=box,
+            ))
+        enriched, _ = _enrich_relations_with_panel_context(
+            root, source_id, table_regions, relations
+        )
+        contexts = {
+            str(relation.get("relation_id") or ""): str(relation.get("context_text") or "")
+            for relation in enriched
+            if isinstance(relation, dict)
+            and str(relation.get("relation_id") or "")
+        }
+        database.update_relation_contexts(source_id, contexts)
+        suggestions = suggest_mappings_fast(database, source_id)
+        processed_sources += 1
+        total_suggestions += len(suggestions)
+        LOGGER.info(
+            "Mapping source [%s]: reused %d existing relations and created %d mapping suggestion(s); no OCR or DICOM processing performed.",
+            source_id,
+            relation_count,
+            len(suggestions),
+        )
+    if not processed_sources:
+        raise RuntimeError(
+            "Mapping kan niet worden opgebouwd: de bestaande Detection/Recognition-output bevat geen relaties."
+        )
+    return {
+        "flow": "mapping_only_from_existing_detection_recognition_output",
+        "processed_sources": processed_sources,
+        "available_sources": len(existing_sources),
+        "automatic_mapping_suggestions": total_suggestions,
+        "ocr_performed": False,
+        "dicom_reprocessed": False,
+        "mappings_reset": True,
+    }
+
+    # The code below is retained temporarily as a compatibility reference for
+    # older projects, but is unreachable for the current Pipeline-B action.
     gt = ensure_table_cell_ground_truth(root)
     if gt is None:
         raise RuntimeError("Canonical table-cell Ground Truth is unavailable")
@@ -185,9 +277,10 @@ def collect_mapping_from_canonical_gt(
     diagnostics_root = root / "generic_detections"
     blocks_root = root / "detected_blocks"
     source_renders_root = root / "source_renders"
-    # A Mapping Studio rebuild starts a new proposal dataset. Keep canonical
-    # GT, Recognition-GT and relation feedback, but remove old generated
-    # artifacts and every old mapping status, including confirmed mappings.
+    # A Mapping Studio rebuild starts a clean proposal dataset. Canonical GT,
+    # Recognition-GT and relation feedback remain authoritative, but all old
+    # source mappings must be removed because their field semantics may have
+    # been produced by an earlier mapping rule set.
     for generated_root in (diagnostics_root, blocks_root):
         if generated_root.exists():
             shutil.rmtree(generated_root)
@@ -197,7 +290,24 @@ def collect_mapping_from_canonical_gt(
     blocks_root.mkdir(parents=True, exist_ok=True)
     source_renders_root.mkdir(parents=True, exist_ok=True)
     ensure_default_field_definitions(database, config.profile)
-    sources = _files(Path(input_path))
+    all_sources = _files(Path(input_path))
+    canonical_source_ids = {
+        str(item.get("source_id") or "")
+        for item in state.get("sources") or []
+        if int(item.get("gt_count") or 0) > 0
+    }
+    # The input directory can contain the full archive while canonical GT only
+    # covers the reviewed subset. Hash before decoding so unreviewed files do
+    # not enter this source-specific mapping pass and produce misleading
+    # "GT has no cells" errors.
+    sources = [
+        path for path in all_sources
+        if hash_file(path)[:24] in canonical_source_ids
+    ]
+    LOGGER.info(
+        "Mapping Studio: selected %d input source(s) with canonical GT out of %d available file(s).",
+        len(sources), len(all_sources),
+    )
 
     LOGGER.info(
         "Mapping Studio: canonical GT is authoritative (%d source(s), %d cell(s), revision %s); table-model inference is disabled.",

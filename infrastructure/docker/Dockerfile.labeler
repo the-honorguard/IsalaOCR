@@ -11,13 +11,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN groupadd --gid "${APP_GID}" isalaocr \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --no-create-home --shell /usr/sbin/nologin isalaocr \
-    && python -m pip install --no-cache-dir "Flask>=3.1,<4" "waitress>=3,<4" "PyYAML>=6,<7" "Pillow>=10,<13"
+    && python -m pip install --no-cache-dir "Flask>=3.1,<4" "waitress>=3,<4" "PyYAML>=6,<7" "Pillow>=10,<13" "pydicom>=3,<4" "numpy>=1.26,<3" "opencv-python-headless>=4.10,<5"
 
 WORKDIR /app
 
-# The labeling UI deliberately does not install PaddleOCR, PaddlePaddle,
-# OpenCV, pydicom or compressed-DICOM codecs. It does, however, import a broad
-# part of the training package and the optional application-processing helpers.
+# The labeling UI deliberately does not install PaddleOCR or PaddlePaddle. It
+# does include the small DICOM decode path required for input thumbnails, but
+# does not run OCR or table inference in this container.
 # Copy these packages as directories instead of maintaining a fragile list of
 # individual modules: adding a lightweight Python module must never produce an
 # image that builds successfully but crashes at import time.
@@ -25,6 +25,8 @@ COPY application/src/isala_ocr/__init__.py /app/src/isala_ocr/__init__.py
 COPY application/src/isala_ocr/config.py /app/src/isala_ocr/config.py
 COPY application/src/isala_ocr/models.py /app/src/isala_ocr/models.py
 COPY application/src/isala_ocr/geometry.py /app/src/isala_ocr/geometry.py
+COPY application/src/isala_ocr/image_io.py /app/src/isala_ocr/image_io.py
+COPY application/src/isala_ocr/dicom.py /app/src/isala_ocr/dicom.py
 COPY application/src/isala_ocr/application_processing /app/src/isala_ocr/application_processing
 COPY application/src/isala_ocr/training /app/src/isala_ocr/training
 

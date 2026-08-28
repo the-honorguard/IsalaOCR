@@ -5,14 +5,14 @@
 {% block content %}
 <section class="card mapping-hero">
   <div class="toolbar">
-    <div><div class="eyebrow">APPLICATION PROCESSING · MAPPING</div><h2>Label → applicatieveld</h2><p class="muted">De rij en waardekolom komen uit Tabelstudio. Hier bepaal je alleen de functionele betekenis van ieder gelezen label.</p></div>
+    <div><div class="eyebrow">APPLICATION PROCESSING · MAPPING</div><h2>Label → applicatieveld</h2><p class="muted">De rij en waardekolom komen uit Tabelstudio. Hier koppel je het gelezen label aan de algemene veldnaam. De gekozen tabel/panel bepaalt de context (bijvoorbeeld links of rechts); de bronafbeelding is alleen het trainingsvoorbeeld.</p></div>
     <form method="get" action="/mapping-labels" class="mapping-source"><label>Bron<select name="source_id" onchange="this.form.submit()">{% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id == source_id %}selected{% endif %}>Bron {{ loop.index }}</option>{% endfor %}</select></label></form>
   </div>
 </section>
 
 <form method="post" class="mapping-form">
   <input type="hidden" name="label_mapping_action" value="save">
-  <div class="mapping-savebar"><div><strong>{{ relations|length }} labels uit {{ relation_groups|length }} tabellen</strong><span class="muted">{{ header_counts.accepted }} gekoppeld · {{ header_counts.pending }} open</span></div><div class="actions"><a class="button" href="/field-schema">Veldschema</a><button class="primary" type="submit">Mappings opslaan</button></div></div>
+  <div class="mapping-savebar"><div><strong>{{ relations|length }} labels uit {{ relation_groups|length }} tabellen</strong><span class="muted">{{ header_counts.accepted }} gekoppeld · {{ header_counts.pending }} open</span></div><div class="actions"><button type="submit" formaction="/jobs" formmethod="post" name="action_id" value="20">Mapping opnieuw opbouwen · koppelingen resetten</button><a class="button" href="/field-schema">Veldschema</a><button class="primary" type="submit" name="label_mapping_action" value="save">Mappings opslaan</button></div></div>
 
   {% if not table_roles_configured %}<div class="notice">Kies eerst in Tabelstudio welke kolom Label, Waarde of Overslaan is. Zonder die definitie kan Mapping Studio waardekolommen niet betrouwbaar filteren.</div>{% endif %}
 
@@ -27,7 +27,7 @@
           <input type="hidden" name="relation_id" value="{{ relation.relation_id }}">
           <div class="mapping-label"><strong>{{ relation.label_text }}</strong><small>Rij {{ relation.raster_row_index + 1 }} · voorbeeldwaarde <b>{{ relation.value_text or '—' }}</b></small></div>
           <span class="mapping-arrow">→</span>
-          <label class="mapping-field"><span>Applicatieveld</span><select name="field_{{ relation.relation_id }}" aria-label="Applicatieveld voor {{ relation.label_text }}"><option value="">Niet koppelen</option>{% for field in fields %}<option value="{{ field.field_key }}" {% if current and current.field_key == field.field_key %}selected{% endif %}>{{ field.display_name }}{% if field.group_name %} · {{ field.group_name }}{% endif %}</option>{% endfor %}</select></label>
+          <label class="mapping-field"><span>Algemene veldnaam</span><select name="field_{{ relation.relation_id }}" aria-label="Algemene veldnaam voor {{ relation.label_text }}"><option value="">Niet koppelen</option>{% for field in field_options %}<option value="family:{{ field.family }}" {% if current and (current.field_key == field.family or current.field_key.endswith('_' ~ field.family)) %}selected{% endif %}>{{ field.display_name }}</option>{% endfor %}</select></label>
           <span class="mapping-status {% if current and current.status == 'confirmed' %}ok{% endif %}">{% if current and current.status == 'confirmed' %}Gekoppeld{% else %}Open{% endif %}</span>
           <details><summary>Details</summary><div class="mapping-details"><span>Genormaliseerd: <b>{{ relation.label_normalized }}</b></span><span>Waardekolom: <b>K{{ relation.value_column_index + 1 }}</b></span><span class="mono">{{ relation.relation_id }}</span></div></details>
         </article>

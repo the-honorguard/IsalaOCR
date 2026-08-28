@@ -57,10 +57,25 @@ def test_comparison_contains_side_by_side_sample_results(tmp_path: Path) -> None
     assert report["baseline"]["label"] == "PP-OCRv6_medium_rec"
     assert report["outcomes"]["custom_only_correct"] == 1
     row = report["sample_comparisons"][0]
+    assert row["sample_id"] == ""
     assert row["custom"] == {"observed": "123", "confidence": 0.97, "correct": True}
     assert row["baseline"] == {"observed": "128", "confidence": 0.82, "correct": False}
     assert row["preferred"] == "custom"
     assert report["per_field"]["volume"]["winner"] == "custom"
+
+
+def test_comparison_preserves_canonical_sample_id_for_step_11_crop(tmp_path: Path) -> None:
+    common = {"image": "images/sample.png", "sample_id": "recgt-canonical", "source_id": "dicom-1", "field_key": "volume", "expected": "123"}
+    baseline = evaluation("old", [{**common, "observed": "128", "confidence": 0.8}], 0.0, 1 / 3)
+    custom = evaluation("new", [{**common, "observed": "123", "confidence": 0.9}], 1.0, 0.0)
+    baseline_path = tmp_path / "baseline.json"
+    custom_path = tmp_path / "custom.json"
+    baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
+    custom_path.write_text(json.dumps(custom), encoding="utf-8")
+
+    report = compare_evaluations(baseline_path, custom_path, tmp_path / "output")
+
+    assert report["sample_comparisons"][0]["sample_id"] == "recgt-canonical"
 
 
 def test_comparison_rejects_different_sample_sets(tmp_path: Path) -> None:

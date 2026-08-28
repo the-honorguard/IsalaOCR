@@ -41,7 +41,7 @@
 {% if source_id %}
 <section class="card section-gap">
   <div class="toolbar"><div><span class="eyebrow">RESULTAAT</span><h3>Datablok voor {{ source_id }}</h3><p class="muted">Het outputcontract bevat de metingen én provenance van modellen, datasets, mapping en DICOM-verwerking.</p></div>{% if output %}<a class="button" href="{{ url_for('extracted_output', source_id=source_id) }}">JSON downloaden</a>{% endif %}</div>
-    {% if output %}<pre class="test-json-output">{{ output|tojson(indent=2) }}</pre>{% else %}<div class="empty-state"><strong>Nog geen einddatablok</strong><p class="muted">De volledige actieve modelpipeline moet eerst een ondubbelzinnige mapping kunnen maken. Bij twijfel blijft de run veilig zonder output en kun je Mapping Studio openen.</p><div class="actions"><a class="button" href="{{ url_for('process_step', step_key='mapping') }}">Naar Mapping Studio</a><a class="button" href="{{ url_for('process_step', step_key='value-extract') }}">Naar waarde-uitlezing</a></div></div>{% endif %}
+    {% if output %}<pre class="test-json-output">{{ output|tojson(indent=2) }}</pre>{% else %}<div class="empty-state"><strong>Nog geen einddatablok</strong><p class="muted">De volledige actieve modelpipeline moet eerst een ondubbelzinnige mapping kunnen maken. Bij twijfel blijft de run veilig zonder output en kun je Mapping Studio openen.</p><div class="actions"><a class="button" href="{{ url_for('process_step', step_key='mapping') }}">Naar Mapping Studio</a><a class="button" href="{{ url_for('process_step', step_key='apply-mapping') }}">Naar Application output</a></div></div>{% endif %}
 </section>
 {% endif %}
 

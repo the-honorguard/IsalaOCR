@@ -20,7 +20,7 @@ def test_sidebar_contains_all_process_tabs_and_versioned_assets() -> None:
         "detection-models", "detect-candidates", "detection-review",
         "localization-dataset",
         "localization-evaluate", "localization-register", "redetect",
-        "detection-report", "mapping", "apply-mapping", "value-extract", "value-review",
+            "detection-report", "mapping", "apply-mapping", "value-review",
         "recognition-dataset", "recognition-train",
         "recognition-evaluate", "recognition-models", "artifacts", "system-checks", "maintenance",
     ):
@@ -94,6 +94,30 @@ def test_pending_job_terminal_is_never_blank(tmp_path: Path) -> None:
     assert "Status: in wachtrij" in text
     assert "Nog geen scriptuitvoer ontvangen" in text
     assert log.headers["Cache-Control"].startswith("no-store")
+
+
+@pytest.mark.skipif(not FLASK_AVAILABLE, reason="Flask is not installed in the test runtime")
+def test_table_first_sidebar_and_direct_urls_are_sequentially_gated(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir(parents=True)
+    (project / "VERSION").write_text("test", encoding="utf-8")
+    app = create_web_app(
+        tmp_path / "training" / "workspace",
+        models_root=tmp_path / "models",
+        output_root=tmp_path / "output",
+        project_root=project,
+        config_path=ROOT / "application" / "config" / "app.yaml",
+    )
+    client = app.test_client()
+
+    page = client.get("/process/detection-models").get_data(as_text=True)
+    assert "Inputselectie" in page
+    assert '<a href="/process/input-selection" class="process-tab' not in page
+    assert "Eerst de vorige stap afronden." in page
+
+    response = client.get("/mapping")
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/process/detection-models")
 
 
 
