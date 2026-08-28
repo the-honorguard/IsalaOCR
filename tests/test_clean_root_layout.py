@@ -5,11 +5,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_preflight_allows_standard_git_metadata_but_not_other_root_files() -> None:
     preflight = (ROOT / "automation" / "powershell" / "preflight.ps1").read_text(encoding="utf-8")
-    assert '$allowedRootFiles = @("START.cmd", "run.cmd", "AGENTS.md", ".gitignore", ".gitattributes")' in preflight
+    assert '$allowedRootFiles = @("START.cmd", "run.cmd", "AGENTS.md", ".gitignore", ".gitattributes", "gitignore_generator.ps1")' in preflight
     assert '$allowedRootFiles -notcontains $_' in preflight
     whitelist_line = next(line for line in preflight.splitlines() if "$allowedRootFiles =" in line)
     assert ".gitignore.backup" not in whitelist_line
-    assert "gitignore_generator.ps1" not in whitelist_line
+    assert "gitignore_generator.ps1" in whitelist_line
     assert "gitignore-scan-report.txt" not in whitelist_line
 
 

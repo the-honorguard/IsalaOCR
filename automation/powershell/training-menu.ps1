@@ -218,6 +218,9 @@ if ($RunAction) {
     elseif ($RunAction -in @("20","21","22") -and $ActionValue) {
         $extra.SourceId = $ActionValue
     }
+    elseif ($RunAction -eq "60" -and $ActionValue) {
+        $extra.MappingProfileId = $ActionValue
+    }
     elseif ($RunAction -eq "26" -and $ActionValue) {
         $extra.Device = $ActionValue
     }

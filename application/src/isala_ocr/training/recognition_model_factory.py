@@ -76,8 +76,8 @@ def install_recognition_model_factory_metadata(webui_module: Any) -> None:
         step.update(index=index, title=title, subtitle=subtitle)
 
     application_updates = {
-        "mapping": ("Application Mapping Studio", "Pas optioneel functionele betekenis toe op model/OCR-output; aliases, units, context en outputvelden horen hier."),
-        "apply-mapping": ("Application mappings toepassen", "Materialiseer functionele ROI/output-koppelingen uit bevestigde Application Mapping."),
+        "mapping": ("Mapping Studio", "Koppel gelezen tabellabels aan applicatievelden."),
+        "apply-mapping": ("Mappings toepassen", "Materialiseer functionele ROI/output-koppelingen uit bevestigde mappings."),
         "value-extract": ("Application output uitlezen", "Draai het getrainde recognitionmodel op de functioneel geselecteerde ROI's."),
         "value-review": ("Application output beoordelen", "Beoordeel de uiteindelijke functionele output; hier kan bijvoorbeeld '-' als missing/null worden geïnterpreteerd."),
     }

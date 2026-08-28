@@ -14,7 +14,7 @@ from .relation_feedback import (
     relation_signature, relation_snapshot,
 )
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 VALID_STATUSES = {"pending", "accepted", "unreadable", "roi_error", "excluded", "no_value"}
 VALID_CONTENT_CLASSES = {"unknown", "value", "no_value", "placeholder"}
 VALID_OCR_CONTENT_FILTERS = {"all", "text", "blank", "missing", "blank_or_missing"}
@@ -124,6 +124,9 @@ class TrainingDatabase:
             "row_span": "INTEGER NOT NULL DEFAULT 1",
             "column_span": "INTEGER NOT NULL DEFAULT 1",
             "geometry_source": "TEXT NOT NULL DEFAULT 'ocr'",
+            "recognition_text": "TEXT NOT NULL DEFAULT ''",
+            "recognition_confidence": "REAL NOT NULL DEFAULT 0",
+            "recognition_model": "TEXT NOT NULL DEFAULT ''",
         }
         existing_blocks = cls._column_names(db, "detected_blocks")
         for name, definition in block_additions.items():
@@ -339,6 +342,9 @@ class TrainingDatabase:
                     row_span INTEGER NOT NULL DEFAULT 1,
                     column_span INTEGER NOT NULL DEFAULT 1,
                     geometry_source TEXT NOT NULL DEFAULT 'ocr',
+                    recognition_text TEXT NOT NULL DEFAULT '',
+                    recognition_confidence REAL NOT NULL DEFAULT 0,
+                    recognition_model TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY(source_id) REFERENCES detection_sources(source_id) ON DELETE CASCADE
@@ -1323,8 +1329,10 @@ class TrainingDatabase:
                         block_id, source_id, block_type, role, text, normalized_text,
                         confidence, x1, y1, x2, y2, line_index, sequence_index,
                         parent_block_id, context_text, crop_path, table_id, row_index,
-                        column_index, row_span, column_span, geometry_source, created_at, updated_at
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        column_index, row_span, column_span, geometry_source,
+                        recognition_text, recognition_confidence, recognition_model,
+                        created_at, updated_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         block["block_id"], source_id, block["block_type"], block["role"],
@@ -1336,6 +1344,9 @@ class TrainingDatabase:
                         str(block.get("table_id") or ""), int(block.get("row_index", -1)),
                         int(block.get("column_index", -1)), int(block.get("row_span") or 1),
                         int(block.get("column_span") or 1), str(block.get("geometry_source") or "ocr"),
+                        str(block.get("recognition_text") or ""),
+                        float(block.get("recognition_confidence") or 0),
+                        str(block.get("recognition_model") or ""),
                         now, now,
                     ),
                 )
@@ -1647,7 +1658,12 @@ class TrainingDatabase:
                        lb.text AS label_text, lb.normalized_text AS label_normalized,
                        lb.crop_path AS label_crop_path, lb.x1 AS label_x1, lb.y1 AS label_y1,
                        lb.x2 AS label_x2, lb.y2 AS label_y2,
-                       vb.text AS value_text, vb.normalized_text AS value_normalized,
+                       COALESCE(NULLIF(vb.recognition_text,''), vb.text) AS value_text,
+                       vb.text AS value_locator_text,
+                       vb.recognition_text AS value_recognition_text,
+                       vb.recognition_confidence AS value_recognition_confidence,
+                       vb.recognition_model AS value_recognition_model,
+                       vb.normalized_text AS value_normalized,
                        vb.crop_path AS value_crop_path, vb.confidence AS value_confidence,
                        vb.x1 AS value_x1, vb.y1 AS value_y1, vb.x2 AS value_x2, vb.y2 AS value_y2,
                        ub.text AS unit_text, ub.crop_path AS unit_crop_path,
@@ -2009,6 +2025,28 @@ class TrainingDatabase:
             result = db.execute(
                 "DELETE FROM field_mappings WHERE source_id=? AND status='suggested'", (source_id,)
             )
+            return int(result.rowcount if result.rowcount is not None else 0)
+
+    def clear_all_mappings(self) -> int:
+        """Remove the complete generated mapping set before a rebuild.
+
+        Canonical Detection-GT, Recognition-GT and relation feedback live in
+        separate stores and are intentionally unaffected. Mapped samples are
+        invalidated first so an old confirmed mapping cannot remain eligible
+        for export after Mapping Studio is regenerated.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT source_id, field_key FROM field_mappings"
+            ).fetchall()
+            for row in rows:
+                self._invalidate_mapped_samples_in_connection(
+                    db,
+                    str(row["source_id"]),
+                    [str(row["field_key"])],
+                    reason="mapping_dataset_rebuilt",
+                )
+            result = db.execute("DELETE FROM field_mappings")
             return int(result.rowcount if result.rowcount is not None else 0)
 
     def save_mapping_profile(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -162,19 +163,39 @@ def collect_mapping_from_canonical_gt(
     if gt is None:
         raise RuntimeError("Canonical table-cell Ground Truth is unavailable")
     state = ground_truth_review_state(root)
-    if not bool(state.get("ready")) or int(state.get("gt_cell_count") or 0) <= 0:
+    if int(state.get("gt_cell_count") or 0) <= 0:
         raise RuntimeError(
-            "Canonical table-cell Ground Truth is not ready: "
-            f"{int(state.get('open_source_count') or 0)} source(s) are still open."
+            "Canonical table-cell Ground Truth is unavailable or contains no cells."
+        )
+
+    # Mapping Studio is a review/preview step. It may process sources whose
+    # canonical geometry has been explicitly checked while other sources in
+    # the same batch are still open. The training gate remains closed until
+    # every source is reviewed; that gate is synchronized below by the CLI.
+    open_source_count = int(state.get("open_source_count") or 0)
+    if open_source_count:
+        LOGGER.warning(
+            "Mapping Studio: processing all %d source(s) with available canonical "
+            "table structure; %d source(s) still have open GT review. Training "
+            "remains gated until all sources are reviewed.",
+            int(state.get("source_count") or 0),
+            open_source_count,
         )
 
     diagnostics_root = root / "generic_detections"
     blocks_root = root / "detected_blocks"
     source_renders_root = root / "source_renders"
+    # A Mapping Studio rebuild starts a new proposal dataset. Keep canonical
+    # GT, Recognition-GT and relation feedback, but remove old generated
+    # artifacts and every old mapping status, including confirmed mappings.
+    for generated_root in (diagnostics_root, blocks_root):
+        if generated_root.exists():
+            shutil.rmtree(generated_root)
+    database = TrainingDatabase(root / "samples.sqlite3")
+    database.clear_all_mappings()
     diagnostics_root.mkdir(parents=True, exist_ok=True)
     blocks_root.mkdir(parents=True, exist_ok=True)
     source_renders_root.mkdir(parents=True, exist_ok=True)
-    database = TrainingDatabase(root / "samples.sqlite3")
     ensure_default_field_definitions(database, config.profile)
     sources = _files(Path(input_path))
 
@@ -394,6 +415,8 @@ def collect_mapping_from_canonical_gt(
         "canonical_gt_revision": int(gt.get("revision") or 0),
         "canonical_gt_cells": int(state.get("gt_cell_count") or 0),
         "input_items": len(sources),
+        "reviewed_input_items": max(0, int(state.get("source_count") or 0) - open_source_count),
+        "skipped_open_gt_items": 0,
         "detected_sources": detected_sources,
         "failed_items": failed_sources,
         "detected_blocks": total_blocks,

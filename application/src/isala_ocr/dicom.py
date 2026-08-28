@@ -42,6 +42,20 @@ def _normalize_uint8(array: np.ndarray) -> np.ndarray:
     return np.round(scaled).astype(np.uint8)
 
 
+def _ybr_rct_to_rgb(array: np.ndarray) -> np.ndarray:
+    """Convert DICOM YBR_RCT samples using the JPEG-2000 reversible transform."""
+    values = np.asarray(array)
+    if values.ndim < 3 or values.shape[-1] != 3:
+        raise ValueError(f"Unsupported YBR_RCT array shape: {values.shape}")
+    y = values[..., 0].astype(np.int64)
+    cb = values[..., 1].astype(np.int64)
+    cr = values[..., 2].astype(np.int64)
+    green = y - np.floor_divide(cr + cb, 4)
+    red = cr + green
+    blue = cb + green
+    return np.stack((red, green, blue), axis=-1)
+
+
 def _select_frame(array: np.ndarray, samples_per_pixel: int, strategy: str, index: int) -> np.ndarray:
     if samples_per_pixel == 3:
         if array.ndim == 3:
@@ -106,7 +120,9 @@ def decode_dicom(path: str | Path, settings: dict[str, Any] | None = None) -> De
 
     photometric = str(getattr(dataset, "PhotometricInterpretation", ""))
     if samples == 3:
-        if photometric.startswith("YBR"):
+        if photometric == "YBR_RCT":
+            selected = _ybr_rct_to_rgb(selected)
+        elif photometric.startswith("YBR"):
             selected = convert_color_space(selected, photometric, "RGB")
         rgb = _normalize_uint8(selected)
         image = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)

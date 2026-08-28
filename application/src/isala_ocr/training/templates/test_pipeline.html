@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}Proefpagina · Automatische verwerking · IsalaOCR{% endblock %}
+{% block heading %}Proefpagina · automatische verwerking{% endblock %}
+{% block subtitle %}Eén DICOM invoeren en het volledige modelproduct volgen{% endblock %}
+{% block content %}
+<section class="card test-pipeline-hero">
+  <div>
+    <span class="eyebrow">INTEGRATIEPROEF</span>
+    <h2>Van DICOM naar datablok</h2>
+    <p class="muted">Upload één DICOM. IsalaOCR gebruikt de actuele datasets, actieve modelbundle, mappingpresets en velddefinities en toont daarna het traceerbare JSON-datablok.</p>
+  </div>
+  <span class="pill {% if output %}ok{% elif current_job and current_job.status in ['pending','running'] %}warn{% endif %}">{% if output %}output beschikbaar{% elif current_job %}{{ current_job.status }}{% else %}klaar voor test{% endif %}</span>
+</section>
+
+{% if error %}<div class="notice error">{{ error }}</div>{% endif %}
+
+<section class="test-pipeline-grid section-gap">
+  <form method="post" enctype="multipart/form-data" class="card test-upload-card">
+    <div class="toolbar"><div><h3>1 · DICOM invoeren</h3><p class="muted">Deze proefpagina accepteert uitsluitend DICOM-bestanden.</p></div></div>
+    <label class="test-file-drop">Kies een DICOM-bestand<input type="file" name="image" accept=".dcm,application/dicom" required></label>
+    <label class="test-profile-select">Mappingpreset (optioneel)<select name="mapping_profile_id"><option value="">Gebruik actieve schema-matching</option>{% for profile in mapping_profiles or [] %}<option value="{{ profile.profile_id }}">{{ profile.name }} · {{ profile.rule_count }} regels</option>{% endfor %}</select><small>Een preset vult bekende velden aan; onzekere matches blijven geblokkeerd.</small></label>
+    <button class="button primary" type="submit">Uploaden en verwerken starten</button>
+    <small class="muted">De testselectie wordt per actief project opgeslagen en bevat alleen de zojuist geüploade afbeelding.</small>
+  </form>
+
+  <section class="card">
+    <div class="toolbar"><div><h3>2 · Pipeline-status</h3><p class="muted">De workerstatus wordt automatisch vernieuwd zolang deze test actief is.</p></div></div>
+    <div class="test-model-chip"><span class="dot ok"></span><div><strong>Actieve celdetector</strong><small>{{ active_table_model_name }} · <span class="mono">{{ active_table_model_id }}</span></small></div></div>
+    <div class="test-model-chip"><span class="dot ok"></span><div><strong>Actieve Recognition</strong><small>{{ active_recognition_model.get('model_name') or active_recognition_model.get('model_id') or 'Niet geactiveerd' }}{% if active_recognition_model.get('model_id') %} · <span class="mono">{{ active_recognition_model.get('model_id') }}</span>{% endif %}</small></div></div>
+    <div class="test-model-meta"><span>Cell-dataset</span><span class="mono">{{ latest_table_dataset.get('dataset_id') or active_table_model.get('dataset_id') or 'geen actieve dataset' }}</span></div>
+    <div class="test-model-meta"><span>Recognition-dataset</span><span class="mono">{{ active_recognition_model.get('dataset_id') or 'niet geregistreerd' }}</span></div>
+    <div class="test-pipeline-steps">
+      <div class="test-pipeline-step done"><span>✓</span><div><strong>Upload klaarzetten</strong><small>{% if uploaded_name %}{{ uploaded_name }}{% else %}Wacht op afbeelding{% endif %}</small></div></div>
+      <div class="test-pipeline-step {% if current_job and current_job.status == 'completed' %}done{% elif current_job and current_job.status in ['pending','running'] %}active{% endif %}"><span>{% if current_job and current_job.status == 'completed' %}✓{% else %}2{% endif %}</span><div><strong>Volledige modelpipeline</strong><small>{% if current_job %}{{ current_job.status }} · taak {{ current_job.job_id }}{% else %}Tabel/cellen → semantische OCR → presets/schema → ROI → Recognition{% endif %}</small></div></div>
+      <div class="test-pipeline-step {% if output %}done{% endif %}"><span>{% if output %}✓{% else %}3{% endif %}</span><div><strong>Datablok</strong><small>{% if output %}JSON beschikbaar{% else %}Wacht op mapping en waarde-uitlezing{% endif %}</small></div></div>
+    </div>
+    {% if current_job and current_job.status in ['pending','running'] %}<p class="notice info compact">De worker verwerkt de afbeelding. Deze pagina vernieuwt automatisch.</p>{% elif current_job and current_job.status in ['failed','error'] %}<p class="notice error compact">De worker meldt een fout. Open de wachtrij voor de volledige log.</p>{% endif %}
+  </section>
+</section>
+
+{% if source_id %}
+<section class="card section-gap">
+  <div class="toolbar"><div><span class="eyebrow">RESULTAAT</span><h3>Datablok voor {{ source_id }}</h3><p class="muted">Het outputcontract bevat de metingen én provenance van modellen, datasets, mapping en DICOM-verwerking.</p></div>{% if output %}<a class="button" href="{{ url_for('extracted_output', source_id=source_id) }}">JSON downloaden</a>{% endif %}</div>
+    {% if output %}<pre class="test-json-output">{{ output|tojson(indent=2) }}</pre>{% else %}<div class="empty-state"><strong>Nog geen einddatablok</strong><p class="muted">De volledige actieve modelpipeline moet eerst een ondubbelzinnige mapping kunnen maken. Bij twijfel blijft de run veilig zonder output en kun je Mapping Studio openen.</p><div class="actions"><a class="button" href="{{ url_for('process_step', step_key='mapping') }}">Naar Mapping Studio</a><a class="button" href="{{ url_for('process_step', step_key='value-extract') }}">Naar waarde-uitlezing</a></div></div>{% endif %}
+</section>
+{% endif %}
+
+<script>
+(()=>{const jobId={{ job_id|tojson }}, sourceId={{ source_id|tojson }}; if(!jobId)return; const timer=setInterval(async()=>{try{const response=await fetch('/api/status',{cache:'no-store'});const data=await response.json();const job=(data.jobs||[]).find(item=>String(item.job_id)===String(jobId));if(job&&['completed','failed','error'].includes(String(job.status))){clearInterval(timer);const query=new URLSearchParams({job_id:jobId});if(sourceId)query.set('source_id',sourceId);location.href='/test-pipeline?'+query.toString()}}catch(_error){}} ,2500)})()
+</script>
+<style>
+.test-pipeline-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.test-pipeline-hero h2{margin:3px 0 7px}.test-pipeline-grid{display:grid;grid-template-columns:minmax(280px,.8fr) minmax(360px,1.2fr);gap:14px}.test-upload-card{display:grid;gap:14px;align-content:start}.test-file-drop{display:grid;gap:8px;padding:30px 18px;border:1px dashed #52738a;border-radius:10px;background:#0b141d;color:#cfe0eb;text-align:center}.test-file-drop input{display:block;width:100%;font-size:12px}.test-profile-select{display:grid;gap:6px}.test-profile-select select{width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;background:#0b141d;color:var(--text)}.test-profile-select small{color:var(--muted);font-size:11px}.test-model-chip{display:flex;align-items:center;gap:9px;margin:0 0 12px;padding:9px 11px;border:1px solid #2a7653;border-radius:8px;background:rgba(78,193,138,.06)}.test-model-chip small{display:block;margin-top:3px;color:var(--muted);font-size:11px}.test-model-meta{display:flex;justify-content:space-between;gap:10px;margin:-2px 0 12px;padding:0 2px;color:var(--muted);font-size:11px}.test-pipeline-steps{display:grid;gap:10px}.test-pipeline-step{display:grid;grid-template-columns:30px 1fr;gap:10px;align-items:center;padding:11px;border:1px solid var(--line);border-radius:9px;background:#0d151e}.test-pipeline-step>span{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#273746;color:#aab9c4;font-weight:800}.test-pipeline-step.done{border-color:#2a7653}.test-pipeline-step.done>span{background:#1e5b41;color:#8ff0bd}.test-pipeline-step.active{border-color:#a7772a}.test-pipeline-step.active>span{background:#634817;color:#ffd68a}.test-pipeline-step small{display:block;margin-top:3px;color:var(--muted);font-size:11px}.test-json-output{max-height:520px;overflow:auto;margin:0;padding:16px;border:1px solid var(--line);border-radius:9px;background:#081017;color:#d7e9f2;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap}.empty-state{padding:20px;border:1px dashed var(--line);border-radius:9px}.empty-state p{margin:5px 0 14px}.empty-state .actions{display:flex;gap:8px;flex-wrap:wrap}@media(max-width:800px){.test-pipeline-grid{grid-template-columns:1fr}.test-pipeline-hero{flex-direction:column}}
+</style>
+{% endblock %}

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import shutil
 from pathlib import Path
 
 import cv2
@@ -25,11 +26,44 @@ from .localization import (
     text_geometry_candidates, write_candidate_crops,
 )
 from .mapping import ensure_default_field_definitions, suggest_mappings
+from .mapping_ground_truth import canonical_table_regions, mark_canonical_geometry
 from .table_quality import table_first_quality
 from .table_panels import load_panel_profile
 from .table_cell_training import active_table_cell_model, list_table_cell_models
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _recognize_table_value_cells(
+    image: np.ndarray,
+    blocks: list[object],
+    engine: OCREngine,
+) -> dict[str, dict[str, object]]:
+    """Read table value cells with the active Recognition model."""
+    targets = [
+        block for block in blocks
+        if getattr(block, "block_type", "") == "table_cell"
+        and getattr(block, "role", "") == "value"
+    ]
+    if not targets:
+        return {}
+    crops = [image[block.box.y1:block.box.y2, block.box.x1:block.box.x2].copy() for block in targets]
+    engine.warmup()
+    recognized = engine.recognize_many(crops)
+    if len(recognized) != len(targets):
+        raise RuntimeError("Recognition result count does not match table value cell count")
+    model_info = engine.info()
+    model_name = str(model_info.get("model_name") or model_info.get("recognition_model") or "")
+    result: dict[str, dict[str, object]] = {}
+    for block, tokens in zip(targets, recognized, strict=False):
+        text = " ".join(str(token.text) for token in tokens if str(token.text)).strip()
+        confidence = min((float(token.confidence) for token in tokens), default=0.0)
+        result[str(block.block_id)] = {
+            "recognition_text": text,
+            "recognition_confidence": confidence,
+            "recognition_model": model_name,
+        }
+    return result
 
 
 def _table_settings_with_active_model(root: Path, settings: dict, selected_model_id: str | None = None) -> tuple[dict, dict | None]:
@@ -85,6 +119,25 @@ def _files(path: Path) -> list[Path]:
         and not any(part.startswith(".") for part in item.relative_to(path).parts)
         and item.suffix.lower() not in ignored_suffixes
     )
+
+
+def _selected_files(path: Path, workspace: Path) -> list[Path]:
+    """Apply the optional WebUI input-selection manifest to a collector run."""
+    files = _files(path)
+    manifest_path = resolve_project_workspace(workspace) / "input_selection.json"
+    if not manifest_path.is_file():
+        return files
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+        selected = {
+            str(value).replace("\\", "/").lstrip("/")
+            for value in (payload.get("selected") or [])
+            if str(value).strip()
+        }
+    except (OSError, TypeError, ValueError):
+        LOGGER.warning("Ignoring invalid input selection manifest: %s", manifest_path)
+        return files
+    return [item for item in files if item.relative_to(path).as_posix() in selected]
 
 
 def _joined(tokens) -> tuple[str, float]:
@@ -197,7 +250,7 @@ def _collect_localization_detections(
     source_renders_root.mkdir(parents=True, exist_ok=True)
     diagnostics_root.mkdir(parents=True, exist_ok=True)
     database = TrainingDatabase(root / "samples.sqlite3")
-    sources = _files(Path(input_path))
+    sources = _selected_files(Path(input_path), root)
     # One immutable identity for this complete Step-3 pass.  It is persisted in
     # every per-source diagnostic so later model activation can never relabel
     # stale predictions as if they were produced by the newly active model.
@@ -472,15 +525,12 @@ def collect_mapping_detections(
             maximum_false_candidate_rate=float(table_settings.get("maximum_false_candidate_rate", 0.10)),
             maximum_adjustment_rate=float(table_settings.get("maximum_adjustment_rate", 0.25)),
         )
-        if not gate.get("ready"):
-            raise RuntimeError(
-                f"TABLE-FIRST CHECK is closed: {gate.get('reason') or 'table geometry is not approved'}. "
-                f"Next step: {gate.get('next_step') or 'review table cells'}"
-            )
+        # Mapping may prepare an early semantic preview. Individual relations
+        # still require a valid Pipeline-A ROI before confirmation/materialization.
     else:
         gate = database.detection_gate()
-        if not gate.get("ready"):
-            raise RuntimeError(f"Detection gate is closed: {gate.get('reason') or 'localization is not approved'}")
+        # Mapping may be prepared before the global detection gate; ROI checks
+        # remain enforced per relation in the Mapping Studio.
     return _collect_mapping_detections(input_path, workspace, config, locator_engine, recognition_engine)
 
 
@@ -492,15 +542,27 @@ def _collect_mapping_detections(
     recognition_engine: OCREngine,
 ) -> dict[str, object]:
     root = resolve_project_workspace(workspace)
+    # This stage is also called directly by the application pipeline after it
+    # temporarily switches deployment mapping to fusion.  Resolve the strategy
+    # locally instead of relying on the public wrapper's gate calculation.
+    localization_settings = dict(config.raw.get("training", {}).get("localization", {}) or {})
+    strategy = str(localization_settings.get("strategy") or "fusion").strip().lower()
     diagnostics_root = root / "generic_detections"
     blocks_root = root / "detected_blocks"
     source_renders_root = root / "source_renders"
+    # Action 20 is a rebuild, not an incremental append. Remove only generated
+    # Mapping artifacts; canonical Detection-GT, Recognition-GT and feedback
+    # remain in their separate stores. The database replacement below preserves
+    # confirmed mappings when their stable block IDs still exist.
+    for generated_root in (diagnostics_root, blocks_root):
+        if generated_root.exists():
+            shutil.rmtree(generated_root)
     diagnostics_root.mkdir(parents=True, exist_ok=True)
     blocks_root.mkdir(parents=True, exist_ok=True)
     source_renders_root.mkdir(parents=True, exist_ok=True)
     database = TrainingDatabase(root / "samples.sqlite3")
     ensure_default_field_definitions(database, config.profile)
-    sources = _files(Path(input_path))
+    sources = _selected_files(Path(input_path), root)
     locator_engine.warmup()
     table_settings = dict(
         config.raw.get("training", {}).get("collection", {}).get("table_structure", {}) or {}
@@ -544,7 +606,30 @@ def _collect_mapping_detections(
                 "generic_relations_replaced": 0,
                 "error": table_engine_error,
             }
-            if table_engine is not None:
+            if strategy == "table_first":
+                try:
+                    table_regions = canonical_table_regions(
+                        root,
+                        decoded.source_id,
+                        tokens,
+                        image_width=width,
+                        image_height=height,
+                    )
+                    blocks, relations, structural = integrate_table_regions(
+                        decoded.source_id, blocks, relations, table_regions
+                    )
+                    blocks = mark_canonical_geometry(blocks)
+                    table_diagnostics.update({
+                        "enabled": True,
+                        "provider": "canonical_table_cell_ground_truth",
+                        "model_inference": False,
+                        **structural,
+                    })
+                except Exception as exc:
+                    table_diagnostics["error"] = f"{type(exc).__name__}: {exc}"
+                    LOGGER.exception("Canonical table structure preparation failed for input item %d", source_index)
+                    raise
+            elif table_engine is not None:
                 try:
                     table_regions = table_engine.detect(
                         decoded.image, source_id=decoded.source_id, fallback_tokens=tokens
@@ -561,6 +646,7 @@ def _collect_mapping_detections(
             detector_diagnostics["table_structure"] = table_diagnostics
             detector_diagnostics["block_count"] = len(blocks)
             detector_diagnostics["relation_count"] = len(relations)
+            recognition_results = _recognize_table_value_cells(decoded.image, blocks, recognition_engine)
             render_relative = Path("source_renders") / f"{decoded.source_id}.png"
             render_path = root / render_relative
             if not cv2.imwrite(str(render_path), decoded.image):
@@ -579,6 +665,7 @@ def _collect_mapping_detections(
                     if cv2.imwrite(str(destination), crop):
                         relative = destination.relative_to(root).as_posix()
                 payload["crop_path"] = relative
+                payload.update(recognition_results.get(str(block.block_id), {}))
                 block_payloads.append(payload)
             relation_payloads = [relation.as_dict() for relation in relations]
             database.replace_generic_detection(
@@ -628,7 +715,7 @@ def _collect_mapping_detections(
         "automatic_mapping_suggestions": total_suggestions,
         "locator_engine": locator_engine.info(),
         "table_structure_engine": table_engine.info() if table_engine is not None else {"enabled": False, "error": table_engine_error},
-        "recognition_engine_reserved_for_mapping_stage": recognition_engine.info(),
+        "recognition_engine_used_for_table_values": recognition_engine.info(),
         "diagnostics": {
             "json_directory": "generic_detections",
             "block_crop_directory": "detected_blocks",
@@ -677,7 +764,7 @@ def collect_samples(
     header_crops_root.mkdir(parents=True, exist_ok=True)
     extracted_output_root.mkdir(parents=True, exist_ok=True)
     db = TrainingDatabase(root / "samples.sqlite3")
-    sources = _files(Path(input_path))
+    sources = _selected_files(Path(input_path), root)
     added = 0
     refreshed = 0
     failed = 0

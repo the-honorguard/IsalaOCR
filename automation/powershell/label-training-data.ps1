@@ -247,8 +247,12 @@ if (-not $ready) {
 }
 
 Set-Content -Path $portFile -Value $selectedPort -Encoding ascii
+$imageBuild = Get-LabelerImageBuildInfo -ContainerInfo $containerInfo
 Write-Host ""
 Write-Host "Label interface is ready: $url" -ForegroundColor Green
+if ($null -ne $imageBuild) {
+    Write-Host ("Laatste labeler-rebuild: {0} (lokaal: {1})" -f $imageBuild.Display, $imageBuild.Image) -ForegroundColor DarkGray
+}
 Write-Host "Use menu option 4 to stop it and option 5 for diagnostics."
 
 if (-not $NoBrowser) {

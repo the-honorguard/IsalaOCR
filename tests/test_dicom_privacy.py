@@ -5,7 +5,16 @@ import pytest
 
 pydicom = pytest.importorskip("pydicom")
 
-from isala_ocr.dicom import decode_dicom
+from isala_ocr.dicom import _ybr_rct_to_rgb, decode_dicom
+
+
+def test_ybr_rct_inverse_is_reversible_for_known_rgb_values() -> None:
+    rgb = np.array([[[10, 20, 30], [240, 120, 40]]], dtype=np.int64)
+    y = np.floor_divide(rgb[..., 0] + 2 * rgb[..., 1] + rgb[..., 2], 4)
+    cb = rgb[..., 2] - rgb[..., 1]
+    cr = rgb[..., 0] - rgb[..., 1]
+    ybr_rct = np.stack((y, cb, cr), axis=-1)
+    np.testing.assert_array_equal(_ybr_rct_to_rgb(ybr_rct), rgb)
 
 
 def test_dicom_decoder_does_not_expose_patient_identifiers(tmp_path: Path):

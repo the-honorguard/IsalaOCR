@@ -9,7 +9,7 @@
   <div><span class="gate-kicker">{{ detection_gate.gate_label or 'PIPELINE A CHECK' }}</span><h2>{{ 'Recognition is vergrendeld' if step.key.startswith('recognition-') else 'Pipeline B is vergrendeld' }}</h2><p>{{ detection_gate.reason }}</p><p><strong>Volgende stap:</strong> {{ detection_gate.next_step or 'Rond eerst de vereiste controle af.' }}</p></div>
 </section>
 {% elif step.group == 'value' %}
-<section class="gate-banner gate-banner-open"><div><span class="gate-kicker">{{ detection_gate.gate_label or 'PIPELINE A CHECK' }}</span><strong>{{ 'PASS · Recognition Dataset beschikbaar' if step.key.startswith('recognition-') else 'PASS · Mapping & OCR beschikbaar' }}</strong><p>{{ detection_gate.reason }}</p></div></section>
+<section class="gate-banner gate-banner-open"><div><span class="gate-kicker">{{ detection_gate.gate_label or 'PIPELINE A CHECK' }}</span><strong>{{ 'PASS · Recognition Dataset beschikbaar' if step.key.startswith('recognition-') else 'PASS · Mapping & OCR beschikbaar' }}</strong><p>{{ detection_gate.reason }}</p>{% if step.key in application_processing %}<p class="compact"><strong>Let op:</strong> PASS betekent hier dat de stap beschikbaar is. Het betekent niet dat alle crops al zijn goedgekeurd of uitgelezen.</p>{% endif %}</div></section>
 {% endif %}
 {% if step.group == 'fallback' %}
 <section class="notice info"><strong>Geparkeerde fallback.</strong> Deze pagina hoort niet bij de huidige table-first hoofdflow. Bestaande box-detectorfunctionaliteit blijft beschikbaar om later alleen de gaten op te vullen als Stap 5 daar aanleiding toe geeft.</section>
@@ -49,7 +49,11 @@
     </div>
     {% elif step.key == 'detect-candidates' %}
     <div class="process-actions">
-      {% if detection_sources %}
+      {% if not input_selection.has_manifest %}
+      <a class="button primary" href="/process/input-selection"><strong>Input eerst controleren</strong><span>Maak de selectie voordat je detecteert</span></a>
+      {% elif not input_selection.selected %}
+      <a class="button primary" href="/process/input-selection"><strong>Geen input geselecteerd</strong><span>Open Inputselectie en vink bestanden aan</span></a>
+      {% elif detection_sources %}
       <form method="post" action="/jobs" class="table-detection-form"><input type="hidden" name="action_id" value="2"><label>Model voor deze detectierun<select name="table_model_id"><option value="generic-ppstructure" {% if not table_model.active_model %}selected{% endif %}>PP-Structure baseline · generiek</option>{% for model in table_model.models or [] %}<option value="{{ model.model_id }}" {% if model.active %}selected{% endif %}>{{ model.model_name or model.model_id }}{% if model.active %} · ACTIEF{% endif %} · {{ model.dataset_id or 'dataset onbekend' }}</option>{% endfor %}</select><small class="muted">De regio’s worden full-image gedetecteerd. Een actief regio-/celdetector-model kan per run worden gekozen.</small></label><button class="primary"><strong>Tabelregio’s en cellen detecteren</strong><span>{{ detection_sources|length }} bron(nen) · full-image detectie</span></button></form>
       {% else %}
       <button class="primary" disabled title="Niet beschikbaar: er is nog geen bronrender. Open Stap 2 en maak eerst een voorbeeldscan."><strong>Tabelregio’s en cellen detecteren</strong><span>Niet beschikbaar · bronrender ontbreekt</span></button>
@@ -123,6 +127,23 @@
   </section>
 
   <div class="notice warning section-gap" data-prep-warning {% if not preparation.unknown_count %}hidden{% endif %}>{{ preparation.unknown_count }} controle(s) zijn niet actueel. Vernieuw de status voordat je verdergaat.</div>
+
+  <section class="card section-gap">
+    <div class="toolbar">
+      <div>
+        <span class="eyebrow">DATA VOORBEREIDEN</span>
+        <h3>Nieuwe input verwerken</h3>
+        <p class="muted">Nieuwe bestanden in de projectmap worden pas zichtbaar in de WebUI nadat de table-first collector ze heeft ingelezen. Dit maakt bronrenders, tabelregio’s en celgeometrie aan; het wijzigt geen GT en traint geen model.</p>
+      </div>
+      <div class="preparation-data-action">
+        <div class="preparation-data-counts">
+          <span><strong>{{ input_file_count }}</strong> bestand{{ '' if input_file_count == 1 else 'en' }} in input</span>
+          <span><strong>{{ registered_source_count }}</strong> geregistreerde bron{{ '' if registered_source_count == 1 else 'nen' }}</span>
+        </div>
+        <a class="button primary preparation-data-button" href="/process/input-selection"><strong>Input controleren</strong><span>Afbeeldingen selecteren vóór verwerking</span></a>
+      </div>
+    </div>
+  </section>
 
   {% if localization_strategy != 'table_first' %}<section class="card section-gap panel-definition-setup" id="panel-name-setup">
     <div class="toolbar">
@@ -328,7 +349,12 @@
 <section class="card section-gap"><div class="toolbar"><div><h3>Functionele mapping</h3><p class="muted">Semantische label/value-logica start pas na de detectiepoort. Pipeline A heeft deze betekenis bewust niet gebruikt.</p></div><div class="actions"><a class="button" href="/field-schema">Veldschema</a><a class="button" href="/mapping-profiles">Profielen</a></div></div><div class="grid cols-3"><div><span class="muted">Relaties</span><div class="metric">{{ mapping.relations }}</div></div><div><span class="muted">Voorgesteld</span><div class="metric warn">{{ mapping.suggested }}</div></div><div><span class="muted">Bevestigd</span><div class="metric ok">{{ mapping.confirmed }}</div></div></div></section>
 
 {% elif step.key in ['apply-mapping','value-extract'] %}
-<div class="grid cols-3 section-gap"><section class="card"><span class="muted">Definitieve crops</span><div class="metric">{{ mapped.total }}</div></section><section class="card"><span class="muted">ROI correct</span><div class="metric ok">{{ mapped.roi_correct }}</div></section><section class="card"><span class="muted">Uitgelezen</span><div class="metric">{{ mapped.recognized }}</div></section></div>
+<div class="grid cols-3 section-gap"><section class="card"><span class="muted">Definitieve crops</span><div class="metric">{{ mapped.total }}</div><small class="muted">Totaal aangemaakt</small></section><section class="card"><span class="muted">ROI correct</span><div class="metric ok">{{ mapped.roi_correct }}</div><small class="muted">Goedgekeurd voor uitlezen</small></section><section class="card"><span class="muted">Uitgelezen</span><div class="metric">{{ mapped.recognized }}</div><small class="muted">Waarden uit deze run</small></section></div>
+<section class="card section-gap pipeline-result-explainer">
+  <div class="toolbar"><div><span class="eyebrow">RESULTAAT VAN DEZE RUN</span><h3>{{ mapped.recognized }} van {{ mapped.roi_correct }} goedgekeurde ROI's uitgelezen</h3></div><span class="pill {{ 'ok' if mapped.recognized == mapped.roi_correct and mapped.roi_correct > 0 else 'warn' }}">{{ 'UITGELEZEN' if mapped.recognized == mapped.roi_correct and mapped.roi_correct > 0 else 'GEDEELTELIJK' }}</span></div>
+  <p>Er zijn <strong>{{ mapped.total }}</strong> definitieve crops aangemaakt. Daarvan zijn <strong>{{ mapped.roi_correct }}</strong> als correcte ROI goedgekeurd en konden <strong>{{ mapped.recognized }}</strong> waarden worden uitgelezen.</p>
+  {% if mapped.total > mapped.roi_correct %}<p class="muted compact"><strong>{{ mapped.total - mapped.roi_correct }}</strong> crops wachten dus nog op ROI-controle/goedkeuring. Nieuwe modelvoorspellingen beoordeel je in Stap 7; deze teller zegt niet dat die crops automatisch fout zijn.</p>{% elif mapped.roi_correct == 0 %}<p class="muted compact">Er is nog geen ROI als correct goedgekeurd. Open de ROI-review voordat je uitleest.</p>{% else %}<p class="muted compact">Alle goedgekeurde ROI's uit deze selectie zijn uitgelezen. Beoordeel de tekstwaarden daarna in Waarden beoordelen.</p>{% endif %}
+</section>
 
 {% elif step.key == 'value-review' %}
 <div class="grid cols-3 section-gap"><section class="card"><span class="muted">Waarden</span><div class="metric">{{ value.total }}</div></section><section class="card"><span class="muted">Open</span><div class="metric warn">{{ value.pending }}</div></section><section class="card"><span class="muted">Goedgekeurd</span><div class="metric ok">{{ value.accepted }}</div></section></div>

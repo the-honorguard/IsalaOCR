@@ -25,17 +25,13 @@ def test_fast_collector_materializes_only_relation_label_thumbnails() -> None:
     assert "suggestions=%.2fs" in source
 
 
-def test_fast_suggestions_cache_pipeline_a_geometry_per_source() -> None:
+def test_fast_suggestions_are_label_and_table_driven() -> None:
     source = SUGGESTIONS.read_text(encoding="utf-8")
-    # These expensive reads must remain outside the field x relation scoring loop.
-    assert source.count("database.list_detection_annotations(") == 1
-    assert source.count("database.list_detection_candidates(") == 1
+    # Mapping selects a field from the readable label and its table relation.
+    # Pipeline-A ROI validation belongs to value materialization, not mapping.
     assert source.count("database.list_detected_blocks(") == 1
-    assert "geometry_by_value" in source
-    assert "if value_block_id not in geometry_by_value:" in source
-    assert "annotations=annotations" in source
-    assert "candidates=candidates" in source
-    assert "database.get_detected_block(" not in source
+    assert "Pipeline-A ROI validation belongs to materialization" in source
+    assert "schema_candidate_score(" in source
 
 
 def test_fast_suggestions_store_results_in_one_transaction() -> None:

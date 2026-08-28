@@ -17,7 +17,6 @@ from .recognition_ground_truth import (
     recognition_scope,
     recognition_scope_options,
     recognition_scope_preview,
-    save_recognition_scope,
 )
 
 
@@ -365,39 +364,15 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
 
     @app.get("/recognition-scope")
     def recognition_scope_home():
-        project_root = resolve_project_workspace(workspace_root)
-        return render_template(
-            "recognition_scope.html",
-            recognition_scope=recognition_scope(project_root),
-            recognition_scope_options=recognition_scope_options(project_root),
-            recognition_scope_preview=recognition_scope_preview(project_root),
-        )
+        flash("Recognition-scope beheer je nu centraal in Tabelstudio.", "success")
+        return redirect(url_for("process_step", step_key="table-quality"))
 
     @app.post("/recognition-gt-scope")
     def recognition_gt_scope_save():
-        project_root = resolve_project_workspace(workspace_root)
-        tables: dict[str, dict[str, list[int]]] = {}
-        for value in request.form.getlist("scope_row"):
-            table, separator, row = str(value).partition("|")
-            if not separator:
-                continue
-            try:
-                tables.setdefault(table, {"rows": [], "columns": []})["rows"].append(int(row))
-            except ValueError:
-                continue
-        for value in request.form.getlist("scope_column"):
-            table, separator, column = str(value).partition("|")
-            if not separator:
-                continue
-            try:
-                tables.setdefault(table, {"rows": [], "columns": []})["columns"].append(int(column))
-            except ValueError:
-                continue
-        save_recognition_scope(project_root, tables)
         if request.headers.get("X-Requested-With") == "recognition-scope-autosave":
-            return {"ok": True}
-        flash("Recognition-scope opgeslagen. Vernieuw daarna de Recognition samples.", "success")
-        return redirect(url_for("recognition_gt_review_home"))
+            return {"ok": False, "redirect": url_for("process_step", step_key="table-quality")}, 409
+        flash("Recognition-scope beheer je nu centraal in Tabelstudio.", "success")
+        return redirect(url_for("process_step", step_key="table-quality"))
 
     @app.route("/recognition-gt-review/sample/<sample_id>", methods=["GET", "POST"])
     def recognition_gt_review_sample(sample_id: str):

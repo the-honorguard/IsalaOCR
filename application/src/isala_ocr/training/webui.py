@@ -33,7 +33,7 @@ from .localization_dataset import (
 )
 from .table_quality import table_first_quality
 from .table_panels import clear_panel_geometry, load_panel_profile, save_panel_definitions, save_panel_profile
-from .table_cell_training import table_cell_training_state
+from .table_cell_training import active_table_cell_model, table_cell_training_state
 from .table_cell_ground_truth import (
     add_ground_truth_cell, delete_ground_truth_cell, ensure_table_cell_ground_truth,
     ground_truth_counts, ground_truth_review_state, list_ground_truth_cells, list_ground_truth_sources,
@@ -44,7 +44,10 @@ from .table_region_training import build_table_region_dataset
 from .table_model_comparison import (
     add_comparison_fp_to_ground_truth, review_comparison_issue, table_cell_comparison_state,
 )
-from .recognition_ground_truth import recognition_gt_counts, recognition_scope_preview
+from .recognition_ground_truth import (
+    recognition_gt_counts, recognition_scope_preview, save_recognition_scope,
+    save_table_studio_roles, table_studio_roles, table_studio_rows,
+)
 from .projects import (
     DEFAULT_PROJECT_ID, ProjectManager, load_use_case_templates,
     project_active_recognition_dir, resolve_project_registry,
@@ -72,6 +75,7 @@ DETECTION_RELEVANCE_REASONS = {
 ACTIONS = {
     "1": "ALLE modellen en trainingsimages voorbereiden",
     "2": "PP-Structure tabelregio's en cellen detecteren",
+    "60": "Volledige actieve DICOM-verwerkingspipeline",
     "5": "Localization-dataset bouwen (COCO)",
     "6": "Localization-dataset valideren",
     "7": "Field detector trainen op NVIDIA GPU",
@@ -142,6 +146,7 @@ ACTIONS = {
 ACTION_DURATION_ESTIMATES = {
     "1": {"label": "± 20–60 min", "detail": "Volledige voorbereiding; eerste run en downloads kunnen langer duren."},
     "2": {"label": "± 2–10 min", "detail": "Afhankelijk van aantal bronnen/panelen en preprocessing-varianten."},
+    "60": {"label": "± 1–5 min", "detail": "DICOM door actieve tabel-, mapping- en recognition-modellen naar één datablok."},
     "5": {"label": "± 10–60 sec", "detail": "Afhankelijk van het aantal gereviewde bronnen."},
     "6": {"label": "± 10–30 sec", "detail": "Dataset- en PaddleDetection-validatie."},
     "7": {"label": "± 5–20 min", "detail": "GPU-training; afhankelijk van dataset en GPU."},
@@ -208,6 +213,7 @@ ACTION_DURATION_ESTIMATES = {
 
 PROCESS_STEPS = [
     {"key": "detection-models","index":1,"group":"detection","title":"Voorbereiding","subtitle":"Controleer of PP-StructureV3 en de inference/table-modelcache beschikbaar zijn.","action_ids":["14","19","30","35","42"],"requirements":["Docker Desktop actief","Inference OCR + tabelmodellen lokaal beschikbaar","Tabelregio’s en tabelnamen worden in Stap 2 gedefinieerd","Geen detector-training nodig voor de table-first proef"]},
+    {"key": "input-selection","index":"1A","group":"input","title":"Inputselectie","subtitle":"Bepaal welke bronafbeeldingen onderdeel worden van deze verwerkingsronde.","action_ids":[],"requirements":["Voorbereiding afgerond","Bestanden in de projectmap input","Alle gewenste afbeeldingen expliciet geselecteerd"]},
     {"key": "panel-setup","index":2,"group":"detection","title":"Tabelregio’s selecteren","subtitle":"Beoordeel per lezing de volledige tabelregio’s in de fullscreen reviewer en sla ze op als Ground Truth.","action_ids":[],"requirements":["Minimaal één bronpreview","Per lezing alle volledige tabellen omkaderen","Tabeldefinities en tabelregio-GT opslaan"]},
     {"key": "table-region-model","index":None,"group":"fallback","title":"Tabelregio-model · technische optie","subtitle":"Optionele tabelregio-training; dit hoort niet in de eerste GT-reviewflow.","action_ids":["54","55","56","57"],"requirements":["Alleen gebruiken voor een aparte tabelregio-experiment"]},
     {"key": "detect-candidates","index":3,"group":"detection","title":"Eerste celdetectie","subtitle":"Voer de eerste celdetectie uit binnen de ingestelde tabelregio’s. Deze run is alleen het startpunt voor de GT.","action_ids":["2"],"requirements":["Voorbereiding afgerond","Tabelregio’s opgeslagen","Bronnen in input"]},
@@ -1487,6 +1493,7 @@ def create_web_app(
         preparation_ready = bool(inference_component.get("ready")) if localization_strategy() == "table_first" else bool(prep["ready"])
         readiness = {
             "detection-models": preparation_ready,
+            "input-selection": bool(input_selection_state().get("has_manifest")),
             "panel-setup": bool(panel_state.get("configured")),
             "table-region-model": bool(list_table_region_sources(workspace_root())),
             "detect-candidates": bool(panel_state.get("detection_current")),
@@ -2616,6 +2623,107 @@ def create_web_app(
         )
 
 
+    @app.route("/test-pipeline", methods=["GET", "POST"])
+    def test_pipeline():
+        """Small end-to-end proving ground for a future one-click pipeline.
+
+        Keep this route deliberately separate from the training workflow: an
+        uploaded image is stored in the active project's configured input
+        directory and only that image is selected for the first worker step.
+        Later orchestration can extend the same page without changing the
+        existing review/training contracts.
+        """
+        allowed_extensions = {".dcm"}
+        source_id = str(request.args.get("source_id") or "").strip()[:80]
+        job_id = str(request.args.get("job_id") or "").strip()[:80]
+        error = ""
+        uploaded_name = ""
+        active_table_model = active_table_cell_model(workspace_root()) or {}
+        active_table_model_id = str(active_table_model.get("model_id") or "generic-ppstructure")
+        active_table_model_name = str(
+            active_table_model.get("model_name") or "Generieke PP-Structure baseline"
+        )
+        _, active_recognition_model = registry_state()
+        table_model_state = table_cell_training_state(workspace_root()) or {}
+        latest_table_dataset = table_model_state.get("dataset") or {}
+
+        if request.method == "POST":
+            upload = request.files.get("image")
+            original_name = str(upload.filename or "").strip() if upload else ""
+            suffix = Path(original_name).suffix.lower()
+            if request.content_length and request.content_length > 25 * 1024 * 1024:
+                error = "De upload is te groot; gebruik maximaal 25 MB per afbeelding."
+            elif upload is None or not original_name:
+                error = "Kies eerst een DICOM-bestand."
+            elif suffix not in allowed_extensions:
+                error = "Gebruik een DICOM-bestand met de extensie .dcm."
+            else:
+                safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(original_name).name).strip("._")
+                safe_name = (safe_name or "upload")[:120]
+                if Path(safe_name).suffix.lower() not in allowed_extensions:
+                    error = "De bestandsnaam bevat geen ondersteunde afbeeldings-extensie."
+                else:
+                    try:
+                        input_root = Path(project_manager.active().input_path).resolve()
+                        allowed_root = Path("/input").resolve()
+                        if allowed_root != input_root and allowed_root not in input_root.parents:
+                            raise ValueError("Het actieve project-inputpad valt buiten /input.")
+                        input_root.mkdir(parents=True, exist_ok=True)
+                        stored_name = f"test_{uuid.uuid4().hex[:12]}_{safe_name}"
+                        destination = (input_root / stored_name).resolve()
+                        if input_root not in destination.parents:
+                            raise ValueError("Ongeldig uploadpad.")
+                        upload.save(destination)
+                        relative_key = destination.relative_to(allowed_root).as_posix()
+                        file_bytes = destination.read_bytes()
+                        source_id = hashlib.sha256(file_bytes).hexdigest()[:24]
+                        input_selection_path().parent.mkdir(parents=True, exist_ok=True)
+                        input_selection_path().write_text(
+                            json.dumps({
+                                "version": 1,
+                                "updated_at": _utcnow(),
+                                "selected": [relative_key],
+                                "reason": "test-pipeline-upload",
+                            }, indent=2), encoding="utf-8"
+                        )
+                        job = enqueue_job("60", {
+                            "table_model_id": "active" if active_table_model else "generic-ppstructure",
+                            "mapping_profile_id": str(request.form.get("mapping_profile_id") or "").strip(),
+                        })
+                        job_id = str(job["job_id"])
+                        uploaded_name = safe_name
+                    except (OSError, ValueError) as exc:
+                        error = f"Upload kon niet worden klaargezet: {exc}"
+
+        output = None
+        if source_id:
+            output_path = safe_workspace_file(Path("extracted_output") / f"{source_id}.json")
+            if output_path.is_file():
+                output = _read_json(output_path, None)
+        jobs = job_statuses(20)
+        current_job = next((item for item in jobs if str(item.get("job_id") or "") == job_id), None)
+        mapping_profiles = database.list_mapping_profiles()
+        if error:
+            return render_template(
+                "test_pipeline.html", source_id=source_id, job_id=job_id,
+                current_job=current_job, output=output, error=error,
+                active_table_model_id=active_table_model_id, active_table_model_name=active_table_model_name,
+                active_table_model=active_table_model,
+                active_recognition_model=active_recognition_model or {},
+                latest_table_dataset=latest_table_dataset,
+                mapping_profiles=mapping_profiles,
+            ), 400
+        return render_template(
+            "test_pipeline.html", source_id=source_id, job_id=job_id,
+            current_job=current_job, output=output, uploaded_name=uploaded_name,
+            active_table_model_id=active_table_model_id, active_table_model_name=active_table_model_name,
+            active_table_model=active_table_model,
+            active_recognition_model=active_recognition_model or {},
+            latest_table_dataset=latest_table_dataset,
+            mapping_profiles=mapping_profiles,
+        )
+
+
     @app.route("/process/<step_key>", methods=["GET", "POST"])
     def process_step(step_key: str):
         legacy_step_aliases = {
@@ -2633,6 +2741,46 @@ def create_web_app(
         if step_key == "detection-review" and request.method == "GET":
             return redirect(url_for("detection_review_index"))
 
+        if step_key == "input-selection":
+            if request.method == "POST":
+                selected = {
+                    str(value).strip().replace("\\", "/")
+                    for value in request.form.getlist("selected_file")
+                    if str(value).strip()
+                }
+                available = {str(item["key"]) for item in input_selection_state()["files"]}
+                selected &= available
+                payload = {
+                    "version": 1,
+                    "updated_at": _utcnow(),
+                    "selected": sorted(selected),
+                }
+                input_selection_path().parent.mkdir(parents=True, exist_ok=True)
+                input_selection_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                flash(f"Inputselectie opgeslagen: {len(selected)} van {len(available)} afbeeldingen geselecteerd.", "success")
+                if request.form.get("start_processing") == "1":
+                    job = enqueue_job("2", {"table_model_id": "generic-ppstructure"})
+                    return redirect(url_for("process_step", step_key="input-selection", job_id=job["job_id"]))
+                return redirect(url_for("process_step", step_key="input-selection"))
+            selection = input_selection_state()
+            existing_sources = {str(item["source_id"]) for item in database.list_detection_sources()}
+            for item in selection["files"]:
+                item["processed"] = item["source_id"] in existing_sources
+                if item["processed"]:
+                    item["preview_url"] = url_for("source_render", source_id=item["source_id"])
+                elif Path(item["key"]).suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
+                    item["preview_url"] = url_for("input_preview", relative_path=item["key"])
+            return render_template(
+                "input_selection.html", step=step, selection=selection,
+                header_counts={
+                    "total": selection["total"],
+                    "pending": selection["new"],
+                    "accepted": selection["selected"],
+                },
+                header_total_label="afbeeldingen", header_pending_label="nieuw",
+                header_accepted_label="geselecteerd",
+            )
+
         header_status_filter = str(request.args.get("header_status", "pending")).strip().lower()
         if header_status_filter not in {"all", "pending", "accepted", "rejected", "deferred"}:
             abort(400)
@@ -2643,6 +2791,39 @@ def create_web_app(
             abort(400)
 
         if request.method == "POST":
+            if step_key == "table-quality":
+                roles = dict(table_studio_roles(workspace_root()))
+                rows = dict(table_studio_rows(workspace_root()))
+                table_ids = {str(value) for value in request.form.getlist("table_definition") if str(value)}
+                for table_id in table_ids:
+                    roles[table_id] = {}
+                    rows[table_id] = []
+                for value in request.form.getlist("table_role"):
+                    table_id, separator, remainder = str(value).partition("|")
+                    column, separator2, role = remainder.partition("|")
+                    if not separator or not separator2 or not column.isdigit():
+                        continue
+                    if role in {"label", "value", "unit", "header", "skip"}:
+                        roles.setdefault(table_id, {})[column] = role
+                for value in request.form.getlist("table_row"):
+                    table_id, separator, row = str(value).partition("|")
+                    if separator and row.isdigit():
+                        rows.setdefault(table_id, []).append(int(row))
+                save_table_studio_roles(workspace_root(), roles, rows=rows)
+                recognition_tables = {
+                    table_id: {
+                        "rows": rows.get(table_id, []),
+                        "columns": sorted(
+                            int(column) for column, role in table_roles.items()
+                            if role in {"label", "value", "unit", "header"}
+                        ),
+                    }
+                    for table_id, table_roles in roles.items()
+                }
+                save_recognition_scope(workspace_root(), recognition_tables)
+                included = sum(len(item["rows"]) * len(item["columns"]) for item in recognition_tables.values())
+                flash(f"Tabeldefinitie en Recognition-scope opgeslagen ({included} rasterposities geselecteerd).", "success")
+                return redirect(url_for("process_step", step_key=step_key, source_id=request.form.get("source_id", "")))
             if step_key == "table-compare":
                 action = str(request.form.get("comparison_action") or "").strip().lower()
                 if action not in {"review_issue", "add_prediction_to_gt"}:
@@ -2924,44 +3105,172 @@ def create_web_app(
         if step_key == "table-quality":
             quality = current_table_first_quality()
             preview = recognition_scope_preview(workspace_root())
-            # The Recognition-scope preview exposes grouped table previews,
-            # while Tabelstudio needs the raw canonical cells for the selected
-            # example source. Reading those cells directly keeps both screens
-            # on the same Step-4 Ground Truth instead of relying on the
-            # preview's intentionally empty aggregate `cells` field.
+            # The persisted table raster is authoritative here. Do not rebuild
+            # rows and columns by clustering canonical GT cells.
             studio_source_id = str(preview.get("source_id") or "")
-            studio_cells = list_ground_truth_cells(workspace_root(), studio_source_id) if studio_source_id else []
+            geometry = database.list_detection_table_geometry(studio_source_id) if studio_source_id else {"regions": [], "cells": []}
+            profile = load_panel_profile(workspace_root())
+            reference_width = float(profile.get("reference_width") or 0)
+            reference_height = float(profile.get("reference_height") or 0)
+            named_tables: dict[str, dict[str, Any]] = {}
+            for region in geometry.get("regions", []):
+                center_x = (float(region.get("x1") or 0) + float(region.get("x2") or 0)) / 2
+                center_y = (float(region.get("y1") or 0) + float(region.get("y2") or 0)) / 2
+                for panel in profile.get("panels") or []:
+                    if (
+                        float(panel.get("x1") or 0) * reference_width <= center_x <= float(panel.get("x2") or 0) * reference_width
+                        and float(panel.get("y1") or 0) * reference_height <= center_y <= float(panel.get("y2") or 0) * reference_height
+                    ):
+                        named_tables[str(region.get("table_id") or "")] = panel
+                        break
             table_groups: dict[str, list[dict[str, Any]]] = {}
-            for cell in studio_cells:
-                table_id = str(cell.get("table_id") or cell.get("panel_id") or cell.get("panel_name") or "__default__")
-                table_groups.setdefault(table_id, []).append(cell)
+            for cell in geometry.get("cells", []):
+                raw_table_id = str(cell.get("table_id") or "")
+                panel = named_tables.get(raw_table_id) or {}
+                table_id = str(panel.get("panel_id") or raw_table_id or "__default__")
+                table_groups.setdefault(table_id, []).append({
+                    **cell, "panel_id": table_id,
+                    "panel_name": str(panel.get("name") or table_id),
+                })
+
+            def indexed_cells(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
+                """Use persisted row/column indices; infer only for legacy records.
+
+                Older canonical GT records store exact boxes but predate the
+                optional row_index/column_index fields. Tabelstudio needs
+                stable visual grouping, so infer the indices from box centers
+                without changing the canonical GT file.
+                """
+                usable = [dict(cell) for cell in cells]
+                if all("row_index" in item and "column_index" in item for item in usable):
+                    return usable
+                heights = [
+                    max(1, int(item.get("y2") or 0) - int(item.get("y1") or 0))
+                    for item in usable
+                ]
+                widths = [
+                    max(1, int(item.get("x2") or 0) - int(item.get("x1") or 0))
+                    for item in usable
+                ]
+                row_tolerance = max(6.0, (sum(heights) / max(1, len(heights))) * 0.75)
+                column_tolerance = max(8.0, (sum(heights) / max(1, len(heights))) * 1.5)
+
+                def cluster(items: list[dict[str, Any]], center_key: str, tolerance: float) -> list[list[dict[str, Any]]]:
+                    groups: list[list[dict[str, Any]]] = []
+                    for item in sorted(items, key=lambda value: float(value[center_key])):
+                        center = float(item[center_key])
+                        if not groups:
+                            groups.append([item])
+                            continue
+                        previous_center = sum(float(value[center_key]) for value in groups[-1]) / len(groups[-1])
+                        if center - previous_center <= tolerance:
+                            groups[-1].append(item)
+                        else:
+                            groups.append([item])
+                    return groups
+
+                for item in usable:
+                    item["_center_y"] = (int(item.get("y1") or 0) + int(item.get("y2") or 0)) / 2
+                    item["_center_x"] = (int(item.get("x1") or 0) + int(item.get("x2") or 0)) / 2
+                rows = cluster(usable, "_center_y", row_tolerance)
+                columns = cluster(usable, "_center_x", column_tolerance)
+                for row_index, row in enumerate(rows):
+                    for item in row:
+                        item["row_index"] = row_index
+                for column_index, column in enumerate(columns):
+                    for item in column:
+                        item["column_index"] = column_index
+                for item in usable:
+                    item.pop("_center_y", None)
+                    item.pop("_center_x", None)
+                return usable
+
             def axis_groups(cells: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
                 groups: dict[int, list[dict[str, Any]]] = {}
                 for cell in cells:
                     groups.setdefault(int(cell.get(key, -1)), []).append(cell)
-                return [
+                result = [
                     {"index": index, "cells": sorted(items, key=lambda item: int(item.get("column_index" if key == "row_index" else "row_index", -1))),
                      "x1": min(int(item.get("x1") or 0) for item in items), "y1": min(int(item.get("y1") or 0) for item in items),
                      "x2": max(int(item.get("x2") or 0) for item in items), "y2": max(int(item.get("y2") or 0) for item in items)}
                     for index, items in sorted(groups.items()) if index >= 0
                 ]
+                if key == "column_index":
+                    # Adjacent raster columns share one boundary. Detection
+                    # boxes can overlap by a few pixels; never expose that
+                    # overlap as a semantic column boundary in the Studio.
+                    for left, right in zip(result, result[1:]):
+                        left_center = (left["x1"] + left["x2"]) / 2
+                        right_center = (right["x1"] + right["x2"]) / 2
+                        boundary = round((left_center + right_center) / 2)
+                        boundary = max(left["x1"] + 1, min(boundary, right["x2"] - 1))
+                        left["x2"] = boundary
+                        right["x1"] = boundary
+                return result
             def table_record(table_id: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
+                cells = indexed_cells(cells)
                 padding = 16
                 return {"table_id": table_id, "table_name": str(cells[0].get("table_name") or cells[0].get("panel_name") or ("Tabel zonder profiel" if table_id == "__default__" else table_id)), "cells": cells, "rows": axis_groups(cells, "row_index"), "columns": axis_groups(cells, "column_index"), "crop": {"x1": max(0, min(int(item.get("x1") or 0) for item in cells) - padding), "y1": max(0, min(int(item.get("y1") or 0) for item in cells) - padding), "x2": max(int(item.get("x2") or 0) for item in cells) + padding, "y2": max(int(item.get("y2") or 0) for item in cells) + padding}}
             studio = {
                 "source_id": str(preview.get("source_id") or ""),
                 "tables": [table_record(table_id, cells) for table_id, cells in sorted(table_groups.items())],
             }
+            if str(request.args.get("view") or "").strip().lower() == "geometry":
+                return render_template(
+                    "table_structure.html",
+                    step=step, table_quality=quality, studio=studio,
+                    header_counts={
+                        "total": int((quality.get("totals") or {}).get("desired_total", 0)),
+                        "pending": int((quality.get("totals") or {}).get("pending", 0)),
+                        "accepted": int((quality.get("totals") or {}).get("detected_desired", 0)),
+                    },
+                    header_total_label="doelcellen", header_pending_label="te reviewen",
+                    header_accepted_label="direct gevonden",
+                )
+            roles = table_studio_roles(workspace_root())
+            configured_rows = table_studio_rows(workspace_root())
+            studio_tables = [
+                {
+                    **table,
+                    "rows": [
+                        {
+                            **row,
+                            "active": (
+                                table["table_id"] not in configured_rows
+                                or int(row["index"]) in configured_rows.get(table["table_id"], [])
+                            ),
+                        }
+                        for row in table["rows"]
+                    ],
+                    "columns": [
+                        {
+                            **column,
+                            "role": roles.get(table["table_id"], {}).get(str(column["index"]), ""),
+                        }
+                        for column in table["columns"]
+                    ],
+                }
+                for table in studio["tables"]
+                if table["table_id"] != "__default__"
+            ]
             return render_template(
-                "table_structure.html",
+                "table_studio.html",
                 step=step, table_quality=quality, studio=studio,
+                studio_tables=studio_tables,
+                table_roles=roles,
+                table_rows=configured_rows,
+                role_options=[
+                    ("", "Niet ingesteld"),
+                    ("label", "Label"), ("value", "Waarde"),
+                    ("unit", "Eenheid"), ("header", "Koptekst"), ("skip", "Overslaan"),
+                ],
                 header_counts={
-                    "total": int((quality.get("totals") or {}).get("desired_total", 0)),
-                    "pending": int((quality.get("totals") or {}).get("pending", 0)),
-                    "accepted": int((quality.get("totals") or {}).get("detected_desired", 0)),
+                    "total": len(studio_tables),
+                    "pending": sum(1 for table in studio_tables for column in table["columns"] if not column["role"]),
+                    "accepted": sum(1 for table in studio_tables for column in table["columns"] if column["role"]),
                 },
-                header_total_label="doelcellen", header_pending_label="te reviewen",
-                header_accepted_label="direct gevonden",
+                header_total_label="tabellen", header_pending_label="kolommen open",
+                header_accepted_label="rollen gekozen",
             )
 
         if step_key == "table-model":
@@ -3047,12 +3356,15 @@ def create_web_app(
         if step_key == "detection-models":
             state["preparation"] = preparation_for_current_strategy()
             state["panel_state"] = table_panel_state()
+            state["input_file_count"] = input_source_count()
+            state["registered_source_count"] = len(database.list_detection_sources())
         elif step_key in {"detect-candidates", "detection-review"}:
             detection_sources = database.list_detection_sources()
             detection_reviews = step4_review_counts()
             state.update(
                 detection_sources=detection_sources,
                 detection_reviews=detection_reviews,
+                input_selection=input_selection_state(),
                 panel_state=(table_panel_state() if localization_strategy() == "table_first" else {"configured": True, "detection_current": True}),
             )
             if step_key == "detect-candidates" and localization_strategy() == "table_first":
@@ -3080,12 +3392,11 @@ def create_web_app(
             }
         elif step_key in {"apply-mapping", "value-extract"}:
             mapped = mapped_sample_state()
-            roi = roi_review_counts()
             state.update(detection_gate=current_pipeline_gate(), mapped=mapped)
             header_counts = {
-                "total": roi.get("total", 0),
-                "pending": roi.get("pending", 0),
-                "accepted": roi.get("correct", 0),
+                "total": mapped.get("total", 0),
+                "pending": max(0, mapped.get("total", 0) - mapped.get("roi_correct", 0)),
+                "accepted": mapped.get("roi_correct", 0),
             }
         elif step_key == "value-review":
             value = value_review_counts()
@@ -3775,14 +4086,52 @@ def create_web_app(
             abort(404)
         return send_file(path, mimetype="image/png", max_age=0)
 
+    def _first_open_mapping_source(sources: list[dict[str, Any]]) -> str | None:
+        """Return the first source that still needs Mapping Studio review."""
+        for item in sources:
+            source_id = str(item.get("source_id") or "")
+            if not source_id:
+                continue
+            relations = [
+                relation for relation in database.list_detected_relations(source_id)
+                if str(relation.get("relation_type") or "") == "table_cell"
+                and str(relation.get("label_text") or "").strip()
+            ]
+            if not relations:
+                continue
+            mappings = {
+                str(mapping.get("relation_id") or ""): mapping
+                for mapping in database.list_mappings(source_id)
+            }
+            if any(str(mappings.get(str(relation.get("relation_id")), {}).get("status") or "") != "confirmed" for relation in relations):
+                return source_id
+        return None
+
     @app.get("/mapping")
     def mapping_index():
         sources = database.list_detection_sources()
         if not sources:
             return render_template("mapping_empty.html")
         requested = str(request.args.get("source_id") or "").strip()
-        source_id = requested if any(item["source_id"] == requested for item in sources) else str(sources[0]["source_id"])
-        return redirect(url_for("mapping_studio", source_id=source_id))
+        valid_source_ids = {str(item["source_id"]) for item in sources}
+        if requested in valid_source_ids:
+            source_id = requested
+        else:
+            source_id = _first_open_mapping_source(sources) or str(sources[0]["source_id"])
+        return redirect(url_for("label_mapping_studio", source_id=source_id))
+
+    @app.get("/mapping-labels")
+    def label_mapping_index():
+        sources = database.list_detection_sources()
+        if not sources:
+            return render_template("mapping_empty.html")
+        requested = str(request.args.get("source_id") or "").strip()
+        valid_source_ids = {str(item["source_id"]) for item in sources}
+        if requested in valid_source_ids:
+            source_id = requested
+        else:
+            source_id = _first_open_mapping_source(sources) or str(sources[0]["source_id"])
+        return redirect(url_for("label_mapping_studio", source_id=source_id))
 
     @app.post("/mapping/<source_id>/relation-feedback")
     def mapping_relation_feedback(source_id: str):
@@ -3826,6 +4175,209 @@ def create_web_app(
             return jsonify({"ok": False, "error": str(exc)}), 400
         result["stats"] = database.relation_feedback_stats()
         return jsonify(result)
+
+    @app.route("/mapping-labels/<source_id>", methods=["GET", "POST"])
+    def label_mapping_studio(source_id: str):
+        """Label-first Mapping Studio, independent of ROI review."""
+        source = database.get_detection_source(source_id)
+        if source is None:
+            abort(404)
+        fields = database.list_field_definitions(active_only=True)
+        all_relations = [
+            item for item in database.list_detected_relations(source_id)
+            if str(item.get("relation_type") or "") == "table_cell"
+            and str(item.get("label_text") or "").strip()
+        ]
+        column_roles = table_studio_roles(workspace_root())
+        active_rows = table_studio_rows(workspace_root())
+        panel_profile = load_panel_profile(workspace_root())
+        panel_by_id = {
+            str(panel.get("panel_id") or ""): panel
+            for panel in panel_profile.get("panels") or []
+            if str(panel.get("panel_id") or "")
+        }
+        geometry = database.list_detection_table_geometry(source_id)
+        image_width = float(source.get("image_width") or panel_profile.get("reference_width") or 0)
+        image_height = float(source.get("image_height") or panel_profile.get("reference_height") or 0)
+        raw_table_panels: dict[str, str] = {}
+        for region in geometry.get("regions", []):
+            center_x = (float(region.get("x1") or 0) + float(region.get("x2") or 0)) / 2
+            center_y = (float(region.get("y1") or 0) + float(region.get("y2") or 0)) / 2
+            for panel_id, panel in panel_by_id.items():
+                if (
+                    float(panel.get("x1") or 0) * image_width <= center_x <= float(panel.get("x2") or 0) * image_width
+                    and float(panel.get("y1") or 0) * image_height <= center_y <= float(panel.get("y2") or 0) * image_height
+                ):
+                    raw_table_panels[str(region.get("table_id") or "")] = panel_id
+                    break
+        raster_rows: dict[str, dict[int, tuple[int, int]]] = {}
+        for cell in geometry.get("cells", []):
+            panel_id = raw_table_panels.get(str(cell.get("table_id") or ""), "")
+            if not panel_id:
+                continue
+            row_index = int(cell.get("row_index") or 0)
+            y1, y2 = int(cell.get("y1") or 0), int(cell.get("y2") or 0)
+            previous = raster_rows.setdefault(panel_id, {}).get(row_index)
+            raster_rows[panel_id][row_index] = (
+                min(y1, previous[0]) if previous else y1,
+                max(y2, previous[1]) if previous else y2,
+            )
+
+        def relation_panel_id(relation: dict[str, Any]) -> str:
+            parts = [part.strip() for part in str(relation.get("context_text") or "").split("|")]
+            return parts[1] if len(parts) > 1 and parts[1] in panel_by_id else ""
+
+        def relation_raster_row(relation: dict[str, Any], panel_id: str) -> int:
+            rows = raster_rows.get(panel_id) or {}
+            if not rows:
+                return int(relation.get("row_index") or -1)
+            center_y = (int(relation.get("label_y1") or 0) + int(relation.get("label_y2") or 0)) / 2
+            containing = [index for index, (y1, y2) in rows.items() if y1 <= center_y <= y2]
+            if containing:
+                return containing[0]
+            return min(rows, key=lambda index: abs(((rows[index][0] + rows[index][1]) / 2) - center_y))
+
+        relations = []
+        for relation in all_relations:
+            panel_id = relation_panel_id(relation)
+            value_column = str(int(relation.get("value_column_index") or 0))
+            raster_row = relation_raster_row(relation, panel_id)
+            configured = panel_id in column_roles
+            if configured and column_roles.get(panel_id, {}).get(value_column) != "value":
+                continue
+            if panel_id in active_rows and raster_row not in set(active_rows[panel_id]):
+                continue
+            panel = panel_by_id.get(panel_id) or {}
+            relations.append({
+                **relation,
+                "panel_id": panel_id,
+                "panel_name": str(panel.get("name") or panel_id or "Tabel"),
+                "raster_row_index": raster_row,
+                "table_configured": configured,
+            })
+        relations.sort(key=lambda item: (
+            str(item.get("panel_name") or ""),
+            int(item.get("raster_row_index") or -1),
+            int(item.get("value_column_index") or -1),
+            str(item.get("label_text") or "").casefold(),
+        ))
+        relations_by_id = {str(item["relation_id"]): item for item in relations}
+
+        if request.method == "POST":
+            action = str(request.form.get("label_mapping_action") or "save").strip().lower()
+            if action != "save":
+                abort(400)
+            assignments = [
+                {
+                    "relation_id": relation_id,
+                    "field_key": str(request.form.get(f"field_{relation_id}") or "").strip(),
+                    "notes": "label-first mapping",
+                }
+                for relation_id in request.form.getlist("relation_id")
+                if relation_id in relations_by_id
+            ]
+            try:
+                result = database.sync_relation_mappings(source_id, assignments)
+            except (KeyError, ValueError) as exc:
+                flash(f"Labelmappings niet opgeslagen: {exc}", "error")
+            else:
+                flash(
+                    f"{result['saved']} labelmapping(s) opgeslagen, {result['removed']} verwijderd.",
+                    "success",
+                )
+            return redirect(url_for("label_mapping_studio", source_id=source_id))
+
+        mappings = database.list_mappings(source_id)
+        mappings_by_relation = {
+            str(item["relation_id"]): item
+            for item in mappings
+            if str(item.get("relation_id") or "")
+        }
+        relation_groups: list[dict[str, Any]] = []
+        for relation in relations:
+            panel_id = str(relation.get("panel_id") or relation.get("table_id") or "")
+            if not relation_groups or relation_groups[-1]["panel_id"] != panel_id:
+                relation_groups.append({
+                    "panel_id": panel_id,
+                    "panel_name": str(relation.get("panel_name") or "Tabel"),
+                    "relations": [],
+                })
+            relation_groups[-1]["relations"].append(relation)
+        return render_template(
+            "mapping_labels_studio.html",
+            source=source,
+            source_id=source_id,
+            sources=database.list_detection_sources(),
+            relations=relations,
+            relation_groups=relation_groups,
+            mappings_by_relation=mappings_by_relation,
+            fields=fields,
+            table_roles_configured=bool(column_roles),
+            header_counts={
+                "total": len(relations),
+                "pending": sum(
+                    1 for relation in relations
+                    if str(mappings_by_relation.get(str(relation["relation_id"]), {}).get("status") or "") != "confirmed"
+                ),
+                "accepted": sum(
+                    1 for relation in relations
+                    if str(mappings_by_relation.get(str(relation["relation_id"]), {}).get("status") or "") == "confirmed"
+                ),
+            },
+            header_total_label="labels",
+            header_pending_label="te koppelen",
+            header_accepted_label="gekoppeld",
+        )
+
+    def input_selection_path() -> Path:
+        return workspace_root() / "input_selection.json"
+
+    def _input_file_key(path: Path, root: Path) -> str:
+        return path.relative_to(root).as_posix()
+
+    def _input_file_sha(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()[:24]
+
+    def input_selection_state() -> dict[str, Any]:
+        root = Path("/input")
+        ignored = {".ini", ".yaml", ".yml", ".json", ".txt", ".log", ".gitkeep"}
+        files = []
+        if root.is_dir():
+            for path in sorted(root.rglob("*")):
+                if not path.is_file() or path.suffix.lower() in ignored:
+                    continue
+                if any(part.startswith(".") for part in path.relative_to(root).parts):
+                    continue
+                try:
+                    relative = _input_file_key(path, root)
+                    source_id = _input_file_sha(path)
+                    files.append({
+                        "key": relative,
+                        "name": path.name,
+                        "directory": str(path.parent.relative_to(root)).replace(".", ""),
+                        "size": path.stat().st_size,
+                        "source_id": source_id,
+                    })
+                except (OSError, ValueError):
+                    continue
+        saved = _read_json(input_selection_path(), {}) or {}
+        selected = {str(item) for item in (saved.get("selected") or []) if str(item)}
+        has_manifest = input_selection_path().is_file()
+        for item in files:
+            item["selected"] = item["key"] in selected if has_manifest else True
+            item["is_new"] = item["key"] not in selected if has_manifest else False
+        return {
+            "files": files,
+            "selected": sum(1 for item in files if item["selected"]),
+            "total": len(files),
+            "new": sum(1 for item in files if item["is_new"]),
+            "has_manifest": has_manifest,
+            "updated_at": saved.get("updated_at", ""),
+        }
 
     @app.route("/mapping/<source_id>", methods=["GET", "POST"])
     def mapping_studio(source_id: str):
@@ -3938,6 +4490,10 @@ def create_web_app(
             elif action == "suggest":
                 suggestions = suggest_mappings(database, source_id)
                 flash(f"{len(suggestions)} nieuwe mappings voorgesteld op basis van aliassen en context.", "success")
+            elif action == "regenerate":
+                job = enqueue_job("20")
+                flash("De vorige Mapping-dataset wordt gewist en opnieuw opgebouwd met de actuele tabelstructuur en OCR.", "success")
+                return redirect(url_for("mapping_studio", source_id=source_id, job_id=job["job_id"]))
             elif action == "custom":
                 field_key = str(request.form.get("custom_field_key") or "").strip()
                 label_block_id = str(request.form.get("custom_label_block_id") or "").strip()
@@ -4214,6 +4770,15 @@ def create_web_app(
         if not path.is_file():
             abort(404)
         return send_file(path, mimetype="image/png", max_age=0)
+
+    @app.get("/input-preview/<path:relative_path>")
+    def input_preview(relative_path: str):
+        """Serve only raster input files for the pre-scan selection screen."""
+        root = Path("/input").resolve()
+        path = (root / relative_path).resolve()
+        if root not in path.parents or not path.is_file() or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
+            abort(404)
+        return send_file(path, max_age=0)
 
     @app.get("/dataset-image/<dataset_id>/<path:relative_path>")
     def dataset_image(dataset_id: str, relative_path: str):

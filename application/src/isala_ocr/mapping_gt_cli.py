@@ -81,8 +81,13 @@ def _collect_mapping(args: argparse.Namespace, original_argv: list[str]) -> int:
         return int(table_first_legacy_main(original_argv))
 
     state = _sync_canonical_gate(workspace)
-    if not bool(state.get("ready")):
+    if int(state.get("gt_cell_count") or 0) <= 0:
         raise RuntimeError(str(state.get("reason") or "Canonical table-cell Ground Truth is not ready"))
+    if int(state.get("open_source_count") or 0) > 0:
+        LOGGER.warning(
+            "Canonical table-cell Ground Truth has %d open source(s); Mapping Studio will process all sources with available table structure. Training remains gated until GT review is complete.",
+            int(state.get("open_source_count") or 0),
+        )
 
     locator_settings = dict(config.ocr)
     locator_settings.pop("active_recognition_model_dir", None)

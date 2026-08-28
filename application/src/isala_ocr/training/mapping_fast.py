@@ -4,9 +4,7 @@ from typing import Any
 
 from .db import TrainingDatabase
 from .mapping import (
-    _block_box,
     _context_score,
-    _pipeline_a_geometry_match,
     _similarity,
 )
 from .mapping_lateral import ambiguous_lateral_suffixes, lateral_candidate_allowed
@@ -23,11 +21,9 @@ def suggest_mappings_fast(
 ) -> list[dict[str, Any]]:
     """Suggest mappings without N+1 SQLite geometry lookups.
 
-    The original suggestion path resolved the same value block and Pipeline-A
-    geometry again for every field/relation pair. On a Windows/Docker bind mount
-    that means thousands of SQLite connections for one source. This version
-    loads the source graph once, resolves each unique value geometry once, and
-    writes the selected suggestions in one transaction.
+    Mapping is label/table driven: the relation already identifies the value
+    cell in the same table row and value column as the readable label. Pipeline-
+    A ROI validation is deliberately deferred to value materialization.
 
     Semantic matching is schema-driven: aliases, preferred unit, optional group
     context, relation type and OCR confidence are the only positive evidence.
@@ -37,8 +33,7 @@ def suggest_mappings_fast(
     for the same metric, a generic relation needs explicit left/right evidence
     before it may become an automatic suggestion.
     """
-    # Rebuilding Mapping Studio must also remove old automatic guesses that are
-    # no longer valid under the current scorer. Confirmed mappings are preserved.
+    # Suggestions are generated from the current label/table graph only.
     database.clear_suggested_mappings(source_id)
     relations = database.list_detected_relations(source_id)
     source = database.get_detection_source(source_id) or {"source_id": source_id}
@@ -74,10 +69,6 @@ def suggest_mappings_fast(
         str(item["block_id"]): item
         for item in database.list_detected_blocks(source_id, semantic_only=True)
     }
-    annotations = database.list_detection_annotations(source_id, active_only=True)
-    candidates = database.list_detection_candidates(source_id)
-
-    geometry_by_value: dict[str, object | None] = {}
     eligible_relations: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for relation in relations:
         relation_id = str(relation.get("relation_id") or "")
@@ -97,26 +88,69 @@ def suggest_mappings_fast(
         value_block = blocks_by_id.get(value_block_id)
         if value_block is None:
             continue
-        if value_block_id not in geometry_by_value:
-            geometry_by_value[value_block_id] = _pipeline_a_geometry_match(
-                database,
-                source_id,
-                _block_box(value_block).clamp(source_width, source_height),
-                source_width,
-                source_height,
-                annotations=annotations,
-                candidates=candidates,
-            )
-        if geometry_by_value[value_block_id] is None:
-            continue
+        # The value cell is selected by the table relation (same row and
+        # value column). Pipeline-A ROI validation belongs to materialization,
+        # not to deciding which field a readable label represents.
         eligible_relations.append((relation, feedback))
 
-    suggestions: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
+    # The global field profile is authoritative when a label is an exact alias
+    # in the correct table context. Without this pass, the later global score
+    # sort can assign a same-unit field to the wrong row (for example Stroke
+    # Volume -> ED Volume) simply because the labels are spatially duplicated.
+    exact_candidates: dict[str, list[tuple[float, dict[str, Any], dict[str, Any]]]] = {}
+    for relation, feedback in eligible_relations:
+        relation_id = str(relation.get("relation_id") or "")
+        for field in fields:
+            field_key = str(field.get("field_key") or "")
+            if field_key in confirmed_fields:
+                continue
+            if not lateral_candidate_allowed(field, relation, lateral_ambiguities):
+                continue
+            score, evidence = schema_candidate_score(
+                field,
+                relation,
+                similarity=_similarity,
+                context_score=_context_score,
+                feedback_multiplier=float(feedback["multiplier"]),
+            )
+            if not evidence.get("exact_alias"):
+                continue
+            group = str(field.get("group_name") or "")
+            context = str(relation.get("context_text") or "")
+            context_value = _context_score(group, context)
+            if group and context_value < 0:
+                continue
+            exact_candidates.setdefault(relation_id, []).append((score, field, {
+                **dict(relation),
+                "feedback_quality": float(feedback["quality"]),
+                "feedback_matched_examples": int(feedback["matched_examples"]),
+                "mapping_evidence": evidence,
+            }))
+
+    exact_assignments: dict[str, tuple[float, dict[str, Any], dict[str, Any]]] = {}
+    exact_field_use: dict[str, int] = {}
+    for relation_id, candidates in exact_candidates.items():
+        # An exact alias is safe only when the table context leaves one field
+        # and that field is not claimed by another exact relation.
+        field_keys = {str(item[1].get("field_key") or "") for item in candidates}
+        if len(field_keys) == 1 and len(candidates) == 1:
+            exact_assignments[relation_id] = candidates[0]
+            field_key = next(iter(field_keys))
+            exact_field_use[field_key] = exact_field_use.get(field_key, 0) + 1
+    exact_assignments = {
+        relation_id: item
+        for relation_id, item in exact_assignments.items()
+        if exact_field_use.get(str(item[1].get("field_key") or ""), 0) == 1
+    }
+
+    suggestions: list[tuple[float, dict[str, Any], dict[str, Any]]] = list(exact_assignments.values())
     for field in fields:
         field_key = str(field.get("field_key") or "")
         if field_key in confirmed_fields:
             continue
         for relation, feedback in eligible_relations:
+            if str(relation.get("relation_id") or "") in exact_assignments:
+                continue
             if not lateral_candidate_allowed(field, relation, lateral_ambiguities):
                 continue
             score, evidence = schema_candidate_score(

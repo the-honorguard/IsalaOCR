@@ -142,7 +142,9 @@ services:
     environment:
       HOME: /tmp
     volumes:
-      - ../../input:/input:ro
+      # The integrated test page accepts DICOM uploads and stores them in the
+      # active project's input namespace before the worker processes them.
+      - ../../input:/input
       - ../../output:/output:ro
       - ../../models:/models:ro
       - ../../training:/training

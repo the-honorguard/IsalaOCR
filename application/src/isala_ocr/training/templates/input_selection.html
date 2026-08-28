@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Stap 1A · Inputselectie · IsalaOCR{% endblock %}
+{% block heading %}Stap 1A · Inputselectie{% endblock %}
+{% block subtitle %}Controleer welke bronafbeeldingen werkelijk onderdeel worden van deze verwerkingsronde{% endblock %}
+{% block content %}
+<section class="card input-selection-hero">
+  <div class="toolbar"><div><span class="eyebrow">DATASET-INGANG</span><h2>Eerst controleren, daarna verwerken</h2><p class="muted">Vink alleen afbeeldingen aan die je in deze ronde wilt meenemen. Nieuwe bestanden staan automatisch open. De keuze wordt opgeslagen per project en bepaalt welke bestanden de tabel/celcollector verwerkt.</p></div><div class="input-selection-metrics"><span><strong>{{ selection.total }}</strong> totaal</span><span class="warn"><strong>{{ selection.new }}</strong> nieuw/open</span><span class="ok"><strong>{{ selection.selected }}</strong> geselecteerd</span></div></div>
+</section>
+
+<form method="post" class="input-selection-form">
+  <div class="input-selection-toolbar card"><div><strong>{{ selection.selected }} van {{ selection.total }} geselecteerd</strong><span class="muted">Niet aangevinkte afbeeldingen worden niet gedetecteerd.</span></div><div class="actions"><button type="button" class="button" data-select-all>Alles aan</button><button type="button" class="button" data-select-none>Alles uit</button><button type="submit" class="primary">Selectie opslaan</button></div></div>
+  {% if selection.files %}
+  <div class="input-selection-grid">
+    {% for item in selection.files %}
+    <label class="input-selection-item {% if item.selected %}is-selected{% endif %} {% if item.is_new %}is-new{% endif %}">
+      <input type="checkbox" name="selected_file" value="{{ item.key }}" {% if item.selected %}checked{% endif %}>
+      <div class="input-selection-preview">{% if item.preview_url %}<img src="{{ item.preview_url }}" alt="Voorbeeld {{ item.name }}">{% else %}<span>Voorbeeld<br>na eerste scan</span>{% endif %}</div>
+      <div class="input-selection-info"><strong title="{{ item.key }}">{{ item.name }}</strong><small>{{ item.directory or 'input' }} · {{ '%.1f'|format(item.size / 1048576) }} MB</small><span class="pill {% if item.processed %}ok{% elif item.is_new %}warn{% endif %}">{% if item.processed %}al verwerkt{% elif item.is_new %}nieuw{% else %}geselecteerd{% endif %}</span></div>
+    </label>
+    {% endfor %}
+  </div>
+  {% else %}<section class="card"><div class="notice">Geen verwerkbare bestanden gevonden in de projectmap <span class="mono">input</span>.</div></section>{% endif %}
+  <div class="input-selection-footer"><button type="submit" name="start_processing" value="1" class="primary" {% if not selection.selected %}disabled{% endif %}>Opslaan en tabel/celdetectie starten</button><a class="button" href="/process/detection-models">Terug naar voorbereiding</a></div>
+</form>
+<style>
+.input-selection-hero{max-width:1100px}.input-selection-hero h2{margin:3px 0}.input-selection-metrics{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.input-selection-metrics span{padding:7px 10px;border:1px solid var(--line);border-radius:8px;color:var(--muted);font-size:11px}.input-selection-metrics .warn{color:#fbbf24}.input-selection-metrics .ok{color:#6ee7b7}.input-selection-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:14px}.input-selection-toolbar strong,.input-selection-toolbar span{display:block}.input-selection-toolbar span{font-size:11px}.input-selection-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:14px}.input-selection-item{display:grid;grid-template-rows:150px auto;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:#0d151e;cursor:pointer}.input-selection-item.is-selected{border-color:var(--ok);background:rgba(78,193,138,.07)}.input-selection-item.is-new{box-shadow:inset 0 3px #f2b84b}.input-selection-item>input{position:absolute;opacity:0}.input-selection-preview{display:grid;place-items:center;overflow:hidden;background:#05080b;color:var(--muted);font-size:11px;text-align:center}.input-selection-preview img{display:block;width:100%;height:100%;object-fit:contain}.input-selection-info{display:grid;gap:4px;padding:10px}.input-selection-info strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.input-selection-info small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:10px}.input-selection-info .pill{width:max-content;font-size:10px}.input-selection-footer{display:flex;gap:8px;align-items:center;margin:16px 0 30px}.input-selection-footer button{min-height:44px}@media(max-width:700px){.input-selection-toolbar{align-items:flex-start;flex-direction:column}.input-selection-metrics{justify-content:flex-start}.input-selection-footer{align-items:stretch;flex-direction:column}.input-selection-footer>*{width:100%}}
+</style>
+<script>
+document.querySelectorAll('[data-select-all]').forEach(button=>button.addEventListener('click',()=>document.querySelectorAll('input[name="selected_file"]').forEach(input=>{input.checked=true;input.closest('.input-selection-item')?.classList.add('is-selected')})));
+document.querySelectorAll('[data-select-none]').forEach(button=>button.addEventListener('click',()=>document.querySelectorAll('input[name="selected_file"]').forEach(input=>{input.checked=false;input.closest('.input-selection-item')?.classList.remove('is-selected')})));
+document.querySelectorAll('input[name="selected_file"]').forEach(input=>input.addEventListener('change',()=>input.closest('.input-selection-item')?.classList.toggle('is-selected',input.checked)));
+</script>
+{% endblock %}

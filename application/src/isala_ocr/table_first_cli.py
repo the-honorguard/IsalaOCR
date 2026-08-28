@@ -21,6 +21,7 @@ VALUE_PIPELINE_COMMANDS = {
     "evaluate-recognition",
     "register-model",
     "activate-model",
+    "run-application-pipeline",
 }
 
 

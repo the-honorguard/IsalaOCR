@@ -15,6 +15,76 @@ EXTRACTION_METHOD = "canonical_gt_cell"
 STALE_EXTRACTION_METHOD = "canonical_gt_cell_stale"
 PROFILE = "recognition_ground_truth"
 SCOPE_FILENAME = "recognition_scope.json"
+TABLE_STUDIO_FILENAME = "table_studio_roles.json"
+
+
+def table_studio_roles(workspace: str | Path) -> dict[str, dict[str, str]]:
+    """Load semantic column roles without modifying canonical cell geometry."""
+    root = resolve_project_workspace(workspace)
+    path = root / TABLE_STUDIO_FILENAME
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    tables = payload.get("tables") if isinstance(payload, dict) else None
+    if not isinstance(tables, dict):
+        return {}
+    result: dict[str, dict[str, str]] = {}
+    for table_id, item in tables.items():
+        if not isinstance(item, dict):
+            continue
+        roles = item.get("columns") if isinstance(item.get("columns"), dict) else item
+        result[str(table_id)] = {
+            str(column): str(role)
+            for column, role in roles.items()
+            if str(column).lstrip("-").isdigit()
+            and str(role) in {"label", "value", "unit", "header", "skip"}
+        }
+    return result
+
+
+def table_studio_rows(workspace: str | Path) -> dict[str, list[int]]:
+    root = resolve_project_workspace(workspace)
+    path = root / TABLE_STUDIO_FILENAME
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    tables = payload.get("tables") if isinstance(payload, dict) else None
+    if not isinstance(tables, dict):
+        return {}
+    return {
+        str(table_id): sorted({int(row) for row in item.get("rows", []) if str(row).lstrip("-").isdigit()})
+        for table_id, item in tables.items()
+        if isinstance(item, dict) and isinstance(item.get("rows"), list)
+    }
+
+
+def save_table_studio_roles(
+    workspace: str | Path,
+    tables: dict[str, dict[str, str]],
+    *,
+    rows: dict[str, list[int]] | None = None,
+) -> dict[str, Any]:
+    root = resolve_project_workspace(workspace)
+    payload = {
+        "schema_version": 2,
+        "tables": {
+            str(table_id): {
+                "columns": {
+                    str(column): str(role)
+                    for column, role in roles.items()
+                    if str(column).lstrip("-").isdigit()
+                    and str(role) in {"label", "value", "unit", "header", "skip"}
+                },
+                "rows": sorted({int(row) for row in ((rows or {}).get(str(table_id)) or [])}),
+            }
+            for table_id, roles in tables.items()
+            if isinstance(roles, dict)
+        },
+    }
+    (root / TABLE_STUDIO_FILENAME).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return payload
 
 
 def recognition_scope(workspace: str | Path) -> dict[str, Any]:

@@ -27,9 +27,11 @@
   </section>
   <nav class="process-nav">
     <a href="/" class="{% if request.path=='/' %}active{% endif %}">Overzicht</a>
+    <a href="/test-pipeline" class="{% if request.path=='/test-pipeline' %}active{% endif %}">Proefpagina · DICOM → data</a>
     {% if localization_strategy == 'table_first' %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · GT WORKFLOW</div>
     <a href="/process/detection-models" class="process-tab {% if request.path == '/process/detection-models' %}active{% endif %}"><span class="process-tab-number">1</span><span>Voorbereiding</span></a>
+    <a href="/process/input-selection" class="process-tab {% if request.path == '/process/input-selection' %}active{% endif %}"><span class="process-tab-number">1A</span><span>Inputselectie</span></a>
     <a href="/process/panel-setup" class="process-tab {% if request.path == '/process/panel-setup' %}active{% endif %}"><span class="process-tab-number">2</span><span>Tabelregio’s selecteren</span></a>
     <a href="/process/detect-candidates" class="process-tab {% if request.path == '/process/detect-candidates' %}active{% endif %}"><span class="process-tab-number">3</span><span>Eerste celdetectie</span></a>
     <a href="/process/detection-review" class="process-tab {% if request.path == '/process/detection-review' or request.path.startswith('/detection-review') %}active{% endif %}"><span class="process-tab-number">4</span><span>GT Studio</span></a>
@@ -49,7 +51,7 @@
     {% endif %}
 
     <div class="nav-section nav-pipeline-a">RECOGNITION PREPARATION</div>
-    {% set recognition_preparation_keys = ['recognition-scope','recognition-gt-studio'] %}
+      {% set recognition_preparation_keys = ['recognition-gt-studio'] %}
     {% for step in process_steps if step.key in recognition_preparation_keys %}
       {% set recognition_href = '/recognition-scope' if step.key == 'recognition-scope' else ('/recognition-gt-review' if step.key == 'recognition-gt-studio' else '/process/' ~ step.key) %}
       <a href="{{ recognition_href }}" class="process-tab {% if request.path == recognition_href or (step.key == 'recognition-gt-studio' and request.path.startswith('/recognition-gt-review')) %}active{% endif %}">
@@ -73,7 +75,7 @@
     <div class="nav-section nav-pipeline-b">FASE 2 · APPLICATION PROCESSING · OPTIONEEL</div>
     {% for step in process_steps if step.key in application_keys %}
       {% set application_href = '/mapping' if step.key == 'mapping' else ('/review' if step.key == 'value-review' else '/process/' ~ step.key) %}
-      <a href="{{ application_href }}" class="process-tab {% if request.path == application_href or (step.key == 'mapping' and request.path.startswith('/mapping')) %}active{% endif %}">
+      <a href="{{ application_href }}" class="process-tab {% if request.path == application_href or (step.key == 'mapping' and (request.path.startswith('/mapping-labels') or request.path == '/mapping')) %}active{% endif %}">
         <span class="process-tab-number">{{ step.index }}</span><span>{{ step.title }}</span>
       </a>
     {% endfor %}
@@ -173,7 +175,7 @@
     setTopbar('Detectorafwijkingen review','Beoordeel optioneel verschillen tussen een nieuwe celdetectorrun en de canonieke cel-GT.');
   }
   if(path==='/process/mapping'||path.startsWith('/mapping')){
-    setTopbar('Fase 2 · Application Mapping Studio','Optionele postprocessing ná het Model Bundle: geef OCR/model-output functionele betekenis zonder die semantiek onderdeel van de modeltraining te maken.');
+    setTopbar('Mapping Studio','Koppel gelezen tabellabels aan applicatievelden. Tabelstructuur en waardekolommen komen uit Tabelstudio.');
   }
 })();
 </script>

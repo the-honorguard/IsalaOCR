@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import sys
@@ -16,10 +17,13 @@ from .ocr.tesseract import TesseractEngine
 from .pipeline import process_file
 from .training.collector import collect_mapping_detections, collect_samples
 from .training.dataset import build_dataset
-from .training.db import TrainingDatabase
+from .training.db import TrainingDatabase, utc_now
 from .training.evaluator import compare_evaluations, evaluate_model
 from .training.registry import activate_model, register_model
-from .training.mapping import materialize_confirmed_mappings, recognize_approved_mapped_samples
+from .training.mapping import (
+    auto_confirm_mapping_suggestions, materialize_confirmed_mappings,
+    recognize_approved_mapped_samples,
+)
 from .training.localization import passes_detection_gate
 from .training.projects import (
     project_active_recognition_dir, resolve_project_registry, resolve_project_workspace,
@@ -31,7 +35,7 @@ from .training.localization_dataset import (
     validate_localization_dataset,
 )
 from .training.table_cell_training import (
-    activate_table_cell_model, build_table_cell_dataset, evaluate_table_cell_predictions,
+    activate_table_cell_model, active_table_cell_model, build_table_cell_dataset, evaluate_table_cell_predictions,
     register_table_cell_model, validate_table_cell_dataset,
 )
 from .training.table_region_training import build_table_region_dataset
@@ -148,14 +152,15 @@ def _training_registry(config, override: str | None, workspace_override: str | N
     return resolve_project_registry(registry_base, workspace_base)
 
 
-def _require_detection_gate(config, workspace_override: str | None = None) -> Path:
-    workspace = _training_workspace(config, workspace_override)
-    gate = TrainingDatabase(workspace / "samples.sqlite3").detection_gate()
-    if not gate.get("ready"):
-        raise RuntimeError(
-            "Detection gate is closed: " + str(gate.get("reason") or "field localization is not approved")
-        )
-    return workspace
+def _mapping_workspace(config, workspace_override: str | None = None) -> Path:
+    """Resolve the Mapping workspace without applying the global detection gate.
+
+    Mapping is Pipeline B.  In table-first mode it can use already persisted
+    relations and their per-relation ROI diagnostics while other GT sources
+    are still open.  The materializer remains responsible for rejecting an
+    individual mapping whose value geometry is unavailable.
+    """
+    return _training_workspace(config, workspace_override)
 
 
 def _collect_training(args: argparse.Namespace) -> int:
@@ -214,7 +219,6 @@ def _collect_training(args: argparse.Namespace) -> int:
 
 def _collect_mapping(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    _require_detection_gate(config, args.workspace)
     if args.device:
         config.raw.setdefault("ocr", {})["device"] = args.device
     recognition_engine = PaddleRecognitionEngine(config.ocr)
@@ -233,6 +237,169 @@ def _collect_mapping(args: argparse.Namespace) -> int:
     )
     print(json.dumps(manifest, indent=2, ensure_ascii=False))
     return 1 if manifest.get("failed_items") else 0
+
+
+def _run_application_pipeline(args: argparse.Namespace) -> int:
+    """Run one DICOM through active detection, mapping and value output."""
+    config = load_config(args.config)
+    workspace = _mapping_workspace(config, args.workspace)
+    input_path = Path(args.input)
+    if not input_path.exists():
+        raise FileNotFoundError(input_path)
+    if input_path.is_file() and input_path.suffix.lower() != ".dcm":
+        raise ValueError("Application pipeline accepts DICOM files only (.dcm)")
+    input_files = [item for item in _files(input_path) if item.suffix.lower() == ".dcm"]
+    if input_path.is_dir():
+        selection_path = workspace / "input_selection.json"
+        selected = json.loads(selection_path.read_text(encoding="utf-8-sig")).get("selected", []) if selection_path.is_file() else []
+        selected_paths = {str(value).replace("\\", "/") for value in selected}
+        if selected_paths:
+            input_files = [
+                item for item in input_files
+                if item.resolve().as_posix().replace("/input/", "", 1) in selected_paths
+                or item.name in selected_paths
+            ]
+    if len(input_files) != 1:
+        raise ValueError("Application pipeline expects exactly one selected DICOM input")
+    source_id = hashlib.sha256(input_files[0].read_bytes()).hexdigest()[:24]
+    requested_source_id = str(args.source_id or "").strip()
+    if requested_source_id and requested_source_id != source_id:
+        raise ValueError("Aangeboden source-id hoort niet bij het geselecteerde DICOM-bestand")
+
+    engine = PaddleRecognitionEngine(config.ocr)
+    locator_settings = dict(config.ocr)
+    locator_settings.pop("active_recognition_model_dir", None)
+    locator_settings["recognition_model"] = str(
+        config.raw.get("training", {}).get("collection", {}).get(
+            "locator_recognition_model", "PP-OCRv6_small_rec"
+        )
+    )
+    # The generic_mapping dispatcher requires a locator engine even in
+    # table-first mode.  Table-first keeps it out of Pipeline-A geometry, but
+    # the same neutral OCR locator is still needed for the semantic mapping
+    # stage that follows.
+    locator_engine = PaddleEngine(locator_settings)
+    detection = collect_samples(
+        input_path, workspace, config, engine,
+        locator_engine=locator_engine, locator_mode="fixed",
+        table_model_id=(args.table_model_id or "active"),
+    )
+    if int(detection.get("failed_items") or 0) or int(detection.get("detected_sources") or 0) != 1:
+        raise RuntimeError(f"DICOM-detectie niet volledig geslaagd: {detection}")
+    active_table_model = active_table_cell_model(workspace) or {}
+
+    # The canonical-GT route remains the training/review path. For a new
+    # deployment DICOM, mapping consumes active inference geometry instead.
+    config.raw.setdefault("training", {}).setdefault("localization", {})["strategy"] = "fusion"
+    mapping = collect_mapping_detections(input_path, workspace, config, locator_engine, engine)
+    if int(mapping.get("failed_items") or 0):
+        raise RuntimeError(f"Mappingvoorbereiding niet volledig geslaagd: {mapping}")
+
+    database = TrainingDatabase(workspace / "samples.sqlite3")
+    if args.mapping_profile_id:
+        from .training.mapping import apply_mapping_profile
+        apply_mapping_profile(database, str(args.mapping_profile_id), source_id)
+    promoted = auto_confirm_mapping_suggestions(
+        database, source_id, minimum_score=float(args.minimum_mapping_confidence)
+    )
+    confirmed = database.list_mappings(source_id, status="confirmed")
+    if not promoted and not confirmed:
+        raise RuntimeError(
+            "Geen ondubbelzinnige mappings boven de automatische drempel; "
+            "output wordt niet aangemaakt. Open Mapping Studio voor review."
+        )
+    materialized = materialize_confirmed_mappings(
+        workspace, config, None, source_id=source_id, recognize=False
+    )
+    if int(materialized.get("failed_sources") or 0):
+        raise RuntimeError(f"Waarde-crops konden niet volledig worden gemaakt: {materialized}")
+    recognition = recognize_approved_mapped_samples(workspace, engine, source_id=source_id)
+    if int(recognition.get("recognized_samples") or 0) <= 0:
+        raise RuntimeError(f"Geen waarden herkend: {recognition}")
+
+    # Make the final data block self-describing.  The result must be traceable
+    # to the exact active model bundle, dataset and mapping decision that
+    # produced it, without storing the original DICOM filename or headers.
+    registry_active: dict[str, object] = {}
+    registry_root = _training_registry(config, None, args.workspace)
+    registry_file = registry_root / "active.json"
+    try:
+        payload = json.loads(registry_file.read_text(encoding="utf-8-sig"))
+        if isinstance(payload, dict):
+            registry_active = payload
+        registry_index = json.loads((registry_root / "registry.json").read_text(encoding="utf-8-sig"))
+        active_id = str(registry_active.get("model_id") or "")
+        if isinstance(registry_index, dict) and active_id:
+            registered = next(
+                (item for item in registry_index.get("models", [])
+                 if isinstance(item, dict) and str(item.get("model_id") or "") == active_id),
+                None,
+            )
+            if isinstance(registered, dict):
+                registry_active = {**registered, **registry_active}
+    except (OSError, TypeError, ValueError):
+        LOGGER.warning("Active Recognition registry could not be read: %s", registry_file)
+    output_path = workspace / "extracted_output" / f"{source_id}.json"
+    if output_path.is_file():
+        output_payload = json.loads(output_path.read_text(encoding="utf-8"))
+        if not isinstance(output_payload, dict):
+            raise RuntimeError("Generated output block is not a JSON object")
+        output_payload["provenance"] = {
+            "input_format": "DICOM",
+            "source_id": source_id,
+            "source_filename_stored": False,
+            "dicom_headers_stored": False,
+            "active_models": {
+                "table_cell": active_table_model or detection.get("active_table_cell_model") or {},
+                "recognition": registry_active or engine.info(),
+                "locator_ocr": mapping.get("locator_engine") or {},
+                "table_structure": mapping.get("table_structure_engine") or {},
+            },
+            "datasets": {
+                "table_cell": str(active_table_model.get("dataset_id") or ""),
+                "recognition": registry_active.get("dataset_id", ""),
+            },
+            "mapping": {
+                "profile_id": str(args.mapping_profile_id or ""),
+                "mode": "profile_plus_active_schema_matching" if args.mapping_profile_id else "active_schema_matching",
+                "auto_confirmed_count": len(promoted),
+                "confirmed_count": len(confirmed),
+                "minimum_confidence": float(args.minimum_mapping_confidence),
+            },
+            "pipeline": [
+                "DICOM intake",
+                "active table/cell geometry",
+                "semantic OCR and table relations",
+                "mapping profile and active schema matching",
+                "approved ROI materialization",
+                "active Recognition value extraction",
+            ],
+        }
+        output_path.write_text(json.dumps(output_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        (workspace / "application_pipeline_manifest.json").write_text(
+            json.dumps({
+                "created_at": utc_now(),
+                "source_id": source_id,
+                "input_format": "DICOM",
+                "output_path": f"extracted_output/{source_id}.json",
+                "provenance": output_payload["provenance"],
+                "stages": {"detection": detection, "mapping": mapping, "materialized": materialized, "recognition": recognition},
+            }, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+    print(json.dumps({
+        "source_id": source_id,
+        "active_table_model": active_table_model.get("model_id") or args.table_model_id or "active",
+        "mapping_profile_id": str(args.mapping_profile_id or ""),
+        "auto_confirmed_mappings": len(promoted),
+        "confirmed_mappings_used": len(confirmed),
+        "detection": detection,
+        "mapping": mapping,
+        "materialized": materialized,
+        "recognition": recognition,
+        "output_path": f"extracted_output/{source_id}.json",
+        "provenance_path": "application_pipeline_manifest.json",
+    }, indent=2, ensure_ascii=False))
+    return 0
 
 
 def _build_localization_dataset_cmd(args: argparse.Namespace) -> int:
@@ -461,7 +628,7 @@ def _detection_quality_report_cmd(args: argparse.Namespace) -> int:
 
 def _apply_mappings(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    workspace = _require_detection_gate(config, args.workspace)
+    workspace = _mapping_workspace(config, args.workspace)
     manifest = materialize_confirmed_mappings(
         workspace,
         config,
@@ -476,7 +643,7 @@ def _apply_mappings(args: argparse.Namespace) -> int:
 
 def _read_mapped_values(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    workspace = _require_detection_gate(config, args.workspace)
+    workspace = _mapping_workspace(config, args.workspace)
     if args.device:
         config.raw.setdefault("ocr", {})["device"] = args.device
     if args.model:
@@ -688,6 +855,19 @@ def build_parser() -> argparse.ArgumentParser:
     mapping_detect_parser.add_argument("--config", default="/app/config/app.yaml")
     mapping_detect_parser.add_argument("--device")
     mapping_detect_parser.set_defaults(func=_collect_mapping)
+
+    application_parser = subparsers.add_parser(
+        "run-application-pipeline",
+        help="Run one DICOM through active detection, mapping, crops, recognition and JSON output",
+    )
+    application_parser.add_argument("--input", required=True)
+    application_parser.add_argument("--workspace")
+    application_parser.add_argument("--config", default="/app/config/app.yaml")
+    application_parser.add_argument("--source-id")
+    application_parser.add_argument("--table-model-id", default="active")
+    application_parser.add_argument("--mapping-profile-id", default="")
+    application_parser.add_argument("--minimum-mapping-confidence", type=float, default=0.90)
+    application_parser.set_defaults(func=_run_application_pipeline)
 
     loc_build = subparsers.add_parser("build-localization-dataset", help="Build a COCO field-localization dataset from detection reviews")
     loc_build.add_argument("--workspace")

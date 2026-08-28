@@ -23,6 +23,7 @@ function Get-IsalaActionCatalog {
     return [ordered]@{
         "1"  = @{ Name = "Prepare ALL models and training images"; Script = "prepare-training.ps1"; Profile = "prepare" }
         "2"  = @{ Name = "Detect PP-Structure table regions/cells (table-first)"; Script = "collect-training-data.ps1"; Profile = "collect" }
+        "60" = @{ Name = "Run complete active DICOM application pipeline"; Script = "run-application-pipeline.ps1"; Profile = "application-pipeline" }
         # Action 3 is the host-side entry point used by START.cmd to start the
         # local web interface. It must live in the same catalog as executable
         # pipeline actions because label-training-data.ps1 protects itself with
@@ -318,7 +319,7 @@ function Add-IsalaCommonChecks {
     }
 
     $rootFiles = @(Get-ChildItem -LiteralPath $ProjectRoot -File -Force -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-    $allowedRootFiles = @("START.cmd", "run.cmd", "AGENTS.md", ".gitignore", ".gitattributes")
+    $allowedRootFiles = @("START.cmd", "run.cmd", "AGENTS.md", ".gitignore", ".gitattributes", "gitignore_generator.ps1")
     $unexpected = @($rootFiles | Where-Object { $allowedRootFiles -notcontains $_ })
     if ($unexpected.Count -eq 0) {
         [void]$Results.Add((New-IsalaCheckResult -Scope "Project" -Name "Clean project root" -Status "PASS" -Message "Only approved startup wrappers and standard Git metadata files are present in the project root."))
@@ -332,7 +333,7 @@ function Add-IsalaCommonChecks {
         [void]$Results.Add((New-IsalaCheckResult -Scope "Host" -Name "PowerShell" -Status "FAIL" -Message "PowerShell 5.1 or newer is required."))
     }
 
-    foreach ($relative in @("output","models","models\training","training","training\workspace","training\workspace\webui\jobs","training\registry")) {
+    foreach ($relative in @("input","output","models","models\training","training","training\workspace","training\workspace\webui\jobs","training\registry")) {
         $path = Join-Path $ProjectRoot $relative
         if (Test-IsalaHostDirectoryWritable -Path $path) {
             [void]$Results.Add((New-IsalaCheckResult -Scope "Permissions" -Name $relative -Status "PASS" -Message "Writable from Windows."))
@@ -619,6 +620,12 @@ function Add-IsalaActionChecks {
             $database = Join-Path $ProjectWorkspace "samples.sqlite3"
             [void]$Results.Add((New-IsalaCheckResult -Scope $scope -Name "Detection-gate database" -Status $(if (Test-Path $database) {"PASS"} else {"FAIL"}) -Message $database -Remediation "Finish Pipeline A first. The CLI performs the authoritative gate check."))
         }
+        "application-pipeline" {
+            $database = Join-Path $ProjectWorkspace "samples.sqlite3"
+            [void]$Results.Add((New-IsalaCheckResult -Scope $scope -Name "Application workspace" -Status $(if (Test-Path -LiteralPath $database -PathType Leaf) { "PASS" } else { "FAIL" }) -Message $database -Remediation "Initialiseer eerst het actieve project en train/activeer de benodigde modellen."))
+            $registry = Join-Path $ProjectRegistry "active.json"
+            [void]$Results.Add((New-IsalaCheckResult -Scope $scope -Name "Active Recognition model" -Status $(if (Test-Path -LiteralPath $registry -PathType Leaf) { "PASS" } else { "FAIL" }) -Message $registry -Remediation "Activeer eerst een Recognition-model."))
+        }
         "mapping-apply" {
             $database = Join-Path $ProjectWorkspace "samples.sqlite3"
             $status = if (Test-Path -LiteralPath $database -PathType Leaf) { "PASS" } else { "FAIL" }
@@ -822,7 +829,7 @@ function Invoke-IsalaPreflight {
                 [void]$results.Add((New-IsalaCheckResult -Scope "Taakcontrole" -Name "Preflight implementation" -Status "FAIL" `
                     -Message $_.Exception.Message -Remediation "Install the latest complete release; the checker itself failed before the task was executed."))
             }
-            if ($ActionId -in @("1","2","3","5","6","7","8","11","12","14","15","16","17","18","20","21","22","24","25","26","27","28","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","54","55","56","57")) {
+            if ($ActionId -in @("1","2","3","5","6","7","8","11","12","14","15","16","17","18","20","21","22","24","25","26","27","28","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","54","55","56","57","60")) {
                 try {
                     [void]$results.Add((Invoke-IsalaContainerPermissionCheck))
                 }

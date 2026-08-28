@@ -186,7 +186,11 @@ try{
                 $safeLauncher=$launcherPath.Replace('"','""')
                 $safeAction=([string]$data.action_id).Replace('"','""')
                 $powerShellCommand='powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" action "{1}"' -f $safeLauncher,$safeAction
-                if([string]$data.action_id -in @("20","21","22")){$safeSource=([string]$data.options.source_id).Replace('"','""');if(-not [string]::IsNullOrWhiteSpace($safeSource)){$powerShellCommand += ' "{0}"' -f $safeSource}}
+                if([string]$data.action_id -eq "60"){
+                    $safeProfile=([string]$data.options.mapping_profile_id).Replace('"','""')
+                    if(-not [string]::IsNullOrWhiteSpace($safeProfile)){$powerShellCommand += ' "{0}"' -f $safeProfile}
+                }
+                elseif([string]$data.action_id -in @("20","21","22")){$safeSource=([string]$data.options.source_id).Replace('"','""');if(-not [string]::IsNullOrWhiteSpace($safeSource)){$powerShellCommand += ' "{0}"' -f $safeSource}}
                 elseif([string]$data.action_id -eq "2"){$safeTableModel=([string]$data.options.table_model_id).Replace('"','""');if(-not [string]::IsNullOrWhiteSpace($safeTableModel)){$powerShellCommand += ' "{0}"' -f $safeTableModel}}
                 elseif([string]$data.action_id -eq "26"){$safeDevice=([string]$data.options.device).Replace('"','""');if(-not [string]::IsNullOrWhiteSpace($safeDevice)){$powerShellCommand += ' "{0}"' -f $safeDevice}}
             }

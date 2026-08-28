@@ -376,6 +376,55 @@ def apply_mapping_profile(
     return stored
 
 
+def auto_confirm_mapping_suggestions(
+    database: TrainingDatabase,
+    source_id: str,
+    *,
+    minimum_score: float = 0.90,
+) -> list[dict[str, Any]]:
+    """Promote only high-confidence, one-to-one suggestions for deployment runs."""
+    suggestions = database.list_mappings(source_id, status="suggested")
+    existing = database.list_mappings(source_id, status="confirmed")
+    confirmed_fields = {str(item.get("field_key") or "") for item in existing}
+    confirmed_relations = {
+        str(item.get("relation_id") or "") for item in existing
+        if str(item.get("relation_id") or "")
+    }
+    eligible = [
+        item for item in suggestions
+        if float(item.get("mapping_confidence") or 0) >= float(minimum_score)
+        and str(item.get("field_key") or "") not in confirmed_fields
+        and str(item.get("relation_id") or "") not in confirmed_relations
+    ]
+    by_field: dict[str, list[dict[str, Any]]] = {}
+    by_relation: dict[str, list[dict[str, Any]]] = {}
+    for item in eligible:
+        by_field.setdefault(str(item.get("field_key") or ""), []).append(item)
+        by_relation.setdefault(str(item.get("relation_id") or ""), []).append(item)
+    promoted: list[dict[str, Any]] = []
+    for item in eligible:
+        field_key = str(item.get("field_key") or "")
+        relation_id = str(item.get("relation_id") or "")
+        if len(by_field.get(field_key, [])) != 1 or (relation_id and len(by_relation.get(relation_id, [])) != 1):
+            continue
+        promoted.append(database.upsert_mapping(
+            source_id=source_id,
+            field_key=field_key,
+            relation_id=relation_id,
+            label_block_id=str(item.get("label_block_id") or ""),
+            value_block_id=str(item.get("value_block_id") or ""),
+            unit_block_id=str(item.get("unit_block_id") or ""),
+            status="confirmed",
+            mapping_confidence=float(item.get("mapping_confidence") or 0),
+            notes=(str(item.get("notes") or "") + " auto_confirmed_deployment").strip(),
+            profile_id=str(item.get("profile_id") or ""),
+        ))
+        confirmed_fields.add(field_key)
+        if relation_id:
+            confirmed_relations.add(relation_id)
+    return promoted
+
+
 def _block_box(block: dict[str, Any]) -> Box:
     return Box(int(block["x1"]), int(block["y1"]), int(block["x2"]), int(block["y2"]))
 
@@ -755,6 +804,14 @@ def materialize_confirmed_mappings(
                         "header_crop_sha256": header_hash,
                         "crop_sha256": _crop_hash(crop),
                     }
+                )
+                # Mapping reuses the already reviewed Pipeline-A/canonical
+                # cell geometry.  This is application-semantic materialization,
+                # not a second geometry-review stage.
+                database.review_roi(
+                    sample_id,
+                    "correct",
+                    "Bestaande Pipeline-A/canonieke celgeometrie hergebruikt.",
                 )
                 created += int(inserted)
                 refreshed += int(not inserted)

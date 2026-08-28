@@ -28,6 +28,30 @@ function Get-LabelerContainerInfo {
     }
 }
 
+function Get-LabelerImageBuildInfo {
+    param($ContainerInfo)
+
+    $imageName = [string]($ContainerInfo.Config.Image)
+    if ([string]::IsNullOrWhiteSpace($imageName)) { return $null }
+    $result = Invoke-DockerWithTimeout -Arguments @('image', 'inspect', $imageName) -TimeoutSeconds 15
+    if ($result.TimedOut -or $result.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($result.StdOut)) {
+        return $null
+    }
+    try {
+        $items = @($result.StdOut | ConvertFrom-Json)
+        if ($items.Count -eq 0 -or [string]::IsNullOrWhiteSpace([string]$items[0].Created)) { return $null }
+        $created = [DateTimeOffset]::Parse([string]$items[0].Created).ToLocalTime()
+        return [pscustomobject]@{
+            Image = $imageName
+            Created = $created
+            Display = $created.ToString('yyyy-MM-dd HH:mm:ss')
+        }
+    }
+    catch {
+        return $null
+    }
+}
+
 function Remove-LabelerContainer {
     param([string]$ContainerId)
     if ([string]::IsNullOrWhiteSpace($ContainerId)) { return $false }

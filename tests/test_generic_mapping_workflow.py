@@ -131,9 +131,7 @@ def test_confirmed_mapping_becomes_roi_then_value_output(tmp_path: Path) -> None
     assert sample is not None
     assert sample["extraction_method"] == "mapped_generic"
     assert sample["raw_variant"] == "awaiting_value_recognition"
-    assert sample["roi_review_status"] == "pending"
-
-    database.review_roi(sample_id, "correct", "geometry checked")
+    assert sample["roi_review_status"] == "correct"
 
     class FakeEngine:
         def warmup(self) -> None:

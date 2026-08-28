@@ -5,6 +5,7 @@
 {% block content %}
 <div class="toolbar mapping-toolbar">
   <div class="actions">
+    <a class="button primary" href="/mapping-labels/{{ source_id }}">Nieuwe Label Mapping Studio</a>
     <a class="button" href="/detections/{{ source_id }}">← Detectieweergave</a>
     <a class="button" href="/field-schema">Veldschema</a>
     <a class="button" href="/mapping-profiles">Profielen</a>
@@ -57,7 +58,7 @@
       <div class="toolbar mapping-action-toolbar">
         <div><h3>Relaties mappen</h3><p class="muted">Paddle-tabelcellen krijgen voorrang. Secundaire waarden zijn meestal referentiegrenzen en staan standaard verborgen.</p></div>
         <div class="actions">
-          <button name="mapping_action" value="suggest">Voorstellen herberekenen</button>
+          <button name="mapping_action" value="regenerate">Voorstellen herberekenen</button>
           <button class="primary mapping-save-button" name="mapping_action" value="save">Mappings opslaan</button>
           <button class="primary mapping-save-button" name="mapping_action" value="save_apply">Opslaan + ROI's maken</button>
         </div>
@@ -92,7 +93,7 @@
             <div class="mapping-crop-pair">
               <div><span>Label</span>{% if relation.label_block_id %}<img src="/detected-block/{{ relation.label_block_id }}" alt="{{ relation.label_text }}" loading="lazy" decoding="async"><strong>{{ relation.label_text }}</strong>{% else %}<em>Geen label</em>{% endif %}</div>
               <b>→</b>
-              <div><span>Waarde · finale cropgeometrie</span>{% if relation.pipeline_a_roi_ready %}<img src="/detected-block/{{ relation.value_block_id }}?mode=roi" alt="{{ relation.value_text }}" loading="lazy" decoding="async"><strong>{{ relation.value_text }}</strong><small class="muted">{{ relation.pipeline_a_geometry_source }}</small>{% else %}<div class="mapping-missing-roi">Geen betrouwbare crop uit Pipeline A. Corrigeer eerst Detection Review.</div><strong>{{ relation.value_text }}</strong>{% endif %}</div>
+              <div><span>Waarde · finale cropgeometrie</span>{% if relation.pipeline_a_roi_ready %}<img src="/detected-block/{{ relation.value_block_id }}?mode=roi" alt="{{ relation.value_text }}" loading="lazy" decoding="async"><strong>{{ relation.value_text }}</strong>{% if relation.value_locator_text %}<small class="muted">Locator-OCR: {{ relation.value_locator_text }}</small>{% endif %}{% if relation.value_recognition_text %}<small class="muted">Recognition-model: {{ relation.value_recognition_text }}{% if relation.value_recognition_confidence %} · {{ '%.0f%%'|format(relation.value_recognition_confidence*100) }}{% endif %}</small>{% endif %}<small class="muted">{{ relation.pipeline_a_geometry_source }}</small>{% else %}<div class="mapping-missing-roi">Geen betrouwbare crop uit Pipeline A. Corrigeer eerst Detection Review.</div><strong>{{ relation.value_text }}</strong>{% endif %}</div>
             </div>
             {% if relation.context_text %}<small class="muted">Context: {{ relation.context_text }}</small>{% endif %}
           </div>

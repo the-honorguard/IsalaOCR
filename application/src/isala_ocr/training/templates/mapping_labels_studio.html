@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Mapping Studio · IsalaOCR{% endblock %}
+{% block heading %}Mapping Studio{% endblock %}
+{% block subtitle %}Koppel gelezen tabellabels aan applicatievelden{% endblock %}
+{% block content %}
+<section class="card mapping-hero">
+  <div class="toolbar">
+    <div><div class="eyebrow">APPLICATION PROCESSING · MAPPING</div><h2>Label → applicatieveld</h2><p class="muted">De rij en waardekolom komen uit Tabelstudio. Hier bepaal je alleen de functionele betekenis van ieder gelezen label.</p></div>
+    <form method="get" action="/mapping-labels" class="mapping-source"><label>Bron<select name="source_id" onchange="this.form.submit()">{% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id == source_id %}selected{% endif %}>Bron {{ loop.index }}</option>{% endfor %}</select></label></form>
+  </div>
+</section>
+
+<form method="post" class="mapping-form">
+  <input type="hidden" name="label_mapping_action" value="save">
+  <div class="mapping-savebar"><div><strong>{{ relations|length }} labels uit {{ relation_groups|length }} tabellen</strong><span class="muted">{{ header_counts.accepted }} gekoppeld · {{ header_counts.pending }} open</span></div><div class="actions"><a class="button" href="/field-schema">Veldschema</a><button class="primary" type="submit">Mappings opslaan</button></div></div>
+
+  {% if not table_roles_configured %}<div class="notice">Kies eerst in Tabelstudio welke kolom Label, Waarde of Overslaan is. Zonder die definitie kan Mapping Studio waardekolommen niet betrouwbaar filteren.</div>{% endif %}
+
+  {% if relation_groups %}
+    {% for group in relation_groups %}
+    <section class="card mapping-group">
+      <div class="mapping-group-head"><div><div class="eyebrow">TABEL {{ loop.index }}</div><h3>{{ group.panel_name }}</h3></div><span class="pill">{{ group.relations|length }} labels</span></div>
+      <div class="mapping-list">
+      {% for relation in group.relations %}
+        {% set current = mappings_by_relation.get(relation.relation_id) %}
+        <article class="mapping-item {% if current and current.status == 'confirmed' %}is-mapped{% endif %}">
+          <input type="hidden" name="relation_id" value="{{ relation.relation_id }}">
+          <div class="mapping-label"><strong>{{ relation.label_text }}</strong><small>Rij {{ relation.raster_row_index + 1 }} · voorbeeldwaarde <b>{{ relation.value_text or '—' }}</b></small></div>
+          <span class="mapping-arrow">→</span>
+          <label class="mapping-field"><span>Applicatieveld</span><select name="field_{{ relation.relation_id }}" aria-label="Applicatieveld voor {{ relation.label_text }}"><option value="">Niet koppelen</option>{% for field in fields %}<option value="{{ field.field_key }}" {% if current and current.field_key == field.field_key %}selected{% endif %}>{{ field.display_name }}{% if field.group_name %} · {{ field.group_name }}{% endif %}</option>{% endfor %}</select></label>
+          <span class="mapping-status {% if current and current.status == 'confirmed' %}ok{% endif %}">{% if current and current.status == 'confirmed' %}Gekoppeld{% else %}Open{% endif %}</span>
+          <details><summary>Details</summary><div class="mapping-details"><span>Genormaliseerd: <b>{{ relation.label_normalized }}</b></span><span>Waardekolom: <b>K{{ relation.value_column_index + 1 }}</b></span><span class="mono">{{ relation.relation_id }}</span></div></details>
+        </article>
+      {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+  {% else %}
+    <section class="card"><div class="notice">Geen bruikbare label→waarde-relaties voor deze bron. Controleer de actieve rijen en de kolomrol <strong>Waarde</strong> in Tabelstudio en genereer daarna de Mappinggegevens opnieuw.</div></section>
+  {% endif %}
+</form>
+<style>
+.mapping-hero{max-width:1100px}.mapping-hero h2{margin:3px 0}.mapping-source label{display:grid;gap:5px;color:var(--muted);font-size:11px}.mapping-source select{min-width:170px}.mapping-form{display:grid;gap:14px;margin-top:14px}.mapping-savebar{position:sticky;top:0;z-index:8;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:rgba(11,17,24,.96);backdrop-filter:blur(8px)}.mapping-savebar strong,.mapping-savebar span{display:block}.mapping-savebar span{font-size:11px}.mapping-group{padding:0;overflow:hidden}.mapping-group-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)}.mapping-group-head h3{margin:2px 0}.mapping-list{display:grid}.mapping-item{display:grid;grid-template-columns:minmax(220px,1fr) 26px minmax(280px,1.2fr) 82px;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}.mapping-item:last-child{border-bottom:0}.mapping-item.is-mapped{background:rgba(78,193,138,.035)}.mapping-label strong,.mapping-label small{display:block}.mapping-label small{margin-top:3px;color:var(--muted);font-size:11px}.mapping-label small b{color:var(--text)}.mapping-arrow{color:var(--muted);font-size:18px;text-align:center}.mapping-field{display:grid;gap:4px}.mapping-field span{color:var(--muted);font-size:10px;text-transform:uppercase}.mapping-field select{width:100%}.mapping-status{padding:5px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:10px;text-align:center}.mapping-status.ok{border-color:var(--ok);color:var(--ok)}.mapping-item details{grid-column:1/-1}.mapping-item summary{width:max-content;color:var(--muted);font-size:10px;cursor:pointer}.mapping-details{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;padding:8px;border-radius:6px;background:#0b1118;color:var(--muted);font-size:10px}@media(max-width:900px){.mapping-item{grid-template-columns:1fr}.mapping-arrow{display:none}.mapping-status{width:max-content}.mapping-savebar{position:static;align-items:flex-start;flex-direction:column}}
+</style>
+{% endblock %}
