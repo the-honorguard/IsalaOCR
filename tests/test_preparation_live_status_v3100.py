@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_prepare_all_check_continues_after_individual_failures_and_refreshes_snapshot() -> None:
-    script = (ROOT / "automation" / "powershell" / "prepare-training.ps1").read_text(encoding="utf-8")
+    script = (ROOT / "automation" / "powershell" / "prepare-training-core.ps1").read_text(encoding="utf-8")
     assert "function Invoke-AllChecks" in script
     assert 'Invoke-AllChecks' in script
     assert 'finally {' in script
@@ -23,5 +23,5 @@ def test_preparation_page_has_live_status_client_and_api_contract() -> None:
     assert "/api/v2/preparation" in client
     assert "action_id: '19'" in client
     assert '@app.get("/api/v2/preparation")' in webui
-    assert 'snapshot_age_seconds <= 180.0' in webui
+    assert 'snapshot_age_seconds <= 86400.0' in webui
     assert '"status_stale": not status_fresh' in webui

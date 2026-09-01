@@ -2,19 +2,24 @@ from __future__ import annotations
 
 import hashlib
 import io
+import csv
 import json
 import os
 import re
 import shutil
+import subprocess
+import tempfile
 import time
 import threading
 import traceback
 import uuid
+from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
+import cv2
 from flask import Flask, Response, abort, flash, g, has_request_context, jsonify, redirect, render_template, request, send_file, stream_with_context, url_for
 
 from ..config import load_config
@@ -39,6 +44,9 @@ from .table_quality import table_first_quality
 from .table_panels import clear_panel_geometry, load_panel_profile, save_panel_definitions, save_panel_profile
 from .table_cell_training import active_table_cell_model, table_cell_training_state
 from .source_preview import prepare_source_renders
+from .legacy_routes import register_legacy_routes
+from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
+from .json_store import read_json as _read_json
 from .table_cell_ground_truth import (
     add_ground_truth_cell, delete_ground_truth_cell, ensure_table_cell_ground_truth,
     ground_truth_counts, ground_truth_review_state, list_ground_truth_cells, list_ground_truth_sources,
@@ -54,7 +62,7 @@ from .recognition_ground_truth import (
     save_table_studio_roles, table_studio_roles, table_studio_rows,
 )
 from .projects import (
-    DEFAULT_PROJECT_ID, ProjectManager, load_use_case_templates,
+    DEFAULT_PROJECT_ID, DEFAULT_USE_CASE_ID, ProjectManager, load_use_case_templates,
     project_active_recognition_dir, resolve_project_registry,
 )
 DETECTION_REVIEW_REASONS = {
@@ -259,13 +267,6 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _read_json(path: Path, default: Any = None) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError, TypeError):
-        return default
-
-
 def _read_log_text(path: Path) -> str:
     """Read PowerShell/cmd output without showing an apparently blank NUL-filled log."""
     try:
@@ -366,7 +367,7 @@ def create_web_app(
             path = context.workspace / "samples.sqlite3"
             if self._database is None or self._project_id != context.project_id or self._database.path != path:
                 db = TrainingDatabase(path)
-                if header_profile is not None and context.use_case_id == "philips_cmr_volume_results":
+                if header_profile is not None and context.use_case_id == DEFAULT_USE_CASE_ID:
                     ensure_default_field_definitions(db, header_profile)
                 self._project_id = context.project_id
                 self._database = db
@@ -1105,10 +1106,14 @@ def create_web_app(
         try: return pointer.read_text(encoding="utf-8").strip().lstrip("\ufeff") or None
         except OSError: return None
 
-    def latest_progress() -> dict[str, Any] | None:
+    def latest_progress(device: str | None = None) -> dict[str, Any] | None:
         path=_latest_file(workspace_root()/"runs", "training-progress.json")
         payload=_read_json(path) if path else None
         if isinstance(payload,dict):
+            requested_device = str(device or "").strip().lower()
+            recorded_device = str(payload.get("device") or "").strip().lower()
+            if requested_device and recorded_device != requested_device:
+                return None
             payload["path"]=str(path.relative_to(workspace_root()))
         return payload
 
@@ -1642,7 +1647,15 @@ def create_web_app(
             str(item.get("status") or "") == "running" and str(item.get("action_id") or "") == "26"
             for item in items
         )
-        progress = latest_progress() if needs_training_progress else None
+        progress_by_device: dict[str, dict[str, Any] | None] = {}
+        if needs_training_progress:
+            for item in items:
+                if str(item.get("status") or "") != "running" or str(item.get("action_id") or "") != "26":
+                    continue
+                options = item.get("options") if isinstance(item.get("options"), dict) else {}
+                device = str(options.get("device") or "").strip().lower()
+                if device not in progress_by_device:
+                    progress_by_device[device] = latest_progress(device)
         log_root = jobs_root / "logs"
         for item in items:
             status = str(item.get("status", "pending"))
@@ -1658,6 +1671,9 @@ def create_web_app(
                 "completed": "Voltooid",
                 "failed": "Mislukt",
             }.get(status, status))
+            options = item.get("options") if isinstance(item.get("options"), dict) else {}
+            device = str(options.get("device") or "").strip().lower()
+            progress = progress_by_device.get(device)
             if status == "running" and str(item.get("action_id")) == "26" and isinstance(progress, dict):
                 percent = float(progress.get("progress_percent") or percent)
                 progress_mode = "determinate"
@@ -1665,10 +1681,23 @@ def create_web_app(
                 total = progress.get("total_epochs")
                 if epoch is not None and total is not None:
                     label = f"Epoch {epoch}/{total} · ETA {progress.get('eta') or '--'}"
+            stdout_path = log_root / f"{item['job_id']}.log"
+            if status == "running" and progress_mode != "determinate" and stdout_path.is_file():
+                try:
+                    log_tail = stdout_path.read_text(encoding="utf-8-sig", errors="replace")[-65536:]
+                    stages = re.findall(r"(?m)^\s*\[(\d+)\s*/\s*(\d+)\]\s*(.+?)\s*$", log_tail)
+                    if stages:
+                        current_raw, total_raw, stage_label = stages[-1]
+                        current_stage, total_stages = int(current_raw), int(total_raw)
+                        if total_stages > 0:
+                            percent = current_stage / total_stages * 100.0
+                            progress_mode = "determinate"
+                            label = stage_label.strip().rstrip(".")
+                except OSError:
+                    pass
             item["progress_percent"] = max(0.0, min(100.0, percent))
             item["progress_mode"] = progress_mode
             item["progress_label"] = label
-            stdout_path = log_root / f"{item['job_id']}.log"
             stderr_path = log_root / f"{item['job_id']}.log.err"
             worker_log_path = log_root / f"{item['job_id']}.worker.log"
             item["stdout_bytes"] = stdout_path.stat().st_size if stdout_path.is_file() else 0
@@ -2507,7 +2536,7 @@ def create_web_app(
         project_id = str(item.get("project_id") or "")
         project_workspace = project_manager.projects_root / project_id
         db = TrainingDatabase(project_workspace / "samples.sqlite3")
-        if header_profile is not None and str(item.get("use_case_id") or "") == "philips_cmr_volume_results":
+        if header_profile is not None and str(item.get("use_case_id") or "") == DEFAULT_USE_CASE_ID:
             ensure_default_field_definitions(db, header_profile)
         detection = db.detection_review_counts()
         mappings = db.mapping_counts()
@@ -2566,7 +2595,7 @@ def create_web_app(
         project_id = str(request.form.get("project_id") or "").strip()
         try:
             context = project_manager.switch(project_id)
-            if header_profile is not None and context.use_case_id == "philips_cmr_volume_results":
+            if header_profile is not None and context.use_case_id == DEFAULT_USE_CASE_ID:
                 ensure_default_field_definitions(TrainingDatabase(context.workspace / "samples.sqlite3"), header_profile)
             flash(f"Project actief: {context.name}", "success")
         except KeyError:
@@ -2577,7 +2606,7 @@ def create_web_app(
     def project_create():
         try:
             duplicate_from = str(request.form.get("duplicate_from") or "") or None
-            requested_use_case = str(request.form.get("use_case_id") or "philips_cmr_volume_results")
+            requested_use_case = str(request.form.get("use_case_id") or DEFAULT_USE_CASE_ID)
             if requested_use_case not in use_case_ids:
                 raise ValueError(f"Onbekende use-case template: {requested_use_case}")
             context = project_manager.create(
@@ -2611,7 +2640,7 @@ def create_web_app(
                 if source_active.is_dir() and not target_active.exists():
                     target_active.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copytree(source_active, target_active)
-            if header_profile is not None and context.use_case_id == "philips_cmr_volume_results":
+            if header_profile is not None and context.use_case_id == DEFAULT_USE_CASE_ID:
                 ensure_default_field_definitions(TrainingDatabase(context.workspace / "samples.sqlite3"), header_profile)
             flash(f"Project aangemaakt en geactiveerd: {context.name}", "success")
             return redirect(url_for("home"))
@@ -2716,14 +2745,9 @@ def create_web_app(
                         file_bytes = destination.read_bytes()
                         source_id = hashlib.sha256(file_bytes).hexdigest()[:24]
                         input_selection_path().parent.mkdir(parents=True, exist_ok=True)
-                        input_selection_path().write_text(
-                            json.dumps({
-                                "version": 1,
-                                "updated_at": _utcnow(),
-                                "selected": [relative_key],
-                                "reason": "test-pipeline-upload",
-                            }, indent=2), encoding="utf-8"
-                        )
+                        payload = selection_payload({relative_key}, reason="test-pipeline-upload")
+                        payload["updated_at"] = _utcnow()
+                        input_selection_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
                         job = enqueue_job("60", {
                             "table_model_id": "active" if active_table_model else "generic-ppstructure",
                             "mapping_profile_id": str(request.form.get("mapping_profile_id") or "").strip(),
@@ -2761,6 +2785,205 @@ def create_web_app(
             mapping_profiles=mapping_profiles,
         )
 
+    def _table_panel_review_context(requested_source_id: str = "", panel_state: dict[str, Any] | None = None) -> dict[str, Any]:
+        panel_state = panel_state or table_panel_state()
+        sources = [dict(item) for item in database.list_detection_sources()]
+        selected_source_id = str(requested_source_id or (panel_state.get("profile") or {}).get("reference_source_id") or "")
+        selected = next((item for item in sources if str(item.get("source_id")) == selected_source_id), None)
+        if selected is None and sources:
+            selected = sources[0]
+            selected_source_id = str(selected.get("source_id") or "")
+
+        region_ground_truth = list_table_regions(workspace_root(), selected_source_id) if selected_source_id else []
+        table_review_sources = []
+        for source_item in sources:
+            source_key = str(source_item.get("source_id") or "")
+            saved_regions = list_table_regions(workspace_root(), source_key) if source_key else []
+            table_review_sources.append({
+                "source_id": source_key,
+                "region_count": len(saved_regions),
+                "review_completed": bool(saved_regions),
+            })
+
+        suggestions: list[dict[str, Any]] = []
+        if selected is not None:
+            try:
+                geometry = database.list_detection_table_geometry(selected_source_id)
+                suggestions = [{**dict(item), "kind": "selected_table_region", "variant": "selected"} for item in geometry.get("regions", [])]
+            except Exception:
+                suggestions = []
+            diagnostic_path = safe_workspace_file(Path("localization_detections") / f"{selected_source_id}.json")
+            if diagnostic_path.is_file():
+                try:
+                    diagnostic_payload = json.loads(diagnostic_path.read_text(encoding="utf-8"))
+                    benchmark = diagnostic_payload.get("preprocessing_benchmark")
+                    benchmark_suggestions = benchmark.get("panel_suggestions") if isinstance(benchmark, dict) else None
+                    if isinstance(benchmark_suggestions, list):
+                        suggestions.extend(dict(item) for item in benchmark_suggestions if isinstance(item, dict))
+                except (OSError, ValueError, TypeError):
+                    pass
+
+            unique_suggestions: list[dict[str, Any]] = []
+            for item in suggestions:
+                try:
+                    x1, y1, x2, y2 = (float(item.get(key) or 0) for key in ("x1", "y1", "x2", "y2"))
+                except (TypeError, ValueError):
+                    continue
+                area = max(1.0, (x2 - x1) * (y2 - y1))
+                duplicate = False
+                for existing in unique_suggestions:
+                    ex1, ey1, ex2, ey2 = (float(existing.get(key) or 0) for key in ("x1", "y1", "x2", "y2"))
+                    ix = max(0.0, min(x2, ex2) - max(x1, ex1))
+                    iy = max(0.0, min(y2, ey2) - max(y1, ey1))
+                    inter = ix * iy
+                    existing_area = max(1.0, (ex2 - ex1) * (ey2 - ey1))
+                    union = area + existing_area - inter
+                    if (inter / max(1.0, min(area, existing_area))) >= 0.80 or (inter / max(1.0, union)) >= 0.50:
+                        duplicate = True
+                        break
+                if not duplicate:
+                    unique_suggestions.append(item)
+            suggestions = unique_suggestions
+
+        definitions = list((panel_state.get("profile") or {}).get("definitions") or [])
+        ocr_blocks = database.list_detected_blocks(selected_source_id) if selected_source_id else []
+
+        def quick_ocr_text_for_proposal(proposal: dict[str, Any]) -> str:
+            """OCR only the upper part of a proposed table for type matching.
+
+            Table-first detection deliberately does not persist OCR values. This
+            small, on-demand pass reads likely headers only, so table type
+            matching can use stable labels without turning Pipeline A into value
+            extraction.
+            """
+            if selected is None:
+                return ""
+            render_value = str(selected.get("render_path") or f"source_renders/{selected_source_id}.png")
+            render_path = safe_workspace_file(Path(render_value))
+            if not render_path.is_file():
+                return ""
+            try:
+                x1, y1, x2, y2 = (int(float(proposal[key])) for key in ("x1", "y1", "x2", "y2"))
+            except (KeyError, TypeError, ValueError):
+                return ""
+            image = cv2.imread(str(render_path))
+            if image is None:
+                return ""
+            height, width = image.shape[:2]
+            x1, x2 = max(0, min(width, x1)), max(0, min(width, x2))
+            y1, y2 = max(0, min(height, y1)), max(0, min(height, y2))
+            if x2 <= x1 or y2 <= y1:
+                return ""
+            header_bottom = min(y2, y1 + max(80, int((y2 - y1) * 0.35)))
+            crop = image[y1:header_bottom, x1:x2]
+            if crop.size == 0:
+                return ""
+            try:
+                tesseract = str((loaded_config.ocr if loaded_config else {}).get("tesseract", {}).get("executable", "tesseract"))
+                with tempfile.NamedTemporaryFile(suffix=".png") as image_file:
+                    if not cv2.imwrite(image_file.name, crop):
+                        return ""
+                    completed = subprocess.run(
+                        [tesseract, image_file.name, "stdout", "--psm", "6", "-l", "eng", "tsv"],
+                        check=False, capture_output=True, text=True, timeout=10,
+                    )
+                if completed.returncode != 0:
+                    return ""
+                tokens = []
+                for row in csv.DictReader(io.StringIO(completed.stdout), delimiter="\t"):
+                    text = str(row.get("text") or "").strip()
+                    if text:
+                        tokens.append(text)
+            except Exception:
+                return ""
+            return " | ".join(tokens)
+
+        def table_text_for_proposal(proposal: dict[str, Any]) -> str:
+            try:
+                x1, y1, x2, y2 = (float(proposal[key]) for key in ("x1", "y1", "x2", "y2"))
+            except (KeyError, TypeError, ValueError):
+                return ""
+            texts: list[str] = []
+            for block in ocr_blocks:
+                text = str(block.get("text") or block.get("normalized_text") or block.get("context_text") or "").strip()
+                if not text:
+                    continue
+                try:
+                    bx1, by1, bx2, by2 = (float(block[key]) for key in ("x1", "y1", "x2", "y2"))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                overlap_x = max(0.0, min(x2, bx2) - max(x1, bx1))
+                overlap_y = max(0.0, min(y2, by2) - max(y1, by1))
+                block_area = max(1.0, (bx2 - bx1) * (by2 - by1))
+                center_inside = x1 <= (bx1 + bx2) / 2 <= x2 and y1 <= (by1 + by2) / 2 <= y2
+                if center_inside or (overlap_x * overlap_y) / block_area >= 0.35:
+                    texts.append(text)
+            return " | ".join(dict.fromkeys(texts))
+
+        def definition_text_score(definition: dict[str, Any], observed: str) -> tuple[float, str]:
+            observed_normalized = normalize_for_matching(observed)
+            if not observed_normalized:
+                return 0.0, ""
+            candidates = [str(definition.get("name") or "")]
+            candidates.extend(str(hit) for hit in (definition.get("hits") or definition.get("aliases") or []) if str(hit).strip())
+            best_score, best_hit = 0.0, ""
+            observed_parts = set(observed_normalized.split())
+            for candidate in candidates:
+                normalized = normalize_for_matching(candidate)
+                if not normalized:
+                    continue
+                if normalized in observed_normalized:
+                    score = 1.0
+                else:
+                    candidate_parts = set(normalized.split())
+                    token_score = len(candidate_parts & observed_parts) / max(1, len(candidate_parts))
+                    score = max(token_score * 0.92, SequenceMatcher(None, normalized, observed_normalized).ratio() * 0.8)
+                if score > best_score:
+                    best_score, best_hit = score, candidate
+            return best_score, best_hit
+
+        for proposal in suggestions:
+            observed_text = table_text_for_proposal(proposal)
+            if not observed_text:
+                observed_text = quick_ocr_text_for_proposal(proposal)
+            scored = sorted(
+                ((definition_text_score(definition, observed_text)[0], definition, definition_text_score(definition, observed_text)[1]) for definition in definitions),
+                key=lambda item: item[0], reverse=True,
+            )
+            if scored and scored[0][0] >= 0.68 and (len(scored) == 1 or scored[0][0] - scored[1][0] >= 0.08):
+                proposal["suggested_panel_id"] = str(scored[0][1].get("panel_id") or "")
+                proposal["suggested_panel_name"] = str(scored[0][1].get("name") or "")
+                proposal["suggestion_score"] = round(scored[0][0], 3)
+                proposal["suggestion_basis"] = f"snelle OCR-hit: {scored[0][2]}"
+            proposal["ocr_table_text"] = observed_text
+
+        return {
+            "panel_state": panel_state,
+            "sources": sources,
+            "source": selected,
+            "source_id": selected_source_id,
+            "region_ground_truth": region_ground_truth,
+            "table_review_sources": table_review_sources,
+            "suggestions": suggestions,
+        }
+
+    @app.get("/api/table-panel-review-source/<source_id>")
+    def table_panel_review_source_api(source_id: str):
+        context = _table_panel_review_context(source_id)
+        source = context["source"]
+        if source is None or context["source_id"] != source_id:
+            return jsonify({"error": "Bron niet gevonden"}), 404
+        return jsonify({
+            "source": {
+                "source_id": context["source_id"],
+                "image_width": int(source.get("image_width") or 0),
+                "image_height": int(source.get("image_height") or 0),
+                "image_url": f"/source-render/{context['source_id']}.png",
+            },
+            "region_ground_truth": context["region_ground_truth"],
+            "suggestions": context["suggestions"],
+            "review_sources": context["table_review_sources"],
+        })
 
     @app.route("/process/<step_key>", methods=["GET", "POST"])
     def process_step(step_key: str):
@@ -2790,11 +3013,8 @@ def create_web_app(
                 }
                 available = {str(item["key"]) for item in input_selection_state()["files"]}
                 selected &= available
-                payload = {
-                    "version": 1,
-                    "updated_at": _utcnow(),
-                    "selected": sorted(selected),
-                }
+                payload = selection_payload(selected)
+                payload["updated_at"] = _utcnow()
                 input_selection_path().parent.mkdir(parents=True, exist_ok=True)
                 input_selection_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
                 flash(f"Inputselectie opgeslagen: {len(selected)} van {len(available)} afbeeldingen geselecteerd.", "success")
@@ -3068,57 +3288,13 @@ def create_web_app(
 
         if step_key == "panel-setup":
             panel_state = table_panel_state()
-            sources = [dict(item) for item in database.list_detection_sources()]
-            selected_source_id = str(request.args.get("source_id") or (panel_state.get("profile") or {}).get("reference_source_id") or "")
-            selected = next((item for item in sources if str(item.get("source_id")) == selected_source_id), None)
-            if selected is None and sources:
-                selected = sources[0]
-                selected_source_id = str(selected.get("source_id") or "")
-            region_ground_truth = list_table_regions(workspace_root(), selected_source_id) if selected_source_id else []
-            suggestions: list[dict[str, Any]] = []
-            if selected is not None:
-                try:
-                    geometry = database.list_detection_table_geometry(selected_source_id)
-                    suggestions = [{**dict(item), "kind": "selected_table_region", "variant": "selected"} for item in geometry.get("regions", [])]
-                except Exception:
-                    suggestions = []
-                # Bootstrap scans benchmark several preprocessing variants. Keep their
-                # table-region proposals as Panel Setup suggestions even when another
-                # variant won the global structural score. This prevents a second
-                # table from disappearing merely because it was not in the selected run.
-                diagnostic_path = safe_workspace_file(Path("localization_detections") / f"{selected_source_id}.json")
-                if diagnostic_path.is_file():
-                    try:
-                        diagnostic_payload = json.loads(diagnostic_path.read_text(encoding="utf-8"))
-                        benchmark = diagnostic_payload.get("preprocessing_benchmark")
-                        benchmark_suggestions = benchmark.get("panel_suggestions") if isinstance(benchmark, dict) else None
-                        if isinstance(benchmark_suggestions, list):
-                            suggestions.extend(dict(item) for item in benchmark_suggestions if isinstance(item, dict))
-                    except (OSError, ValueError, TypeError):
-                        pass
-                # Deduplicate selected-run and cross-variant suggestions by substantial
-                # overlap; keep the first (selected-run) proposal when equivalent.
-                unique_suggestions: list[dict[str, Any]] = []
-                for item in suggestions:
-                    try:
-                        x1,y1,x2,y2=(float(item.get(k) or 0) for k in ("x1","y1","x2","y2"))
-                    except (TypeError, ValueError):
-                        continue
-                    area=max(1.0,(x2-x1)*(y2-y1)); duplicate=False
-                    for existing in unique_suggestions:
-                        ex1,ey1,ex2,ey2=(float(existing.get(k) or 0) for k in ("x1","y1","x2","y2"))
-                        ix=max(0.0,min(x2,ex2)-max(x1,ex1)); iy=max(0.0,min(y2,ey2)-max(y1,ey1)); inter=ix*iy
-                        earea=max(1.0,(ex2-ex1)*(ey2-ey1)); union=area+earea-inter
-                        if (inter/max(1.0,min(area,earea))) >= 0.80 or (inter/max(1.0,union)) >= 0.50:
-                            duplicate=True; break
-                    if not duplicate:
-                        unique_suggestions.append(item)
-                suggestions = unique_suggestions
+            context = _table_panel_review_context(str(request.args.get("source_id") or ""), panel_state)
             return render_template(
                 "table_panel_setup.html", step=step, panel_state=panel_state,
-                panel_profile=panel_state.get("profile") or {}, sources=sources, source=selected,
-                source_id=selected_source_id, suggestions=suggestions,
-                region_ground_truth=region_ground_truth,
+                panel_profile=panel_state.get("profile") or {}, sources=context["sources"], source=context["source"],
+                source_id=context["source_id"], suggestions=context["suggestions"],
+                region_ground_truth=context["region_ground_truth"],
+                table_review_sources=context["table_review_sources"],
                 header_counts={
                     "total": int(panel_state.get("panel_count") or 0),
                     "pending": 1 if not panel_state.get("configured") else (1 if panel_state.get("needs_rerun") else 0),
@@ -4507,40 +4683,23 @@ def create_web_app(
         )
 
     def input_selection_path() -> Path:
-        return workspace_root() / "input_selection.json"
-
-    def _input_file_key(path: Path, root: Path) -> str:
-        return path.relative_to(root).as_posix()
-
-    def _input_file_sha(path: Path) -> str:
-        digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return digest.hexdigest()[:24]
+        return selection_manifest_path(workspace_root())
 
     def input_selection_state() -> dict[str, Any]:
         root = Path("/input")
-        ignored = {".ini", ".yaml", ".yml", ".json", ".txt", ".log", ".ps1", ".cmd", ".bat", ".gitkeep"}
         files = []
-        if root.is_dir():
-            for path in sorted(root.rglob("*")):
-                if not path.is_file() or path.suffix.lower() in ignored:
-                    continue
-                if any(part.startswith(".") for part in path.relative_to(root).parts):
-                    continue
-                try:
-                    relative = _input_file_key(path, root)
-                    source_id = _input_file_sha(path)
-                    files.append({
-                        "key": relative,
-                        "name": path.name,
-                        "directory": str(path.parent.relative_to(root)).replace(".", ""),
-                        "size": path.stat().st_size,
-                        "source_id": source_id,
-                    })
-                except (OSError, ValueError):
-                    continue
+        for path in input_files(root):
+            try:
+                relative = input_file_key(path, root)
+                files.append({
+                    "key": relative,
+                    "name": path.name,
+                    "directory": str(path.parent.relative_to(root)).replace(".", ""),
+                    "size": path.stat().st_size,
+                    "source_id": input_file_source_id(path),
+                })
+            except (OSError, ValueError):
+                continue
         saved = _read_json(input_selection_path(), {}) or {}
         selected = {str(item) for item in (saved.get("selected") or []) if str(item)}
         has_manifest = input_selection_path().is_file()
@@ -5287,19 +5446,7 @@ def create_web_app(
             abort(400)
         return redirect(url_for("queue"))
 
-    @app.get("/training")
-    def training():
-        return process_step("recognition-dataset")
-
-    @app.get("/activation")
-    def activation_redirect():
-        return process_step("recognition-models")
-
-    @app.get("/models")
-    def models_page():
-        # Legacy models.html still targets pre-v3.10 action IDs. Keep old bookmarks
-        # working, but route all model management through the canonical UI.
-        return redirect(url_for("management_page", tab="models"))
+    register_legacy_routes(app, process_step)
 
     @app.get("/jobs/manage")
     def manage_jobs():
@@ -5447,6 +5594,11 @@ def create_web_app(
         _, active = registry_state()
         return jsonify({"jobs": job_statuses(), "worker": worker_state(), "active_model": active})
 
+    @app.get("/api/jobs")
+    def api_jobs():
+        """Backward-compatible queue snapshot for older local clients."""
+        return jsonify({"jobs": job_statuses(), "worker": worker_state()})
+
     @app.get("/api/localization-readiness")
     def api_localization_readiness():
         """Backward-compatible readiness endpoint for legacy screens."""
@@ -5491,7 +5643,7 @@ def create_web_app(
         if split not in {"train", "val", "test"}:
             return jsonify({"ok": False, "error": "Split moet train, val of test zijn."}), 400
         try:
-            iou_threshold = float(request.args.get("iou_threshold") or (evaluation.get("metrics") or {}).get("iou_threshold") or 0.75)
+            iou_threshold = float(request.args.get("iou") or request.args.get("iou_threshold") or (evaluation.get("metrics") or {}).get("iou_threshold") or 0.75)
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": "Ongeldige IoU-drempel."}), 400
         iou_threshold = max(0.05, min(0.95, iou_threshold))
@@ -5502,6 +5654,7 @@ def create_web_app(
                 dataset_id=str(evaluation.get("dataset_id") or ""),
                 minimum_confidence=confidence,
                 iou_threshold=iou_threshold,
+                canonical_iou_threshold=float((evaluation.get("metrics") or {}).get("iou_threshold") or 0.75),
                 split=split,
             )
         except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:

@@ -93,6 +93,7 @@ class TrainingProgressRenderer:
         output_directory: Path,
         total_epochs: int,
         *,
+        device: str | None = None,
         verbose: bool = False,
         stream: TextIO | None = None,
         bar_width: int = 28,
@@ -100,6 +101,7 @@ class TrainingProgressRenderer:
         self.output_directory = Path(output_directory)
         self.output_directory.mkdir(parents=True, exist_ok=True)
         self.total_epochs = max(1, int(total_epochs))
+        self.device = str(device or "").strip().lower() or None
         self.verbose = bool(verbose)
         self.stream = stream or sys.stdout
         self.bar_width = max(10, int(bar_width))
@@ -293,6 +295,7 @@ class TrainingProgressRenderer:
         epoch = max(0, self.current_epoch)
         snapshot: dict[str, Any] = {
             "status": status,
+            "device": self.device,
             "started_at": self.started_at,
             "updated_at": _utc_now(),
             "epoch": epoch,

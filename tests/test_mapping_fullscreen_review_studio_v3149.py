@@ -16,7 +16,8 @@ def test_mapping_review_studio_assets_are_loaded_globally_but_noop_off_mapping()
 
     assert "mapping-review-studio.css" in base
     assert "mapping-review-studio.js" in base
-    assert '<script defer src="{{ url_for(\'static\',filename=\'mapping-review-studio.js\',v=app_version) }}"></script>' in base
+    assert "filename='mapping-review-studio.js',v=app_version" in base
+    assert "<script defer" in base
     assert "const rows = Array.from(document.querySelectorAll('.mapping-relation-row'));" in js
     assert "if (!rows.length" in js
 

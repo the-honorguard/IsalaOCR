@@ -10,11 +10,11 @@ def read(relative: str) -> str:
 def test_compose_uses_dedicated_labeler_dockerfile() -> None:
     compose = read("infrastructure/docker/compose.yaml")
     assert "dockerfile: infrastructure/docker/Dockerfile.labeler" in compose
-    assert "image: isalaocr-labeler:3.14.0" in compose
+    assert "image: isalaocr-labeler:3.16.0" in compose
     assert 'command: ["--workspace", "/training/workspace"' in compose
 
 
-def test_labeler_image_excludes_ocr_and_dicom_dependencies() -> None:
+def test_labeler_image_excludes_heavy_model_dependencies() -> None:
     dockerfile = read("infrastructure/docker/Dockerfile.labeler")
     lowered = dockerfile.lower()
     executable_lines = "\n".join(
@@ -22,13 +22,14 @@ def test_labeler_image_excludes_ocr_and_dicom_dependencies() -> None:
     )
     assert "flask" in executable_lines
     assert "waitress" in executable_lines
-    # No package extras or system OCR libraries may be installed in this image.
+    # Quick source-preview OCR needs lightweight image/DICOM libraries, but no
+    # Paddle model runtime belongs in the WebUI image.
     assert '".[paddle' not in executable_lines
     assert "paddleocr" not in executable_lines
     assert "paddlepaddle" not in executable_lines
-    assert "opencv-python" not in executable_lines
-    assert "tesseract-ocr" not in executable_lines
-    assert "pydicom" not in executable_lines
+    assert "opencv-python-headless" in executable_lines
+    assert "tesseract-ocr" in executable_lines
+    assert "pydicom" in executable_lines
 
 
 def test_labeler_entrypoint_does_not_import_main_cli() -> None:
@@ -38,13 +39,10 @@ def test_labeler_entrypoint_does_not_import_main_cli() -> None:
     assert "from ..cli" not in server
 
 
-def test_labeler_dockerfile_copies_only_web_components() -> None:
+def test_labeler_dockerfile_copies_complete_web_packages() -> None:
     dockerfile = read("infrastructure/docker/Dockerfile.labeler")
-    assert "COPY application/src/isala_ocr/training/templates" in dockerfile
-    assert "COPY application/src/isala_ocr/training/header_normalization.py" in dockerfile
-    assert "COPY application/src/isala_ocr/training/dynamic_locator.py" in dockerfile
-    assert "COPY application/src/isala_ocr/training/generic_detection.py" in dockerfile
-    assert "COPY application/src/isala_ocr/training/mapping.py" in dockerfile
+    assert "COPY application/src/isala_ocr/training /app/src/isala_ocr/training" in dockerfile
+    assert "COPY application/src/isala_ocr/application_processing /app/src/isala_ocr/application_processing" in dockerfile
     assert "COPY application/src /app/src" not in dockerfile
     assert "COPY config" not in dockerfile
     assert "COPY schemas" not in dockerfile
@@ -64,12 +62,13 @@ def test_mapping_ui_defers_heavy_image_and_ocr_imports() -> None:
     assert "import cv2" not in top_level
     assert "import numpy" not in top_level
     assert "from ..ocr.base import OCREngine" not in top_level.split("if TYPE_CHECKING:", 1)[0]
-    assert "Heavy image dependencies are imported lazily" in mapping
+    assert mapping.index("    import cv2") > mapping.index("def ")
+    assert mapping.index("    import numpy as np") > mapping.index("def ")
 
 
 def test_labeler_dockerfile_copies_project_workspace_module() -> None:
     dockerfile = read("infrastructure/docker/Dockerfile.labeler")
-    assert "COPY application/src/isala_ocr/training/projects.py /app/src/isala_ocr/training/projects.py" in dockerfile
+    assert "COPY application/src/isala_ocr/training /app/src/isala_ocr/training" in dockerfile
 
 
 def test_labeler_web_local_imports_are_present_in_lightweight_image() -> None:
@@ -83,6 +82,10 @@ def test_labeler_web_local_imports_are_present_in_lightweight_image() -> None:
     import re
 
     dockerfile = read("infrastructure/docker/Dockerfile.labeler")
+    if "COPY application/src/isala_ocr/training /app/src/isala_ocr/training" in dockerfile:
+        assert "from isala_ocr.training.webui import create_web_app" in dockerfile
+        return
+
     copied: set[str] = set()
     pattern = re.compile(
         r"^COPY application/src/isala_ocr/(?P<src>[^ ]+\.py) /app/src/isala_ocr/[^ ]+\.py$",
@@ -121,10 +124,7 @@ def test_detection_gate_dependency_is_lightweight_and_copied_into_labeler() -> N
     dataset_module = read("application/src/isala_ocr/training/localization_dataset.py")
     gate_module = read("application/src/isala_ocr/training/detection_gate.py")
 
-    assert (
-        "COPY application/src/isala_ocr/training/detection_gate.py "
-        "/app/src/isala_ocr/training/detection_gate.py"
-    ) in dockerfile
+    assert "COPY application/src/isala_ocr/training /app/src/isala_ocr/training" in dockerfile
     assert "COPY application/src/isala_ocr/training/localization.py" not in dockerfile
     assert "from .detection_gate import" in dataset_module
     assert "passes_detection_gate" in dataset_module

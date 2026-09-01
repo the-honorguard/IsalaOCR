@@ -318,13 +318,25 @@ def _global_column_layout(
         return {}
 
     widths = sorted(max(1, box.width) for box in cell_boxes)
-    tolerance = max(6.0, min(40.0, widths[len(widths) // 2] * 0.35))
-    centers = [(float(box.x1) + float(box.x2)) / 2.0 for box in cell_boxes]
-    columns = _cluster_centers(centers, tolerance)
+    # A missing cell changes its row's centres, but it does not change the
+    # left edge of the next real column. Build the shared raster from left
+    # edges so sparse rows cannot shift later columns to the left.
+    tolerance = max(6.0, min(40.0, widths[len(widths) // 2] * 0.20))
+    left_edges = [float(box.x1) for box in cell_boxes]
+    columns = _cluster_centers(left_edges, tolerance)
+    anchors = [
+        sum(left_edges[index] for index in column) / len(column)
+        for column in columns
+    ]
+    gaps = [right - left for left, right in zip(anchors, anchors[1:]) if right > left]
+    column_gap = sorted(gaps)[len(gaps) // 2] if gaps else None
     result: dict[int, tuple[int, int]] = {}
-    for column_index, column in enumerate(columns):
-        for index in column:
-            result[index] = (column_index, 1)
+    for index, box in enumerate(cell_boxes):
+        column_index = min(range(len(anchors)), key=lambda item: abs(anchors[item] - box.x1))
+        span = 1
+        if column_gap:
+            span = max(1, int(round((box.x2 - anchors[column_index]) / column_gap)))
+        result[index] = (column_index, span)
     return result
 
 
@@ -709,7 +721,11 @@ class PPStructureTableEngine:
             pipeline.predict(
                 prepared,
                 use_table_orientation_classify=False,
-                use_ocr_results_with_table_cells=True,
+                # This pass learns table/cell geometry only. Asking PaddleX to
+                # merge OCR results here can dereference general_ocr_pipeline
+                # when that optional pipeline is absent on otherwise valid
+                # table images. Semantic OCR matching happens separately.
+                use_ocr_results_with_table_cells=False,
                 use_e2e_wireless_table_rec_model=False,
                 use_e2e_wired_table_rec_model=False,
             )

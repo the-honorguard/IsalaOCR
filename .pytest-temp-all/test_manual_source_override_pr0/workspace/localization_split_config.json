@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "mode": "counts",
+  "targets": {
+    "train": 9,
+    "val": 2,
+    "test": 3
+  },
+  "overrides": {
+    "source-00": "test"
+  },
+  "updated_at": "2026-08-31T17:11:20.286567+00:00"
+}

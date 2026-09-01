@@ -53,7 +53,7 @@ def test_management_and_legacy_routes_render_combined_page(tmp_path: Path) -> No
     response = client.get("/manage")
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert "Projecten &amp; modellen" in html
+    assert "Beheer" in html
     assert "Nieuw project" in html
     assert 'id="react-localization-artifacts"' in html
 
@@ -63,4 +63,4 @@ def test_management_and_legacy_routes_render_combined_page(tmp_path: Path) -> No
 
     artifacts = client.get("/process/artifacts")
     assert artifacts.status_code == 200
-    assert "Data &amp; modellen" in artifacts.get_data(as_text=True)
+    assert "Data & modellen" in artifacts.get_data(as_text=True)

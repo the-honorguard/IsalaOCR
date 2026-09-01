@@ -36,7 +36,7 @@ def _source(workspace: Path, db: TrainingDatabase, source_id: str = "source") ->
 
 def test_schema_v11_has_separate_detection_and_recognition_entities(tmp_path: Path) -> None:
     db = TrainingDatabase(tmp_path / "samples.sqlite3")
-    assert SCHEMA_VERSION == 13
+    assert SCHEMA_VERSION == 14
     with db.connect() as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     for name in (
@@ -264,21 +264,22 @@ def test_menu_and_web_navigation_have_hard_pipeline_separator() -> None:
     menu = (ROOT / "automation/powershell/training-menu.ps1").read_text(encoding="utf-8")
     base = (ROOT / "application/src/isala_ocr/training/templates/base.html").read_text(encoding="utf-8")
     webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
-    assert "TABLE-FIRST DETECTIE & CROPGEOMETRIE" in menu
-    assert "TABLE-FIRST CHECK" in menu
-    assert "VALUE MAPPING & OCR" in menu
+    assert "MODEL FACTORY · GEOMETRIE" in menu
+    assert "MODEL FACTORY · RECOGNITION" in menu
+    assert "FASE 2 · APPLICATION PROCESSING · OPTIONEEL" in menu
     assert '"20": "Mappinggegevens voorbereiden na detectiepoort"' in webui
-    assert 'action_id in {"20","21","22","24","25","26","27","28"}' in webui
+    assert 'action_id in {"24", "25", "26", "27", "28"}' in webui
     assert "pipeline_gate_global" in webui
-    assert "DETECTIE & CROPS" in base
-    assert "WAARDEN & OCR" in base
+    assert "MODEL FACTORY · DETECTIE & CROPS" in base
+    assert "MODEL FACTORY · RECOGNITION" in base
 
 
 def test_labeler_remains_lightweight_despite_detection_review_ui() -> None:
     webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
     dockerfile = (ROOT / "infrastructure/docker/Dockerfile.labeler").read_text(encoding="utf-8")
     assert "from .localization import" not in webui
-    assert "opencv-python" not in dockerfile.lower()
+    assert '"opencv-python>=' not in dockerfile.lower()
+    assert "opencv-python-headless" in dockerfile.lower()
     assert "paddleocr" not in "\n".join(
         line.lower() for line in dockerfile.splitlines() if not line.lstrip().startswith("#")
     )

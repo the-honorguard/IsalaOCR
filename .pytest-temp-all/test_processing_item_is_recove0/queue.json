@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "items": [
+    {
+      "queue_id": "q1",
+      "project_id": "p",
+      "workspace": "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\.pytest-temp-all\\test_processing_item_is_recove0\\projects\\p",
+      "run_id": "r",
+      "issue_id": "i",
+      "decision": "functional_ok",
+      "status": "pending",
+      "next_attempt_at": 0.0
+    }
+  ],
+  "completed_total": 0,
+  "last_completed_at": ""
+}

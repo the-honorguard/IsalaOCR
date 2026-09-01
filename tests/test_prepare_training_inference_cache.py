@@ -4,7 +4,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_prepare_training_full_flow_separates_parallel_downloads_from_sequential_installs():
-    text = (ROOT / "automation" / "powershell" / "prepare-training.ps1").read_text(encoding="utf-8")
+    text = (ROOT / "automation" / "powershell" / "prepare-training-core.ps1").read_text(encoding="utf-8")
     assert "function Invoke-AllDownloadsParallel" in text
     assert 'Start-Job -Name "inference-models"' in text
     assert 'Start-Job -Name "pretrained-weight"' in text

@@ -8,7 +8,7 @@
 </section>
 
 <form method="post" class="input-selection-form">
-  <div class="input-selection-toolbar card"><div><strong>{{ selection.selected }} van {{ selection.total }} geselecteerd</strong><span class="muted">Niet aangevinkte afbeeldingen worden niet gedetecteerd.</span></div><div class="actions"><button type="button" class="button" data-select-all>Alles aan</button><button type="button" class="button" data-select-none>Alles uit</button><button type="submit" class="button">Selectie opslaan</button><button type="submit" name="start_processing" value="1" class="primary" {% if not selection.selected %}disabled{% endif %}>Opslaan en bronpreview voorbereiden</button><a class="button" href="/process/detection-models">Terug naar voorbereiding</a></div></div>
+  <div class="input-selection-toolbar card"><div><strong>{{ selection.selected }} van {{ selection.total }} geselecteerd</strong><span class="muted">Niet aangevinkte afbeeldingen worden niet gedetecteerd.</span></div><div class="actions"><button type="button" class="button" data-select-all>Alles aan</button><button type="button" class="button" data-select-none>Alles uit</button><button type="submit" class="button">Selectie opslaan</button><button type="submit" name="start_processing" value="1" class="primary" {% if not selection.selected %}disabled{% endif %}>Bronpreview voorbereiden</button></div></div>
   {% if selection.files %}
   <div class="input-selection-grid">
     {% for item in selection.files %}

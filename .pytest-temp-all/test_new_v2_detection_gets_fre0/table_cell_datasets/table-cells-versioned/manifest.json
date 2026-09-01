@@ -1,0 +1,28 @@
+{
+  "schema_version": 2,
+  "dataset_id": "table-cells-versioned",
+  "type": "table_cell_detection",
+  "path": "table_cell_datasets/table-cells-versioned",
+  "created_at": "2026-08-14T10:00:00+00:00",
+  "panel_profile_updated_at": "2026-08-14T09:00:00+00:00",
+  "annotation_count": 1,
+  "panel_count": 1,
+  "review_fingerprint": "gt-v1",
+  "training_feedback_fingerprint": "",
+  "panels": [
+    {
+      "source_id": "source-a",
+      "panel_id": "rv",
+      "panel_name": "RV",
+      "split": "train",
+      "file_name": "source-a__rv.png",
+      "box": [
+        0,
+        0,
+        100,
+        100
+      ],
+      "annotation_count": 1
+    }
+  ]
+}

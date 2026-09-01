@@ -12,6 +12,8 @@ from typing import Any
 
 import yaml
 
+from .json_store import read_json, write_json_atomic
+
 PROJECT_CATALOG_VERSION = 1
 DEFAULT_PROJECT_ID = "cmr_testcase_01"
 DEFAULT_PROJECT_NAME = "CMR testcase 01"
@@ -147,16 +149,10 @@ class ProjectManager:
             return None
 
     def _read_json(self, path: Path, default: Any) -> Any:
-        try:
-            return json.loads(path.read_text(encoding="utf-8-sig"))
-        except (OSError, ValueError, TypeError):
-            return default
+        return read_json(path, default)
 
     def _write_json_atomic(self, path: Path, payload: Any) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        temporary.replace(path)
+        write_json_atomic(path, payload)
         if path == self.catalog_path:
             self._catalog_cache = None
             self._catalog_signature = None

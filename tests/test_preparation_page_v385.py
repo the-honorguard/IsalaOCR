@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -20,21 +21,25 @@ def _app(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir(parents=True)
     (project / "VERSION").write_text("3.8.5", encoding="utf-8")
-    return create_web_app(workspace, models_root=models, output_root=output, project_root=project), models
+    return create_web_app(
+        workspace,
+        models_root=models,
+        output_root=output,
+        project_root=project,
+        config_path=ROOT / "application" / "config" / "app.yaml",
+    ), models
 
 
 def test_page_one_centralizes_all_preparation_actions(tmp_path: Path) -> None:
     app, _ = _app(tmp_path)
     html = app.test_client().get("/process/detection-models").get_data(as_text=True)
-    assert "Alles voorbereiden" in html
-    assert "Status controleren" in html
-    for action_id in ("14", "15", "16", "17", "18"):
-        assert f'value="{action_id}"' in html
-    assert "Zijn alle verwachte modellen en training-images aanwezig?" in html
+    client = (ROOT / "application" / "src" / "isala_ocr" / "training" / "static" / "preparation-page.js").read_text(encoding="utf-8")
+    assert "Alles voorbereiden" in client
+    assert "actionId: '1'" in client
+    assert "Onderhoud / opnieuw installeren" in html
+    assert 'value="14"' in html
     assert "Inference OCR + tabelmodellen" in html
-    assert "GPU PaddleDetection / PicoDet-S" in html
-    assert "Download / build" in html  # file-backed missing components
-    assert "Controleren" in html  # Docker-backed unknown components are checked before building
+    assert "Input controleren" in html
 
 
 def test_page_one_shows_green_checks_when_expected_artifacts_exist(tmp_path: Path) -> None:
@@ -58,26 +63,27 @@ def test_page_one_shows_green_checks_when_expected_artifacts_exist(tmp_path: Pat
     training.mkdir(parents=True)
     (training / "PP-OCRv6_medium_rec_pretrained.pdparams").write_bytes(b"x" * (1024 * 1024 + 1))
     (models / "preparation_status.json").write_text(json.dumps({
-        "checked_at": "2026-08-10T10:30:00+02:00",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
         "training_image_version": "3.8.4",
         "components": {
-            "cpu_detection": {"image": "isalaocr-training-cpu:3.8.4", "image_present": True},
-            "gpu_recognition": {"image": "isalaocr-training-gpu:3.8.4", "image_present": True},
-            "gpu_detection": {"image": "isalaocr-training-gpu-detection:3.8.4", "image_present": True},
+            "inference": {
+                "title": "Inference OCR + tabelmodellen",
+                "download": {"ready": True, "state": "ready", "detail": "aanwezig"},
+                "install": {"ready": True, "state": "ready", "detail": "gevalideerd"},
+            },
         },
     }), encoding="utf-8")
 
     html = app.test_client().get("/process/detection-models").get_data(as_text=True)
-    assert "✓ ALLES AANWEZIG" in html
-    assert html.count("Gereed") >= 5
-    assert "3.8.4" in html
+    assert "GEREED" in html
+    assert "Je hoeft hier niets meer te installeren" in html
+    assert "Training-image versie" not in html
 
 
 def test_preparation_status_action_checks_exact_versioned_docker_tags() -> None:
     script = (ROOT / "automation" / "powershell" / "preparation-status.ps1").read_text(encoding="utf-8")
-    assert 'Get-TrainingImageName -Device "cpu"' not in script  # helper is called via Get-ImageState
-    assert 'Get-ImageState -Device "cpu"' in script
-    assert 'Get-ImageState -Device "gpu"' in script
-    assert 'Get-ImageState -Device "gpu-detection"' in script
-    assert '@("image","inspect","--format","{{.Id}}",$image)' in script
+    assert 'Get-PreparationImageState -Image (Get-TrainingImageName -Device cpu)' in script
+    assert 'Get-PreparationImageState -Image (Get-TrainingImageName -Device gpu)' in script
+    assert 'Get-PreparationImageState -Image (Get-TrainingImageName -Device gpu-detection)' in script
+    assert 'Get-DockerImageState -Image $Image' in script
     assert 'preparation_status.json' in script

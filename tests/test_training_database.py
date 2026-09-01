@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from isala_ocr.training.db import TrainingDatabase, validate_exact_label
+from isala_ocr.training.db import SCHEMA_VERSION, TrainingDatabase, validate_exact_label
 
 
 def _sample(sample_id: str = "source_field") -> dict:
@@ -229,9 +229,9 @@ def test_schema_v2_database_is_migrated_without_losing_reviews(tmp_path: Path):
         method_index = check.execute(
             "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_samples_method'"
         ).fetchone()
-    assert version == "13"
+    assert version == str(SCHEMA_VERSION)
     assert method_index is not None
-    assert (tmp_path / "samples.before-schema-v13.sqlite3").is_file()
+    assert (tmp_path / f"samples.before-schema-v{SCHEMA_VERSION}.sqlite3").is_file()
 
 
 def test_partial_failed_v3_schema_is_repaired_idempotently(tmp_path: Path):

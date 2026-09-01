@@ -11,8 +11,11 @@ def test_webui_routes(tmp_path):
     project.mkdir(parents=True); (project/'VERSION').write_text('3.5.6')
     app=create_web_app(workspace,models_root=models,output_root=output,project_root=project)
     client=app.test_client()
-    for route in ('/','/documents','/review','/training','/activation','/health'):
+    for route in ('/','/documents','/training','/activation','/health'):
         assert client.get(route).status_code==200
+    review = client.get('/review')
+    assert review.status_code == 302
+    assert review.headers['Location'].endswith('/process/value-review')
 
 def test_job_submission(tmp_path):
     workspace=tmp_path/'training'/'workspace'; project=tmp_path/'project'; project.mkdir(parents=True); (project/'VERSION').write_text('3.5.6')

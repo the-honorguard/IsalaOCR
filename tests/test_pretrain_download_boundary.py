@@ -9,7 +9,7 @@ def read(path: str) -> str:
 
 def test_pretrain_download_uses_network_enabled_model_prep_service() -> None:
     compose = read("infrastructure/docker/compose.yaml")
-    script = read("automation/powershell/prepare-training.ps1")
+    script = read("automation/powershell/prepare-training-core.ps1")
     model_prep = compose[compose.index("  model-prep:"):compose.index("  model-prep-offline:")]
     training_setup = compose[compose.index("  training-setup:"):compose.index("  trainer-cpu:")]
     assert "automation/training_runtime:/opt/isala-training:ro" in model_prep

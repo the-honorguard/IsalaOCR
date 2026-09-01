@@ -1,0 +1,39 @@
+{
+  "schema_version": 2,
+  "mode": "manual",
+  "reference_source_id": "example",
+  "reference_width": 1000,
+  "reference_height": 600,
+  "definitions": [
+    {
+      "panel_id": "lv-results",
+      "name": "LV results",
+      "hits": []
+    },
+    {
+      "panel_id": "rv-results",
+      "name": "RV results",
+      "hits": []
+    }
+  ],
+  "panels": [
+    {
+      "panel_id": "lv-results",
+      "name": "LV results",
+      "x1": 0.02,
+      "y1": 0.05,
+      "x2": 0.32,
+      "y2": 0.46
+    },
+    {
+      "panel_id": "rv-results",
+      "name": "RV results",
+      "x1": 0.02,
+      "y1": 0.52,
+      "x2": 0.32,
+      "y2": 0.94
+    }
+  ],
+  "definitions_updated_at": "2026-08-31T17:11:30.490285+00:00",
+  "updated_at": "2026-08-31T17:11:30.490285+00:00"
+}

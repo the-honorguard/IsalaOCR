@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .json_store import read_json_object, write_json_atomic
+
 
 def _read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return read_json_object(path)
 
 
 def _find_inference_dir(path: Path) -> Path:
@@ -53,14 +54,12 @@ def register_model(
         "source_run": run.name,
         "inference_dir": "inference",
     }
-    (destination / "model.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
-    )
+    write_json_atomic(destination / "model.json", manifest)
     index_path = root / "registry.json"
     index = _read_json(index_path) if index_path.exists() else {"models": []}
     index["models"] = [item for item in index.get("models", []) if item.get("model_id") != model_id]
     index["models"].append(manifest)
-    index_path.write_text(json.dumps(index, indent=2), encoding="utf-8")
+    write_json_atomic(index_path, index)
     return manifest
 
 
@@ -97,9 +96,7 @@ def activate_model(
             "activated_at": datetime.now(timezone.utc).isoformat(),
             "metrics": {},
         }
-        (temporary / "isala_model.json").write_text(
-            json.dumps(manifest, indent=2), encoding="utf-8"
-        )
+        write_json_atomic(temporary / "isala_model.json", manifest)
         if destination.exists():
             shutil.rmtree(destination)
         temporary.rename(destination)
@@ -111,7 +108,7 @@ def activate_model(
             "path": str(destination),
             "metrics": {},
         }
-        (registry / "active.json").write_text(json.dumps(active, indent=2), encoding="utf-8")
+        write_json_atomic(registry / "active.json", active)
         return active
 
     source = registry / "models" / model_id
@@ -127,9 +124,7 @@ def activate_model(
     if temporary.exists():
         shutil.rmtree(temporary)
     shutil.copytree(source / "inference", temporary)
-    (temporary / "isala_model.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
-    )
+    write_json_atomic(temporary / "isala_model.json", manifest)
     if destination.exists():
         shutil.rmtree(destination)
     temporary.rename(destination)
@@ -139,5 +134,5 @@ def activate_model(
         "path": str(destination),
         "metrics": manifest.get("metrics", {}),
     }
-    (registry / "active.json").write_text(json.dumps(active, indent=2), encoding="utf-8")
+    write_json_atomic(registry / "active.json", active)
     return active

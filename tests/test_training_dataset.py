@@ -4,7 +4,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from isala_ocr.training.dataset import build_dataset
+from isala_ocr.training.dataset import RECOGNITION_GT_METHOD, build_dataset
 from isala_ocr.training.db import TrainingDatabase
 
 
@@ -27,6 +27,7 @@ def _add_sample(db: TrainingDatabase, root: Path, source: str, field: str, label
             "raw_ocr": "different",
             "raw_confidence": 0.5,
             "raw_variant": "test",
+            "extraction_method": RECOGNITION_GT_METHOD,
             "image_width": 120,
             "image_height": 24,
             "roi_x1": 0,

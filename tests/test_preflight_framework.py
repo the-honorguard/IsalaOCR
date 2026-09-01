@@ -9,7 +9,9 @@ def read(path: str) -> str:
 
 def test_start_cmd_is_single_entrypoint() -> None:
     start = read("START.cmd")
-    assert "automation\\powershell\\launcher.ps1" in start
+    startup = read("automation/powershell/startup.ps1")
+    assert "automation\\powershell\\startup.ps1" in start
+    assert 'Join-Path $PSScriptRoot "launcher.ps1"' in startup
     assert "%*" in start
 
 
@@ -29,7 +31,7 @@ def test_every_menu_action_gets_preflight_before_execution() -> None:
     assert "Check-only mode: the task was not executed" in menu
     assert "S. Systeemcontroles" in menu
     assert "M. Onderhoud / permissieherstel" in menu
-    assert '"4"  = @{ Name = "Tabelcellen reviewen"' in menu
+    assert '"4"  = @{ Name = "Cel-GT beoordelen"' in menu
 
 
 def test_preflight_catalog_covers_detection_and_value_pipeline_actions() -> None:

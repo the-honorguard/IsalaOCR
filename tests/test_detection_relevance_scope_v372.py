@@ -38,7 +38,7 @@ def _candidate(candidate_id: str, box: tuple[int, int, int, int]) -> dict:
 
 def test_schema_v12_separates_geometry_review_from_scope_relevance(tmp_path: Path) -> None:
     db = TrainingDatabase(tmp_path / "samples.sqlite3")
-    assert SCHEMA_VERSION == 13
+    assert SCHEMA_VERSION == 14
     with db.connect() as conn:
         review_columns = {row["name"] for row in conn.execute("PRAGMA table_info(detection_reviews)")}
         annotation_columns = {row["name"] for row in conn.execute("PRAGMA table_info(detection_annotations)")}
@@ -198,6 +198,6 @@ def test_existing_v11_detection_tables_gain_scope_columns(tmp_path: Path) -> Non
         review_columns = {row[1] for row in check.execute("PRAGMA table_info(detection_reviews)")}
         annotation_columns = {row[1] for row in check.execute("PRAGMA table_info(detection_annotations)")}
         version = check.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()[0]
-    assert version == "13"
+        assert version == "14"
     assert {"relevance_status", "relevance_reason"} <= review_columns
     assert "training_role" in annotation_columns

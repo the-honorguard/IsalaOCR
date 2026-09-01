@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "items": [
+    {
+      "queue_id": "423e46bf26eb4431b0df36b03aeca056",
+      "project_id": "p",
+      "workspace": "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\.pytest-temp-all\\test_pending_decisions_for_sam0\\projects\\p",
+      "run_id": "r",
+      "issue_id": "i",
+      "decision": "model_error",
+      "status": "pending",
+      "attempts": 0,
+      "queued_at": "2026-08-31T17:11:02.346554+00:00",
+      "next_attempt_at": 0.0,
+      "last_error": ""
+    }
+  ],
+  "completed_total": 0,
+  "last_completed_at": ""
+}

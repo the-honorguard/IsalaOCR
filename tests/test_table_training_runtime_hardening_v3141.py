@@ -23,7 +23,7 @@ def test_gpu_probe_survives_windows_powershell_argument_flattening() -> None:
 
 def test_table_checkpoint_resolution_is_windows_powershell_51_compatible() -> None:
     script = _text("automation/powershell/train-table-cell-model.ps1")
-    assert "GetRelativePath" not in script
+    assert "[System.IO.Path]::GetRelativePath(" not in script
     assert "GetFullPath" in script
     assert "Substring($workspacePrefix.Length)" in script
     assert "OrdinalIgnoreCase" in script

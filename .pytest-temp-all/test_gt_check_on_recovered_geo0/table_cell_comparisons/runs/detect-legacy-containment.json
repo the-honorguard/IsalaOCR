@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "run_id": "detect-legacy-containment",
+  "label": "legacy run",
+  "model_id": "model-legacy",
+  "model_name": "legacy",
+  "dataset_id": "table-cells-containment",
+  "source": "step3_localization_diagnostics",
+  "created_at": "2026-08-14T10:00:00+00:00",
+  "iou_threshold": 0.5,
+  "geometry_iou": 0.75,
+  "metrics": {
+    "gt_total": 1,
+    "prediction_total": 1,
+    "tp": 0,
+    "fp": 1,
+    "fn": 1,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "direct_correct": 0,
+    "geometry_mismatch": 0,
+    "merged": 0,
+    "review_needed": 2,
+    "panel_count": 1
+  },
+  "panels": [
+    {
+      "source_id": "source-a",
+      "panel_id": "rv",
+      "panel_name": "Right ventricle Volume Result",
+      "split": "train",
+      "file_name": "source-a__rv.png",
+      "panel_box": [
+        0,
+        0,
+        200,
+        100
+      ],
+      "width": 200,
+      "height": 100,
+      "ground_truth": [
+        {
+          "gt_id": "gt-1",
+          "box": [
+            70,
+            20,
+            120,
+            35
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "prediction_id": "oversized-title",
+          "box": [
+            0,
+            10,
+            190,
+            45
+          ],
+          "confidence": 0.967
+        }
+      ],
+      "matches": [],
+      "issues": [
+        {
+          "type": "fp",
+          "label": "Extra detectie (FP)",
+          "prediction_box": [
+            0,
+            10,
+            190,
+            45
+          ],
+          "gt_boxes": [],
+          "confidence": 0.967,
+          "iou": 0.0,
+          "issue_id": "legacy-fp"
+        },
+        {
+          "type": "fn",
+          "label": "GT-cel gemist (FN)",
+          "prediction_box": null,
+          "gt_boxes": [
+            [
+              70,
+              20,
+              120,
+              35
+            ]
+          ],
+          "confidence": 0.0,
+          "iou": 0.0,
+          "issue_id": "legacy-fn"
+        }
+      ],
+      "tp": 0,
+      "fp": 1,
+      "fn": 1,
+      "direct_correct": 0,
+      "geometry_mismatch": 0,
+      "merged": 0
+    }
+  ]
+}

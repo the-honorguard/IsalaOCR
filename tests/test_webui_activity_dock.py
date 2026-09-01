@@ -108,7 +108,7 @@ def test_activation_progress_is_derived_from_terminal_stage(tmp_path: Path) -> N
     job_id = "job-20260806T120001-abcdef13"
     payload = {
         "job_id": job_id,
-        "action_id": "16",
+        "action_id": "116",
         "action_name": "Geregistreerd model activeren",
         "status": "running",
         "created_at": "2026-08-06T10:00:00+00:00",
@@ -117,7 +117,7 @@ def test_activation_progress_is_derived_from_terminal_stage(tmp_path: Path) -> N
     (jobs / "status").mkdir(parents=True, exist_ok=True)
     (jobs / "logs").mkdir(parents=True, exist_ok=True)
     (jobs / "status" / f"{job_id}.json").write_text(json.dumps(payload), encoding="utf-8")
-    (jobs / "logs" / f"{job_id}.log").write_text("[1/4] start\n[2/4] prepare\n[3/4] activate\n", encoding="utf-8")
+    (jobs / "logs" / f"{job_id}.log").write_text("[1/4] Voorwaarden\n[2/4] Voorbereiden\n[3/4] Model activeren...\n", encoding="utf-8")
     state = app.test_client().get("/api/status").get_json()
     job = next(item for item in state["jobs"] if item["job_id"] == job_id)
     assert job["progress_percent"] == 75.0
@@ -144,10 +144,9 @@ def test_webui_start_replaces_an_obsolete_worker_process_tree() -> None:
 
 def test_webui_start_recreates_an_outdated_labeler_container() -> None:
     text = (ROOT / "automation" / "powershell" / "label-training-data.ps1").read_text(encoding="utf-8")
-    assert '$expectedLabelerImage = "isalaocr-labeler:$expectedWorkerVersion"' in text
-    assert "$existingInfo.Config.Image" in text
-    assert "$labelerImageIsCurrent" in text
-    assert "Webinterface update detected" in text
+    assert "START always rebuilds and recreates the labeler from the current checkout" in text
+    assert "up --build -d --force-recreate labeler" in text
+    assert "unchanged layers may come from cache" in text
 
 
 def test_worker_adds_missing_json_properties_safely_for_windows_powershell_51() -> None:

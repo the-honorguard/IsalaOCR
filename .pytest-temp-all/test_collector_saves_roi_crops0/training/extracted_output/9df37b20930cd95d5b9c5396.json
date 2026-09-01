@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "source_id": "9df37b20930cd95d5b9c5396",
+  "profile": "test",
+  "study_info": {
+    "detected": false,
+    "raw_text": "",
+    "confidence": 0.0,
+    "roi": null,
+    "heart_rate_bpm": null,
+    "bsa_m2": null,
+    "bsa_method": null,
+    "height_m": null,
+    "weight_kg": null,
+    "gender": null,
+    "raw_values": {},
+    "field_confidence": {},
+    "valid": {
+      "heart_rate_bpm": false,
+      "bsa_m2": false,
+      "height_m": false,
+      "weight_kg": false,
+      "gender": false
+    },
+    "warnings": [
+      "study_info_line_not_found"
+    ]
+  },
+  "measurements": {
+    "value": {
+      "raw_text": " raw-0 mI ",
+      "confidence": 0.8,
+      "extraction_method": "fixed_roi",
+      "locator_confidence": 0.0
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "project_id": "andere_usecase",
+  "name": "Andere usecase",
+  "use_case_id": "generic_document",
+  "description": "",
+  "input_path": "/input/projects/andere_usecase",
+  "created_at": "2026-08-31T17:11:23.652774+00:00",
+  "updated_at": "2026-08-31T17:11:23.652774+00:00",
+  "archived": false
+}

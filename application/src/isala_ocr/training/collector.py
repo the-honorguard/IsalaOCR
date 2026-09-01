@@ -17,6 +17,7 @@ from ..study_info import extract_study_info
 from ..ocr.table_structure import PPStructureTableEngine, TABLE_ENGINE_VERSION
 from ..ocr.base import OCREngine
 from .projects import resolve_project_workspace
+from .input_selection import input_files, selected_input_files
 from .db import TrainingDatabase, utc_now
 from .dynamic_locator import LOCATOR_VERSION, LocatedField, locate_fields
 from .header_normalization import load_header_aliases
@@ -109,37 +110,12 @@ def _table_settings_with_active_region_model(root: Path, settings: dict) -> dict
 
 
 def _files(path: Path) -> list[Path]:
-    if path.is_file():
-        return [path]
-    if not path.is_dir():
-        raise FileNotFoundError(path)
-    ignored_suffixes = {".ini", ".yaml", ".yml", ".json", ".txt", ".log"}
-    return sorted(
-        item
-        for item in path.rglob("*")
-        if item.is_file()
-        and not any(part.startswith(".") for part in item.relative_to(path).parts)
-        and item.suffix.lower() not in ignored_suffixes
-    )
+    return input_files(path)
 
 
 def _selected_files(path: Path, workspace: Path) -> list[Path]:
-    """Apply the optional WebUI input-selection manifest to a collector run."""
-    files = _files(path)
-    manifest_path = resolve_project_workspace(workspace) / "input_selection.json"
-    if not manifest_path.is_file():
-        return files
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-        selected = {
-            str(value).replace("\\", "/").lstrip("/")
-            for value in (payload.get("selected") or [])
-            if str(value).strip()
-        }
-    except (OSError, TypeError, ValueError):
-        LOGGER.warning("Ignoring invalid input selection manifest: %s", manifest_path)
-        return files
-    return [item for item in files if item.relative_to(path).as_posix() in selected]
+    """Apply the same input-selection rules as Step 1A."""
+    return selected_input_files(path, workspace)
 
 
 def _joined(tokens) -> tuple[str, float]:

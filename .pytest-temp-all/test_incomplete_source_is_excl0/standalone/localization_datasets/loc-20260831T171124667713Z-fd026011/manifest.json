@@ -1,0 +1,51 @@
+{
+  "dataset_id": "loc-20260831T171124667713Z-fd026011",
+  "path": "localization_datasets/loc-20260831T171124667713Z-fd026011",
+  "created_at": "2026-08-31T17:11:24.674724+00:00",
+  "format": "COCODetDataset",
+  "class_names": [
+    "field_roi"
+  ],
+  "image_count": 1,
+  "source_count": 1,
+  "full_source_image_count": 1,
+  "review_patch_image_count": 0,
+  "annotation_count": 2,
+  "positive_review_count": 2,
+  "negative_review_count": 1,
+  "ignored_annotation_count": 0,
+  "coco_annotation_count": 2,
+  "negative_image_count": 0,
+  "open_candidate_count": 0,
+  "splits": {
+    "train": {
+      "images": 1,
+      "annotations": 2
+    },
+    "val": {
+      "images": 0,
+      "annotations": 0
+    },
+    "test": {
+      "images": 0,
+      "annotations": 0
+    }
+  },
+  "source_splits": {
+    "s": "train"
+  },
+  "split_policy": {
+    "mode": "auto",
+    "targets": {
+      "train": 1,
+      "val": 0,
+      "test": 0
+    },
+    "overrides": {}
+  },
+  "pipeline": "field_localization",
+  "supervision_policy": "completed_sources_only",
+  "source": "only images explicitly marked review_completed are included; incomplete images are excluded entirely",
+  "eligible_source_count": 1,
+  "excluded_source_count": 0
+}

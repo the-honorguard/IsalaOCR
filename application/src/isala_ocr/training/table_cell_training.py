@@ -16,26 +16,13 @@ from .table_cell_ground_truth import (
 )
 from .table_region_ground_truth import list_table_regions
 from .table_panels import load_panel_profile, panel_boxes_for_image
+from .json_store import read_json as _read_json, write_json_atomic as _write_json
 
 MODEL_NAME = "RT-DETR-L_wireless_table_cell_det"
 DATASET_DIRNAME = "table_cell_datasets"
 RUN_DIRNAME = "table_cell_runs"
 MODEL_DIRNAME = "table_cell_models"
 SPLIT_NAMES = ("train", "val", "test")
-
-
-def _read_json(path: Path, default: Any = None) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, TypeError, ValueError):
-        return default
-
-
-def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    temporary.replace(path)
 
 
 def _latest_pointer(root: Path) -> Path:

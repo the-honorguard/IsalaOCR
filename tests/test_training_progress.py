@@ -78,3 +78,12 @@ def test_detailed_output_preserves_console_lines(tmp_path: Path) -> None:
     progress = json.loads((tmp_path / "training-progress.json").read_text(encoding="utf-8"))
     assert progress["status"] == "failed"
     assert progress["return_code"] == 1
+
+
+def test_progress_snapshot_keeps_logical_device_scope(tmp_path: Path) -> None:
+    output = io.StringIO()
+    renderer = TrainingProgressRenderer(tmp_path, 2, device="gpu", stream=output)
+    renderer.finish(0)
+
+    progress = json.loads((tmp_path / "training-progress.json").read_text(encoding="utf-8"))
+    assert progress["device"] == "gpu"

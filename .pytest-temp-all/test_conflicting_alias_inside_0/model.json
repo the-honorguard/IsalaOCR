@@ -1,0 +1,21 @@
+{
+  "model_type": "row-header-alias-normalizer",
+  "model_version": 1,
+  "generated_at": "2026-08-31T17:11:08.472935+00:00",
+  "profile": "header-profile",
+  "accepted_review_count": 2,
+  "included_example_count": 0,
+  "ignored_review_count": 0,
+  "learned_alias_count": 0,
+  "field_aliases": {},
+  "conflicts": [
+    {
+      "panel": "lv",
+      "normalized": "volurne",
+      "target_field_keys": [
+        "lv_ed_volume",
+        "lv_stroke_volume"
+      ]
+    }
+  ]
+}

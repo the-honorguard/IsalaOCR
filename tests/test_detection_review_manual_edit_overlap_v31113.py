@@ -64,11 +64,11 @@ def test_selection_markers_are_above_overlapping_boxes() -> None:
     assert ".review-box>.box-index{display:none}" in css
 
 
-def test_multi_cell_review_rule_is_explicit() -> None:
+def test_table_first_structure_review_rule_is_explicit() -> None:
     source = TEMPLATE.read_text(encoding="utf-8")
-    assert "Eén kader = één functionele cel" in source
-    assert "Meerdere velden/cellen samengevoegd" in source
-    assert "teken daarna iedere echte cel apart" in source
+    assert "rijen en kolommen" in source
+    assert "losse celacties zijn alleen nodig bij een echte uitzondering" in source
+    assert "+ Ontbrekende cel" in source
 
 
 def test_manual_update_api_exists() -> None:

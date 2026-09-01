@@ -10,7 +10,7 @@ def test_common_exports_training_image_revision_to_compose() -> None:
 
 
 def test_preparation_always_materializes_and_verifies_exact_versioned_tags() -> None:
-    script = (ROOT / "automation" / "powershell" / "prepare-training.ps1").read_text(encoding="utf-8")
+    script = (ROOT / "automation" / "powershell" / "prepare-training-core.ps1").read_text(encoding="utf-8")
     assert "function Assert-DockerImage" in script
     for device, service in (("cpu", "training-image-cpu"), ("gpu", "training-image-gpu"), ("gpu-detection", "training-image-gpu-detection")):
         build = script.index(f"--profile training-build build {service}")
@@ -23,4 +23,3 @@ def test_preparation_always_materializes_and_verifies_exact_versioned_tags() -> 
     assert "Test-TrainingImagePrepared -Device cpu" not in script
     assert "Test-TrainingImagePrepared -Device gpu" not in script
     assert "Test-TrainingImagePrepared -Device gpu-detection" not in script
-

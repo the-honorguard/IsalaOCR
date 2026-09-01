@@ -1,0 +1,395 @@
+{
+  "schema_version": 2,
+  "created_at": "2026-08-31T17:11:16.426585+00:00",
+  "model_id": "field-test",
+  "dataset_id": "loc-20260831T171115067640Z-af7ae617",
+  "predictions_path": "predictions.json",
+  "prediction_generation_threshold": 0.01,
+  "thresholds": [
+    0.01,
+    0.1,
+    0.25
+  ],
+  "splits": {
+    "train": [
+      {
+        "threshold": 0.01,
+        "f1": 1.0,
+        "gate_passed": true,
+        "gate_failures": [],
+        "calibration_passed": true,
+        "calibration_failures": [],
+        "metrics": {
+          "iou_threshold": 0.75,
+          "auto_accept_iou_threshold": 0.9,
+          "minimum_confidence": 0.01,
+          "precision": 1.0,
+          "recall": 1.0,
+          "mean_iou": 1.0,
+          "median_iou": 1.0,
+          "false_positives_per_image": 0.0,
+          "auto_accept_rate": 1.0,
+          "true_positives": 9,
+          "false_positives": 0,
+          "false_negatives": 0,
+          "raw_predictions": 9,
+          "scored_predictions": 9,
+          "evaluated_images": 9,
+          "ground_truth_rois": 9,
+          "ignored_predictions": 0,
+          "ground_truth_fingerprint": "b8e75b1716356480d6738ed59a8f2178f54314f3ba56d7aca6cc6c38bff059b4"
+        }
+      },
+      {
+        "threshold": 0.1,
+        "f1": 1.0,
+        "gate_passed": true,
+        "gate_failures": [],
+        "calibration_passed": true,
+        "calibration_failures": [],
+        "metrics": {
+          "iou_threshold": 0.75,
+          "auto_accept_iou_threshold": 0.9,
+          "minimum_confidence": 0.1,
+          "precision": 1.0,
+          "recall": 1.0,
+          "mean_iou": 1.0,
+          "median_iou": 1.0,
+          "false_positives_per_image": 0.0,
+          "auto_accept_rate": 1.0,
+          "true_positives": 9,
+          "false_positives": 0,
+          "false_negatives": 0,
+          "raw_predictions": 9,
+          "scored_predictions": 9,
+          "evaluated_images": 9,
+          "ground_truth_rois": 9,
+          "ignored_predictions": 0,
+          "ground_truth_fingerprint": "b8e75b1716356480d6738ed59a8f2178f54314f3ba56d7aca6cc6c38bff059b4"
+        }
+      },
+      {
+        "threshold": 0.25,
+        "f1": 0.0,
+        "gate_passed": false,
+        "gate_failures": [
+          "recall 0.000 >= 0.950 niet gehaald",
+          "precision 0.000 >= 0.900 niet gehaald",
+          "auto_accept_rate 0.000 >= 0.850 niet gehaald"
+        ],
+        "calibration_passed": false,
+        "calibration_failures": [
+          "recall 0.000 >= 0.950 niet gehaald",
+          "precision 0.000 >= 0.900 niet gehaald",
+          "auto_accept_rate 0.000 >= 0.850 niet gehaald"
+        ],
+        "metrics": {
+          "iou_threshold": 0.75,
+          "auto_accept_iou_threshold": 0.9,
+          "minimum_confidence": 0.25,
+          "precision": 0.0,
+          "recall": 0.0,
+          "mean_iou": 0.0,
+          "median_iou": 0.0,
+          "false_positives_per_image": 0.0,
+          "auto_accept_rate": 0.0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 9,
+          "raw_predictions": 9,
+          "scored_predictions": 0,
+          "evaluated_images": 9,
+          "ground_truth_rois": 9,
+          "ignored_predictions": 0,
+          "ground_truth_fingerprint": "b8e75b1716356480d6738ed59a8f2178f54314f3ba56d7aca6cc6c38bff059b4"
+        }
+      }
+    ],
+    "val": [
+      {
+        "threshold": 0.01,
+        "f1": 1.0,
+        "gate_passed": false,
+        "gate_failures": [
+          "evaluated_images 2.000 >= 3.000 niet gehaald",
+          "ground_truth_rois 2.000 >= 3.000 niet gehaald"
+        ],
+        "calibration_passed": true,
+        "calibration_failures": [],
+        "metrics": {
+          "iou_threshold": 0.75,
+          "auto_accept_iou_threshold": 0.9,
+          "minimum_confidence": 0.01,
+          "precision": 1.0,
+          "recall": 1.0,
+          "mean_iou": 1.0,
+          "median_iou": 1.0,
+          "false_positives_per_image": 0.0,
+          "auto_accept_rate": 1.0,
+          "true_positives": 2,
+          "false_positives": 0,
+          "false_negatives": 0,
+          "raw_predictions": 2,
+          "scored_predictions": 2,
+          "evaluated_images": 2,
+          "ground_truth_rois": 2,
+          "ignored_predictions": 0,
+          "ground_truth_fingerprint": "5dca364a90a9a61a343dd03ec9d4d39246e6fe22c7b41668368a4eb2cde9b26f"
+        }
+      },
+      {
+        "threshold": 0.1,
+        "f1": 1.0,
+        "gate_passed": false,
+        "gate_failures": [
+          "evaluated_images 2.000 >= 3.000 niet gehaald",
+          "ground_truth_rois 2.000 >= 3.000 niet gehaald"
+        ],
+        "calibration_passed": true,
+        "calibration_failures": [],
+        "metrics": {
+          "iou_threshold": 0.75,
+          "auto_accept_iou_threshold": 0.9,
+          "minimum_confidence": 0.1,
+          "precision": 1.0,
+          "recall": 1.0,
+          "mean_iou": 1.0,
+          "median_iou": 1.0,
+          "false_positives_per_image": 0.0,
+          "auto_accept_rate": 1.0,
+          "true_positives": 2,
+          "false_positives": 0,
+          "false_negatives": 0,
+          "raw_predictions": 2,
+          "scored_predictions": 2,
+          "evaluated_images": 2,
+          "ground_truth_rois": 2,
+          "ignored_predictions": 0,
+          "ground_truth_fingerprint": "5dca364a90a9a61a343dd03ec9d4d39246e6fe22c7b41668368a4eb2cde9b26f"
+        }
+      },
+      {
+        "threshold": 0.25,
+        "f1": 0.0,
+        "gate_passed": false,
+        "gate_failures": [
+          "evaluated_images 2.000 >= 3.000 niet gehaald",
+          "ground_truth_rois 2.000 >= 3.000 niet gehaald",
+          "recall 0.000 >= 0.950 niet gehaald",
+          "precision 0.000 >= 0.900 niet gehaald",
+          "auto_accept_rate 0.000 >= 0.850 niet gehaald"
+        ],
+        "calibration_passed": false,
+        "calibration_failures": [
+          "recall 0.000 >= 0.950 niet gehaald",
+          "precision 0.000 >= 0.900 niet gehaald",
+          "auto_accept_rate 0.000 >= 0.850 niet gehaald"
+        ],
+        "metrics": {
+          "iou_threshold": 0.75,
+          "auto_accept_iou_threshold": 0.9,
+          "minimum_confidence": 0.25,
+          "precision": 0.0,
+          "recall": 0.0,
+          "mean_iou": 0.0,
+          "median_iou": 0.0,
+          "false_positives_per_image": 0.0,
+          "auto_accept_rate": 0.0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 2,
+          "raw_predictions": 2,
+          "scored_predictions": 0,
+          "evaluated_images": 2,
+          "ground_truth_rois": 2,
+          "ignored_predictions": 0,
+          "ground_truth_fingerprint": "5dca364a90a9a61a343dd03ec9d4d39246e6fe22c7b41668368a4eb2cde9b26f"
+        }
+      }
+    ],
+    "test": [
+      {
+        "threshold": 0.01,
+        "f1": 1.0,
+        "gate_passed": true,
+        "gate_failures": [],
+        "calibration_passed": true,
+        "calibration_failures": [],
+        "metrics": {
+          "iou_threshold": 0.75,
+          "auto_accept_iou_threshold": 0.9,
+          "minimum_confidence": 0.01,
+          "precision": 1.0,
+          "recall": 1.0,
+          "mean_iou": 1.0,
+          "median_iou": 1.0,
+          "false_positives_per_image": 0.0,
+          "auto_accept_rate": 1.0,
+          "true_positives": 3,
+          "false_positives": 0,
+          "false_negatives": 0,
+          "raw_predictions": 3,
+          "scored_predictions": 3,
+          "evaluated_images": 3,
+          "ground_truth_rois": 3,
+          "ignored_predictions": 0,
+          "ground_truth_fingerprint": "c8a0958a248b0d67d7eacd3fd015864e3af3804d8875ee4c9ce72e7d017ebf66"
+        }
+      },
+      {
+        "threshold": 0.1,
+        "f1": 1.0,
+        "gate_passed": true,
+        "gate_failures": [],
+        "calibration_passed": true,
+        "calibration_failures": [],
+        "metrics": {
+          "iou_threshold": 0.75,
+          "auto_accept_iou_threshold": 0.9,
+          "minimum_confidence": 0.1,
+          "precision": 1.0,
+          "recall": 1.0,
+          "mean_iou": 1.0,
+          "median_iou": 1.0,
+          "false_positives_per_image": 0.0,
+          "auto_accept_rate": 1.0,
+          "true_positives": 3,
+          "false_positives": 0,
+          "false_negatives": 0,
+          "raw_predictions": 3,
+          "scored_predictions": 3,
+          "evaluated_images": 3,
+          "ground_truth_rois": 3,
+          "ignored_predictions": 0,
+          "ground_truth_fingerprint": "c8a0958a248b0d67d7eacd3fd015864e3af3804d8875ee4c9ce72e7d017ebf66"
+        }
+      },
+      {
+        "threshold": 0.25,
+        "f1": 0.0,
+        "gate_passed": false,
+        "gate_failures": [
+          "recall 0.000 >= 0.950 niet gehaald",
+          "precision 0.000 >= 0.900 niet gehaald",
+          "auto_accept_rate 0.000 >= 0.850 niet gehaald"
+        ],
+        "calibration_passed": false,
+        "calibration_failures": [
+          "recall 0.000 >= 0.950 niet gehaald",
+          "precision 0.000 >= 0.900 niet gehaald",
+          "auto_accept_rate 0.000 >= 0.850 niet gehaald"
+        ],
+        "metrics": {
+          "iou_threshold": 0.75,
+          "auto_accept_iou_threshold": 0.9,
+          "minimum_confidence": 0.25,
+          "precision": 0.0,
+          "recall": 0.0,
+          "mean_iou": 0.0,
+          "median_iou": 0.0,
+          "false_positives_per_image": 0.0,
+          "auto_accept_rate": 0.0,
+          "true_positives": 0,
+          "false_positives": 0,
+          "false_negatives": 3,
+          "raw_predictions": 3,
+          "scored_predictions": 0,
+          "evaluated_images": 3,
+          "ground_truth_rois": 3,
+          "ignored_predictions": 0,
+          "ground_truth_fingerprint": "c8a0958a248b0d67d7eacd3fd015864e3af3804d8875ee4c9ce72e7d017ebf66"
+        }
+      }
+    ]
+  },
+  "split_errors": {},
+  "recommended_threshold": 0.01,
+  "recommended_source_split": "val",
+  "recommended_gate_passed": true,
+  "production_threshold": 0.1,
+  "diagnosis": [
+    "Er zijn voorspellingen onder 0.25 maar niet op de huidige operationele threshold; confidence-calibratie is waarschijnlijk een factor."
+  ],
+  "improvement_pipeline": {
+    "schema_version": 1,
+    "status": "passed",
+    "headline": "Validation is voldoende",
+    "summary": "Validation haalt de gate bij confidence 0.10. Deze confidence is de production-kandidaat en mag nu zonder verdere tuning op de hold-out test worden beoordeeld.",
+    "primary_diagnosis": {
+      "code": "validation_ready",
+      "label": "Validation is voldoende",
+      "summary": "Validation haalt de gate bij confidence 0.10. Deze confidence is de production-kandidaat en mag nu zonder verdere tuning op de hold-out test worden beoordeeld.",
+      "evidence": [
+        "Diagnostische confidence is 0.01, gekozen op VALIDATION.",
+        "Validation gate PASS bij confidence 0.10."
+      ]
+    },
+    "recommended_action": {
+      "code": "final_test",
+      "label": "Bekijk finale test",
+      "description": "Gebruik de validation-gekozen confidence ongewijzigd voor de finale test. Tune niet op de testresultaten.",
+      "focus_split": "test",
+      "focus_filter": "all",
+      "focus_cause": "all"
+    },
+    "calibration": {
+      "source_split": "val",
+      "diagnostic_threshold": 0.01,
+      "production_threshold": 0.1,
+      "production_ready": true,
+      "minimum_recall": 0.95,
+      "minimum_precision": 0.9,
+      "maximum_false_positives_per_image": 1.0,
+      "reason": "Production-confidence 0.10 is gekozen op validation en haalt alle gate-criteria."
+    },
+    "error_breakdown": {
+      "false_positives": 0,
+      "false_negatives": 0,
+      "near_match": 0,
+      "duplicate": 0,
+      "unmatched": 0,
+      "negative_region": 0
+    },
+    "top_problem_sources": [
+      {
+        "source_id": "source-04",
+        "tp": 1,
+        "fp": 0,
+        "fn": 0
+      },
+      {
+        "source_id": "source-10",
+        "tp": 1,
+        "fp": 0,
+        "fn": 0
+      }
+    ],
+    "stages": [
+      {
+        "id": "train_sanity",
+        "title": "1. Training sanity-check",
+        "status": "pass",
+        "summary": "TRAIN heeft voldoende leersignaal voor verdere diagnose (max recall 100.0%, beste F1 100.0%)."
+      },
+      {
+        "id": "validation_calibration",
+        "title": "2. Validation + confidence-calibratie",
+        "status": "pass",
+        "summary": "Production-kandidaat gevonden op confidence 0.10."
+      },
+      {
+        "id": "error_analysis",
+        "title": "3. Automatische foutanalyse",
+        "status": "pass",
+        "summary": "Validation haalt de gate bij confidence 0.10. Deze confidence is de production-kandidaat en mag nu zonder verdere tuning op de hold-out test worden beoordeeld."
+      },
+      {
+        "id": "final_test",
+        "title": "4. Finale hold-out test",
+        "status": "pass",
+        "summary": "De hold-out test haalt de gate bij de validation-gekozen confidence 0.10."
+      }
+    ]
+  },
+  "diagnostic_id": "loc-diagnostic-20260831T171116Z-b1f1e940"
+}

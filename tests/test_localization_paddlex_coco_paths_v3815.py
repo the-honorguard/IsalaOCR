@@ -43,7 +43,7 @@ def test_paddlex_layout_rejects_legacy_images_prefix_with_actionable_hint(tmp_pa
     with pytest.raises(RuntimeError):
         module.validate_paddlex_coco_layout(tmp_path)
     captured = capsys.readouterr()
-    assert "images/images/source.png" in captured.err
+    assert "images/images/source.png" in captured.err.replace("\\", "/")
     assert "Rebuild the localization dataset with IsalaOCR 3.8.15+" in captured.err
 
 

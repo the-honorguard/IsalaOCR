@@ -1,0 +1,49 @@
+{
+  "locator_version": "fixed-roi-v1",
+  "detected_tokens": 0,
+  "detected_lines": 0,
+  "source_id": "9df37b20930cd95d5b9c5396",
+  "image_width": 200,
+  "image_height": 100,
+  "study_info": {
+    "detected": false,
+    "raw_text": "",
+    "confidence": 0.0,
+    "roi": null,
+    "heart_rate_bpm": null,
+    "bsa_m2": null,
+    "bsa_method": null,
+    "height_m": null,
+    "weight_kg": null,
+    "gender": null,
+    "raw_values": {},
+    "field_confidence": {},
+    "valid": {
+      "heart_rate_bpm": false,
+      "bsa_m2": false,
+      "height_m": false,
+      "weight_kg": false,
+      "gender": false
+    },
+    "warnings": [
+      "study_info_line_not_found"
+    ]
+  },
+  "fields": [
+    {
+      "field_key": "value",
+      "panel": null,
+      "method": "fixed_roi",
+      "locator_confidence": 0.0,
+      "matched_label": "",
+      "box": [
+        10,
+        20,
+        110,
+        60
+      ],
+      "raw_ocr": " raw-0 mI ",
+      "raw_confidence": 0.8
+    }
+  ]
+}

@@ -51,7 +51,7 @@ def _verify_cpu_inference_paddle() -> str:
             "PaddlePaddle 3.3.x is not supported for IsalaOCR CPU localization inference. "
             "That release family has an upstream PIR/oneDNN regression that raises "
             "ConvertPirAttribute2RuntimeAttribute for Paddle static models such as PicoDet-S. "
-            "Rebuild training image revision 3.8.4 from Stap 1 · Voorbereiding; the supported CPU pin is "
+            "Rebuild training image revision 3.8.5 from Stap 1 · Voorbereiding; the supported CPU pin is "
             "PaddlePaddle 3.2.2."
         )
     return version

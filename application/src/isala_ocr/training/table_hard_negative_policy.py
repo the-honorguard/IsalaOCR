@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .projects import resolve_project_workspace
+from .json_store import read_json as _read_json, write_json_atomic as _write_json
 from . import table_model_comparison as comparison
 from . import table_cell_training as training
 
@@ -22,19 +23,6 @@ HISTORY_LIMIT = 8
 _ORIGINAL_LATEST_FEEDBACK = comparison.latest_completed_training_feedback
 _ORIGINAL_BUILD_DATASET = training.build_table_cell_dataset
 _INSTALLED = False
-
-
-def _read_json(path: Path, default: Any = None) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, TypeError, ValueError):
-        return default
-
-
-def _write_json(path: Path, payload: Any) -> None:
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False), encoding="utf-8")
-    temporary.replace(path)
 
 
 def _panel_key(issue: dict[str, Any]) -> str:
@@ -286,7 +274,12 @@ def _plan_replay(manifest: dict[str, Any], feedback: dict[str, Any]) -> dict[str
         counts[key] = counts.get(key, 0) + 1
 
     panels: list[dict[str, Any]] = []
-    for key, replay_count in sorted(counts.items()):
+    # Keep every eligible hard example in the plan, including candidates that
+    # received no slot because the replay budget was exhausted. Consumers can
+    # then explain the prioritisation without guessing which candidates were
+    # silently omitted.
+    for key in sorted(requested_weights):
+        replay_count = counts.get(key, 0)
         panel = by_key[key]
         meta = registry.get(key, {})
         panels.append({
@@ -340,7 +333,7 @@ def _build_dataset_with_replay_plan(workspace: str | Path) -> dict[str, Any]:
     })
     manifest["training_feedback"] = feedback_meta
     dataset_root = root / str(manifest.get("path") or "")
-    _write_json(dataset_root / "manifest.json", manifest)
+    _write_json(dataset_root / "manifest.json", manifest, allow_nan=False)
     return manifest
 
 

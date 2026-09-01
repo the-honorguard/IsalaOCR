@@ -1,0 +1,40 @@
+{
+  "info": {
+    "description": "IsalaOCR project-specific field localization dataset",
+    "version": "2.0",
+    "created_at": "2026-08-31T17:11:05.202273+00:00",
+    "supervision": "explicit_reviews_only"
+  },
+  "licenses": [],
+  "images": [
+    {
+      "id": 3,
+      "file_name": "scope-5.png",
+      "width": 360,
+      "height": 140
+    }
+  ],
+  "annotations": [
+    {
+      "id": 3,
+      "image_id": 3,
+      "category_id": 1,
+      "bbox": [
+        20,
+        60,
+        80,
+        30
+      ],
+      "area": 2400,
+      "iscrowd": 0,
+      "ignore": 0
+    }
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "name": "field_roi",
+      "supercategory": "field"
+    }
+  ]
+}

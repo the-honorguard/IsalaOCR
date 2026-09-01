@@ -136,7 +136,7 @@ services:
     build:
       context: ../..
       dockerfile: infrastructure/docker/Dockerfile.labeler
-    image: isalaocr-labeler:3.14.1
+    image: isalaocr-labeler:3.16.0
     profiles: ["training"]
     read_only: true
     environment:
@@ -219,25 +219,25 @@ services:
     <<: *runtime-security
 
   training-image-cpu:
-    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"
+    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"
     build: *training-cpu-build
     profiles: ["training-build"]
     command: ["--help"]
 
   training-image-gpu:
-    image: "isalaocr-training-gpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"
+    image: "isalaocr-training-gpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"
     build: *training-gpu-build
     profiles: ["training-build"]
     command: ["--help"]
 
   training-image-gpu-detection:
-    image: "isalaocr-training-gpu-detection:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"
+    image: "isalaocr-training-gpu-detection:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"
     build: *training-gpu-detection-build
     profiles: ["training-build"]
     command: ["--help"]
 
   localization-model-prep:
-    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"
+    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"
     user: "${ISALA_APP_UID:-10001}:${ISALA_APP_GID:-10001}"
     profiles: ["setup"]
     environment: *training-environment
@@ -250,7 +250,7 @@ services:
     <<: *runtime-security
 
   localization-model-check:
-    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"
+    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"
     user: "${ISALA_APP_UID:-10001}:${ISALA_APP_GID:-10001}"
     profiles: ["setup"]
     network_mode: none
@@ -264,7 +264,7 @@ services:
     <<: *runtime-security
 
   training-setup:
-    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"
+    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"
     user: "${ISALA_APP_UID:-10001}:${ISALA_APP_GID:-10001}"
     profiles: ["training-setup"]
     network_mode: none
@@ -277,7 +277,7 @@ services:
     <<: *runtime-security
 
   trainer-cpu:
-    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"
+    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"
     user: "${ISALA_APP_UID:-10001}:${ISALA_APP_GID:-10001}"
     profiles: ["training"]
     network_mode: none
@@ -291,7 +291,7 @@ services:
     <<: *runtime-security
 
   trainer-gpu:
-    image: "isalaocr-training-gpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"
+    image: "isalaocr-training-gpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"
     user: "${ISALA_APP_UID:-10001}:${ISALA_APP_GID:-10001}"
     profiles: ["training-gpu"]
     network_mode: none
@@ -306,7 +306,7 @@ services:
     <<: *runtime-security
 
   trainer-gpu-detection:
-    image: "isalaocr-training-gpu-detection:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"
+    image: "isalaocr-training-gpu-detection:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"
     user: "${ISALA_APP_UID:-10001}:${ISALA_APP_GID:-10001}"
     profiles: ["training-gpu-detection"]
     network_mode: none
@@ -321,7 +321,7 @@ services:
     <<: *runtime-security
 
   workspace-doctor:
-    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"
+    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"
     user: "${ISALA_APP_UID:-10001}:${ISALA_APP_GID:-10001}"
     profiles: ["doctor"]
     network_mode: none
@@ -342,7 +342,7 @@ services:
     <<: *runtime-security
 
   workspace-repair:
-    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"
+    image: "isalaocr-training-cpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"
     user: "0:0"
     profiles: ["doctor"]
     network_mode: none

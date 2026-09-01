@@ -21,7 +21,7 @@ def test_step_one_prioritizes_readiness_and_next_step() -> None:
     assert 'data-prep-main-status' in template
     assert "GEREED" in template
     assert "NIET GEREED" in template
-    assert "Ga naar Stap 2 · Panelen instellen" in template
+    assert "Stap 2 · Tabelregio’s selecteren" in template
     assert "Onderhoud / opnieuw installeren" in template
     assert "Je hoeft hier niets meer te installeren" in template
     # Training-stack metrics are deliberately not part of the normal table-first view.
@@ -32,9 +32,9 @@ def test_step_one_prioritizes_readiness_and_next_step() -> None:
 
 def test_step_one_client_selects_single_repair_action() -> None:
     client = read("application/src/isala_ocr/training/static/preparation-page.js")
-    assert "function repairPlan(prep)" in client
-    assert "Table modellen downloaden" in client
-    assert "Inference runtime installeren" in client
-    assert "Table pipeline controleren" in client
+    assert "ONE_CLICK_PREPARATION" in client
+    assert "actionId: '1'" in client
+    assert "Alles voorbereiden" in client
+    assert "enforceOneClickAction" in client
     assert "readyAction.hidden = !allReady" in client
     assert "repairAction.hidden = allReady" in client

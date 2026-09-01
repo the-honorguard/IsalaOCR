@@ -106,5 +106,5 @@ def test_artifact_page_and_quality_client_support_react16_runtime() -> None:
     assert "ReactDOM.render(element, qualityMount)" in quality
     assert "ReactDOM.createRoot" not in artifacts
     assert "React.Fragment" not in artifacts
-    assert "ReactDOM.render(element, artifactMount)" in artifacts
+    assert "ReactDOM.render(app, artifactMount)" in artifacts
     assert 'id="react-localization-artifacts"' in template

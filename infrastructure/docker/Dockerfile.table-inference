@@ -4,7 +4,7 @@
 # reused; this image only adds the application code and DICOM/PP-Structure
 # runtime helpers.  Do not install paddlepaddle here: the base image contains
 # the CUDA build and replacing it with the CPU wheel would silently disable GPU.
-ARG BASE_IMAGE=isalaocr-training-gpu-detection:3.8.4
+ARG BASE_IMAGE=isalaocr-training-gpu-detection:3.8.5
 FROM ${BASE_IMAGE}
 
 USER root

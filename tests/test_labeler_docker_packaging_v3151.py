@@ -23,4 +23,4 @@ def test_labeler_build_smoke_tests_webui_imports():
 
 
 def test_labeler_packaging_fix_version():
-    assert VERSION.read_text(encoding="utf-8").strip() == "3.15.1"
+    assert VERSION.read_text(encoding="utf-8").strip() == "3.16.0"

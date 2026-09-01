@@ -114,7 +114,7 @@
 
     <div class="preparation-readiness-action">
       <span class="muted preparation-next-step" data-prep-ready-action {% if not preparation.all_ready %}hidden{% endif %}>
-        Ga verder via de linkerzijbalk: Stap 2 · Panelen instellen
+        Ga verder via de linkerzijbalk: Stap 2 · Tabelregio’s selecteren
       </span>
       <form method="post" action="/jobs" data-prep-repair-action {% if preparation.all_ready %}hidden{% endif %}>
         <input type="hidden" name="action_id" data-prep-repair-action-id value="{% if not inference or inference.download.state == 'unknown' %}19{% elif inference.download.state == 'missing' %}30{% elif inference.install.state == 'missing' %}35{% else %}42{% endif %}">

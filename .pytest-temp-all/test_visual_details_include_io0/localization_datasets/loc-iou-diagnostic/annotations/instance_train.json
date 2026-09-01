@@ -1,0 +1,1 @@
+{"images": [{"id": 1, "file_name": "source-a.png", "width": 200, "height": 100}], "annotations": [{"id": 1, "image_id": 1, "category_id": 1, "bbox": [10, 10, 40, 20], "area": 800, "iscrowd": 0, "ignore": 0}], "categories": [{"id": 1, "name": "field_roi", "supercategory": "field"}]}

@@ -1,3 +1,3 @@
 """IsalaOCR local extraction pipeline."""
 
-__version__ = "3.14.1"
+__version__ = "3.16.0"

@@ -17,10 +17,11 @@ def test_paddledetection_install_skips_only_external_deps_during_build() -> None
 
 
 def test_action17_runs_gpu_runtime_validation_after_build() -> None:
-    script = (ROOT / "automation" / "powershell" / "prepare-training.ps1").read_text(encoding="utf-8")
-    assert "trainer-gpu-detection" in script
-    assert "runtime-check --device gpu:0 --require-paddledet" in script
-    assert "gpus: all" in script
+    core = (ROOT / "automation" / "powershell" / "prepare-training-core.ps1").read_text(encoding="utf-8")
+    compose = (ROOT / "infrastructure" / "docker" / "compose.yaml").read_text(encoding="utf-8")
+    assert "trainer-gpu-detection" in core
+    assert "runtime-check --device gpu:0 --require-paddledet" in core
+    assert "gpus: all" in compose
 
 
 def test_paddlex_runtime_check_can_require_paddledet() -> None:
@@ -31,4 +32,4 @@ def test_paddlex_runtime_check_can_require_paddledet() -> None:
 
 
 def test_heavy_training_image_version_remains_reusable() -> None:
-    assert (ROOT / "project" / "TRAINING_IMAGE_VERSION").read_text(encoding="utf-8").strip() == "3.8.4"
+    assert (ROOT / "project" / "TRAINING_IMAGE_VERSION").read_text(encoding="utf-8").strip() == "3.8.5"

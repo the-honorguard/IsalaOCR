@@ -1,0 +1,32 @@
+{
+  "schema_version": "2.0",
+  "source_id": "source",
+  "mapping_engine": "generic-mapping-v4-schema-evidence",
+  "recognition_engine": {
+    "provider": "fake",
+    "recognition_model": "test"
+  },
+  "generated_at": "2026-08-31T17:11:07.546701+00:00",
+  "measurements": {
+    "study.heart_rate_bpm": {
+      "display_name": "Heart rate",
+      "group": "Study information",
+      "raw_text": "92 bpm",
+      "data_type": "integer",
+      "parsed_value": 92,
+      "parsed_unit": "bpm",
+      "parse_status": "ok",
+      "range_valid": true,
+      "confidence": 0.995,
+      "mapping_confidence": 0.99,
+      "mapping_id": "7e21b3f92e115b3456366c609e6122af",
+      "label_text": "HR",
+      "roi": [
+        73,
+        28,
+        167,
+        64
+      ]
+    }
+  }
+}

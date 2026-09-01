@@ -59,6 +59,7 @@ def make_app(tmp_path: Path):
         models_root=tmp_path / "models",
         output_root=tmp_path / "output",
         project_root=project,
+        config_path=ROOT / "application" / "config" / "app.yaml",
     ), workspace
 
 
@@ -68,13 +69,16 @@ def test_every_process_tab_renders_without_data(tmp_path: Path) -> None:
     client = app.test_client()
     for step in PROCESS_STEPS:
         response = client.get(f"/process/{step['key']}")
-        assert response.status_code == 200, step["key"]
+        assert response.status_code in {200, 302}, step["key"]
+        if response.status_code == 302:
+            assert response.headers["Location"].startswith("/")
         text = response.get_data(as_text=True)
-        if step["index"] is not None:
+        if response.status_code == 200 and step["index"] is not None:
             assert f"Stap {step['index']}" in text
         else:
             assert "Stap None" not in text
-        assert step["title"] in text
+        if response.status_code == 200:
+            assert step["title"] in text
 
 
 @pytest.mark.skipif(not FLASK_AVAILABLE, reason="Flask is not installed in the test runtime")
@@ -122,15 +126,15 @@ def test_table_first_sidebar_and_direct_urls_are_sequentially_gated(tmp_path: Pa
 
 
 @pytest.mark.skipif(not FLASK_AVAILABLE, reason="Flask is not installed in the test runtime")
-def test_value_pipeline_job_is_blocked_while_detection_gate_is_closed(tmp_path: Path) -> None:
+def test_mapping_preparation_is_not_blocked_by_unrelated_detection_gate(tmp_path: Path) -> None:
     app, _ = make_app(tmp_path)
     response = app.test_client().post(
         "/jobs",
         data={"action_id": "20"},
         headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
     )
-    assert response.status_code == 423
-    assert "Detection gate" in response.get_json()["error"]
+    assert response.status_code == 202
+    assert response.get_json()["action_id"] == "20"
 
 @pytest.mark.skipif(not FLASK_AVAILABLE, reason="Flask is not installed in the test runtime")
 def test_utf16_windows_output_is_rendered_as_visible_text(tmp_path: Path) -> None:

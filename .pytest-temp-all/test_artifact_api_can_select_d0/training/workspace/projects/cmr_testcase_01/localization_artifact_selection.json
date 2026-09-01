@@ -1,0 +1,13 @@
+{
+  "evaluation_dataset_id": "loc-test-2",
+  "evaluation_model_id": "field-1",
+  "baseline_evaluation_id": "",
+  "trained_evaluation_id": "",
+  "updated_at": "2026-08-31T17:11:09.713422+00:00",
+  "model": {
+    "model_id": "field-1",
+    "path": "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\.pytest-temp-all\\test_artifact_api_can_select_d0\\training\\workspace\\projects\\cmr_testcase_01\\localization_runs\\run-1\\inference",
+    "device": "gpu",
+    "dataset_id": "loc-test-1"
+  }
+}

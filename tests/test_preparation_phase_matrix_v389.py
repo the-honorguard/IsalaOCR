@@ -20,12 +20,12 @@ def test_preparation_page_exposes_separate_download_install_and_check_phases() -
         assert label in template
     assert "Download → install → check" in template
     assert "TABLE PIPELINE" in template
-    assert "Ga naar Stap 2 · Panelen instellen" in template
+    assert "Stap 2 · Tabelregio’s selecteren" in template
     assert "PP-StructureV3" in template
 
 
 def test_preparation_orchestrator_supports_component_phases_and_parallel_downloads() -> None:
-    script = read("automation/powershell/prepare-training.ps1")
+    script = read("automation/powershell/prepare-training-core.ps1")
     assert '[ValidateSet("full","download","install","check")]' in script
     assert "function Invoke-AllDownloadsParallel" in script
     assert "Start-Job" in script
@@ -40,7 +40,7 @@ def test_preparation_orchestrator_supports_component_phases_and_parallel_downloa
 
 def test_preparation_status_tracks_phase_readiness_and_validation_markers() -> None:
     script = read("automation/powershell/preparation-status.ps1")
-    assert 'schema_version="2.0"' in script
+    assert 'schema_version="2.1"' in script
     assert "preparation_checks" in script
     assert "download=(PhaseState" in script
     assert "install=(InstalledPhase" in script

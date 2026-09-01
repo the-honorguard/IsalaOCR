@@ -1,0 +1,32 @@
+{
+  "source_id": "source-a",
+  "candidates": [
+    {
+      "candidate_id": "new-1",
+      "source_kind": "table_cell",
+      "confidence": 0.95,
+      "x1": 10,
+      "y1": 8,
+      "x2": 20,
+      "y2": 22
+    },
+    {
+      "candidate_id": "new-2",
+      "source_kind": "table_cell",
+      "confidence": 0.94,
+      "x1": 10,
+      "y1": 30,
+      "x2": 20,
+      "y2": 40
+    },
+    {
+      "candidate_id": "extra",
+      "source_kind": "table_cell",
+      "confidence": 0.7,
+      "x1": 60,
+      "y1": 60,
+      "x2": 70,
+      "y2": 70
+    }
+  ]
+}

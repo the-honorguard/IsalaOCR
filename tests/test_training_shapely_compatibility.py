@@ -18,7 +18,7 @@ def test_training_runtime_fails_fast_on_legacy_shapely() -> None:
     runner = (ROOT / "automation" / "training_runtime" / "paddlex_runner.py").read_text(encoding="utf-8")
     assert "def _verify_shapely_runtime" in runner
     assert "from shapely import intersection" in runner
-    assert "Run menu option 1 to build training image revision 3.8.4" in runner
+    assert "Run menu option 1 to build training image revision 3.8.5" in runner
     train_block = runner.split("def train(args: argparse.Namespace) -> int:", 1)[1].split("def evaluate", 1)[0]
     assert "_verify_shapely_runtime()" in train_block
 
@@ -32,4 +32,4 @@ def test_menu_argument_dispatch_does_not_call_containskey_on_nullable_definition
     menu = (ROOT / "automation" / "powershell" / "training-menu.ps1").read_text(encoding="utf-8")
     assert '.ContainsKey("Arguments")' not in menu
     assert '$defaultArguments = $definition["Arguments"]' in menu
-    assert 'IsalaOCR local pipeline v{0}' in menu
+    assert 'IsalaOCR Model Factory v{0}' in menu

@@ -33,7 +33,7 @@ def test_docker_desktop_is_started_automatically_when_engine_is_unavailable() ->
 
 def test_docker_startup_has_bounded_wait_and_continues_automatically() -> None:
     script = read("automation/powershell/training-common.ps1")
-    assert "$waitSeconds = 180" in script
+    assert "$waitSeconds = 360" in script
     assert "Waiting for Docker Desktop" in script
     assert "Docker Desktop is ready. Continuing" in script
     assert "did not become ready within $waitSeconds seconds" in script

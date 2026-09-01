@@ -14,6 +14,7 @@ from .table_cell_ground_truth import (
     set_ground_truth_source_review_completed,
 )
 from .table_cell_training import active_table_cell_model, latest_table_cell_dataset
+from .json_store import read_json as _read_json, write_json_atomic as _write_json
 
 COMPARISON_DIRNAME = "table_cell_comparisons"
 RUNS_DIRNAME = "runs"
@@ -31,20 +32,6 @@ ROW_ALIGNMENT_MIN_AREA_RATIO = 0.12
 MERGED_GT_MIN_COVERAGE = 0.70
 MERGED_GT_MIN_CENTER_SEPARATION = 0.35
 EVALUATION_SCHEMA_VERSION = 6
-
-
-def _read_json(path: Path, default: Any = None) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, TypeError, ValueError):
-        return default
-
-
-def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
 
 
 def _safe_iso(value: Any) -> str:

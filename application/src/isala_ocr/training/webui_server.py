@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,21 +11,15 @@ from .comparison_review_queue_web import install_comparison_review_queue
 from .job_cancellation import install_job_cancellation
 from .recognition_ground_truth_web import install_recognition_ground_truth_review
 from .recognition_model_factory import install_recognition_model_factory_metadata
+from .json_store import read_json_object, write_json_atomic
 
 
 def _read_json(path: Path) -> dict:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    return read_json_object(path)
 
 
 def _write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    temp.replace(path)
+    write_json_atomic(path, payload)
 
 
 def _worker_is_live_for(worker: dict, job_id: str) -> bool:

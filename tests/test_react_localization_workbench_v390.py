@@ -60,7 +60,7 @@ def test_react_runtime_is_local_and_labeler_already_copies_static_assets() -> No
     assert "react-vendor/react-dom.production.min.js" in template
     assert (ROOT / "application/src/isala_ocr/training/static/react-vendor/react.production.min.js").is_file()
     assert (ROOT / "application/src/isala_ocr/training/static/react-vendor/react-dom.production.min.js").is_file()
-    assert "training/static" in dockerfile
+    assert "COPY application/src/isala_ocr/training /app/src/isala_ocr/training" in dockerfile
 
 
 def test_frontend_source_and_compiled_asset_are_both_packaged() -> None:

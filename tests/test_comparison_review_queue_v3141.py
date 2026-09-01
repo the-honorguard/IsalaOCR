@@ -77,8 +77,9 @@ def test_worker_applies_review_without_browser_waiting(tmp_path: Path) -> None:
 
 def test_labeler_image_contains_review_queue_modules() -> None:
     dockerfile = (REPO_ROOT / "infrastructure" / "docker" / "Dockerfile.labeler").read_text(encoding="utf-8")
-    assert "training/comparison_review_queue.py" in dockerfile
-    assert "training/comparison_review_queue_web.py" in dockerfile
+    assert "COPY application/src/isala_ocr/training /app/src/isala_ocr/training" in dockerfile
+    assert (REPO_ROOT / "application/src/isala_ocr/training/comparison_review_queue.py").is_file()
+    assert (REPO_ROOT / "application/src/isala_ocr/training/comparison_review_queue_web.py").is_file()
 
 
 def test_web_queue_extension_reroutes_reviews_and_adds_gt_return_link() -> None:

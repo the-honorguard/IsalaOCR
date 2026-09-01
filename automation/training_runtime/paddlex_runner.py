@@ -626,7 +626,7 @@ def _verify_shapely_runtime() -> dict[str, str]:
         raise RuntimeError(
             "The training image has an incompatible Shapely runtime. "
             "PaddleOCR requires Shapely 2.x with top-level intersection support. "
-            "Run menu option 1 to build training image revision 3.8.4."
+            "Run menu option 1 to build training image revision 3.8.5."
         ) from exc
     if not callable(intersection):
         raise RuntimeError(
@@ -756,6 +756,10 @@ def train(args: argparse.Namespace) -> int:
     progress = TrainingProgressRenderer(
         output,
         args.epochs,
+        # The queue stores the logical device (cpu/gpu), while PaddleX may
+        # receive an indexed device such as gpu:0. Keep the progress payload
+        # on the same logical namespace used by the WebUI job cards.
+        device="gpu" if str(args.device).lower().startswith("gpu") else "cpu",
         verbose=args.detailed_output,
     )
     _run_paddlex(main, config, args.model, overrides, progress=progress)

@@ -1119,6 +1119,7 @@ def localization_evaluation_details(
     dataset_id: str = "",
     minimum_confidence: float = 0.25,
     iou_threshold: float = 0.75,
+    canonical_iou_threshold: float | None = None,
     split: str = "test",
 ) -> dict[str, Any]:
     """Build visual TP/FP/FN diagnostics from the frozen evaluation dataset."""
@@ -1194,6 +1195,41 @@ def localization_evaluation_details(
     precision = totals["tp"] / max(1, totals["tp"] + totals["fp"])
     recall = totals["tp"] / max(1, totals["tp"] + totals["fn"])
     fp_per_image = totals["fp"] / max(1, len(rows))
+    gate_iou = float(canonical_iou_threshold if canonical_iou_threshold is not None else iou_threshold)
+    sweep_thresholds = sorted({0.50, 0.75, float(iou_threshold), gate_iou})
+    iou_sweep: list[dict[str, Any]] = []
+    for sweep_iou in sweep_thresholds:
+        sweep_totals = {"tp": 0, "fp": 0, "fn": 0, "predictions": 0, "truth": 0}
+        for source in frozen_sources:
+            source_id = str(source.get("source_id") or "")
+            match = _detection_match_details(
+                list(prediction_map.get(source_id) or []),
+                list(source.get("truth_items") or []),
+                list(negative_by_source.get(source_id) or []),
+                minimum_confidence=float(minimum_confidence),
+                iou_threshold=sweep_iou,
+            )
+            sweep_totals["tp"] += len(match["true_positives"])
+            sweep_totals["fp"] += len(match["false_positives"])
+            sweep_totals["fn"] += len(match["false_negatives"])
+            sweep_totals["predictions"] += int(match["prediction_count"])
+            sweep_totals["truth"] += int(match["ground_truth_count"])
+        sweep_precision = sweep_totals["tp"] / max(1, sweep_totals["tp"] + sweep_totals["fp"])
+        sweep_recall = sweep_totals["tp"] / max(1, sweep_totals["tp"] + sweep_totals["fn"])
+        iou_sweep.append({
+            "iou_threshold": sweep_iou,
+            "is_gate_iou": abs(sweep_iou - gate_iou) < 1e-9,
+            "metrics": {
+                "true_positives": sweep_totals["tp"],
+                "false_positives": sweep_totals["fp"],
+                "false_negatives": sweep_totals["fn"],
+                "scored_predictions": sweep_totals["predictions"],
+                "ground_truth_rois": sweep_totals["truth"],
+                "precision": sweep_precision,
+                "recall": sweep_recall,
+                "false_positives_per_image": sweep_totals["fp"] / max(1, len(frozen_sources)),
+            },
+        })
     explanations: list[dict[str, str]] = []
     if totals["fp"]:
         dominant = max(causes, key=lambda key: causes[key])
@@ -1221,6 +1257,8 @@ def localization_evaluation_details(
         "split": split,
         "minimum_confidence": float(minimum_confidence),
         "iou_threshold": float(iou_threshold),
+        "canonical_iou_threshold": gate_iou,
+        "iou_sweep": iou_sweep,
         "prediction_generation_threshold": float(raw_payload.get("threshold") or 0.0) if isinstance(raw_payload, dict) else 0.0,
         "ground_truth_source": "frozen_coco_dataset",
         "ground_truth_fingerprint": ground_truth_fingerprint,
@@ -1705,7 +1743,7 @@ def diagnose_prediction_file(
         "split_errors": split_errors,
         # Backward-compatible alias. It is now explicitly validation-driven.
         "recommended_threshold": diagnostic_threshold,
-        "recommended_source_split": "val" if validation_rows else ("test" if test_rows else "train"),
+        "recommended_source_split": "val" if validation_rows else None,
         "recommended_gate_passed": bool(production is not None),
         "production_threshold": production_threshold,
         "diagnosis": diagnosis,

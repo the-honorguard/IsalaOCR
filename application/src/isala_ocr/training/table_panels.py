@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 from ..models import Box
+from .json_store import read_json_object, write_json_atomic
 
 PANEL_PROFILE_VERSION = 2
 PANEL_PROFILE_NAME = "table_panel_profile.json"
@@ -26,16 +26,12 @@ def panel_profile_path(workspace: str | Path) -> Path:
 
 
 def _write_profile(workspace: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
-    path = panel_profile_path(workspace)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    temporary.replace(path)
+    write_json_atomic(panel_profile_path(workspace), payload)
     return payload
 
 
-def _normalize_definitions(raw_definitions: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
-    definitions: list[dict[str, str]] = []
+def _normalize_definitions(raw_definitions: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    definitions: list[dict[str, Any]] = []
     used_ids: set[str] = set()
     for index, raw in enumerate(raw_definitions):
         if not isinstance(raw, dict):
@@ -48,14 +44,20 @@ def _normalize_definitions(raw_definitions: Iterable[dict[str, Any]]) -> list[di
             panel_id = f"{base_id}-{suffix}"
             suffix += 1
         used_ids.add(panel_id)
-        definitions.append({"panel_id": panel_id, "name": name})
+        raw_hits = raw.get("hits") if isinstance(raw.get("hits"), list) else raw.get("aliases")
+        hits = []
+        for hit in raw_hits or []:
+            value = str(hit or "").strip()
+            if value and value.casefold() not in {item.casefold() for item in hits}:
+                hits.append(value)
+        definitions.append({"panel_id": panel_id, "name": name, "hits": hits})
     return definitions
 
 
 def _normalize_panels(
     raw_panels: Iterable[dict[str, Any]],
     *,
-    definitions: list[dict[str, str]] | None = None,
+    definitions: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     definition_by_id = {str(item["panel_id"]): item for item in (definitions or [])}
     normalized: list[dict[str, Any]] = []
@@ -110,12 +112,7 @@ def load_panel_profile(workspace: str | Path) -> dict[str, Any]:
             "definitions_updated_at": "",
             "updated_at": "",
         }
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError, TypeError):
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = read_json_object(path)
 
     # Existing v1 profiles did not have a separate setup list. Normalize panels
     # first, then derive one persistent definition per existing panel.

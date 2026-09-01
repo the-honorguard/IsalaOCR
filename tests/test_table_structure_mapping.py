@@ -158,4 +158,4 @@ def test_ppstructure_wrapper_keeps_cell_switches_at_predict_time(monkeypatch) ->
     assert constructor_kwargs["use_table_recognition"] is True
     assert predict_kwargs["use_e2e_wireless_table_rec_model"] is False
     assert predict_kwargs["use_e2e_wired_table_rec_model"] is False
-    assert predict_kwargs["use_ocr_results_with_table_cells"] is True
+    assert predict_kwargs["use_ocr_results_with_table_cells"] is False

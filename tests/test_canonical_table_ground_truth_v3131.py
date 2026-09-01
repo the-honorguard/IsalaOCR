@@ -102,4 +102,4 @@ def test_step4_template_has_explicit_canonical_gt_mode() -> None:
     assert "Canonieke Ground Truth" in index
     assert "detectorpredictions staan alleen in Stap 7" in studio
     assert "canonical_table_gt_mode" in webui
-    assert '"title":"Ground Truth beheren"' in webui
+    assert '"title":"GT Studio"' in webui

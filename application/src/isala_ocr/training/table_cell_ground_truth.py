@@ -1,28 +1,14 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
 from typing import Any
 
 from .db import utc_now
 from .projects import resolve_project_workspace
+from .json_store import read_json as _read_json, write_json_atomic as _write_json
 
 GROUND_TRUTH_FILENAME = "table_cell_ground_truth.json"
-
-
-def _read_json(path: Path, default: Any = None) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, TypeError, ValueError):
-        return default
-
-
-def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
 
 
 def ground_truth_path(workspace: str | Path) -> Path:

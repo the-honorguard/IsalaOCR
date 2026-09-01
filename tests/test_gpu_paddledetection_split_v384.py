@@ -22,8 +22,8 @@ def test_gpu_recognition_and_detection_are_separate_images() -> None:
     compose = read("infrastructure/docker/compose.yaml")
     assert 'INSTALL_PADDLEDETECTION: "0"' in compose
     assert 'INSTALL_PADDLEDETECTION: "1"' in compose
-    assert 'image: "isalaocr-training-gpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"' in compose
-    assert 'image: "isalaocr-training-gpu-detection:${ISALA_TRAINING_IMAGE_VERSION:-3.8.4}"' in compose
+    assert 'image: "isalaocr-training-gpu:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"' in compose
+    assert 'image: "isalaocr-training-gpu-detection:${ISALA_TRAINING_IMAGE_VERSION:-3.8.5}"' in compose
     assert "training-image-gpu-detection:" in compose
     assert "trainer-gpu-detection:" in compose
 
@@ -45,7 +45,7 @@ def test_preparation_actions_are_independently_exposed() -> None:
     prepare = read("automation/powershell/prepare-training.ps1")
     for action_id in ("14", "15", "16", "17", "18"):
         assert f'"{action_id}" = @{{' in preflight
-        assert f'"{action_id}"' in menu
         assert f'"{action_id}"' in webui
+    assert "Get-IsalaActionCatalog" in menu
     for component in ("inference", "cpu-detection", "gpu-recognition", "gpu-detection", "pretrained"):
         assert component in prepare

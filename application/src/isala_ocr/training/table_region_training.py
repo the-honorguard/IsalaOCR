@@ -10,6 +10,7 @@ from .db import TrainingDatabase
 from .localization_dataset import resolve_localization_splits
 from .projects import resolve_project_workspace
 from .table_region_ground_truth import list_table_region_sources
+from .json_store import read_json, write_json_atomic
 
 
 DATASET_DIRNAME = "table_region_datasets"
@@ -42,7 +43,7 @@ def build_table_region_dataset(workspace: str | Path) -> dict[str, Any]:
     dataset_id = _dataset_id(source_ids, regions, splits)
     dataset_root = root / DATASET_DIRNAME / dataset_id
     if dataset_root.exists():
-        return json.loads((dataset_root / "manifest.json").read_text(encoding="utf-8"))
+        return read_json(dataset_root / "manifest.json", {})
     images_root = dataset_root / "images"
     annotations_root = dataset_root / "annotations"
     images_root.mkdir(parents=True, exist_ok=False)
@@ -88,7 +89,7 @@ def build_table_region_dataset(workspace: str | Path) -> dict[str, Any]:
     if annotation_count == 0:
         raise ValueError("De tabelregio-GT bevat geen geldige kaders")
     for split in SPLITS:
-        (annotations_root / f"instance_{split}.json").write_text(json.dumps(coco[split], indent=2), encoding="utf-8")
+        write_json_atomic(annotations_root / f"instance_{split}.json", coco[split])
     manifest = {
         "schema_version": 1,
         "dataset_id": dataset_id,
@@ -104,7 +105,7 @@ def build_table_region_dataset(workspace: str | Path) -> dict[str, Any]:
         "splits": {split: {"images": len(coco[split]["images"]), "annotations": len(coco[split]["annotations"])} for split in SPLITS},
         "supervision": "per_source_full_page_table_region_gt",
     }
-    (dataset_root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    write_json_atomic(dataset_root / "manifest.json", manifest)
     pointer_root = root / DATASET_DIRNAME
     pointer_root.mkdir(parents=True, exist_ok=True)
     (pointer_root / "latest.txt").write_text(dataset_id + "\n", encoding="ascii")

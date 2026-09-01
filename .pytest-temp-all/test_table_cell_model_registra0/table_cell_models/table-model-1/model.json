@@ -1,0 +1,17 @@
+{
+  "model_id": "table-model-1",
+  "model_name": "RT-DETR-L_wireless_table_cell_det",
+  "run_id": "run-1",
+  "parent_model_id": "",
+  "training_mode": "fresh",
+  "learning_rate": null,
+  "epochs": null,
+  "dataset_id": "data-1",
+  "device": "gpu",
+  "inference_dir": "table_cell_models/table-model-1/inference",
+  "evaluation": {
+    "f1": 0.9
+  },
+  "created_at": "2026-08-31T17:11:27.376092+00:00",
+  "active": false
+}

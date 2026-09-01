@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "isala-ocr-local"
-version = "3.14.1"
+version = "3.16.0"
 description = "Fully local, privacy-conscious OCR extraction for DICOM screenshots"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
@@ -23,7 +23,7 @@ dependencies = [
 [project.optional-dependencies]
 training = [
   "Flask>=3.1,<4",
-  "waitress>=3.1,<4",
+  "waitress>=3,<4",
 ]
 paddle = [
   "pandas>=2.2,<2.3",

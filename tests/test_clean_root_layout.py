@@ -31,7 +31,7 @@ def test_operational_content_is_grouped_into_directories() -> None:
 
 
 def test_no_secondary_cmd_wrappers_exist() -> None:
-    assert list(ROOT.glob("*.cmd")) == [ROOT / "START.cmd", ROOT / "run.cmd"]
+    assert set(ROOT.glob("*.cmd")) == {ROOT / "START.cmd", ROOT / "run.cmd"}
 
 
 def test_launcher_runs_safe_legacy_layout_migration_first() -> None:

@@ -9,15 +9,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HOME=/tmp \
     PYTHONPATH=/app/src
 
-RUN groupadd --gid "${APP_GID}" isalaocr \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid "${APP_GID}" isalaocr \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --no-create-home --shell /usr/sbin/nologin isalaocr \
     && python -m pip install --no-cache-dir "Flask>=3.1,<4" "waitress>=3,<4" "PyYAML>=6,<7" "Pillow>=10,<13" "pydicom>=3,<4" "numpy>=1.26,<3" "opencv-python-headless>=4.10,<5"
 
 WORKDIR /app
 
 # The labeling UI deliberately does not install PaddleOCR or PaddlePaddle. It
-# does include the small DICOM decode path required for input thumbnails, but
-# does not run OCR or table inference in this container.
+# includes only the small Tesseract binary used for on-demand table-header hit
+# matching; table inference remains in the training container.
 # Copy these packages as directories instead of maintaining a fragile list of
 # individual modules: adding a lightweight Python module must never produce an
 # image that builds successfully but crashes at import time.

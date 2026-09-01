@@ -82,8 +82,8 @@ def test_detection_list_shows_crop_and_actionable_fallback(tmp_path: Path) -> No
     assert "Waarom fallback?" in text
     assert "Slagvolume" in text
     assert "Verwachte header" in text
-    assert "Rijheader corrigeren" in text
-    assert "Trainen en DICOMs opnieuw detecteren" in text
+    assert "Generiek opnieuw detecteren" in text
+    assert "ROI beoordelen" in text
     assert "overlay-fallback" in text
 
 

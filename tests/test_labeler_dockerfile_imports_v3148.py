@@ -11,7 +11,4 @@ def test_labeler_image_copies_step7_evaluation_policy_module():
     training_init = TRAINING_INIT.read_text(encoding="utf-8")
 
     assert "table_model_evaluation_policy" in training_init
-    assert (
-        "COPY application/src/isala_ocr/training/table_model_evaluation_policy.py "
-        "/app/src/isala_ocr/training/table_model_evaluation_policy.py"
-    ) in dockerfile
+    assert "COPY application/src/isala_ocr/training /app/src/isala_ocr/training" in dockerfile

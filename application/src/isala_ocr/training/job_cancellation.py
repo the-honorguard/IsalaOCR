@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from flask import Flask, abort, flash, redirect, request
+
+from .json_store import read_json_object, write_json_atomic
 
 _JOB_ID = re.compile(r"^job-[A-Za-z0-9._:-]+$")
 
@@ -16,18 +17,11 @@ def _utcnow() -> str:
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    temp.replace(path)
+    write_json_atomic(path, payload)
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return data if isinstance(data, dict) else None
+    return read_json_object(path) or None
 
 
 def install_job_cancellation(app: Flask, workspace: str | Path) -> None:

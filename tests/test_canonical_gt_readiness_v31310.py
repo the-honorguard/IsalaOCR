@@ -105,5 +105,5 @@ def test_gt_studio_exposes_persistent_source_check_and_model_predictions_stay_in
     assert "markGtSourceDirty" in studio
     assert "set_ground_truth_source_review_completed" in webui
     assert "Nieuwe modelpredictions tellen hier niet als open kandidaten" in webui
-    assert "Nieuwe predictions horen niet meer in Stap 4" in quality
-    assert "Stap 7 · Model vergelijken" in quality
+    assert "GT en modelfeedback blijven gescheiden" in quality
+    assert "Stap 7 · Rijen, kolommen en celcrops" in quality

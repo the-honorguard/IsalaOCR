@@ -1,0 +1,24 @@
+{
+  "dataset_id": "table-cells-20260831T171127255997Z-79b241e5",
+  "dataset_path": "table_cell_datasets/table-cells-20260831T171127255997Z-79b241e5",
+  "valid": true,
+  "errors": [],
+  "warnings": [
+    "Validation-split is leeg; modelverbetering kan dan niet betrouwbaar worden beoordeeld"
+  ],
+  "splits": {
+    "train": {
+      "images": 1,
+      "annotations": 3
+    },
+    "val": {
+      "images": 0,
+      "annotations": 0
+    },
+    "test": {
+      "images": 0,
+      "annotations": 0
+    }
+  },
+  "validated_at": "2026-08-31T17:11:27.286445+00:00"
+}

@@ -70,7 +70,10 @@ def test_new_field_can_be_added_without_detector_code_change(tmp_path: Path) -> 
         follow_redirects=False,
     )
     assert response.status_code == 302
-    stored = database.get_field_definition("generic.new_value")
+    project_database = TrainingDatabase(
+        tmp_path / "training" / "workspace" / "projects" / "cmr_testcase_01" / "samples.sqlite3"
+    )
+    stored = project_database.get_field_definition("generic.new_value")
     assert stored is not None
     assert stored["preferred_unit"] == "mm"
     assert stored["aliases"] == ["Nieuwe waarde", "New value"]

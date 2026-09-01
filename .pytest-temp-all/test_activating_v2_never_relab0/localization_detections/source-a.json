@@ -1,0 +1,33 @@
+{
+  "schema_version": "3.1-localization-run-aware",
+  "source_id": "source-a",
+  "detection_batch_id": "batch-v1",
+  "detected_at": "2026-08-14T11:00:00+00:00",
+  "active_table_cell_model": {
+    "model_id": "model-v1",
+    "model_name": "RT-DETR-L_wireless_table_cell_det",
+    "run_id": "train-v1",
+    "dataset_id": "table-cells-versioned",
+    "activated_at": "2026-08-14T11:00:00+00:00"
+  },
+  "candidates": [
+    {
+      "candidate_id": "hit",
+      "source_kind": "table_cell",
+      "confidence": 0.95,
+      "x1": 10,
+      "y1": 10,
+      "x2": 20,
+      "y2": 20
+    },
+    {
+      "candidate_id": "extra",
+      "source_kind": "table_cell",
+      "confidence": 0.8,
+      "x1": 60,
+      "y1": 60,
+      "x2": 70,
+      "y2": 70
+    }
+  ]
+}

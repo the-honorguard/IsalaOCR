@@ -12,4 +12,4 @@ PADDLE_GPU_PACKAGE=paddlepaddle-gpu==3.2.2
 PADDLE_GPU_INDEX_URL=https://www.paddlepaddle.org.cn/packages/stable/cu118/
 
 # Reusable heavy training image revision. Kept separate from the app release.
-ISALA_TRAINING_IMAGE_VERSION=3.8.4
+ISALA_TRAINING_IMAGE_VERSION=3.8.5

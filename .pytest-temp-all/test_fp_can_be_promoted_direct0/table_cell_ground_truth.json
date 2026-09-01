@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "type": "canonical_table_cell_ground_truth",
+  "base_dataset_id": "table-cells-test",
+  "base_review_fingerprint": "baseline-fingerprint",
+  "created_at": "2026-08-31T17:11:26.204827+00:00",
+  "updated_at": "2026-08-31T17:11:26.262008+00:00",
+  "revision": 2,
+  "sources": {
+    "source-a": {
+      "source_id": "source-a",
+      "split": "val",
+      "cells": [
+        {
+          "gt_id": "gt-1ed4933a49fabf453ae5f657",
+          "source_id": "source-a",
+          "panel_id": "lv",
+          "panel_name": "LV",
+          "x1": 110,
+          "y1": 60,
+          "x2": 120,
+          "y2": 70,
+          "provenance": "step4_baseline",
+          "created_at": "2026-08-14T09:00:00+00:00",
+          "updated_at": "2026-08-14T09:00:00+00:00"
+        },
+        {
+          "gt_id": "gt-948bbd57dff812ac7e92b569",
+          "source_id": "source-a",
+          "panel_id": "lv",
+          "panel_name": "LV",
+          "x1": 160,
+          "y1": 110,
+          "x2": 180,
+          "y2": 125,
+          "provenance": "step7_prediction_gt",
+          "created_at": "2026-08-31T17:11:26.262008+00:00",
+          "updated_at": "2026-08-31T17:11:26.262008+00:00"
+        }
+      ],
+      "review_completed": false,
+      "review_completed_at": null
+    }
+  }
+}

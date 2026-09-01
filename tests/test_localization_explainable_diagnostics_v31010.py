@@ -60,11 +60,11 @@ def test_quality_ui_explains_metrics_uses_validation_for_confidence_and_has_iou_
     webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
     for text in (
         "Wat betekenen deze waarden?",
-        "Production confidence wordt alleen op VALIDATION gekozen",
-        "Diagnostische IoU",
-        "near-match / IoU-probleem",
-        "ongepaard: echte FP óf ontbrekend label",
-        "TEST-split blijft een eindmeting",
+        "Confidence wordt uitsluitend op VALIDATION gekozen",
+        "IoU (alleen diagnose)",
+        "Near-match / IoU",
+        "echte fout, near-match, duplicate, negatieve regio of ontbrekende annotation",
+        "TEST is alleen de hold-out eindmeting",
     ):
         assert text in source
         assert text in built
@@ -77,4 +77,4 @@ def test_diagnostic_payload_marks_validation_as_calibration_source():
     assert '"recommended_source_split": "val" if validation_rows else None' in source
     assert '"production_threshold"' in source
     assert '"production_ready"' in source
-    assert "production confidence wordt nooit op de testset gekozen" in source
+    assert "production confidence must come from validation, never from test" in source

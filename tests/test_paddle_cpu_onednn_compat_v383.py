@@ -24,7 +24,7 @@ def test_cpu_training_runtime_pins_paddle_322_and_invalidates_old_image() -> Non
     assert "PADDLE_GPU_PACKAGE:-paddlepaddle-gpu==3.2.2" in compose
     assert "PADDLE_CPU_PACKAGE=paddlepaddle==3.2.2" in environment
     assert "PADDLE_GPU_PACKAGE=paddlepaddle-gpu==3.2.2" in environment
-    assert (ROOT / "project" / "TRAINING_IMAGE_VERSION").read_text(encoding="utf-8").strip() == "3.8.4"
+    assert (ROOT / "project" / "TRAINING_IMAGE_VERSION").read_text(encoding="utf-8").strip() == "3.8.5"
 
 
 def test_localization_runner_rejects_known_paddle_33_cpu_regression() -> None:

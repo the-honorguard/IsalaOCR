@@ -14,4 +14,9 @@ def test_panel_setup_has_fullscreen_focus_editor_and_source_navigation():
     assert 'layoutFocusStage' in template
     assert 'requestFullscreen' in template
     assert 'fullscreenchange' in template
-    assert 'Er zijn niet-opgeslagen wijzigingen aan het panelprofiel' in template
+    assert 'Er zijn niet-opgeslagen wijzigingen aan deze lezing' in template
+    assert 'async function loadSource' in template
+    assert '/api/table-panel-review-source/' in template
+    assert 'history.replaceState' in template
+    assert 'window.location.href' not in template
+    assert '<button type="button" class="source-row' in template

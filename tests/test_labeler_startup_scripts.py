@@ -87,7 +87,7 @@ def test_docker_preflight_has_hard_timeout() -> None:
     common = read("automation/powershell/training-common.ps1")
     assert "Invoke-NativeProcessWithTimeout" in common
     assert "WaitForExit($TimeoutSeconds * 1000)" in common
-    assert "$waitSeconds = 180" in common
+    assert "$waitSeconds = 360" in common
     assert "Docker Desktop did not become ready within $waitSeconds seconds" in common
 
 

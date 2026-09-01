@@ -10,6 +10,7 @@ def read(relative: str) -> str:
 def test_docker_image_detection_is_centralized_and_uses_timeout_wrapper() -> None:
     common = read("automation/powershell/training-common.ps1")
     prepare = read("automation/powershell/prepare-training.ps1")
+    core = read("automation/powershell/prepare-training-core.ps1")
     status = read("automation/powershell/preparation-status.ps1")
 
     assert "function Get-DockerImageState" in common
@@ -20,8 +21,10 @@ def test_docker_image_detection_is_centralized_and_uses_timeout_wrapper() -> Non
     # The preparation orchestrator must not use a separate native Docker inspect
     # implementation, otherwise Windows PowerShell can disagree with status.ps1.
     assert "& docker image inspect" not in prepare
-    assert "Get-DockerImageState -Image $Image" in prepare
-    assert "-RetryCount 4" in prepare
+    assert "& docker image inspect" not in core
+    assert "Get-DockerImageState -Image $Image" in core
+    assert "-RetryCount 4" in core
+    assert '& $CoreScript -Component $Name -Phase $RequestedPhase' in prepare
 
     assert "function Get-PreparationImageState" in status
     assert "Get-DockerImageState -Image $Image" in status
@@ -29,7 +32,7 @@ def test_docker_image_detection_is_centralized_and_uses_timeout_wrapper() -> Non
 
 
 def test_post_build_image_assertions_retry_for_docker_desktop_visibility() -> None:
-    prepare = read("automation/powershell/prepare-training.ps1")
+    prepare = read("automation/powershell/prepare-training-core.ps1")
     for device, service in (
         ("cpu", "training-image-cpu"),
         ("gpu", "training-image-gpu"),
