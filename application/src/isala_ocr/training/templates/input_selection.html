@@ -15,7 +15,7 @@
     <label class="input-selection-item {% if item.selected %}is-selected{% endif %} {% if item.is_new %}is-new{% endif %}">
       <input type="checkbox" name="selected_file" value="{{ item.key }}" {% if item.selected %}checked{% endif %}>
       <div class="input-selection-preview">{% if item.preview_url %}<img src="{{ item.preview_url }}" alt="Voorbeeld {{ item.name }}">{% else %}<span>Voorbeeld<br>na eerste scan</span>{% endif %}</div>
-      <div class="input-selection-info"><strong title="{{ item.key }}">{{ item.name }}</strong><small>{{ item.directory or 'input' }} · {{ '%.1f'|format(item.size / 1048576) }} MB</small><span class="pill {% if item.processed %}ok{% elif item.is_new %}warn{% endif %}">{% if item.processed %}al verwerkt{% elif item.is_new %}nieuw{% else %}geselecteerd{% endif %}</span></div>
+      <div class="input-selection-info"><strong title="{{ item.key }}">{{ item.name }}</strong><small>{{ item.directory or 'input' }} · {{ '%.1f'|format(item.size / 1048576) }} MB</small><span class="pill {% if item.selected %}ok{% elif item.is_new %}warn{% endif %}">{% if item.selected %}geselecteerd{% elif item.is_new %}nieuw{% else %}beschikbaar{% endif %}</span></div>
     </label>
     {% endfor %}
   </div>

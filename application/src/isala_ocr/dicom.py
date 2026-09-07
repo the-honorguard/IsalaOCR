@@ -120,9 +120,10 @@ def decode_dicom(path: str | Path, settings: dict[str, Any] | None = None) -> De
 
     photometric = str(getattr(dataset, "PhotometricInterpretation", ""))
     if samples == 3:
-        if photometric == "YBR_RCT":
-            selected = _ybr_rct_to_rgb(selected)
-        elif photometric.startswith("YBR"):
+        # JPEG2000 pixel handlers return YBR_RCT/YBR_ICT as RGB already.
+        # Converting those a second time shifts the preview strongly toward
+        # magenta. Only convert YBR variants that remain in YBR space.
+        if photometric.startswith("YBR") and photometric not in {"YBR_RCT", "YBR_ICT"}:
             selected = convert_color_space(selected, photometric, "RGB")
         rgb = _normalize_uint8(selected)
         image = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)

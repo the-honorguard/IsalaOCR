@@ -55,6 +55,23 @@ def test_ppstructure_cells_create_ranked_table_relations() -> None:
     assert ed[0].value_column_index == 1
 
 
+def test_ppstructure_drops_full_width_studio_footer_after_regular_table() -> None:
+    data = {
+        "table_res_list": [{
+            "cell_box_list": [
+                [10, 10, 110, 35], [120, 10, 220, 35], [230, 10, 330, 35],
+                [10, 40, 110, 65], [120, 40, 220, 65], [230, 40, 330, 65],
+                [10, 70, 110, 95], [120, 70, 220, 95], [230, 70, 330, 95],
+                [10, 106, 330, 121],
+            ]
+        }]
+    }
+    tables = parse_ppstructure_tables(data, source_id="source", image_width=400, image_height=140)
+    assert len(tables) == 1
+    assert len(tables[0].cells) == 9
+    assert tables[0].box.y2 == 95
+
+
 def test_ppstructure_assigns_one_global_column_grid_across_rows() -> None:
     data = {
         "table_res_list": [{

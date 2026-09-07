@@ -37,11 +37,13 @@
   <section class="card panel-canvas-card">
     <div id="panel-stage" class="panel-stage" data-source-id="{{ source_id }}" data-width="{{ source.image_width }}" data-height="{{ source.image_height }}">
       <img id="panel-source-image" src="/source-render/{{ source_id }}.png" alt="Volledige bron voor panel setup" draggable="false">
+      <div id="panel-model-layer" class="panel-layer"></div>
       <div id="panel-suggestion-layer" class="panel-layer"></div>
       <div id="panel-layer" class="panel-layer"></div>
       <div id="panel-draft" class="panel-draft" hidden></div>
     </div>
     <p class="panel-resize-help"><strong>Volledige tabelregio tekenen:</strong> selecteer een kader en sleep de blauwe handgrepen aan hoeken of randen. De groene kaders worden als tabelregio-GT opgeslagen.</p>
+    <div class="panel-geometry-legend"><span>🟠 ruwe modelgrens</span><span>🟡 post-processing</span><span>🔴 uitgesloten ruis</span></div>
   </section>
   <aside class="panel-review-side">
     <section class="card panel-review-queue-card sticky-panel">
@@ -107,6 +109,9 @@ body.table-region-review-page .table-definition-heading{align-items:center}
 body.table-region-review-page .table-definition-heading h3{font-size:14px}
 body.table-region-review-page .table-definition-heading p{display:none}
 body.table-region-review-page .table-definition-row{padding:4px 6px}
+body.table-region-review-page .panel-geometry-legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:var(--muted)}
+body.table-region-review-page .panel-model-raw{position:absolute;box-sizing:border-box;border:2px dashed #f97316;pointer-events:none;z-index:1}
+body.table-region-review-page .panel-model-excluded{position:absolute;box-sizing:border-box;border:2px dashed #ef4444;background:rgba(239,68,68,.12);pointer-events:none;z-index:2}
 body.table-region-review-page .table-definition-row input{padding:6px 8px}
 body.table-region-review-page .table-definition-row button{padding:5px 7px}
 body.table-region-review-page .table-definition-card .workflow-actions button{padding:6px 9px}
@@ -152,7 +157,7 @@ body.panel-focus-mode .panel-source-bar h3{font-size:14px;margin:0}
 </style>
 <script>
 (()=>{
-  const stage=document.getElementById('panel-stage'), layer=document.getElementById('panel-layer'), draft=document.getElementById('panel-draft'), suggestionLayer=document.getElementById('panel-suggestion-layer'), sourceImage=document.getElementById('panel-source-image');
+  const stage=document.getElementById('panel-stage'), layer=document.getElementById('panel-layer'), modelLayer=document.getElementById('panel-model-layer'), draft=document.getElementById('panel-draft'), suggestionLayer=document.getElementById('panel-suggestion-layer'), sourceImage=document.getElementById('panel-source-image');
   const list=document.getElementById('panel-list'), empty=document.getElementById('panel-empty'), reviewSummaryCount=document.getElementById('table-review-summary-count'), msg=document.getElementById('panel-message'), target=document.getElementById('panel-target'), suggestionList=document.getElementById('panel-suggestion-list'), suggestionCount=document.getElementById('panel-suggestion-count');
   const suggestionCard=document.getElementById('panel-suggestion-card'), currentSourceLabel=document.getElementById('panel-current-source-id'), currentSourceStatus=document.getElementById('panel-current-source-status');
   const definitionList=document.getElementById('table-definition-list'), definitionCount=document.getElementById('table-definition-count'), definitionAdd=document.getElementById('table-definition-add'), definitionSave=document.getElementById('table-definition-save'), definitionMessage=document.getElementById('table-definition-message');
@@ -172,7 +177,7 @@ body.panel-focus-mode .panel-source-bar h3{font-size:14px;margin:0}
   const queueStorageKey=sourceId=>`isala-table-region-review-queue-v1:${sourceId}`;
   const loadQueue=(sourceId=currentSourceId)=>{try{const value=JSON.parse(localStorage.getItem(queueStorageKey(sourceId))||'[]');return Array.isArray(value)?value:[]}catch(_){return []}};
   let reviewQueue=loadQueue();
-  const normalizeSuggestions=items=>(items||[]).map(item=>({x1:Number(item.x1)/W,y1:Number(item.y1)/H,x2:Number(item.x2)/W,y2:Number(item.y2)/H,kind:item.kind||'table_region',variant:item.variant||'',suggestedPanelId:item.suggested_panel_id||item.suggestedPanelId||'',suggestedPanelName:item.suggested_panel_name||item.suggestedPanelName||'',suggestionScore:Number(item.suggestion_score||item.suggestionScore||0),suggestionBasis:item.suggestion_basis||item.suggestionBasis||'',ocrTableText:item.ocr_table_text||item.ocrTableText||'',accepted:false,selected:false}));
+  const normalizeSuggestions=items=>(items||[]).map(item=>({x1:Number(item.x1)/W,y1:Number(item.y1)/H,x2:Number(item.x2)/W,y2:Number(item.y2)/H,raw_x1:Number(item.raw_x1??item.x1)/W,raw_y1:Number(item.raw_y1??item.y1)/H,raw_x2:Number(item.raw_x2??item.x2)/W,raw_y2:Number(item.raw_y2??item.y2)/H,excluded_boxes:(item.excluded_boxes||[]).map(b=>b.map(Number)),kind:item.kind||'table_region',variant:item.variant||'',suggestedPanelId:item.suggested_panel_id||item.suggestedPanelId||'',suggestedPanelName:item.suggested_panel_name||item.suggestedPanelName||'',suggestionScore:Number(item.suggestion_score||item.suggestionScore||0),suggestionBasis:item.suggestion_basis||item.suggestionBasis||'',ocrTableText:item.ocr_table_text||item.ocrTableText||'',accepted:false,selected:false}));
   let suggestions=normalizeSuggestions({{ (suggestions or [])|tojson }});
   const sameSuggestion=(a,b)=>a&&b&&a.suggestedPanelId===b.suggestedPanelId&&Math.abs(a.x1-b.x1)<.015&&Math.abs(a.y1-b.y1)<.015&&Math.abs(a.x2-b.x2)<.015&&Math.abs(a.y2-b.y2)<.015;
   suggestions.forEach(s=>{s.accepted=reviewQueue.some(q=>sameSuggestion(s,q))});
@@ -205,8 +210,9 @@ body.panel-focus-mode .panel-source-bar h3{font-size:14px;margin:0}
     msg.textContent='Voorstel geselecteerd. Gebruik Accepteren of Koppelen om het als GT-kader klaar te zetten.';msg.className='inline-status';renderSuggestions();
   }
   function renderSuggestionOverlays(){
+    modelLayer.innerHTML='';
     suggestionLayer.innerHTML='';
-    suggestions.forEach((suggestion,index)=>{const button=document.createElement('button');button.type='button';button.className='panel-suggestion'+(suggestion.selected?' is-selected':'');button.style.left=`${suggestion.x1*100}%`;button.style.top=`${suggestion.y1*100}%`;button.style.width=`${(suggestion.x2-suggestion.x1)*100}%`;button.style.height=`${(suggestion.y2-suggestion.y1)*100}%`;button.title=`Tabelvoorstel${suggestion.suggestedPanelName?` voor ${suggestion.suggestedPanelName}`:''}`;button.innerHTML=`<span>${escapeHtml(suggestion.suggestedPanelName||'voorstel')}</span>`;button.addEventListener('click',()=>selectSuggestion(index));suggestion.el=button;suggestionLayer.appendChild(button)});
+    suggestions.forEach((suggestion,index)=>{const raw=document.createElement('div');raw.className='panel-model-raw';raw.style.left=`${suggestion.raw_x1*100}%`;raw.style.top=`${suggestion.raw_y1*100}%`;raw.style.width=`${(suggestion.raw_x2-suggestion.raw_x1)*100}%`;raw.style.height=`${(suggestion.raw_y2-suggestion.raw_y1)*100}%`;modelLayer.appendChild(raw);suggestion.excluded_boxes.forEach(b=>{if(b.length!==4)return;const excluded=document.createElement('div');excluded.className='panel-model-excluded';excluded.style.left=`${b[0]/W*100}%`;excluded.style.top=`${b[1]/H*100}%`;excluded.style.width=`${(b[2]-b[0])/W*100}%`;excluded.style.height=`${(b[3]-b[1])/H*100}%`;modelLayer.appendChild(excluded)});const button=document.createElement('button');button.type='button';button.className='panel-suggestion'+(suggestion.selected?' is-selected':'');button.style.left=`${suggestion.x1*100}%`;button.style.top=`${suggestion.y1*100}%`;button.style.width=`${(suggestion.x2-suggestion.x1)*100}%`;button.style.height=`${(suggestion.y2-suggestion.y1)*100}%`;button.title='Post-processing resultaat';button.innerHTML=`<span>${escapeHtml(suggestion.suggestedPanelName||'post-processing')}</span>`;button.addEventListener('click',()=>selectSuggestion(index));suggestion.el=button;suggestionLayer.appendChild(button)});
   }
   function render(){
     syncNames();renderDefinitions();renderSuggestionOverlays();renderSuggestions();layer.innerHTML='';list.innerHTML='';empty.hidden=definitions.length>0||panels.length>0;fitBtn.disabled=selected<0||selected>=panels.length;renderTarget();

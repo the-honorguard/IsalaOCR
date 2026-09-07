@@ -50,6 +50,7 @@ class TableRegion:
     confidence: float
     cells: tuple[TableCell, ...]
     html: str = ""
+    excluded_boxes: tuple[Box, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -61,6 +62,7 @@ class TableRegion:
             "y2": self.box.y2,
             "html": self.html,
             "cells": [cell.as_dict() for cell in self.cells],
+            "excluded_boxes": [box.to_list() for box in self.excluded_boxes],
         }
 
 
@@ -156,6 +158,7 @@ def _panel_suggestions_from_variant_results(
             candidates.append({
                 "box": box, "variant": variant, "score": score,
                 "cell_count": cell_count, "confidence": float(region.confidence or 0.0),
+                "excluded_boxes": tuple(region.excluded_boxes),
             })
 
     groups: list[dict[str, Any]] = []
@@ -183,6 +186,8 @@ def _panel_suggestions_from_variant_results(
     for index, group in enumerate(groups[:12], start=1):
         box = group["box"]
         best = group["best"]
+        excluded = tuple(best.get("excluded_boxes") or ())
+        raw_boxes = (box, *excluded)
         suggestions.append({
             "suggestion_id": f"benchmark-{index}",
             "kind": "benchmark_table_region",
@@ -193,6 +198,9 @@ def _panel_suggestions_from_variant_results(
             "cell_count": int(best["cell_count"]),
             "confidence": float(best["confidence"]),
             "score": round(float(best["score"]), 2),
+            "raw_x1": min(item.x1 for item in raw_boxes), "raw_y1": min(item.y1 for item in raw_boxes),
+            "raw_x2": max(item.x2 for item in raw_boxes), "raw_y2": max(item.y2 for item in raw_boxes),
+            "excluded_boxes": [item.to_list() for item in excluded],
         })
     return suggestions
 
@@ -285,6 +293,33 @@ def _cluster_rows(cell_boxes: Sequence[Box]) -> list[list[int]]:
     return [sorted(row, key=lambda idx: cell_boxes[idx].x1) for _, row in ordered_rows]
 
 
+def _remove_terminal_full_width_noise(
+    cell_boxes: Sequence[Box], rows: Sequence[Sequence[int]],
+) -> list[list[int]]:
+    """Drop a likely non-table footer accidentally returned as the last row."""
+    cleaned = [list(row) for row in rows]
+    if len(cleaned) < 3 or not cleaned[-1] or len(cleaned[-1]) != 1:
+        return cleaned
+    row_counts = [len(row) for row in cleaned if row]
+    multi_counts = [count for count in row_counts if count >= 2]
+    if len(multi_counts) < 2:
+        return cleaned
+    from collections import Counter
+    if Counter(multi_counts).most_common(1)[0][0] < 2:
+        return cleaned
+
+    widths = sorted(max(1, box.width) for box in cell_boxes)
+    median_width = widths[len(widths) // 2]
+    footer = cell_boxes[cleaned[-1][0]]
+    table_left = min(cell_boxes[index].x1 for row in cleaned[:-1] for index in row)
+    table_right = max(cell_boxes[index].x2 for row in cleaned[:-1] for index in row)
+    edge_tolerance = max(6, median_width * 0.12)
+    spans_table = footer.x1 <= table_left + edge_tolerance and footer.x2 >= table_right - edge_tolerance
+    if footer.width >= median_width * 1.8 and spans_table:
+        cleaned.pop()
+    return cleaned
+
+
 def _cluster_centers(values: Sequence[float], tolerance: float) -> list[list[int]]:
     """Cluster numeric center positions into ordered raster lines."""
     groups: list[list[int]] = []
@@ -368,10 +403,13 @@ def parse_ppstructure_tables(
             continue
         if image_width is not None and image_height is not None:
             boxes = [box.clamp(image_width, image_height) for box in boxes]
-        rows = _cluster_rows(boxes)
+        raw_rows = _cluster_rows(boxes)
+        rows = _remove_terminal_full_width_noise(boxes, raw_rows)
         if len(rows) < 2 or max((len(row) for row in rows), default=0) < 2:
             continue
-        union = _box_union(boxes)
+        retained_indices = [index for row in rows for index in row]
+        excluded_indices = [index for row in raw_rows for index in row if index not in retained_indices]
+        union = _box_union([boxes[index] for index in retained_indices])
         signature = f"{source_id}|{table_index}|{union.to_list()}".encode("utf-8")
         table_id = hashlib.sha256(signature).hexdigest()[:24]
 
@@ -419,6 +457,7 @@ def parse_ppstructure_tables(
                 confidence=float(score or 0.0),
                 cells=tuple(cells),
                 html=str(raw.get("pred_html") or ""),
+                excluded_boxes=tuple(boxes[index] for index in excluded_indices),
             )
         )
     return regions
@@ -485,7 +524,8 @@ def _translate_table_regions(regions: Sequence[TableRegion], dx: int, dy: int) -
             )
             for cell in region.cells
         )
-        translated.append(TableRegion(region.table_id, region_box, region.confidence, cells, region.html))
+        excluded = tuple(Box(box.x1 + dx, box.y1 + dy, box.x2 + dx, box.y2 + dy) for box in region.excluded_boxes)
+        translated.append(TableRegion(region.table_id, region_box, region.confidence, cells, region.html, excluded))
     return translated
 
 
