@@ -8,6 +8,8 @@ param(
 
     [string]$TableModelId = "",
 
+    [string]$SourceId = "",
+
     [switch]$RenderOnly,
 
     [ValidateSet("auto", "cpu", "gpu")]
@@ -118,6 +120,9 @@ $deviceResolution = Resolve-IsalaTableExecutionDevice -Requested $Device -Prepar
     if (-not [string]::IsNullOrWhiteSpace($TableModelId)) {
         $collectArguments += @("--table-model-id", $TableModelId)
     }
+    if (-not [string]::IsNullOrWhiteSpace($SourceId)) {
+        $collectArguments += @("--source-id", $SourceId)
+    }
     if ($RenderOnly) {
         $collectArguments += "--render-only"
     }
@@ -132,10 +137,21 @@ $deviceResolution = Resolve-IsalaTableExecutionDevice -Requested $Device -Prepar
         }
         $appVersion = ([string](Get-Content -LiteralPath (Join-Path $ProjectRoot "project\VERSION") -Raw)).Trim()
         $inferenceImage = "isalaocr-table-inference-gpu:$appVersion"
+        $sourceFingerprintInput = @(
+            Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "application\src") -Recurse -File |
+                Sort-Object FullName |
+                ForEach-Object { "{0}|{1}" -f $_.FullName, (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+        ) -join "`n"
+        $sourceHasher = [Security.Cryptography.SHA256]::Create()
+        try {
+            $sourceFingerprint = ([BitConverter]::ToString($sourceHasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($sourceFingerprintInput))) -replace '-', '').ToLowerInvariant()
+        }
+        finally { $sourceHasher.Dispose() }
         Write-Host "Preparing cached GPU inference layer: $inferenceImage" -ForegroundColor Cyan
         & docker build `
             --file (Join-Path $ProjectRoot "infrastructure\docker\Dockerfile.table-inference") `
             --build-arg ("BASE_IMAGE={0}" -f $baseImage) `
+            --build-arg ("APP_SOURCE_FINGERPRINT={0}" -f $sourceFingerprint) `
             --tag $inferenceImage `
             $ProjectRoot
         if ($LASTEXITCODE -ne 0) { throw "[ISALA_TABLE_RUNTIME_BROKEN] GPU table-inference image build failed." }

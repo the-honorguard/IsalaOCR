@@ -52,7 +52,7 @@ from .table_cell_ground_truth import (
     ground_truth_counts, ground_truth_review_state, list_ground_truth_cells, list_ground_truth_sources,
     set_ground_truth_source_review_completed, update_ground_truth_cell,
 )
-from .table_region_ground_truth import list_table_regions, list_table_region_sources, save_table_regions
+from .table_region_ground_truth import clear_table_regions, list_table_regions, list_table_region_sources, save_table_regions
 from .table_region_training import build_table_region_dataset
 from .table_model_comparison import (
     add_comparison_fp_to_ground_truth, review_comparison_issue, table_cell_comparison_state,
@@ -659,8 +659,8 @@ def create_web_app(
                     "strategy": "table_first", "ready": False, "state": "panels_missing", "tone": "warning",
                     "title": "Stel eerst de table-panels in",
                     "reason": "De table-pipeline heeft nog geen door jou gekozen resultaatpanelen.",
-                    "summary": "Zonder panelprofiel is een full-image detectie alleen een voorlopige suggestiescan.",
-                    "next_step": "Open Stap 2 · Panelen instellen en teken de relevante resultaatpanelen.",
+                    "summary": "Stel in Stap 2 de volledige tabelregio’s in voordat Stap 3 draait.",
+                    "next_step": "Open Stap 2 · Tabelregio’s selecteren.",
                     "sources": [], "totals": {}, "thresholds": table_first_thresholds(),
                 }
             if panel_state.get("needs_rerun"):
@@ -668,8 +668,8 @@ def create_web_app(
                     "strategy": "table_first", "ready": False, "state": "panel_detection_stale", "tone": "warning",
                     "title": "Voer de table-detectie opnieuw uit",
                     "reason": "Het panelprofiel is nieuwer dan de huidige cell-detectie.",
-                    "summary": "De bestaande boxes horen nog bij een oudere/full-image panelkeuze.",
-                    "next_step": "Voer Stap 3 · Eerste celdetectie opnieuw uit.",
+                    "summary": "Voer Stap 3 opnieuw uit na een wijziging in Stap 2.",
+                    "next_step": "Voer Stap 3 · Tabelregio’s en cellen detecteren opnieuw uit.",
                     "sources": [], "totals": {}, "thresholds": table_first_thresholds(),
                 }
             try:
@@ -808,14 +808,19 @@ def create_web_app(
     for name in ("pending", "running", "completed", "failed", "status", "logs"):
         (jobs_root / name).mkdir(parents=True, exist_ok=True)
 
-    def enqueue_job(action_id: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
+    def enqueue_job(
+        action_id: str,
+        options: dict[str, Any] | None = None,
+        *,
+        action_name: str | None = None,
+    ) -> dict[str, Any]:
         if action_id not in ACTIONS:
             raise ValueError(f"Unknown action: {action_id}")
         job_id = f"job-{datetime.now().strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}"
         payload = {
             "job_id": job_id,
             "action_id": action_id,
-            "action_name": ACTIONS[action_id],
+            "action_name": str(action_name or ACTIONS[action_id]),
             "project_id": project_manager.active_project_id(),
             "project_name": project_manager.active().name,
             "options": options or {},
@@ -2806,6 +2811,7 @@ def create_web_app(
             })
 
         suggestions: list[dict[str, Any]] = []
+        detection_info: dict[str, Any] = {}
         if selected is not None:
             try:
                 geometry = database.list_detection_table_geometry(selected_source_id)
@@ -2844,6 +2850,33 @@ def create_web_app(
                 if not duplicate:
                     unique_suggestions.append(item)
             suggestions = unique_suggestions
+
+            diagnostic_path = safe_workspace_file(Path("localization_detections") / f"{selected_source_id}.json")
+            if diagnostic_path.is_file():
+                try:
+                    diagnostic_payload = json.loads(diagnostic_path.read_text(encoding="utf-8"))
+                    benchmark = diagnostic_payload.get("preprocessing_benchmark") or {}
+                    runs = benchmark.get("runs") if isinstance(benchmark, dict) else []
+                    detection_info = {
+                        "source_id": selected_source_id,
+                        "batch_id": str(diagnostic_payload.get("detection_batch_id") or ""),
+                        "started_at": str(diagnostic_payload.get("detection_started_at") or diagnostic_payload.get("detected_at") or ""),
+                        "detector_version": str(diagnostic_payload.get("detector_version") or ""),
+                        "engine": str(((diagnostic_payload.get("table_structure_engine") or {}).get("pipeline") or "")),
+                        "device": str(((diagnostic_payload.get("table_structure_engine") or {}).get("device") or "")),
+                        "selected_variant": str((benchmark.get("selected_variant") or "") if isinstance(benchmark, dict) else ""),
+                        "selected_scope": str((benchmark.get("selected_scope") or "") if isinstance(benchmark, dict) else ""),
+                        "selected_score": benchmark.get("selected_score") if isinstance(benchmark, dict) else None,
+                        "table_count": int(diagnostic_payload.get("table_count") or 0),
+                        "cell_count": int(diagnostic_payload.get("table_cell_count") or 0),
+                        "suggestion_count": len(suggestions),
+                        "runs": [
+                            {key: item.get(key) for key in ("variant", "scope", "score", "table_count", "cell_count", "row_count", "multi_cell_rows")}
+                            for item in runs if isinstance(item, dict)
+                        ],
+                    }
+                except (OSError, ValueError, TypeError):
+                    detection_info = {}
 
         definitions = list((panel_state.get("profile") or {}).get("definitions") or [])
         ocr_blocks = database.list_detected_blocks(selected_source_id) if selected_source_id else []
@@ -2965,6 +2998,7 @@ def create_web_app(
             "region_ground_truth": region_ground_truth,
             "table_review_sources": table_review_sources,
             "suggestions": suggestions,
+            "detection_info": detection_info,
         }
 
     @app.get("/api/table-panel-review-source/<source_id>")
@@ -2983,6 +3017,7 @@ def create_web_app(
             "region_ground_truth": context["region_ground_truth"],
             "suggestions": context["suggestions"],
             "review_sources": context["table_review_sources"],
+            "detection_info": context["detection_info"],
         })
 
     @app.route("/process/<step_key>", methods=["GET", "POST"])
@@ -3018,13 +3053,15 @@ def create_web_app(
                 input_selection_path().parent.mkdir(parents=True, exist_ok=True)
                 input_selection_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
                 flash(f"Inputselectie opgeslagen: {len(selected)} van {len(available)} afbeeldingen geselecteerd.", "success")
+                if request.form.get("open_panel") == "1":
+                    return redirect(url_for("process_step", step_key="panel-setup"))
                 if request.form.get("start_processing") == "1":
                     if loaded_config is None:
                         flash("Bronpreview kan niet worden voorbereid: de actieve configuratie ontbreekt.", "error")
                         return redirect(url_for("process_step", step_key="input-selection"))
                     try:
                         result = prepare_source_renders("/input", workspace_root(), loaded_config)
-                        flash(f"{result['sources']} volledige bronpreview(s) voorbereid. Panel Setup is nu beschikbaar.", "success")
+                        flash(f"{result['sources']} volledige bronpreview(s) voorbereid. Stap 2 voor tabelregio’s is nu beschikbaar.", "success")
                         return redirect(url_for("process_step", step_key="panel-setup"))
                     except Exception as exc:
                         _record_webui_error("source_render_prepare", exc)
@@ -3293,6 +3330,7 @@ def create_web_app(
                 "table_panel_setup.html", step=step, panel_state=panel_state,
                 panel_profile=panel_state.get("profile") or {}, sources=context["sources"], source=context["source"],
                 source_id=context["source_id"], suggestions=context["suggestions"],
+                detection_info=context["detection_info"],
                 region_ground_truth=context["region_ground_truth"],
                 table_review_sources=context["table_review_sources"],
                 header_counts={
@@ -3773,6 +3811,58 @@ def create_web_app(
             "source": source,
             "message": f"{len(source.get('regions') or [])} tabelregio('s) opgeslagen als GT voor deze lezing.",
         })
+
+    @app.post("/api/table-region-redetect")
+    def table_region_redetect_api():
+        source_id = str((request.get_json(silent=True) or {}).get("source_id") or "").strip()
+        if not source_id:
+            return jsonify({"error": "source_id is verplicht"}), 400
+        clear_table_regions(workspace_root(), source_id)
+        payload = enqueue_job("2")
+        return jsonify({"ok": True, "job": payload, "message": "Bestaande tabelregio-GT gewist; tabelregio- en celdetectie gestart."}), 202
+
+    @app.post("/api/table-region-clear")
+    def table_region_clear_api():
+        source_id = str((request.get_json(silent=True) or {}).get("source_id") or "").strip()
+        if not source_id:
+            return jsonify({"error": "source_id is verplicht"}), 400
+        removed = clear_table_regions(workspace_root(), source_id)
+        return jsonify({
+            "ok": True,
+            "removed": removed,
+            "message": "Tabelregio-GT gewist; er is geen nieuwe detectie gestart.",
+        })
+
+    @app.post("/api/table-region-detect")
+    def table_region_detect_api():
+        if loaded_config is None:
+            return jsonify({"error": "De actieve configuratie ontbreekt"}), 409
+        try:
+            result = prepare_source_renders("/input", workspace_root(), loaded_config)
+        except Exception as exc:
+            _record_webui_error("source_render_prepare_for_table_detection", exc)
+            return jsonify({"error": f"Bronrenders konden niet worden voorbereid: {type(exc).__name__}: {exc}"}), 500
+        payload = enqueue_job("2")
+        return jsonify({"ok": True, "job": payload, "sources": result.get("sources", 0), "message": "Bronrenders voorbereid; tabelregio- en celdetectie gestart."}), 202
+
+    @app.post("/api/table-region-detect-source")
+    def table_region_detect_source_api():
+        if loaded_config is None:
+            return jsonify({"error": "De actieve configuratie ontbreekt"}), 409
+        source_id = str((request.get_json(silent=True) or {}).get("source_id") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", source_id):
+            return jsonify({"error": "Ongeldig source_id"}), 400
+        try:
+            prepare_source_renders("/input", workspace_root(), loaded_config)
+        except Exception as exc:
+            _record_webui_error("source_render_prepare_for_single_table_detection", exc)
+            return jsonify({"error": f"Bronrenders konden niet worden voorbereid: {type(exc).__name__}: {exc}"}), 500
+        payload = enqueue_job(
+            "2",
+            {"source_id": source_id},
+            action_name="Alleen huidige bron detecteren · PP-Structure",
+        )
+        return jsonify({"ok": True, "job": payload, "message": f"Alleen bron {source_id} opnieuw detecteren gestart."}), 202
 
     @app.post("/api/table-region-dataset")
     def table_region_dataset_build_api():

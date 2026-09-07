@@ -312,7 +312,12 @@
       cancel.disabled = !live || cancellationRequestedFor === jobId || Boolean(job?.cancellation_requested_at);
       cancel.textContent = cancel.disabled && live ? 'Annulering aangevraagd…' : 'Annuleren';
     } catch (_) {
-      cancel.hidden = true;
+      // Keep the stop control available when status polling is temporarily
+      // unavailable. The cancellation endpoint performs its own authoritative
+      // status check and the worker remains responsible for stopping the tree.
+      cancel.hidden = !jobId;
+      cancel.disabled = false;
+      cancel.textContent = 'Annuleren';
     } finally {
       checking = false;
     }

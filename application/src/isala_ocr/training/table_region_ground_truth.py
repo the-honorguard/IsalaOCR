@@ -65,6 +65,20 @@ def list_table_regions(workspace: str | Path, source_id: str) -> list[dict[str, 
     return list(source.get("regions") or []) if source else []
 
 
+def clear_table_regions(workspace: str | Path, source_id: str) -> bool:
+    """Remove the accepted table-region GT for one source before a fresh run."""
+    root = resolve_project_workspace(workspace)
+    payload = load_table_region_ground_truth(root)
+    sources = payload.setdefault("sources", {})
+    removed = str(source_id) in sources
+    sources.pop(str(source_id), None)
+    if removed:
+        from datetime import datetime, timezone
+        payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _write(_path(root), payload)
+    return removed
+
+
 def save_table_regions(
     workspace: str | Path,
     source_id: str,

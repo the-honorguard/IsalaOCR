@@ -214,6 +214,7 @@ def _collect_localization_detections(
     config: AppConfig,
     locator_engine: OCREngine,
     table_model_id: str | None = None,
+    source_id: str | None = None,
 ) -> dict[str, object]:
     """Pipeline A: detect crop geometry only.
 
@@ -229,6 +230,17 @@ def _collect_localization_detections(
     diagnostics_root.mkdir(parents=True, exist_ok=True)
     database = TrainingDatabase(root / "samples.sqlite3")
     sources = _selected_files(Path(input_path), root)
+    if source_id:
+        wanted = str(source_id).strip()
+        matching = []
+        for candidate in sources:
+            decoded = load_input(candidate, config.dicom)
+            if str(decoded.source_id) == wanted:
+                matching.append(candidate)
+                break
+        if not matching:
+            raise ValueError(f"Bron-ID niet gevonden in de geselecteerde input: {wanted}")
+        sources = matching
     # One immutable identity for this complete Step-3 pass.  It is persisted in
     # every per-source diagnostic so later model activation can never relabel
     # stale predictions as if they were produced by the newly active model.
@@ -315,6 +327,30 @@ def _collect_localization_detections(
                     LOGGER.exception("Table geometry failed for input item %d", source_index)
                     if table_first or not bool(table_settings.get("fail_open", True)):
                         raise
+
+            if table_first:
+                benchmark_runs = table_preprocessing.get("runs") if isinstance(table_preprocessing, dict) else []
+                run_summary = "; ".join(
+                    f"{item.get('variant')}/{item.get('scope')}:"
+                    f"tables={item.get('table_count', 0)},cells={item.get('cell_count', 0)},"
+                    f"rows={item.get('row_count', 0)},score={item.get('score', 0)}"
+                    for item in benchmark_runs if isinstance(item, dict)
+                )
+                suggestion_count = len(table_preprocessing.get("panel_suggestions") or []) if isinstance(table_preprocessing, dict) else 0
+                print(
+                    f"Table detection source={decoded.source_id} image={width}x{height}; "
+                    f"selected={table_preprocessing.get('selected_variant', '-')}/"
+                    f"{table_preprocessing.get('selected_scope', '-')}; "
+                    f"result_tables={len(table_regions)},result_cells={sum(len(table.cells) for table in table_regions)}, "
+                    f"suggestions={suggestion_count}; runs=[{run_summary}]",
+                    flush=True,
+                )
+                if not table_regions:
+                    print(
+                        f"Table detection warning source={decoded.source_id}: "
+                        "PP-Structure produced no accepted table region in any benchmark variant.",
+                        flush=True,
+                    )
 
             cell_candidates = table_cell_candidates(
                 decoded.source_id, table_regions, image_width=width, image_height=height,
@@ -731,6 +767,7 @@ def collect_samples(
     locator_engine: OCREngine | None = None,
     locator_mode: str | None = None,
     table_model_id: str | None = None,
+    source_id: str | None = None,
 ) -> dict[str, object]:
     flow = str(
         config.raw.get("training", {}).get("collection", {}).get("flow", "legacy_profile")
@@ -738,7 +775,7 @@ def collect_samples(
     if flow == "generic_mapping":
         if locator_engine is None:
             raise ValueError("Generic detection requires a full-page locator OCR engine")
-        return _collect_localization_detections(input_path, workspace, config, locator_engine, table_model_id)
+        return _collect_localization_detections(input_path, workspace, config, locator_engine, table_model_id, source_id)
 
     root = resolve_project_workspace(workspace)
     crop_root = root / "crops" / "original"

@@ -216,7 +216,11 @@ if ($RunAction) {
         $extra.RenderOnly = $true
     }
     elseif ($RunAction -eq "2" -and $ActionValue) {
-        $extra.TableModelId = $ActionValue
+        if ($ActionValue.StartsWith("__source_only__:", [StringComparison]::Ordinal)) {
+            $extra.SourceId = $ActionValue.Substring("__source_only__:".Length)
+        } else {
+            $extra.TableModelId = $ActionValue
+        }
     }
     elseif ($RunAction -in @("20","21","22") -and $ActionValue) {
         $extra.SourceId = $ActionValue

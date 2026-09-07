@@ -21,6 +21,7 @@
       <button type="button" id="panel-next-source" title="Volgende bron">→</button>
     </div>
   </div>
+  <div class="panel-list-actions panel-review-save-actions panel-top-actions"><button type="button" id="table-region-gt-save" class="primary">✓ GT opslaan</button><button type="button" id="table-region-detect" class="ghost">Bronnen voorbereiden + regio’s detecteren</button><button type="button" id="table-region-detect-source" class="ghost">Alleen deze bron opnieuw detecteren</button><button type="button" id="table-region-redetect-clear" class="danger">Wis GT</button><button type="button" id="panel-focus" class="ghost">⛶ Review fullscreen</button></div>
 
   <details class="table-definition-card">
     <summary class="table-definition-summary"><div class="table-definition-heading"><div><span class="eyebrow">1A · TABELEN DEFINIËREN</span><h3>Tabeltypen definiëren</h3></div><span id="table-definition-count" class="pill">0 tabellen</span></div></summary>
@@ -46,12 +47,35 @@
     <div class="panel-geometry-legend"><span>🟠 ruwe modelgrens</span><span>🟡 post-processing</span><span>🔴 uitgesloten ruis</span></div>
   </section>
   <aside class="panel-review-side">
+    <select id="panel-target" hidden aria-hidden="true"></select>
+    <section id="panel-suggestion-card" class="card panel-suggestion-list-card panel-review-action-card"{% if region_ground_truth %} hidden{% endif %}>
+      <div class="toolbar"><div><span class="muted">DEZE LEZING</span><h3>Tabelvoorstellen</h3></div><span id="panel-suggestion-count" class="pill">0</span></div>
+      <p class="muted">Selecteer een voorstel. Accepteren zet het in de reviewqueue; GT opslaan maakt het definitief.</p>
+      <div id="panel-suggestion-list" class="panel-suggestion-list"></div>
+    </section>
+    <details class="panel-detection-info">
+      <summary>Meer info over detectie</summary>
+      {% if detection_info %}
+      <div class="panel-detection-info-grid">
+        <span>Run</span><strong class="mono">{{ detection_info.batch_id or 'onbekend' }}</strong>
+        <span>Gestart</span><strong>{{ detection_info.started_at or 'onbekend' }}</strong>
+        <span>Engine</span><strong>{{ detection_info.engine or 'onbekend' }} · {{ detection_info.device or 'onbekend' }}</strong>
+        <span>Gekozen</span><strong>{{ detection_info.selected_variant or 'onbekend' }} · {{ detection_info.selected_scope or 'onbekend' }} · score {{ detection_info.selected_score if detection_info.selected_score is not none else '—' }}</strong>
+        <span>Resultaat</span><strong>{{ detection_info.table_count }} tabellen · {{ detection_info.cell_count }} cellen · {{ detection_info.suggestion_count }} voorstellen</strong>
+      </div>
+      {% if detection_info.runs %}<div class="panel-detection-runs"><strong>Varianten</strong>{% for run in detection_info.runs %}<div><span>{{ run.variant }} / {{ run.scope }}</span><span>{{ run.table_count or 0 }} tabellen · {{ run.cell_count or 0 }} cellen · {{ run.row_count or 0 }} rijen · score {{ run.score or 0 }}</span></div>{% endfor %}</div>{% endif %}
+      {% else %}<p class="muted">Voor deze bron is nog geen detectiediagnose opgeslagen.</p>{% endif %}
+    </details>
+    <details id="panel-manual-card" class="card panel-review-action-card panel-manual-card">
+      <summary class="toolbar"><div><span class="muted">OPTIONEEL</span><h3>Handmatig tekenen</h3></div><span class="pill">Tabeltypen</span></summary>
+      <p class="muted">Gebruik dit alleen als een automatisch voorstel ontbreekt of niet klopt.</p>
+      <div id="panel-list" class="panel-list"></div>
+      <div id="panel-empty" class="notice info">Er zijn nog geen tabelregio’s getekend voor deze lezing.</div>
+    </details>
     <section class="card panel-review-queue-card sticky-panel">
-      <div class="toolbar panel-review-heading"><div><span class="eyebrow">TABELREGIO REVIEW</span><h3>Lezingen</h3></div></div>
-      {% set current_source_review = (table_review_sources | selectattr('source_id', 'equalto', source_id) | list | first) %}
-      <div class="panel-review-current-source"><span class="muted">Huidige lezing</span><strong id="panel-current-source-id" class="mono">{{ source_id }}</strong><span id="panel-current-source-status" class="pill {{ 'ok' if current_source_review and current_source_review.review_completed else 'warn' }}">{{ 'klaar' if current_source_review and current_source_review.review_completed else 'open' }}</span></div>
+      <div class="toolbar panel-review-heading"><div><span class="eyebrow">TABELREGIO REVIEW</span><h3>Bronwachtrij</h3></div><span class="pill">{{ table_review_sources|length }}</span></div>
       <details class="table-source-list-card" open>
-        <summary><strong>Bronwachtrij</strong><span class="pill">{{ table_review_sources|length }}</span></summary>
+        <summary><strong>Lezingen</strong><span class="pill">{{ table_review_sources|length }}</span></summary>
         <div class="source-list">
           {% for item in table_review_sources %}
           <button type="button" class="source-row{% if item.source_id == source_id %} active{% endif %}" data-source-id="{{ item.source_id }}">
@@ -62,18 +86,6 @@
         </div>
       </details>
     </section>
-    <select id="panel-target" hidden aria-hidden="true"></select>
-    <section id="panel-suggestion-card" class="card panel-suggestion-list-card panel-review-action-card"{% if region_ground_truth %} hidden{% endif %}>
-      <div class="toolbar"><div><span class="muted">DEZE LEZING</span><h3>Tabelvoorstellen</h3></div><span id="panel-suggestion-count" class="pill">0</span></div>
-      <p class="muted">Selecteer een voorstel. Accepteren zet het in de reviewqueue; GT opslaan maakt het definitief.</p>
-      <div id="panel-suggestion-list" class="panel-suggestion-list"></div>
-    </section>
-    <section class="card panel-review-action-card">
-      <div class="toolbar"><div><span class="muted">DEZE LEZING</span><h3>Tabeltypen</h3></div></div>
-      <div id="panel-list" class="panel-list"></div>
-      <div id="panel-empty" class="notice info">Er zijn nog geen tabelregio’s getekend voor deze lezing.</div>
-    </section>
-    <div class="panel-list-actions panel-review-save-actions"><button type="button" id="table-region-gt-save" class="primary">✓ GT opslaan</button><button type="button" id="panel-focus" class="ghost">⛶ Review fullscreen</button></div>
     <p class="muted">Groen = definitieve GT-regio. Geel = voorstel dat nog beoordeeld moet worden.</p>
   </aside>
 </div>
@@ -128,6 +140,16 @@ body.table-region-review-page .panel-review-current-source{display:grid;grid-tem
 body.table-region-review-page .panel-review-current-source .muted{grid-column:1/-1;font-size:10px}
 body.table-region-review-page .panel-review-current-source .pill{grid-column:2;grid-row:2}
 body.table-region-review-page .panel-review-action-card{padding:10px}
+body.table-region-review-page .panel-manual-card>summary{cursor:pointer;list-style:none}
+body.table-region-review-page .panel-manual-card>summary::-webkit-details-marker{display:none}
+body.table-region-review-page .panel-manual-card>summary:after{content:'▸';margin-left:auto;color:var(--muted);font-size:16px}
+body.table-region-review-page .panel-manual-card[open]>summary:after{content:'▾'}
+body.table-region-review-page .panel-detection-info{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0c161f;font-size:11px}
+body.table-region-review-page .panel-detection-info>summary{cursor:pointer;color:var(--muted);font-weight:650}
+body.table-region-review-page .panel-detection-info-grid{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin-top:8px}
+body.table-region-review-page .panel-detection-info-grid strong{font-weight:500;overflow-wrap:anywhere}
+body.table-region-review-page .panel-detection-runs{display:grid;gap:3px;margin-top:8px;padding-top:7px;border-top:1px solid var(--border)}
+body.table-region-review-page .panel-detection-runs>div{display:flex;justify-content:space-between;gap:8px;color:var(--muted)}
 body.table-region-review-page .panel-review-action-card .toolbar h3{font-size:15px;margin:2px 0}
 body.table-region-review-page .panel-review-action-card>p{font-size:11px;margin:4px 0 8px}
 body.table-region-review-page .panel-review-save-actions{margin-top:0;padding:0;border:0}
@@ -159,9 +181,9 @@ body.panel-focus-mode .panel-source-bar h3{font-size:14px;margin:0}
 (()=>{
   const stage=document.getElementById('panel-stage'), layer=document.getElementById('panel-layer'), modelLayer=document.getElementById('panel-model-layer'), draft=document.getElementById('panel-draft'), suggestionLayer=document.getElementById('panel-suggestion-layer'), sourceImage=document.getElementById('panel-source-image');
   const list=document.getElementById('panel-list'), empty=document.getElementById('panel-empty'), reviewSummaryCount=document.getElementById('table-review-summary-count'), msg=document.getElementById('panel-message'), target=document.getElementById('panel-target'), suggestionList=document.getElementById('panel-suggestion-list'), suggestionCount=document.getElementById('panel-suggestion-count');
-  const suggestionCard=document.getElementById('panel-suggestion-card'), currentSourceLabel=document.getElementById('panel-current-source-id'), currentSourceStatus=document.getElementById('panel-current-source-status');
+  const suggestionCard=document.getElementById('panel-suggestion-card'), manualCard=document.getElementById('panel-manual-card'), currentSourceLabel=document.getElementById('panel-current-source-id'), currentSourceStatus=document.getElementById('panel-current-source-status');
   const definitionList=document.getElementById('table-definition-list'), definitionCount=document.getElementById('table-definition-count'), definitionAdd=document.getElementById('table-definition-add'), definitionSave=document.getElementById('table-definition-save'), definitionMessage=document.getElementById('table-definition-message');
-  const drawBtn=document.getElementById('panel-draw'), linkBtn=document.getElementById('panel-link'), fitBtn=document.getElementById('panel-fit'), saveBtn=document.getElementById('panel-save'), regionGtSaveBtn=document.getElementById('table-region-gt-save'), regionDatasetBtn=document.getElementById('table-region-dataset-build'), resetBtn=document.getElementById('panel-reset');
+  const drawBtn=document.getElementById('panel-draw'), linkBtn=document.getElementById('panel-link'), fitBtn=document.getElementById('panel-fit'), saveBtn=document.getElementById('panel-save'), regionGtSaveBtn=document.getElementById('table-region-gt-save'), regionDatasetBtn=document.getElementById('table-region-dataset-build'), resetBtn=document.getElementById('panel-reset'), detectBtn=document.getElementById('table-region-detect'), detectSourceBtn=document.getElementById('table-region-detect-source'), redetectClearBtn=document.getElementById('table-region-redetect-clear');
   const focusBtn=document.getElementById('panel-focus'), listToggleBtn=document.getElementById('panel-list-toggle');
   const prevSourceBtn=document.getElementById('panel-prev-source'), nextSourceBtn=document.getElementById('panel-next-source'), sourceForm=document.querySelector('.panel-source-form'), sourceSelect=sourceForm?.querySelector('select[name="source_id"]');
   let W=Number(stage.dataset.width), H=Number(stage.dataset.height), currentSourceId=stage.dataset.sourceId||{{ source_id|tojson }}; let drawing=false,start=null,selected=-1,resizing=null,dirty=false,focusMode=false,sourceLoading=false;
@@ -170,10 +192,10 @@ body.panel-focus-mode .panel-source-bar h3{font-size:14px;margin:0}
   let definitions={{ (panel_profile.definitions or [])|tojson }}.map((d,i)=>({panel_id:d.panel_id||`panel-${i+1}`,name:d.name||`Panel ${i+1}`,hits:Array.isArray(d.hits)?d.hits:[]}));
   const normalizePanelName=value=>String(value||'').trim().toLowerCase().replace(/\s+/g,' ');
   const definitionForSavedPanel=p=>definitions.find(d=>String(d.panel_id||'')===String(p.panel_id||p.region_id||'')||normalizePanelName(d.name)===normalizePanelName(p.name||p.label));
-  const fallbackPanels={{ (panel_profile.panels or [])|tojson }}.map((p,i)=>({...p,panel_id:p.panel_id||`panel-${i+1}`,name:p.name||`Tabel ${i+1}`}));
   const regionsToPanels=regions=>regions.map((p,i)=>{const d=definitionForSavedPanel(p);return {panel_id:d?.panel_id||p.region_id||p.panel_id||`panel-${i+1}`,name:d?.name||p.name||p.label||`Tabel ${i+1}`,x1:Number(p.x1)/W,y1:Number(p.y1)/H,x2:Number(p.x2)/W,y2:Number(p.y2)/H}});
+  // Step 2 is per-source table-region GT review. Never inject the legacy
+  // project-wide fallback panels here: they are not accepted GT for this source.
   let panels=regionsToPanels({{ (region_ground_truth or [])|tojson }});
-  if(!panels.length)panels=fallbackPanels.map(item=>({...item}));
   const queueStorageKey=sourceId=>`isala-table-region-review-queue-v1:${sourceId}`;
   const loadQueue=(sourceId=currentSourceId)=>{try{const value=JSON.parse(localStorage.getItem(queueStorageKey(sourceId))||'[]');return Array.isArray(value)?value:[]}catch(_){return []}};
   let reviewQueue=loadQueue();
@@ -227,7 +249,7 @@ body.panel-focus-mode .panel-source-bar h3{font-size:14px;margin:0}
     rows.forEach(d=>{const i=panelIndexFor(d.panel_id),p=i>=0?panels[i]:null;const item=document.createElement('div');item.className='panel-list-item'+(i===selected?' selected':'');item.innerHTML=`<div class="panel-list-name"><strong>${escapeHtml(d.name)}</strong><span class="pill">${p?'geplaatst':'nog tekenen'}</span></div>${p?`<div class="coords">x ${(p.x1*100).toFixed(1)}–${(p.x2*100).toFixed(1)}% · y ${(p.y1*100).toFixed(1)}–${(p.y2*100).toFixed(1)}%</div>`:'<div class="coords">Nog geen kader ingesteld.</div>'}<div class="panel-list-hint">Selecteer een groen kader in de afbeelding en kies daarna een actie voor deze tabel.</div><div class="panel-list-item-actions"><button type="button" data-panel-action="link" class="primary">↔ Geselecteerd kader koppelen</button><button type="button" data-panel-action="draw">+ Tabelregio tekenen</button></div>`;item.querySelector('[data-panel-action="link"]').addEventListener('click',()=>linkSelectedFrame(d));item.querySelector('[data-panel-action="draw"]').addEventListener('click',()=>startDrawing(d.panel_id));list.appendChild(item);
     });
   }
-  function renderSuggestions(){if(!suggestionList)return;suggestionList.innerHTML='';if(suggestionCount)suggestionCount.textContent=String(suggestions.length);if(!suggestions.length){suggestionList.innerHTML='<small class="muted">Geen tabelvoorstellen beschikbaar voor deze lezing.</small>';return}suggestions.forEach((s,index)=>{const row=document.createElement('div');row.className='panel-suggestion-row'+(s.selected?' selected':'');const label=s.suggestedPanelName||'Onbekend tabeltype';const detail=s.suggestedPanelName?`${Math.round(s.suggestionScore*100)}% · ${s.suggestionBasis||'snelle OCR-hit'}`:`Geen match${s.ocrTableText?` · OCR: ${s.ocrTableText.slice(0,90)}`:' · geen OCR-tekst beschikbaar'}`;const options=definitions.map(d=>`<option value="${escapeHtml(d.panel_id)}">${escapeHtml(d.name)}</option>`).join('');row.innerHTML=`<div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}</small></div>${s.accepted?'<button type="button" class="primary" disabled>✓ In queue</button>':s.suggestedPanelId?'<button type="button" class="primary">Accepteren</button>':`<div class="manual-link"><select aria-label="Tabeltype kiezen">${options}</select><button type="button" class="primary">Koppelen</button></div>`}`;const button=row.querySelector('button:not([disabled])');if(button)button.addEventListener('click',()=>{if(s.suggestedPanelId)acceptSuggestion(index);else{const selectedDefinition=definitionFor(row.querySelector('select')?.value);if(!selectedDefinition)return;s.suggestedPanelId=selectedDefinition.panel_id;s.suggestedPanelName=selectedDefinition.name;acceptSuggestion(index)}});suggestionList.appendChild(row)})}
+  function renderSuggestions(){if(!suggestionList)return;suggestionList.innerHTML='';if(suggestionCount)suggestionCount.textContent=String(suggestions.length);if(manualCard)manualCard.open=suggestions.length===0;if(!suggestions.length){suggestionList.innerHTML='<small class="muted">Geen tabelvoorstellen beschikbaar voor deze lezing. Gebruik hieronder Handmatig tekenen.</small>';return}suggestions.forEach((s,index)=>{const row=document.createElement('div');row.className='panel-suggestion-row'+(s.selected?' selected':'');const label=s.suggestedPanelName||'Onbekend tabeltype';const detail=s.suggestedPanelName?`${Math.round(s.suggestionScore*100)}% · ${s.suggestionBasis||'snelle OCR-hit'}`:`Geen match${s.ocrTableText?` · OCR: ${s.ocrTableText.slice(0,90)}`:' · geen OCR-tekst beschikbaar'}`;const options=definitions.map(d=>`<option value="${escapeHtml(d.panel_id)}">${escapeHtml(d.name)}</option>`).join('');row.innerHTML=`<div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}</small></div>${s.accepted?'<button type="button" class="primary" disabled>✓ In queue</button>':s.suggestedPanelId?'<button type="button" class="primary">Accepteren</button>':`<div class="manual-link"><select aria-label="Tabeltype kiezen">${options}</select><button type="button" class="primary">Koppelen</button></div>`}`;const button=row.querySelector('button:not([disabled])');if(button)button.addEventListener('click',()=>{if(s.suggestedPanelId)acceptSuggestion(index);else{const selectedDefinition=definitionFor(row.querySelector('select')?.value);if(!selectedDefinition)return;s.suggestedPanelId=selectedDefinition.panel_id;s.suggestedPanelName=selectedDefinition.name;acceptSuggestion(index)}});suggestionList.appendChild(row)})}
   function acceptSuggestion(index){const suggestion=suggestions[index],definition=definitionFor(suggestion.suggestedPanelId);if(!definition){msg.textContent='Dit voorstel heeft nog geen betrouwbare tabeltype-match. Koppel het handmatig via de tabeltypenlijst.';msg.className='inline-status warn';return}target.value=definition.panel_id;setPanelGeometry(definition,{x1:suggestion.x1,y1:suggestion.y1,x2:suggestion.x2,y2:suggestion.y2});suggestion.accepted=true;reviewQueue=reviewQueue.filter(q=>!sameSuggestion(q,suggestion));reviewQueue.push({x1:suggestion.x1,y1:suggestion.y1,x2:suggestion.x2,y2:suggestion.y2,suggestedPanelId:definition.panel_id,suggestedPanelName:definition.name});persistQueue();msg.textContent=`Tabelvoorstel voor ${definition.name} staat in de reviewqueue. Sla GT op om het definitief te bewaren.`;msg.className='inline-status ok';render()}
   definitionAdd?.addEventListener('click',()=>{definitions.push({panel_id:'',name:`Tabel ${definitions.length+1}`});render()});
   definitionSave?.addEventListener('click',async()=>{const clean=definitions.map(item=>({panel_id:item.panel_id||'',name:String(item.name||'').trim(),hits:Array.isArray(item.hits)?item.hits:[]})).filter(item=>item.name);if(!clean.length){definitionMessage.textContent='Voer minimaal één tabelnaam in.';definitionMessage.className='inline-status error';return}definitionMessage.textContent='Opslaan…';try{const res=await fetch('/api/table-panel-definitions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({definitions:clean})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);definitions=data.profile.definitions||clean;definitionMessage.textContent='Tabeldefinities opgeslagen.';definitionMessage.className='inline-status ok';render()}catch(error){definitionMessage.textContent=error.message||String(error);definitionMessage.className='inline-status error'}});
@@ -262,6 +284,10 @@ body.panel-focus-mode .panel-source-bar h3{font-size:14px;margin:0}
   saveBtn.addEventListener('click',async()=>{msg.textContent='Opslaan…';msg.className='inline-status';try{const res=await fetch('/api/table-panels',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference_source_id:currentSourceId,reference_width:W,reference_height:H,panels})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);panels=data.profile.panels||panels;markDirty(false);msg.textContent=data.message;msg.className='inline-status ok';render()}catch(err){msg.textContent=err.message||String(err);msg.className='inline-status error'}});
   regionGtSaveBtn.addEventListener('click',async()=>{regionGtSaveBtn.disabled=true;msg.textContent='GT opslaan…';msg.className='inline-status';try{const regions=panels.map(p=>({x1:Math.round(p.x1*W),y1:Math.round(p.y1*H),x2:Math.round(p.x2*W),y2:Math.round(p.y2*H),name:p.name||'table'}));const res=await fetch('/api/table-region-ground-truth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:currentSourceId,image_width:W,image_height:H,regions})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);const currentReview=reviewSources.find(item=>item.source_id===currentSourceId);if(currentReview){currentReview.region_count=regions.length;currentReview.review_completed=regions.length>0}reviewQueue=[];persistQueue();markDirty(false);renderSourceChrome();await goToNextSource()}catch(err){regionGtSaveBtn.disabled=false;msg.textContent=err.message||String(err);msg.className='inline-status error'}});
   regionDatasetBtn?.addEventListener('click',async()=>{msg.textContent='Tabelregio-dataset bouwen…';msg.className='inline-status';try{const res=await fetch('/api/table-region-dataset',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);msg.textContent=`Dataset klaar: ${data.manifest.annotation_count} tabelregio('s) over ${data.manifest.source_count} lezingen.`;msg.className='inline-status ok'}catch(err){msg.textContent=err.message||String(err);msg.className='inline-status error'}});
+  const announceJob=job=>{if(job)window.dispatchEvent(new CustomEvent('isala:job-created',{detail:job}))};
+  detectBtn?.addEventListener('click',async()=>{detectBtn.disabled=true;msg.textContent='Bronrenders voorbereiden en tabelregio’s detecteren…';msg.className='inline-status';try{const res=await fetch('/api/table-region-detect',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);announceJob(data.job);detectBtn.disabled=false;msg.textContent=data.message||'Detectie gestart.';msg.className='inline-status ok'}catch(err){detectBtn.disabled=false;msg.textContent=err.message||String(err);msg.className='inline-status error'}});
+  detectSourceBtn?.addEventListener('click',async()=>{detectSourceBtn.disabled=true;msg.textContent='Deze bron opnieuw detecteren…';msg.className='inline-status';try{const res=await fetch('/api/table-region-detect-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:currentSourceId})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);announceJob(data.job);detectSourceBtn.disabled=false;msg.textContent=data.message||'Bronspecifieke detectie gestart.';msg.className='inline-status ok'}catch(err){detectSourceBtn.disabled=false;msg.textContent=err.message||String(err);msg.className='inline-status error'}});
+  redetectClearBtn?.addEventListener('click',async()=>{if(!confirm('De geaccepteerde tabelregio-GT van deze lezing wissen? Er wordt niets opnieuw gedetecteerd.'))return;redetectClearBtn.disabled=true;msg.textContent='GT wissen…';try{const res=await fetch('/api/table-region-clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:currentSourceId})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);panels=[];selected=-1;reviewQueue=[];persistQueue();markDirty(false);render();renderSourceChrome();msg.textContent=data.message||'GT gewist.';msg.className='inline-status ok';redetectClearBtn.disabled=false}catch(err){redetectClearBtn.disabled=false;msg.textContent=err.message||String(err);msg.className='inline-status error'}});
   resetBtn.addEventListener('click',async()=>{if(!confirm('Alle tabelregio-kaders wissen? De tabeldefinities blijven bewaard.'))return;const res=await fetch('/api/table-panels',{method:'DELETE'});const data=await res.json().catch(()=>({}));if(res.ok){panels=[];selected=-1;markDirty(false);render();msg.textContent=data.message||'Tabelregio-kaders verwijderd.';msg.className='inline-status ok'}else{msg.textContent=data.error||`HTTP ${res.status}`;msg.className='inline-status error'}});
   target?.addEventListener('change',()=>{const i=panelIndexFor(target.value);if(i>=0)selected=i;render()});
 
@@ -299,7 +325,7 @@ body.panel-focus-mode .panel-source-bar h3{font-size:14px;margin:0}
     try{
       const response=await fetch(`/api/table-panel-review-source/${encodeURIComponent(id)}`,{headers:{Accept:'application/json'}}),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);
       currentSourceId=String(data.source.source_id);W=Number(data.source.image_width);H=Number(data.source.image_height);stage.dataset.sourceId=currentSourceId;stage.dataset.width=String(W);stage.dataset.height=String(H);sourceImage.src=data.source.image_url;try{await sourceImage.decode()}catch(_){/* onload/fallback rendering remains available */}
-      reviewSources=Array.isArray(data.review_sources)?data.review_sources:reviewSources;const savedRegions=Array.isArray(data.region_ground_truth)?data.region_ground_truth:[];panels=regionsToPanels(savedRegions);if(!panels.length)panels=fallbackPanels.map(item=>({...item}));
+      reviewSources=Array.isArray(data.review_sources)?data.review_sources:reviewSources;const savedRegions=Array.isArray(data.region_ground_truth)?data.region_ground_truth:[];panels=regionsToPanels(savedRegions);
       suggestions=normalizeSuggestions(data.suggestions);reviewQueue=loadQueue(currentSourceId);suggestions.forEach(s=>{s.accepted=reviewQueue.some(q=>sameSuggestion(s,q))});applyQueuedPanels();selected=-1;drawing=false;start=null;resizing=null;dirty=false;if(suggestionCard)suggestionCard.hidden=savedRegions.length>0;
       history.replaceState({},'',`/process/panel-setup?source_id=${encodeURIComponent(currentSourceId)}`);render();layoutFocusStage();msg.textContent='';msg.className='inline-status';regionGtSaveBtn.disabled=false;
     }catch(error){msg.textContent=`Lezing laden mislukt: ${error.message||error}`;msg.className='inline-status error';if(sourceSelect)sourceSelect.value=currentSourceId}

@@ -22,7 +22,7 @@ function Write-JsonUtf8NoBom {
 function Add-WorkerLog {
     param([Parameter(Mandatory=$true)][string]$Path,[Parameter(Mandatory=$true)][string]$Message)
     $encoding=New-Object System.Text.UTF8Encoding($false)
-    $line="[{0}] {1}{2}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"),$Message,[Environment]::NewLine
+    $line="[{0}] {1}{2}" -f ([DateTimeOffset]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")),$Message,[Environment]::NewLine
     [System.IO.File]::AppendAllText($Path,$line,$encoding)
 }
 
@@ -145,7 +145,7 @@ try{
             Sort-Object @{Expression={ if ([string]::IsNullOrWhiteSpace($_.CreatedAt)) { "9999-12-31T23:59:59.9999999Z" } else { $_.CreatedAt } }}, Name |
             Select-Object -First 1
         if($null -eq $job){Start-Sleep -Seconds $PollSeconds;continue}
-        Write-Host "[$(Get-Date -Format HH:mm:ss)] Taak gevonden: $($job.BaseName)" -ForegroundColor Cyan
+        Write-Host "[$([DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))] Taak gevonden: $($job.BaseName)" -ForegroundColor Cyan
         $running=Join-Path (Join-Path $JobsRoot "running") $job.Name
         try{Move-Item $job.FullName $running -ErrorAction Stop}catch{continue}
         $data=Get-Content $running -Raw|ConvertFrom-Json
@@ -167,7 +167,7 @@ try{
         Add-WorkerLog -Path $workerLogFile -Message "Worker heeft taak $($data.job_id) opgepakt."
         Add-WorkerLog -Path $workerLogFile -Message "Start taak: $($data.action_name)"
         if(-not [string]::IsNullOrWhiteSpace([string]$data.project_id)){Add-WorkerLog -Path $workerLogFile -Message "Project: $($data.project_id)"}
-        Write-Host "[$(Get-Date -Format HH:mm:ss)] Start taak: $($data.action_name)"
+        Write-Host "[$([DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))] Start taak: $($data.action_name)"
 
         $exit=1
         $cancelled=$false
@@ -191,7 +191,7 @@ try{
                     if(-not [string]::IsNullOrWhiteSpace($safeProfile)){$powerShellCommand += ' "{0}"' -f $safeProfile}
                 }
                 elseif([string]$data.action_id -in @("20","21","22","58")){$safeSource=([string]$data.options.source_id).Replace('"','""');if(-not [string]::IsNullOrWhiteSpace($safeSource)){$powerShellCommand += ' "{0}"' -f $safeSource}}
-                elseif([string]$data.action_id -eq "2"){$safeTableModel=([string]$data.options.table_model_id).Replace('"','""');if([bool]$data.options.render_only){$powerShellCommand += ' "__render_only__"'}elseif(-not [string]::IsNullOrWhiteSpace($safeTableModel)){$powerShellCommand += ' "{0}"' -f $safeTableModel}}
+                elseif([string]$data.action_id -eq "2"){$safeTableModel=([string]$data.options.table_model_id).Replace('"','""');$safeSource=([string]$data.options.source_id).Replace('"','""');if([bool]$data.options.render_only){$powerShellCommand += ' "__render_only__"'}elseif(-not [string]::IsNullOrWhiteSpace($safeSource)){$powerShellCommand += ' "__source_only__:{0}"' -f $safeSource}elseif(-not [string]::IsNullOrWhiteSpace($safeTableModel)){$powerShellCommand += ' "{0}"' -f $safeTableModel}}
                 elseif([string]$data.action_id -eq "26"){$safeDevice=([string]$data.options.device).Replace('"','""');if(-not [string]::IsNullOrWhiteSpace($safeDevice)){$powerShellCommand += ' "{0}"' -f $safeDevice}}
             }
             $jobProjectId=([string]$data.project_id).Replace('"','')
@@ -258,9 +258,9 @@ try{
         }
         Write-JsonUtf8NoBom -Value $data -Path $statusFile -Depth 6
         Move-Item $running (Join-Path $destination $job.Name) -Force
-        if($cancelled){Write-Host "[$(Get-Date -Format HH:mm:ss)] Geannuleerd: $($data.job_id)" -ForegroundColor Yellow}
-        elseif($exit -eq 0){Write-Host "[$(Get-Date -Format HH:mm:ss)] Voltooid: $($data.job_id)" -ForegroundColor Green}
-        else{Write-Host "[$(Get-Date -Format HH:mm:ss)] Mislukt: $($data.job_id) (exit $exit)" -ForegroundColor Red}
+        if($cancelled){Write-Host "[$([DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))] Geannuleerd: $($data.job_id)" -ForegroundColor Yellow}
+        elseif($exit -eq 0){Write-Host "[$([DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))] Voltooid: $($data.job_id)" -ForegroundColor Green}
+        else{Write-Host "[$([DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))] Mislukt: $($data.job_id) (exit $exit)" -ForegroundColor Red}
         Set-WorkerState -State "idle"
     }
 }finally{Remove-Item $lock -Force -ErrorAction SilentlyContinue}
