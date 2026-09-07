@@ -140,7 +140,18 @@ $deviceResolution = Resolve-IsalaTableExecutionDevice -Requested $Device -Prepar
         $sourceFingerprintInput = @(
             Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "application\src") -Recurse -File |
                 Sort-Object FullName |
-                ForEach-Object { "{0}|{1}" -f $_.FullName, (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+                ForEach-Object {
+                    $fileHasher = [Security.Cryptography.SHA256]::Create()
+                    try {
+                        $fileStream = [IO.File]::OpenRead($_.FullName)
+                        try {
+                            $fileHash = ([BitConverter]::ToString($fileHasher.ComputeHash($fileStream)) -replace '-', '').ToLowerInvariant()
+                        }
+                        finally { $fileStream.Dispose() }
+                    }
+                    finally { $fileHasher.Dispose() }
+                    "{0}|{1}" -f $_.FullName, $fileHash
+                }
         ) -join "`n"
         $sourceHasher = [Security.Cryptography.SHA256]::Create()
         try {
