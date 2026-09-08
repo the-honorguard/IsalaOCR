@@ -1,11 +1,11 @@
 {% extends 'base.html' %}
-{% block title %}Stap 6 · Celdetector trainen · IsalaOCR{% endblock %}
-{% block heading %}Stap 6 · Celdetector trainen{% endblock %}
-{% block subtitle %}Bouw en train het table-cell model uit de beoordeelde Ground Truth.{% endblock %}
+{% block title %}Stap 8 · Celdetector trainen · IsalaOCR{% endblock %}
+{% block heading %}Stap 8 · Celdetector trainen{% endblock %}
+{% block subtitle %}Bouw en train het table-cell model uit de in Stap 7 beoordeelde Ground Truth.{% endblock %}
 {% block content %}
 <section class="card">
   <h2>Celdetector trainen</h2>
-  <p>Gebruik de acties op deze pagina om de goedgekeurde GT om te zetten naar een dataset, te valideren, te trainen en daarna een nieuwe celdetectie uit te voeren.</p>
+  <p>Gebruik de acties op deze pagina om de goedgekeurde GT om te zetten naar een dataset, te valideren, te trainen en het nieuwe model te activeren. De modelafwijkingen beoordeel je daarna in Stap 9.</p>
   <div class="actions">
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="48"><button type="submit">Dataset bouwen</button></form>
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="49"><button type="submit">Dataset valideren</button></form>
