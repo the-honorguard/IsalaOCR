@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
-{% block title %}Stap 7 · Rijen, kolommen en celcrops · IsalaOCR{% endblock %}
-{% block heading %}Stap 7 · Rijen, kolommen en celcrops{% endblock %}
+{% block title %}Stap 8 · Rijen, kolommen en celcrops · IsalaOCR{% endblock %}
+{% block heading %}Stap 8 · Rijen, kolommen en celcrops{% endblock %}
 {% block subtitle %}Maak de huidige Ground Truth gereed, bouw en valideer de dataset, train en activeer een nieuw model en voer dat model direct opnieuw uit.{% endblock %}
 {% block content %}
 {% set q = table_quality %}
@@ -37,7 +37,7 @@
       <button class="primary" id="run-all-table-button"><strong>Alles laten draaien</strong><small>GT → dataset → validatie → training → activatie → nieuwe modelrun</small></button>
     </form>
     {% if gt_open %}<button type="button" id="complete-all-step5-gt" class="ghost"><strong>Markeer alle GT's als correct</strong><small>{{ gt_open }} open bron{% if gt_open != 1 %}nen{% endif %}; geometrie blijft ongewijzigd</small></button>{% endif %}
-    <a class="button" href="/process/table-compare">Naar Stap 8 · Beoordelen</a>
+    <a class="button" href="/process/table-compare">Naar Stap 7 · Beoordelen</a>
     {% else %}
     <a class="button primary" href="/process/detect-candidates">Stap 4 · Structuur detecteren</a>
     <a class="button" href="/process/detection-review">Stap 5 · Ground Truth beheren</a>
@@ -68,7 +68,7 @@
   </div>
   <div class="grid cols-2">
     <div><strong>1 · Alles laten draaien</strong><p class="muted">Neem de actuele canonieke GT en expliciete <em>Model fout</em>-feedback, bouw een nieuwe dataset, train en activeer het model en maak meteen een nieuwe prediction-run.</p></div>
-    <div><strong>2 · Beoordelen</strong><p class="muted">Review in Stap 8 alleen de overgebleven afwijkingen als Functioneel correct, Model fout of GT controleren. Daarna kom je hier terug voor de volgende ronde.</p></div>
+    <div><strong>2 · Beoordelen</strong><p class="muted">Review in Stap 7 alleen de overgebleven afwijkingen als Functioneel correct, Model fout of GT controleren. Daarna kom je hier terug voor de volgende ronde.</p></div>
   </div>
 </section>
 

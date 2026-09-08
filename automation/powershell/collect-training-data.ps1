@@ -12,6 +12,8 @@ param(
 
     [switch]$RenderOnly,
 
+    [switch]$RegionsOnly,
+
     [ValidateSet("auto", "cpu", "gpu")]
     [string]$Device = "auto"
 )
@@ -27,7 +29,7 @@ try {
         $InputPath = Get-IsalaContainerProjectInput
         New-Item -ItemType Directory -Path (Get-IsalaHostProjectInput) -Force | Out-Null
     }
-    Assert-IsalaActionPreflight -ActionId "2"
+    Assert-IsalaActionPreflight -ActionId $(if ($RegionsOnly) { "59" } else { "2" })
     Assert-Docker
 
 $deviceResolution = Resolve-IsalaTableExecutionDevice -Requested $Device -PrepareGpuRuntime:($Device -in @("auto", "gpu"))
@@ -122,6 +124,9 @@ $deviceResolution = Resolve-IsalaTableExecutionDevice -Requested $Device -Prepar
     }
     if (-not [string]::IsNullOrWhiteSpace($SourceId)) {
         $collectArguments += @("--source-id", $SourceId)
+    }
+    if ($RegionsOnly) {
+        $collectArguments += "--regions-only"
     }
     if ($RenderOnly) {
         $collectArguments += "--render-only"

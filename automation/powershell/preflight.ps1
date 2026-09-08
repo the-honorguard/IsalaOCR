@@ -73,6 +73,7 @@ function Get-IsalaActionCatalog {
         "55" = @{ Name = "Train full-page table-region detector on GPU"; Script = "train-table-region-model.ps1"; Profile = "table-region-train"; Arguments = @{ Device = "gpu" } }
         "56" = @{ Name = "Train full-page table-region detector on CPU"; Script = "train-table-region-model.ps1"; Profile = "table-region-train"; Arguments = @{ Device = "cpu" } }
         "57" = @{ Name = "Activate full-page table-region detector"; Script = "activate-table-region-model.ps1"; Profile = "table-region-activate" }
+        "59" = @{ Name = "Detect table regions only for review"; Script = "collect-training-data.ps1"; Profile = "collect" }
         "20" = @{ Name = "Prepare Mapping Studio data after geometry gate"; Script = "prepare-mapping-data.ps1"; Profile = "mapping-prepare" }
         "21" = @{ Name = "Apply current raster/cell mappings"; Script = "apply-mappings.ps1"; Profile = "mapping-apply" }
         "22" = @{ Name = "Read values from current raster/cells"; Script = "read-mapped-values.ps1"; Profile = "value-read" }

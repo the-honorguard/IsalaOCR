@@ -10,26 +10,28 @@
 <style>.test-pipeline-home-card{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}.test-pipeline-home-card h3{margin:3px 0}.test-pipeline-home-card p{margin:0}@media(max-width:650px){.test-pipeline-home-card{align-items:stretch;flex-direction:column}.test-pipeline-home-card .button{width:100%;text-align:center}}</style>
 {% if localization_strategy == 'table_first' %}
 <section class="card workflow-map">
-  <div class="toolbar"><div><h3>Table setup & Ground Truth</h3><p class="muted">Stappen 1–4 bouwen de vaste referentie op: voorbereiden, tabelregio’s selecteren, eerste celdetectie en GT Studio.</p></div></div>
+  <div class="toolbar"><div><h3>Table setup & Ground Truth</h3><p class="muted">Stappen 1–5 bouwen de referentie op: voorbereiden, tabelregio’s tekenen, regio-model trainen, detecteren en cel-GT beoordelen.</p></div></div>
   <div class="stage-rail process-stage-rail">
     {% set s1 = stages|selectattr('key','equalto','detection-models')|list|first %}
     {% set s2 = stages|selectattr('key','equalto','panel-setup')|list|first %}
-    {% set s3 = stages|selectattr('key','equalto','detect-candidates')|list|first %}
-    {% set s4 = stages|selectattr('key','equalto','detection-review')|list|first %}
+    {% set s3 = stages|selectattr('key','equalto','table-region-model')|list|first %}
+    {% set s4 = stages|selectattr('key','equalto','detect-candidates')|list|first %}
+    {% set s5 = stages|selectattr('key','equalto','detection-review')|list|first %}
     <a href="/process/detection-models" class="stage {% if s1 and s1.complete %}complete{% endif %}"><div class="stage-index">1</div><strong>Voorbereiding</strong><div class="muted">Runtime en table-modellen gereedmaken.</div></a>
     <a href="/process/panel-setup" class="stage {% if s2 and s2.complete %}complete{% endif %}"><div class="stage-index">2</div><strong>Tabelregio’s selecteren</strong><div class="muted">Teken de volledige tabellen als Ground Truth.</div></a>
-    <a href="/process/detect-candidates" class="stage {% if s3 and s3.complete %}complete{% endif %}"><div class="stage-index">3</div><strong>Eerste celdetectie</strong><div class="muted">Detectie uitvoeren als basis voor de GT Studio.</div></a>
-    <a href="/process/detection-review" class="stage {% if s4 and s4.complete %}complete{% endif %}"><div class="stage-index">4</div><strong>GT Studio</strong><div class="muted">Per bron de Ground Truth controleren en goedkeuren.</div></a>
+    <a href="/process/table-region-model" class="stage {% if s3 and s3.complete %}complete{% endif %}"><div class="stage-index">3</div><strong>Regio-model trainen</strong><div class="muted">Leer volledige tabelregio’s automatisch herkennen.</div></a>
+    <a href="/process/detect-candidates" class="stage {% if s4 and s4.complete %}complete{% endif %}"><div class="stage-index">4</div><strong>Regio’s + cellen detecteren</strong><div class="muted">Gebruik het regio-model en maak celvoorstellen.</div></a>
+    <a href="/process/detection-review" class="stage {% if s5 and s5.complete %}complete{% endif %}"><div class="stage-index">5</div><strong>GT Studio</strong><div class="muted">Per bron de cel-Ground Truth controleren en goedkeuren.</div></a>
   </div>
 </section>
 
 <section class="card workflow-map section-gap">
-  <div class="toolbar"><div><span class="eyebrow">ITERATIEVE MODELLOOP</span><h3>5 → 6 → 5</h3><p class="muted">De Ground Truth blijft staan. Alleen modeloutput en expliciete reviewfeedback veranderen per ronde.</p></div></div>
-  <div class="stage-rail process-stage-rail">
-    {% set s5 = stages|selectattr('key','equalto','table-model')|list|first %}
-    {% set s6 = stages|selectattr('key','equalto','table-compare')|list|first %}
-    <a href="/process/table-model" class="stage {% if s5 and s5.complete %}complete{% endif %}"><div class="stage-index">5</div><strong>Celdetector trainen</strong><div class="muted">Dataset → validatie → training → activatie → nieuwe detectie.</div></a>
-    <a href="/process/table-compare" class="stage {% if s6 and s6.complete %}complete{% endif %}"><div class="stage-index">6</div><strong>Afwijkingen reviewen</strong><div class="muted">Functioneel correct, Model fout of GT controleren.</div></a>
+  <div class="toolbar"><div><span class="eyebrow">ITERATIEVE MODELLOOP</span><h3>6 → 7 → 6</h3><p class="muted">De Ground Truth blijft staan. Alleen modeloutput en expliciete reviewfeedback veranderen per ronde.</p></div></div>
+    <div class="stage-rail process-stage-rail">
+    {% set s6 = stages|selectattr('key','equalto','table-model')|list|first %}
+    {% set s7 = stages|selectattr('key','equalto','table-compare')|list|first %}
+    <a href="/process/table-model" class="stage {% if s6 and s6.complete %}complete{% endif %}"><div class="stage-index">6</div><strong>Celdetector trainen</strong><div class="muted">Dataset → validatie → training → activatie → nieuwe detectie.</div></a>
+    <a href="/process/table-compare" class="stage {% if s7 and s7.complete %}complete{% endif %}"><div class="stage-index">7</div><strong>Afwijkingen reviewen</strong><div class="muted">Functioneel correct, Model fout of GT controleren.</div></a>
     <a href="/process/table-model" class="stage"><div class="stage-index">↻</div><strong>Volgende ronde</strong><div class="muted">Verwerkte feedback opnieuw trainen.</div></a>
   </div>
 </section>

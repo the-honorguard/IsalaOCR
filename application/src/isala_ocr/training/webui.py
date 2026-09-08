@@ -127,11 +127,12 @@ ACTIONS = {
     "50": "Wireless table-cell detector trainen op GPU",
     "51": "Wireless table-cell detector trainen op CPU",
     "52": "Getraind table-cell model activeren",
-    "53": "Stap 5 volledig uitvoeren (dataset, training, activatie en nieuwe celdetectie)",
+    "53": "Stap 6 volledig uitvoeren (dataset, training, activatie en nieuwe celdetectie)",
     "54": "Tabelregio-dataset bouwen",
     "55": "Tabelregio-detector trainen op GPU",
     "56": "Tabelregio-detector trainen op CPU",
     "57": "Tabelregio-detector activeren",
+    "59": "Alleen tabelregio’s detecteren voor beoordeling",
     "20": "Mappinggegevens voorbereiden na detectiepoort",
     "21": "Nieuwe raster/celkaders toepassen op de bevestigde mappings",
     "22": "Waarden uit het nieuwe raster uitlezen",
@@ -230,14 +231,14 @@ PROCESS_STEPS = [
     {"key": "detection-models","index":1,"group":"detection","title":"Voorbereiding","subtitle":"Controleer of PP-StructureV3 en de inference/table-modelcache beschikbaar zijn.","action_ids":["14","19","30","35","42"],"requirements":["Docker Desktop actief","Inference OCR + tabelmodellen lokaal beschikbaar","Tabelregio’s en tabelnamen worden in Stap 2 gedefinieerd","Geen detector-training nodig voor de table-first proef"]},
     {"key": "input-selection","index":"1A","group":"input","title":"Inputselectie","subtitle":"Bepaal welke bronafbeeldingen onderdeel worden van deze verwerkingsronde.","action_ids":[],"requirements":["Voorbereiding afgerond","Bestanden in de projectmap input","Alle gewenste afbeeldingen expliciet geselecteerd"]},
     {"key": "panel-setup","index":2,"group":"detection","title":"Tabelregio’s selecteren","subtitle":"Beoordeel per lezing de volledige tabelregio’s in de fullscreen reviewer en sla ze op als Ground Truth.","action_ids":[],"requirements":["Minimaal één bronpreview","Per lezing alle volledige tabellen omkaderen","Tabeldefinities en tabelregio-GT opslaan"]},
-    {"key": "table-region-model","index":None,"group":"fallback","title":"Tabelregio-model · technische optie","subtitle":"Optionele tabelregio-training; dit hoort niet in de eerste GT-reviewflow.","action_ids":["54","55","56","57"],"requirements":["Alleen gebruiken voor een aparte tabelregio-experiment"]},
-    {"key": "detect-candidates","index":3,"group":"detection","title":"Eerste celdetectie","subtitle":"Voer de eerste celdetectie uit binnen de ingestelde tabelregio’s. Deze run is alleen het startpunt voor de GT.","action_ids":["2"],"requirements":["Voorbereiding afgerond","Tabelregio’s opgeslagen","Bronnen in input"]},
-    {"key": "detection-review","index":4,"group":"detection","title":"GT Studio","subtitle":"Beoordeel de Ground Truth per bron in de zelfstandige Studio-reviewworkflow; tabelanalyse volgt later.","action_ids":[],"requirements":["Eerste celdetectie afgerond","Bronrender","Per bron GT controleren en goedkeuren"]},
-    {"key": "table-model","index":5,"group":"detection","title":"Celdetector trainen","subtitle":"Bouw uit de reviewcorrecties trainingsdata, train/activeer de celdetector en gebruik het nieuwe model in de volgende detectieronde.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde GT-review","Positieve functionele cellen","Dataset gebouwd en gevalideerd vóór training"]},
-    {"key": "table-compare","index":None,"group":"tables","title":"Detectorafwijkingen reviewen","subtitle":"Optionele technische vergelijking van een nieuwe detectorrun met de vaste Ground Truth.","action_ids":[],"requirements":["Canonieke Ground Truth uit Stap 4","Table-cell dataset uit Stap 5","Nieuwe detectierun uit Stap 3"]},
-    {"key": "table-quality","index":7,"group":"tables","title":"Tabelstudio","subtitle":"Maak vanuit de getrainde celdetector het rij-kolomraster en bepaal welke bezette rastercellen naar Recognition gaan.","action_ids":[],"requirements":["Celdetector getraind en opnieuw gedraaid","Goedgekeurde celposities"]},
+    {"key": "table-region-model","index":3,"group":"detection","title":"Tabelregio-model trainen","subtitle":"Train eerst een model dat volledige tabelregio’s automatisch leert vinden uit de GT van Stap 2.","action_ids":["54","55","56","57"],"requirements":["Tabelregio-GT opgeslagen in Stap 2","Dataset gebouwd en gevalideerd vóór training","Regio-model geactiveerd vóór de volgende detectie"]},
+    {"key": "detect-candidates","index":4,"group":"detection","title":"Tabelregio’s detecteren en beoordelen","subtitle":"Draai alleen het actieve tabelregio-model. Beoordeel daarna de gevonden regio’s voordat er cellen worden gedetecteerd.","action_ids":["59"],"requirements":["Voorbereiding afgerond","Tabelregio-model getraind en geactiveerd","Bronnen in input"]},
+    {"key": "detection-review","index":5,"group":"detection","title":"GT Studio","subtitle":"Beoordeel de celdetectie per bron en leg de canonieke cel-GT vast voor de celdetector.","action_ids":[],"requirements":["Tabelregio’s en cellen gedetecteerd","Bronrender","Per bron GT controleren en goedkeuren"]},
+    {"key": "table-model","index":6,"group":"detection","title":"Celdetector trainen","subtitle":"Bouw uit de reviewcorrecties trainingsdata, train/activeer de celdetector en gebruik het nieuwe model in de volgende detectieronde.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde GT-review","Positieve functionele cellen","Dataset gebouwd en gevalideerd vóór training"]},
+    {"key": "table-compare","index":None,"group":"tables","title":"Detectorafwijkingen reviewen","subtitle":"Optionele technische vergelijking van een nieuwe detectorrun met de vaste Ground Truth.","action_ids":[],"requirements":["Canonieke Ground Truth uit Stap 5","Table-cell dataset uit Stap 6","Nieuwe detectierun uit Stap 4"]},
+    {"key": "table-quality","index":8,"group":"tables","title":"Tabelstudio","subtitle":"Maak vanuit de getrainde celdetector het rij-kolomraster en bepaal welke bezette rastercellen naar Recognition gaan.","action_ids":[],"requirements":["Celdetector getraind en opnieuw gedraaid","Goedgekeurde celposities"]},
 
-    {"key": "recognition-gt-studio","index":9,"group":"value","title":"Recognition GT Studio","subtitle":"Controleer de Recognition-tekst uit de bestaande cellen en keur de trainingsvoorbeelden goed.","action_ids":[],"requirements":["Tabelstudio afgerond","Recognition-samples beschikbaar"]},
+    {"key": "recognition-gt-studio","index":10,"group":"value","title":"Recognition GT Studio","subtitle":"Controleer de Recognition-tekst uit de bestaande cellen en keur de trainingsvoorbeelden goed.","action_ids":[],"requirements":["Tabelstudio afgerond","Recognition-samples beschikbaar"]},
 
     # The previous loose field/PicoDet workflow is intentionally parked. Routes,
     # artifacts and jobs stay available so nothing is deleted, but they are no
@@ -248,11 +249,11 @@ PROCESS_STEPS = [
     {"key": "redetect","index":None,"group":"fallback","title":"Detecteren met fallback-model","subtitle":"Legacy/fallback detectierun met een actief field-detector-model.","action_ids":["12"],"requirements":["Actief fallback-model"]},
     {"key": "detection-report","index":None,"group":"fallback","title":"Box-detector kwaliteitsrapport","subtitle":"Legacy/fallback Detection Gate rapport.","action_ids":["13"],"requirements":["Localization-evaluatie"]},
 
-    {"key": "mapping","index":12,"group":"value","title":"Mapping Studio","subtitle":"Pas pas ná Recognition optioneel functionele betekenis toe op betrouwbare cellen.","action_ids":["20"],"requirements":["Recognition-output","Betrouwbare celgeometrie","Functioneel veldschema"]},
-    {"key": "apply-mapping","index":13,"group":"value","title":"Application output","subtitle":"Pas de actuele raster/celkaders toe en lees daarna automatisch de waarden uit met het actieve recognition-model.","action_ids":["58"],"requirements":["Bevestigde mappings","Actuele raster/celgeometrie","Actief recognition-model"]},
-    {"key": "value-review","index":14,"group":"value","title":"Waarden beoordelen","subtitle":"Beoordeel uitsluitend OCR-inhoud; raster- en celgeometrie wordt hier niet meer aangepast.","action_ids":[],"requirements":["Uitgelezen waarden"]},
-    {"key": "recognition-dataset","index":10,"group":"value","title":"Recognition Model Factory","subtitle":"Bouw, train, beoordeel en activeer het Recognition-model vanuit één pagina.","action_ids":["24","26","27","28"],"requirements":["Goedgekeurde Recognition-GT-samples"]},
-    {"key": "recognition-output-review","index":11,"group":"value","title":"Recognition Model Review","subtitle":"Controleer de modeluitvoer alleen-lezen tegen de vaste Recognition-GT.","action_ids":[],"requirements":["Recognition Model Factory afgerond","Vaste Recognition-testset"]},
+    {"key": "mapping","index":13,"group":"value","title":"Mapping Studio","subtitle":"Pas pas ná Recognition optioneel functionele betekenis toe op betrouwbare cellen.","action_ids":["20"],"requirements":["Recognition-output","Betrouwbare celgeometrie","Functioneel veldschema"]},
+    {"key": "apply-mapping","index":14,"group":"value","title":"Application output","subtitle":"Pas de actuele raster/celkaders toe en lees daarna automatisch de waarden uit met het actieve recognition-model.","action_ids":["58"],"requirements":["Bevestigde mappings","Actuele raster/celgeometrie","Actief recognition-model"]},
+    {"key": "value-review","index":15,"group":"value","title":"Waarden beoordelen","subtitle":"Beoordeel uitsluitend OCR-inhoud; raster- en celgeometrie wordt hier niet meer aangepast.","action_ids":[],"requirements":["Uitgelezen waarden"]},
+    {"key": "recognition-dataset","index":11,"group":"value","title":"Recognition Model Factory","subtitle":"Bouw, train, beoordeel en activeer het Recognition-model vanuit één pagina.","action_ids":["24","26","27","28"],"requirements":["Goedgekeurde Recognition-GT-samples"]},
+    {"key": "recognition-output-review","index":12,"group":"value","title":"Recognition Model Review","subtitle":"Controleer de modeluitvoer alleen-lezen tegen de vaste Recognition-GT.","action_ids":[],"requirements":["Recognition Model Factory afgerond","Vaste Recognition-testset"]},
     {"key": "recognition-train","index":None,"group":"value","title":"Recognition-model trainen · legacy","subtitle":"Legacy-route; gebruik de gecombineerde Recognition Model Factory.","action_ids":["26"],"requirements":["Gevalideerde recognition-dataset"]},
     {"key": "recognition-evaluate","index":None,"group":"value","title":"Recognition-model beoordelen · legacy","subtitle":"Legacy-route; gebruik de gecombineerde Recognition Model Factory.","action_ids":["27"],"requirements":["Getraind/exporteerbaar recognition-model"]},
     {"key": "recognition-models","index":None,"group":"value","title":"Recognition-model activeren · legacy","subtitle":"Legacy-route; gebruik de gecombineerde Recognition Model Factory.","action_ids":["28"],"requirements":["Recognition-evaluatie"]},
@@ -611,7 +612,7 @@ def create_web_app(
             state = "no_ground_truth"
             title = "Canonieke Ground Truth ontbreekt"
             summary = "Er is nog geen bruikbare canonieke table-cell Ground Truth."
-            next_step = "Ga naar Stap 4 en leg de gewenste cellen vast."
+            next_step = "Ga naar Stap 5 en leg de gewenste cellen vast."
         elif open_sources:
             state = "canonical_gt_needs_review"
             title = "Ground Truth-controle nog niet afgerond"
@@ -619,15 +620,15 @@ def create_web_app(
                 f"{open_sources} van {source_count} bronafbeelding(en) moeten nog expliciet als GT-gecontroleerd worden gemarkeerd. "
                 "Nieuwe modelpredictions tellen hier niet als open kandidaten; die beoordeel je in Stap 7."
             )
-            next_step = "Open Stap 4 · GT Studio, controleer de bron en kies GT goedkeuren."
+            next_step = "Open Stap 5 · GT Studio, controleer de bron en kies GT goedkeuren."
         else:
             state = "canonical_gt_ready"
             title = "Canonieke Ground Truth is volledig gecontroleerd"
             summary = (
                 f"Alle {source_count} bronafbeeldingen zijn als GT-gecontroleerd gemarkeerd; de canonieke GT bevat {gt_cells} cellen. "
-                "Een nieuwe Stap-3-run wijzigt deze status niet. Modelverschillen worden uitsluitend in Stap 7 beoordeeld."
+                "Een nieuwe Stap-4-run wijzigt deze status niet. Modelverschillen worden uitsluitend in Stap 7 beoordeeld."
             )
-            next_step = "Gebruik Stap 7 voor de actuele modelvergelijking of Stap 5 voor een volgende trainingsdataset."
+            next_step = "Gebruik Stap 7 voor de actuele modelvergelijking of Stap 6 voor een volgende trainingsdataset."
         return {
             "strategy": "table_first", "canonical_ground_truth": True,
             "ready": ready, "state": state, "tone": "success" if ready else "warning",
@@ -668,8 +669,8 @@ def create_web_app(
                     "strategy": "table_first", "ready": False, "state": "panel_detection_stale", "tone": "warning",
                     "title": "Voer de table-detectie opnieuw uit",
                     "reason": "Het panelprofiel is nieuwer dan de huidige cell-detectie.",
-                    "summary": "Voer Stap 3 opnieuw uit na een wijziging in Stap 2.",
-                    "next_step": "Voer Stap 3 · Tabelregio’s en cellen detecteren opnieuw uit.",
+                    "summary": "Voer Stap 4 opnieuw uit na een wijziging in Stap 2.",
+                    "next_step": "Voer Stap 4 · Tabelregio’s en cellen detecteren opnieuw uit.",
                     "sources": [], "totals": {}, "thresholds": table_first_thresholds(),
                 }
             try:
@@ -681,7 +682,7 @@ def create_web_app(
                     "title": "Table-first status kon niet worden berekend",
                     "reason": f"Diagnostiek: {reference}.",
                     "summary": f"Diagnostiek: {reference}.",
-                    "next_step": "Open Stap 4 en controleer of de panelgerichte tabelanalyse/reviewdata aanwezig is.",
+                    "next_step": "Open Stap 5 en controleer of de panelgerichte tabelanalyse/reviewdata aanwezig is.",
                     "sources": [], "totals": {}, "thresholds": table_first_thresholds(),
                 }
         return request_cached("current_table_first_quality", load)
@@ -1494,6 +1495,13 @@ def create_web_app(
         roi = roi_review_counts()
         value = value_review_counts()
         detection_sources = database.list_detection_sources()
+        region_sources = list_table_region_sources(workspace_root()) if localization_strategy() == "table_first" else []
+        region_by_source = {str(item.get("source_id") or ""): item for item in region_sources}
+        region_gt_complete = bool(detection_sources) and all(
+            bool(region_by_source.get(str(source.get("source_id") or ""), {}).get("review_completed"))
+            and bool(region_by_source.get(str(source.get("source_id") or ""), {}).get("region_count"))
+            for source in detection_sources
+        )
         detection_reviews = step4_review_counts()
         localization_datasets = database.list_localization_datasets()
         localization_evaluations = database.list_localization_evaluations()
@@ -1523,10 +1531,25 @@ def create_web_app(
             "input-selection": bool(input_state.get("has_manifest"))
                 and bool(input_state.get("selected"))
                 and bool(detection_sources),
-            "panel-setup": bool(panel_state.get("configured")),
-            "table-region-model": bool(list_table_region_sources(workspace_root())),
-            "detect-candidates": bool(panel_state.get("detection_current")),
-            "detection-review": (canonical_table_gt_mode() or (bool(panel_state.get("detection_current")) and detection_reviews.get("candidate_total", 0) > 0)),
+            # Step 2 is complete when every selected source has saved region
+            # GT. The old project-wide panel profile is not this workflow's
+            # source of truth anymore.
+            "panel-setup": region_gt_complete,
+            # Region GT is the input to Step 3; completion requires an
+            # explicitly activated trained region model.
+            "table-region-model": bool(_read_json(workspace_root() / "table_region_models" / "active.json", None)),
+            "detect-candidates": bool(detection_sources) and all(
+                bool(database.list_detection_table_geometry(str(source.get("source_id") or "")).get("regions"))
+                for source in detection_sources
+            ),
+            "detection-review": (
+                canonical_table_gt_mode()
+                or bool(detection_reviews.get("candidate_total", 0) > 0)
+                or (bool(detection_sources) and all(
+                    bool(database.list_detection_table_geometry(str(source.get("source_id") or "")).get("regions"))
+                    for source in detection_sources
+                ))
+            ),
             "table-quality": bool((table_model_state.get("active_model") or {}).get("model_id")),
             "table-model": bool((table_model_state.get("active_model") or {}).get("model_id")),
             "table-compare": bool((table_model_state.get("active_model") or {}).get("model_id")) and bool(table_model_state.get("dataset")) and bool(panel_state.get("detection_current")),
@@ -2435,8 +2458,9 @@ def create_web_app(
                 str(active_table_model.get('model_id') or 'reviewdata nog niet als actief table-model ingezet')
             ),
             "table-region-model": (
-                f"{len(list_table_region_sources(workspace_root()))} lezing(en) met tabelregio-GT"
-                if list_table_region_sources(workspace_root()) else "nog geen tabelregio-GT opgeslagen"
+                f"actief regio-model · {len(list_table_region_sources(workspace_root()))} lezing(en) met GT"
+                if _read_json(workspace_root() / "table_region_models" / "active.json", None)
+                else f"{len(list_table_region_sources(workspace_root()))} lezing(en) met GT · model nog niet actief"
             ),
             "table-compare": (
                 "nieuwe Stap-4-run klaar voor vergelijking" if active_table_model else "eerst een getraind tablecelmodel activeren en Stap 4 uitvoeren"
@@ -2867,6 +2891,8 @@ def create_web_app(
                         "selected_variant": str((benchmark.get("selected_variant") or "") if isinstance(benchmark, dict) else ""),
                         "selected_scope": str((benchmark.get("selected_scope") or "") if isinstance(benchmark, dict) else ""),
                         "selected_score": benchmark.get("selected_score") if isinstance(benchmark, dict) else None,
+                        "region_model": str((benchmark.get("region_model") or benchmark.get("table_region_model") or "") if isinstance(benchmark, dict) else ""),
+                        "detection_mode": str((benchmark.get("mode") or "") if isinstance(benchmark, dict) else ""),
                         "table_count": int(diagnostic_payload.get("table_count") or 0),
                         "cell_count": int(diagnostic_payload.get("table_cell_count") or 0),
                         "suggestion_count": len(suggestions),
@@ -3326,6 +3352,15 @@ def create_web_app(
         if step_key == "panel-setup":
             panel_state = table_panel_state()
             context = _table_panel_review_context(str(request.args.get("source_id") or ""), panel_state)
+            region_sources = list_table_region_sources(workspace_root())
+            region_total = sum(int(item.get("region_count") or 0) for item in region_sources)
+            expected_sources = database.list_detection_sources()
+            region_by_source = {str(item.get("source_id") or ""): item for item in region_sources}
+            region_pending = sum(
+                1 for item in expected_sources
+                if not bool(region_by_source.get(str(item.get("source_id") or ""), {}).get("review_completed"))
+                or not bool(region_by_source.get(str(item.get("source_id") or ""), {}).get("region_count"))
+            )
             return render_template(
                 "table_panel_setup.html", step=step, panel_state=panel_state,
                 panel_profile=panel_state.get("profile") or {}, sources=context["sources"], source=context["source"],
@@ -3334,11 +3369,11 @@ def create_web_app(
                 region_ground_truth=context["region_ground_truth"],
                 table_review_sources=context["table_review_sources"],
                 header_counts={
-                    "total": int(panel_state.get("panel_count") or 0),
-                    "pending": 1 if not panel_state.get("configured") else (1 if panel_state.get("needs_rerun") else 0),
-                    "accepted": int(panel_state.get("panel_count") or 0),
+                    "total": region_total,
+                    "pending": region_pending,
+                    "accepted": region_total,
                 },
-                header_total_label="panelen", header_pending_label="actie nodig", header_accepted_label="opgeslagen",
+                header_total_label="regio’s", header_pending_label="lezingen open", header_accepted_label="opgeslagen",
             )
 
         if step_key == "table-region-model":
@@ -3606,6 +3641,35 @@ def create_web_app(
         if step_key in {"localization-evaluate", "localization-register", "detection-report"}:
             return render_template("react_localization_quality.html", step=step)
 
+        # Region predictions get their own review surface.  Keeping this out
+        # of Panel Setup prevents newly detected boxes from being confused
+        # with the manually accepted region GT used to train the model.
+        if step_key == "detect-candidates" and localization_strategy() == "table_first":
+            sources = [dict(item) for item in database.list_detection_sources()]
+            requested_source_id = str(request.args.get("source_id") or "").strip()
+            source = next((item for item in sources if str(item.get("source_id") or "") == requested_source_id), None)
+            if source is None and sources:
+                source = sources[0]
+            source_id = str((source or {}).get("source_id") or "")
+            geometry = database.list_detection_table_geometry(source_id) if source_id else {"regions": [], "cells": []}
+            context = _table_panel_review_context(source_id)
+            review_sources = []
+            for item in sources:
+                item_source_id = str(item.get("source_id") or "")
+                item["region_count"] = len(database.list_detection_table_geometry(item_source_id).get("regions", [])) if item_source_id else 0
+                review_sources.append(item)
+            return render_template(
+                "table_region_review.html", step=step, sources=review_sources, source=source,
+                source_id=source_id, regions=geometry.get("regions", []),
+                ground_truth_regions=list_table_regions(workspace_root(), source_id) if source_id else [],
+                detection_info=context.get("detection_info") or {},
+                header_counts={
+                    "total": len(geometry.get("regions", [])), "pending": len(geometry.get("regions", [])),
+                    "accepted": len(list_table_regions(workspace_root(), source_id)) if source_id else 0,
+                },
+                header_total_label="modelregio’s", header_pending_label="te beoordelen", header_accepted_label="oude GT",
+            )
+
         if step_key == "artifacts":
             return render_management(active_tab="models")
 
@@ -3803,6 +3867,7 @@ def create_web_app(
                 image_width=int(payload.get("image_width") or 0),
                 image_height=int(payload.get("image_height") or 0),
                 regions=regions,
+                allow_empty=bool(payload.get("allow_empty")),
             )
         except (TypeError, ValueError, OSError) as exc:
             return jsonify({"error": str(exc)}), 400
@@ -3812,14 +3877,36 @@ def create_web_app(
             "message": f"{len(source.get('regions') or [])} tabelregio('s) opgeslagen als GT voor deze lezing.",
         })
 
+    @app.post("/api/table-region-review/<source_id>")
+    def table_region_review_accept_api(source_id: str):
+        payload = request.get_json(silent=True) or {}
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", source_id):
+            return jsonify({"error": "Ongeldig source_id"}), 400
+        if not any(str(item.get("source_id") or "") == source_id for item in database.list_detection_sources()):
+            return jsonify({"error": "Bron niet gevonden"}), 404
+        regions = payload.get("regions")
+        if not isinstance(regions, list):
+            return jsonify({"error": "regions is verplicht"}), 400
+        try:
+            source = next(item for item in database.list_detection_sources() if str(item.get("source_id") or "") == source_id)
+            saved = save_table_regions(
+                workspace_root(), source_id,
+                image_width=int(payload.get("image_width") or source.get("image_width") or 0),
+                image_height=int(payload.get("image_height") or source.get("image_height") or 0),
+                regions=regions,
+                allow_empty=bool(payload.get("allow_empty")),
+            )
+        except (StopIteration, TypeError, ValueError, OSError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify({"ok": True, "source": saved, "message": f"{len(saved.get('regions') or [])} regio’s als nieuwe GT opgeslagen."})
+
     @app.post("/api/table-region-redetect")
     def table_region_redetect_api():
         source_id = str((request.get_json(silent=True) or {}).get("source_id") or "").strip()
         if not source_id:
             return jsonify({"error": "source_id is verplicht"}), 400
-        clear_table_regions(workspace_root(), source_id)
-        payload = enqueue_job("2")
-        return jsonify({"ok": True, "job": payload, "message": "Bestaande tabelregio-GT gewist; tabelregio- en celdetectie gestart."}), 202
+        payload = enqueue_job("59", action_name="Tabelregio’s opnieuw detecteren voor beoordeling")
+        return jsonify({"ok": True, "job": payload, "message": "Nieuwe voorspelling gestart; bestaande handmatige GT blijft bewaard."}), 202
 
     @app.post("/api/table-region-clear")
     def table_region_clear_api():
@@ -3842,8 +3929,8 @@ def create_web_app(
         except Exception as exc:
             _record_webui_error("source_render_prepare_for_table_detection", exc)
             return jsonify({"error": f"Bronrenders konden niet worden voorbereid: {type(exc).__name__}: {exc}"}), 500
-        payload = enqueue_job("2")
-        return jsonify({"ok": True, "job": payload, "sources": result.get("sources", 0), "message": "Bronrenders voorbereid; tabelregio- en celdetectie gestart."}), 202
+        payload = enqueue_job("59", action_name="Tabelregio’s detecteren voor beoordeling")
+        return jsonify({"ok": True, "job": payload, "sources": result.get("sources", 0), "message": "Bronrenders voorbereid; alleen tabelregio-detectie gestart."}), 202
 
     @app.post("/api/table-region-detect-source")
     def table_region_detect_source_api():
@@ -3858,11 +3945,11 @@ def create_web_app(
             _record_webui_error("source_render_prepare_for_single_table_detection", exc)
             return jsonify({"error": f"Bronrenders konden niet worden voorbereid: {type(exc).__name__}: {exc}"}), 500
         payload = enqueue_job(
-            "2",
+            "59",
             {"source_id": source_id},
-            action_name="Alleen huidige bron detecteren · PP-Structure",
+            action_name="Alleen huidige bron · tabelregio’s detecteren",
         )
-        return jsonify({"ok": True, "job": payload, "message": f"Alleen bron {source_id} opnieuw detecteren gestart."}), 202
+        return jsonify({"ok": True, "job": payload, "message": f"Alleen bron {source_id} opnieuw op tabelregio’s detecteren gestart."}), 202
 
     @app.post("/api/table-region-dataset")
     def table_region_dataset_build_api():
@@ -4532,8 +4619,8 @@ def create_web_app(
         Fallback, system and maintenance routes are intentionally excluded.
         """
         sequence = [
-            "detection-models", "input-selection", "panel-setup", "detect-candidates",
-            "detection-review", "table-model", "table-compare", "table-quality",
+            "detection-models", "input-selection", "panel-setup", "table-region-model",
+            "detect-candidates", "detection-review", "table-model", "table-compare", "table-quality",
             "recognition-gt-studio", "recognition-dataset", "recognition-output-review",
             "mapping", "apply-mapping", "value-review",
         ] if localization_strategy() == "table_first" else [

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block body_class %}table-region-model-review-page{% endblock %}
+{% block title %}Stap 4 · Tabelregio’s beoordelen · IsalaOCR{% endblock %}
+{% block heading %}Stap 4 · Tabelregio’s beoordelen{% endblock %}
+{% block subtitle %}Beoordeel uitsluitend de nieuwe voorspellingen van het actieve tabelregio-model. De oude GT blijft apart beschikbaar als referentie.{% endblock %}
+{% block content %}
+<section class="card region-review-toolbar">
+  <div class="region-review-toolbar-row">
+    <div>
+      <span class="eyebrow">NIEUWE MODELDETECTIE</span>
+      <h3>Bron {{ source_id }}</h3>
+    </div>
+    <form method="get" action="/process/detect-candidates">
+      <label>Lezing<select name="source_id" onchange="this.form.submit()">
+        {% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id == source_id %}selected{% endif %}>{{ item.source_id }}</option>{% endfor %}
+      </select></label>
+    </form>
+  </div>
+  <div class="workflow-actions">
+    <button type="button" id="region-accept" class="primary">✓ Geselecteerde regio’s als nieuwe GT opslaan</button>
+    <button type="button" id="region-redetect">Regio’s van deze bron opnieuw detecteren</button>
+    <a class="button ghost" href="/process/panel-setup?source_id={{ source_id|urlencode }}">Naar handmatige regio-GT</a>
+    <a class="button ghost" href="/process/detection-review">Naar celdetectie / GT Studio</a>
+  </div>
+  <label class="region-gt-toggle"><input type="checkbox" id="show-gt"> GT tonen als referentie</label>
+  <div id="region-review-message" class="inline-status"></div>
+</section>
+
+<div class="region-review-layout">
+  <section class="card region-review-image-card">
+    <div id="region-review-stage" class="region-review-stage" data-width="{{ source.image_width }}" data-height="{{ source.image_height }}">
+      <img src="/source-render/{{ source_id }}.png" alt="Volledige bronafbeelding" draggable="false">
+      <div class="region-layer model-layer">
+        {% for region in regions %}<label class="region-box model-region" style="left:{{ (region.x1 / source.image_width * 100)|round(4) }}%;top:{{ (region.y1 / source.image_height * 100)|round(4) }}%;width:{{ ((region.x2-region.x1) / source.image_width * 100)|round(4) }}%;height:{{ ((region.y2-region.y1) / source.image_height * 100)|round(4) }}%;"><input type="checkbox" class="region-checkbox" checked data-x1="{{ region.x1 }}" data-y1="{{ region.y1 }}" data-x2="{{ region.x2 }}" data-y2="{{ region.y2 }}" data-name="{{ region.label or 'table' }}"><span>MODEL {{ loop.index }}</span></label>{% endfor %}
+      </div>
+      <div class="region-layer gt-layer" hidden>
+        {% for region in ground_truth_regions %}<div class="region-box gt-region" style="left:{{ (region.x1 / source.image_width * 100)|round(4) }}%;top:{{ (region.y1 / source.image_height * 100)|round(4) }}%;width:{{ ((region.x2-region.x1) / source.image_width * 100)|round(4) }}%;height:{{ ((region.y2-region.y1) / source.image_height * 100)|round(4) }}%;"><span>OUDE GT</span></div>{% endfor %}
+      </div>
+    </div>
+    <p class="muted region-review-help">Blauw = nieuwe modeldetectie. Groen = oude GT, alleen zichtbaar na inschakelen van “GT tonen”. Uitgevinkte modelregio’s worden niet opgeslagen.</p>
+  </section>
+  <aside class="card region-review-side">
+    <div class="toolbar"><div><span class="eyebrow">RESULTAAT</span><h3>{{ regions|length }} nieuwe regio’s</h3></div><span class="pill">{{ ground_truth_regions|length }} oude GT</span></div>
+    {% if detection_info %}<details open><summary>Meer info over detectie</summary><dl class="region-review-info"><dt>Run</dt><dd class="mono">{{ detection_info.batch_id or 'onbekend' }}</dd><dt>Gestart</dt><dd>{{ detection_info.started_at or 'onbekend' }}</dd><dt>Regiomodel</dt><dd class="mono">{{ detection_info.region_model or 'onbekend' }}</dd><dt>Modus</dt><dd>{{ detection_info.detection_mode or 'onbekend' }}</dd><dt>Engine</dt><dd>{{ detection_info.engine or 'onbekend' }} · {{ detection_info.device or 'onbekend' }}</dd></dl></details>{% endif %}
+    <div class="region-source-list"><strong>Bronnen</strong>{% for item in sources %}<a class="region-source-row{% if item.source_id == source_id %} active{% endif %}" href="/process/detect-candidates?source_id={{ item.source_id|urlencode }}">{{ item.source_id }}<span>{{ item.region_count or 0 }} regio’s</span></a>{% endfor %}</div>
+  </aside>
+</div>
+<script>
+(()=>{const gt=document.getElementById('show-gt'),gtLayer=document.querySelector('.gt-layer'),button=document.getElementById('region-accept'),redetect=document.getElementById('region-redetect'),message=document.getElementById('region-review-message');gt?.addEventListener('change',()=>{gtLayer.hidden=!gt.checked});button?.addEventListener('click',async()=>{const regions=[...document.querySelectorAll('.region-checkbox:checked')].map(input=>({x1:Number(input.dataset.x1),y1:Number(input.dataset.y1),x2:Number(input.dataset.x2),y2:Number(input.dataset.y2),name:input.dataset.name||'table'}));button.disabled=true;message.textContent='Nieuwe regio-GT opslaan…';try{const response=await fetch('/api/table-region-review/{{ source_id }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_width:{{ source.image_width }},image_height:{{ source.image_height }},regions})});const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);message.textContent=data.message||'Nieuwe regio-GT opgeslagen.';message.className='inline-status success'}catch(error){message.textContent=error.message||String(error);message.className='inline-status error';button.disabled=false}});redetect?.addEventListener('click',async()=>{redetect.disabled=true;message.textContent='Nieuwe detectie gestart…';try{const response=await fetch('/api/table-region-detect-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:'{{ source_id }}'})});const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);message.textContent='Detectie gestart. Open de taakweergave voor de voortgang.';message.className='inline-status success'}catch(error){message.textContent=error.message||String(error);message.className='inline-status error';redetect.disabled=false}})})();
+</script>
+<style>
+.region-review-toolbar{padding:14px 16px;margin-bottom:14px}.region-review-toolbar-row{display:flex;justify-content:space-between;align-items:end;gap:16px}.region-review-toolbar h3{margin:3px 0}.region-review-toolbar select{display:block;margin-top:4px;min-width:260px}.region-review-toolbar .workflow-actions{margin-top:12px}.region-gt-toggle{display:inline-flex;gap:7px;align-items:center;margin-top:12px;color:var(--muted);font-size:12px}.region-review-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:14px;align-items:start}.region-review-image-card{padding:10px;background:#070d13}.region-review-stage{position:relative;line-height:0;overflow:hidden;background:#05080c;border:1px solid var(--border);border-radius:8px}.region-review-stage>img{display:block;width:100%;height:auto}.region-layer{position:absolute;inset:0;pointer-events:none}.region-box{position:absolute;box-sizing:border-box}.region-box input{position:absolute;top:5px;right:5px;width:18px;height:18px;pointer-events:auto;accent-color:#38bdf8}.region-box span{position:absolute;left:3px;top:3px;padding:2px 5px;border-radius:4px;background:#071018;color:#fff;font:11px/1.2 sans-serif;white-space:nowrap}.model-region{border:2px solid #38bdf8;background:rgba(56,189,248,.08)}.gt-region{border:2px solid #45d7a0;background:rgba(69,215,160,.06)}.region-review-help{font-size:12px;line-height:1.4;margin:9px 0 0}.region-review-side{padding:14px;position:sticky;top:12px}.region-review-side h3{margin:3px 0}.region-review-side details{margin-top:14px;padding-top:10px;border-top:1px solid var(--border)}.region-review-side summary{cursor:pointer;color:var(--muted);font-size:12px}.region-review-info{display:grid;grid-template-columns:auto 1fr;gap:5px 10px;font-size:11px;margin-top:9px}.region-review-info dd{margin:0;overflow-wrap:anywhere}.region-source-list{display:grid;gap:5px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}.region-source-row{display:flex;justify-content:space-between;gap:8px;padding:8px;border:1px solid transparent;border-radius:7px;background:#101b25;color:var(--text);text-decoration:none;font-size:12px}.region-source-row span{color:var(--muted);font-size:11px}.region-source-row.active,.region-source-row:hover{border-color:#65bfff;background:#162637}@media(max-width:900px){.region-review-layout{grid-template-columns:1fr}.region-review-side{position:static}}@media(max-width:620px){.region-review-toolbar-row{align-items:stretch;flex-direction:column}.region-review-toolbar select{min-width:0;width:100%}}
+</style>
+{% endblock %}

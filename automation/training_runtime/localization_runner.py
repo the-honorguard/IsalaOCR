@@ -70,7 +70,13 @@ def coco_train_stats(dataset: Path) -> dict[str, int]:
     payload = json.loads(annotation_path.read_text(encoding="utf-8"))
     images = payload.get("images") or []
     annotations = payload.get("annotations") or []
-    return {"images": len(images), "annotations": len(annotations)}
+    image_ids = {int(item.get("id")) for item in images}
+    annotated_ids = {int(item.get("image_id")) for item in annotations if item.get("image_id") is not None}
+    return {
+        "images": len(images),
+        "annotations": len(annotations),
+        "negative_images": len(image_ids - annotated_ids),
+    }
 
 
 def resolve_training_settings(
@@ -123,6 +129,7 @@ def resolve_training_settings(
         "profile": profile,
         "train_images": train_images,
         "train_annotations": int(stats["annotations"]),
+        "train_negative_images": int(stats.get("negative_images") or 0),
         "epochs": int(epochs) if int(epochs) > 0 else defaults["epochs"],
         "batch_size": int(batch_size) if int(batch_size) > 0 else defaults["batch_size"],
         "learning_rate": float(learning_rate) if float(learning_rate) > 0 else defaults["learning_rate"],
@@ -146,6 +153,10 @@ def resolve_training_settings(
         warnings.append(
             f"Small independent source set ({train_images} train images): overfitting risk is high; "
             "a two-image sanity-overfit check should pass before the full run."
+        )
+    if int(stats.get("negative_images") or 0) == 0:
+        warnings.append(
+            "Geen expliciete negatieve afbeeldingen in de train-split; voeg gecontroleerde beelden zonder tabel toe."
         )
     effective["warnings"] = warnings
     return effective
@@ -194,6 +205,7 @@ def write_effective_training_files(
         f"  profile: {settings['profile']}",
         f"  train_images: {settings['train_images']}",
         f"  train_annotations: {settings['train_annotations']}",
+        f"  train_negative_images: {settings['train_negative_images']}",
         f"  steps_per_epoch: {settings['steps_per_epoch']}",
         f"  estimated_optimizer_steps: {settings['estimated_optimizer_steps']}",
     ]
@@ -242,8 +254,10 @@ def _box_iou_xyxy(a: list[float], b: list[float]) -> float:
     return inter / denom if denom > 0 else 0.0
 
 
-def evaluate_sanity_predictions(dataset: Path, predictions_path: Path, *, threshold: float = 0.01) -> dict[str, Any]:
-    gt_payload = json.loads((dataset / "annotations" / "instance_train.json").read_text(encoding="utf-8"))
+def evaluate_sanity_predictions(
+    dataset: Path, predictions_path: Path, *, threshold: float = 0.01, split: str = "train"
+) -> dict[str, Any]:
+    gt_payload = json.loads((dataset / "annotations" / f"instance_{split}.json").read_text(encoding="utf-8"))
     prediction_payload = json.loads(predictions_path.read_text(encoding="utf-8"))
     by_image_id = {int(item["id"]): Path(str(item.get("file_name") or "")).stem for item in gt_payload.get("images") or []}
     truth: dict[str, list[list[float]]] = {stem: [] for stem in by_image_id.values()}
@@ -278,6 +292,11 @@ def evaluate_sanity_predictions(dataset: Path, predictions_path: Path, *, thresh
                 true_positives += 1
     recall = true_positives / total_truth if total_truth else 0.0
     precision = true_positives / total_predictions if total_predictions else 0.0
+    negatives = sum(1 for items in truth.values() if not items)
+    passed = (
+        (total_predictions == 0 if total_truth == 0 else recall >= 0.80 and precision >= 0.80)
+        and bool(total_truth or negatives)
+    )
     return {
         "threshold": threshold,
         "ground_truth": total_truth,
@@ -285,8 +304,16 @@ def evaluate_sanity_predictions(dataset: Path, predictions_path: Path, *, thresh
         "true_positives": true_positives,
         "recall_at_iou_0_50": recall,
         "precision_at_iou_0_50": precision,
-        "passed": total_predictions > 0,
+        "negative_images": negatives,
+        "passed": passed,
     }
+
+
+def evaluate_test_predictions(dataset: Path, predictions_path: Path, *, threshold: float = 0.25) -> dict[str, Any]:
+    """Score the independent test split, including explicit no-table images."""
+    result = evaluate_sanity_predictions(dataset, predictions_path, threshold=threshold, split="test")
+    result["split"] = "test"
+    return result
 
 
 def object_detection_config() -> Path:
@@ -393,7 +420,10 @@ def run_command(
 def validate_paddlex_coco_layout(dataset: Path) -> None:
     """Fail early with PaddleX's exact COCODetDataset image-path semantics."""
     problems: list[str] = []
-    for split in ("train", "val"):
+    splits = ["train", "val"]
+    if (dataset / "annotations" / "instance_test.json").is_file():
+        splits.append("test")
+    for split in splits:
         annotation_path = dataset / "annotations" / f"instance_{split}.json"
         if not annotation_path.is_file():
             problems.append(f"missing {annotation_path.relative_to(dataset)}")
@@ -558,6 +588,8 @@ def _train_model(
         "-o", f"Train.eval_interval={settings['eval_interval']}",
         "-o", "Train.num_classes=1",
         "-o", f"Train.pretrain_weight_path={pretrain}",
+        "-o", "EvalDataset.anno_path=annotations/instance_val.json",
+        "-o", "TestDataset.anno_path=annotations/instance_test.json",
     ]
     eval_artifact_dir = output / "evaluation_artifacts"
     print(f"PaddleDetection evaluation artifacts: {eval_artifact_dir}", flush=True)
@@ -568,6 +600,26 @@ def _train_model(
         effective_config_path=output / "effective_paddledet.yml",
     )
     inference = find_inference_dir(output)
+    test_evaluation: dict[str, Any] = {"status": "missing", "passed": False}
+    test_annotations = dataset / "annotations" / "instance_test.json"
+    if test_annotations.is_file():
+        test_payload = json.loads(test_annotations.read_text(encoding="utf-8"))
+        if test_payload.get("images"):
+            test_predictions = output / "evaluation_artifacts" / "test_predictions.json"
+            run_command(
+                [
+                    sys.executable, str(Path(__file__).resolve()), "predict",
+                    "--model-dir", str(inference), "--input", str(dataset / "images"),
+                    "--output", str(test_predictions), "--device", device_arg, "--threshold", "0.25",
+                ],
+                log_path=output / "evaluation_artifacts" / "test_predict.log",
+            )
+            test_evaluation = evaluate_test_predictions(dataset, test_predictions)
+            test_evaluation["status"] = "completed"
+    (output / "evaluation_artifacts").mkdir(parents=True, exist_ok=True)
+    (output / "evaluation_artifacts" / "test_evaluation.json").write_text(
+        json.dumps(test_evaluation, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     metadata = {
         "status": "trained",
         "model_name": MODEL_NAME,
@@ -586,6 +638,7 @@ def _train_model(
         "effective_paddledet_config": str(output / "effective_paddledet.yml"),
         "output": str(output),
         "inference_dir": str(inference),
+        "test_evaluation": test_evaluation,
         "completed_at": utc_now(),
     }
     (output / "isala_localization_run.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")

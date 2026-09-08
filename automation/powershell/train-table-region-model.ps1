@@ -39,7 +39,14 @@ $Metadata = Get-Content -LiteralPath $MetadataPath -Raw | ConvertFrom-Json
 $ModelDir = [string]$Metadata.inference_dir
 if ([string]::IsNullOrWhiteSpace($ModelDir)) { throw "Training metadata has no inference_dir." }
 $ModelDir = $ModelDir.Replace($ContainerWorkspace.Replace('\','/'), $HostWorkspace.Replace('\','/'))
+$workspaceFull = [System.IO.Path]::GetFullPath($HostWorkspace).TrimEnd('\','/')
+$modelFull = [System.IO.Path]::GetFullPath($ModelDir)
+$workspacePrefix = $workspaceFull + [System.IO.Path]::DirectorySeparatorChar
+if (-not $modelFull.StartsWith($workspacePrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Tabelregio-model staat buiten de projectworkspace: $modelFull"
+}
+$RelativeModelDir = $modelFull.Substring($workspacePrefix.Length).Replace('\','/')
 New-Item -ItemType Directory -Force -Path (Join-Path $HostWorkspace "table_region_models") | Out-Null
-@{ run_id=$RunId; model_id="table-region-$RunId"; dataset_id=$DatasetId; inference_dir=$ModelDir; device=$Device; active=$false } |
+@{ run_id=$RunId; model_id="table-region-$RunId"; dataset_id=$DatasetId; inference_dir=$RelativeModelDir; device=$Device; active=$false } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $HostRun "model.json") -Encoding UTF8
 Write-Host "Tabelregio-detector getraind. Activatie/integratie in de detectierun blijft expliciet." -ForegroundColor Green

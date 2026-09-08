@@ -86,6 +86,7 @@ def save_table_regions(
     image_width: int,
     image_height: int,
     regions: list[dict[str, Any]],
+    allow_empty: bool = False,
 ) -> dict[str, Any]:
     if image_width <= 0 or image_height <= 0:
         raise ValueError("De bronafmetingen moeten positief zijn")
@@ -109,7 +110,7 @@ def save_table_regions(
             "x1": x1, "y1": y1, "x2": x2, "y2": y2,
             "label": str(raw.get("name") or "table"),
         })
-    if not normalized:
+    if not normalized and not allow_empty:
         raise ValueError("Teken minimaal één volledige tabelregio")
 
     from datetime import datetime, timezone

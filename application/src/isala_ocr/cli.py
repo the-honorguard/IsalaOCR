@@ -216,6 +216,7 @@ def _collect_training(args: argparse.Namespace) -> int:
         locator_mode=locator_mode,
         table_model_id=args.table_model_id,
         source_id=args.source_id,
+        region_only=bool(getattr(args, "regions_only", False)),
     )
     print(json.dumps(manifest, indent=2))
     return 1 if manifest["failed_items"] else 0
@@ -846,6 +847,7 @@ def build_parser() -> argparse.ArgumentParser:
     collect_parser.add_argument("--model")
     collect_parser.add_argument("--table-model-id", help="Explicit table-cell model for this detection run; use generic-ppstructure for the baseline")
     collect_parser.add_argument("--source-id", help="Detect only this source from the selected input")
+    collect_parser.add_argument("--regions-only", action="store_true", help="Detect table regions only; do not run cell detection")
     collect_parser.add_argument("--device")
     collect_parser.add_argument("--render-only", action="store_true", help="Create full source renders without OCR or cell detection")
     collect_parser.add_argument("--padding", type=int)

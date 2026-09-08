@@ -33,7 +33,7 @@ def build_table_region_dataset(workspace: str | Path) -> dict[str, Any]:
     sources_by_id = {str(item.get("source_id") or ""): item for item in db.list_detection_sources()}
     gt_sources = [item for item in list_table_region_sources(root) if bool(item.get("review_completed"))]
     if not gt_sources:
-        raise ValueError("Sla eerst per lezing minimaal één volledige tabelregio op in Stap 2")
+        raise ValueError("Sla eerst per lezing de tabelregio-review op in Stap 2")
     source_ids = [str(item["source_id"]) for item in gt_sources if str(item["source_id"]) in sources_by_id]
     if not source_ids:
         raise ValueError("De tabelregio-GT verwijst niet naar bekende lezingen")
@@ -100,10 +100,12 @@ def build_table_region_dataset(workspace: str | Path) -> dict[str, Any]:
         "created_at": _utcnow(),
         "source_count": len(source_ids),
         "annotation_count": annotation_count,
+        "positive_source_count": sum(1 for source in gt_sources if source.get("regions")),
+        "negative_source_count": sum(1 for source in gt_sources if not source.get("regions")),
         "class_names": ["table_region"],
         "source_splits": splits,
         "splits": {split: {"images": len(coco[split]["images"]), "annotations": len(coco[split]["annotations"])} for split in SPLITS},
-        "supervision": "per_source_full_page_table_region_gt",
+        "supervision": "per_source_full_page_table_region_gt_with_explicit_negatives",
     }
     write_json_atomic(dataset_root / "manifest.json", manifest)
     pointer_root = root / DATASET_DIRNAME

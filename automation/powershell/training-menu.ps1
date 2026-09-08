@@ -111,18 +111,19 @@ function Invoke-IsalaMenuAction {
 $workflowSteps = [ordered]@{
     "1"  = @{ Name = "Voorbereiding"; ActionId = "1" }
     "2"  = @{ Name = "Tabelregio’s selecteren"; Url = "http://127.0.0.1:8088/process/panel-setup" }
-    "3"  = @{ Name = "Tabelregio trainen & cellen detecteren"; Url = "http://127.0.0.1:8088/process/table-region-model" }
-    "4"  = @{ Name = "Cel-GT beoordelen"; Url = "http://127.0.0.1:8088/detection-review" }
-    "5"  = @{ Name = "Celdetector verbeteren"; Url = "http://127.0.0.1:8088/process/table-model" }
-    "7"  = @{ Name = "Tabelstudio"; Url = "http://127.0.0.1:8088/process/table-quality" }
-    "8"  = @{ Name = "Recognition-scope instellen"; Url = "http://127.0.0.1:8088/recognition-scope" }
-    "9"  = @{ Name = "Recognition GT Studio"; Url = "http://127.0.0.1:8088/recognition-gt-review" }
-    "10" = @{ Name = "Recognition Model Factory"; Url = "http://127.0.0.1:8088/process/recognition-dataset" }
-    "11" = @{ Name = "Recognition Model Review"; Url = "http://127.0.0.1:8088/process/recognition-output-review" }
-    "12" = @{ Name = "Application Mapping Studio"; ActionId = "20" }
-    "13" = @{ Name = "Application mappings toepassen"; ActionId = "21" }
-    "14" = @{ Name = "Application output uitlezen"; ActionId = "22" }
-    "15" = @{ Name = "Application output beoordelen"; Url = "http://127.0.0.1:8088/review" }
+    "3"  = @{ Name = "Tabelregio-model trainen"; Url = "http://127.0.0.1:8088/process/table-region-model" }
+    "4"  = @{ Name = "Tabelregio’s detecteren/beoordelen"; Url = "http://127.0.0.1:8088/process/detect-candidates" }
+    "5"  = @{ Name = "Celdetectie en cel-GT beoordelen"; Url = "http://127.0.0.1:8088/detection-review" }
+    "6"  = @{ Name = "Celdetector verbeteren"; Url = "http://127.0.0.1:8088/process/table-model" }
+    "8"  = @{ Name = "Tabelstudio"; Url = "http://127.0.0.1:8088/process/table-quality" }
+    "9"  = @{ Name = "Recognition-scope instellen"; Url = "http://127.0.0.1:8088/recognition-scope" }
+    "10" = @{ Name = "Recognition GT Studio"; Url = "http://127.0.0.1:8088/recognition-gt-review" }
+    "11" = @{ Name = "Recognition Model Factory"; Url = "http://127.0.0.1:8088/process/recognition-dataset" }
+    "12" = @{ Name = "Recognition Model Review"; Url = "http://127.0.0.1:8088/process/recognition-output-review" }
+    "13" = @{ Name = "Application Mapping Studio"; ActionId = "20" }
+    "14" = @{ Name = "Application mappings toepassen"; ActionId = "21" }
+    "15" = @{ Name = "Application output uitlezen"; ActionId = "22" }
+    "16" = @{ Name = "Application output beoordelen"; Url = "http://127.0.0.1:8088/review" }
     "F1" = @{ Name = "Fallback · losse box-detector dataset/trainen"; Url = "http://127.0.0.1:8088/process/localization-dataset" }
     "F2" = @{ Name = "Fallback · box-detector evalueren"; Url = "http://127.0.0.1:8088/process/localization-evaluate" }
     "F3" = @{ Name = "Fallback · box-detector activeren"; ActionId = "11" }
@@ -214,6 +215,13 @@ if ($RunAction) {
     $extra = @{}
     if ($RunAction -eq "2" -and $ActionValue -eq "__render_only__") {
         $extra.RenderOnly = $true
+    }
+    elseif ($RunAction -eq "59" -and $ActionValue -eq "__regions_only__") {
+        $extra.RegionsOnly = $true
+    }
+    elseif ($RunAction -eq "59" -and $ActionValue.StartsWith("__regions_only_source__:", [StringComparison]::Ordinal)) {
+        $extra.RegionsOnly = $true
+        $extra.SourceId = $ActionValue.Substring("__regions_only_source__:".Length)
     }
     elseif ($RunAction -eq "2" -and $ActionValue) {
         if ($ActionValue.StartsWith("__source_only__:", [StringComparison]::Ordinal)) {

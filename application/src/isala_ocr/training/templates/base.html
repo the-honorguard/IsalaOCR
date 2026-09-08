@@ -30,18 +30,18 @@
     <a href="/test-pipeline" class="{% if request.path=='/test-pipeline' %}active{% endif %}">Proefpagina · DICOM → data</a>
     {% if localization_strategy == 'table_first' %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · GT WORKFLOW</div>
-    {% for nav in [('detection-models','1','Voorbereiding','/process/detection-models'),('input-selection','1A','Inputselectie','/process/input-selection'),('panel-setup','2','Tabelregio’s selecteren','/process/panel-setup'),('detect-candidates','3','Eerste celdetectie','/process/detect-candidates'),('detection-review','4','GT Studio','/process/detection-review')] %}
+    {% for nav in [('detection-models','1','Voorbereiding','/process/detection-models'),('input-selection','1A','Inputselectie','/process/input-selection'),('panel-setup','2','Tabelregio’s selecteren','/process/panel-setup'),('table-region-model','3','Tabelregio-model trainen','/process/table-region-model'),('detect-candidates','4','Tabelregio’s beoordelen','/process/detect-candidates'),('detection-review','5','GT Studio','/process/detection-review')] %}
     {% if workflow_step_access.get(nav[0], False) %}<a href="{{ nav[3] }}" class="process-tab {% if request.path == nav[3] or (nav[0] == 'detection-review' and request.path.startswith('/detection-review')) %}active{% endif %}"><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}</span></a>
     {% else %}<span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}<small class="lock-mark">🔒</small></span></span>{% endif %}
     {% endfor %}
 
-    <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTOR · 5 → 6 → 5</div>
-    {% for nav in [('table-model','5','Celdetector trainen','/process/table-model'),('table-compare','6','Detectorafwijkingen reviewen','/process/table-compare')] %}
+    <div class="nav-section nav-pipeline-a">MODEL FACTORY · CELLEN · 6 → 7 → 6</div>
+    {% for nav in [('table-model','6','Celdetector trainen','/process/table-model'),('table-compare','7','Detectorafwijkingen reviewen','/process/table-compare')] %}
     {% if workflow_step_access.get(nav[0], False) %}<a href="{{ nav[3] }}" class="process-tab {% if request.path == nav[3] %}active{% endif %}"><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}</span></a>
     {% else %}<span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}<small class="lock-mark">🔒</small></span></span>{% endif %}
     {% endfor %}
     <div class="nav-section nav-pipeline-a">TABLE DEFINITION</div>
-    {% if workflow_step_access.get('table-quality', False) %}<a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">7</span><span>Tabelstudio</span></a>{% else %}<span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">7</span><span>Tabelstudio<small class="lock-mark">🔒</small></span></span>{% endif %}
+    {% if workflow_step_access.get('table-quality', False) %}<a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">8</span><span>Tabelstudio</span></a>{% else %}<span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">8</span><span>Tabelstudio<small class="lock-mark">🔒</small></span></span>{% endif %}
     {% else %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTIE & CROPS</div>
     {% for step in process_steps if step.group == 'detection' %}
@@ -181,15 +181,17 @@
   const h1=document.querySelector('.topbar h1');
   const subtitle=document.querySelector('.topbar p');
   const setTopbar=(title,sub)=>{if(h1)h1.textContent=title;if(subtitle)subtitle.textContent=sub;document.title=`${title} · IsalaOCR`;};
-  if(path==='/process/detect-candidates'){
-    setTopbar('Stap 3 · Eerste celdetectie','Voer de eerste detectie uit als basis voor de GT Studio-review.');
+  if(path==='/process/table-region-model'){
+    setTopbar('Stap 3 · Tabelregio-model trainen','Train en activeer het model dat volledige tabelregio’s automatisch leert vinden.');
+  }else if(path==='/process/detect-candidates'){
+    setTopbar('Stap 4 · Tabelregio’s beoordelen','Beoordeel de nieuwe regio-detecties; de oude GT blijft apart beschikbaar als referentie.');
   }else if(path==='/process/detection-review'||path.startsWith('/detection-review')){
-    setTopbar('Stap 4 · GT Studio','Beoordeel één bron tegelijk en keur de Ground Truth goed; tabelstudio volgt later.');
+    setTopbar('Stap 5 · GT Studio','Beoordeel één bron tegelijk en keur de cel-Ground Truth goed; tabelstudio volgt later.');
   }else if(path==='/process/table-compare'){
     setTopbar('Detectorafwijkingen reviewen','Beoordeel optioneel verschillen tussen een nieuwe celdetectorrun en de canonieke cel-GT.');
   }
   if(path==='/process/mapping'||path.startsWith('/mapping')){
-    setTopbar('Stap 12 · Mapping Studio','Koppel gelezen tabellabels aan applicatievelden. Tabelstructuur en waardekolommen komen uit Tabelstudio.');
+    setTopbar('Stap 13 · Mapping Studio','Koppel gelezen tabellabels aan applicatievelden. Tabelstructuur en waardekolommen komen uit Tabelstudio.');
   }
 })();
 </script>

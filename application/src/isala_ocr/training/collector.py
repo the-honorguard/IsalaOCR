@@ -14,7 +14,7 @@ from ..geometry import scale_box
 from ..image_io import load_input
 from ..models import Box
 from ..study_info import extract_study_info
-from ..ocr.table_structure import PPStructureTableEngine, TABLE_ENGINE_VERSION
+from ..ocr.table_structure import PPStructureTableEngine, TABLE_ENGINE_VERSION, TableRegion
 from ..ocr.base import OCREngine
 from .projects import resolve_project_workspace
 from .input_selection import input_files, selected_input_files
@@ -100,12 +100,29 @@ def _table_settings_with_active_region_model(root: Path, settings: dict) -> dict
         return result
     try:
         payload = json.loads(pointer.read_text(encoding="utf-8-sig"))
-        inference_dir = root / str(payload.get("inference_dir") or "")
-    except (OSError, TypeError, ValueError):
-        return result
-    if inference_dir.is_dir():
-        result["table_region_model_dir"] = str(inference_dir)
-        LOGGER.info("Using active full-page table-region model: %s", payload.get("model_id"))
+        raw_path = str(payload.get("inference_dir") or "").strip()
+        if not raw_path:
+            raise ValueError("active.json has no inference_dir")
+        # Activation stores a project-relative path.  Older activations stored
+        # a Windows host path, which is meaningless inside the Linux container;
+        # recover its suffix when it contains the mounted /training root.
+        normalized = raw_path.replace("\\", "/")
+        if normalized.startswith("/training/"):
+            inference_dir = Path(normalized)
+        else:
+            marker = "/training/workspace/projects/"
+            if marker in normalized:
+                inference_dir = Path("/training/workspace/projects") / normalized.split(marker, 1)[1]
+            else:
+                inference_dir = root / normalized.lstrip("/")
+        if not inference_dir.is_dir():
+            raise FileNotFoundError(inference_dir)
+    except (OSError, TypeError, ValueError) as exc:
+        LOGGER.error("Active table-region model cannot be resolved: %s", exc)
+        raise RuntimeError("Het actieve tabelregio-model is niet beschikbaar in de runtime.") from exc
+    result["table_region_model_dir"] = str(inference_dir)
+    result["table_region_model_id"] = str(payload.get("model_id") or "")
+    LOGGER.info("Using active full-page table-region model: %s", payload.get("model_id"))
     return result
 
 
@@ -215,6 +232,7 @@ def _collect_localization_detections(
     locator_engine: OCREngine,
     table_model_id: str | None = None,
     source_id: str | None = None,
+    region_only: bool = False,
 ) -> dict[str, object]:
     """Pipeline A: detect crop geometry only.
 
@@ -305,7 +323,25 @@ def _collect_localization_detections(
             table_preprocessing: dict[str, object] = {"enabled": False}
             if table_engine is not None:
                 try:
-                    if table_first and bool(table_first_settings.get("preprocessing_benchmark", True)):
+                    if region_only:
+                        learned_region_model = str(table_settings.get("table_region_model_dir") or "").strip()
+                        if not learned_region_model:
+                            raise RuntimeError("Region-only detectie vereist een actief tabelregio-model.")
+                        detected_boxes = table_engine._trained_region_boxes(decoded.image)
+                        table_regions = []
+                        for index, (box, score) in enumerate(detected_boxes, start=1):
+                            clipped = box.clamp(width, height)
+                            if clipped.width >= 20 and clipped.height >= 20:
+                                table_regions.append(TableRegion(
+                                    table_id=f"detected-table-region-{index}",
+                                    box=clipped, confidence=score, cells=(),
+                                ))
+                        table_preprocessing = {
+                            "enabled": True, "mode": "trained_region_only",
+                            "region_model": learned_region_model,
+                            "region_count": len(table_regions),
+                        }
+                    elif table_first and bool(table_first_settings.get("preprocessing_benchmark", True)):
                         learned_region_model = str(table_settings.get("table_region_model_dir") or "").strip()
                         if learned_region_model:
                             table_regions, table_preprocessing = table_engine.detect_with_benchmark(
@@ -768,6 +804,7 @@ def collect_samples(
     locator_mode: str | None = None,
     table_model_id: str | None = None,
     source_id: str | None = None,
+    region_only: bool = False,
 ) -> dict[str, object]:
     flow = str(
         config.raw.get("training", {}).get("collection", {}).get("flow", "legacy_profile")
@@ -775,7 +812,9 @@ def collect_samples(
     if flow == "generic_mapping":
         if locator_engine is None:
             raise ValueError("Generic detection requires a full-page locator OCR engine")
-        return _collect_localization_detections(input_path, workspace, config, locator_engine, table_model_id, source_id)
+        return _collect_localization_detections(
+            input_path, workspace, config, locator_engine, table_model_id, source_id, region_only
+        )
 
     root = resolve_project_workspace(workspace)
     crop_root = root / "crops" / "original"
