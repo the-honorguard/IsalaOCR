@@ -25,6 +25,44 @@ MODEL_DIRNAME = "table_cell_models"
 SPLIT_NAMES = ("train", "val", "test")
 
 
+def _panel_semantic_side(db: TrainingDatabase, source_id: str, panel: dict[str, Any]) -> str:
+    """Recover the old OCR-derived left/right meaning for a training panel."""
+    # Import lazily: application_processing.lateral uses training normalization
+    # helpers, so importing it at module load would create a startup cycle.
+    from ..application_processing.lateral import relation_lateral_side
+    px1, py1, px2, py2 = (float(panel.get(key) or 0) for key in ("x1", "y1", "x2", "y2"))
+    sides: set[str] = set()
+    for relation in db.list_detected_relations(source_id):
+        side = relation_lateral_side(relation)
+        if side not in {"left", "right"}:
+            continue
+        cx = (float(relation.get("label_x1") or 0) + float(relation.get("label_x2") or 0)) / 2
+        cy = (float(relation.get("label_y1") or 0) + float(relation.get("label_y2") or 0)) / 2
+        if px1 <= cx <= px2 and py1 <= cy <= py2:
+            sides.add(side)
+    return next(iter(sides)) if len(sides) == 1 else ("ambiguous" if len(sides) > 1 else "")
+
+
+def _panel_semantic_assignment(db: TrainingDatabase, source_id: str, panel: dict[str, Any]) -> dict[str, Any]:
+    """Persist OCR header/context evidence for the user-configured table name."""
+    px1, py1, px2, py2 = (float(panel.get(key) or 0) for key in ("x1", "y1", "x2", "y2"))
+    texts: list[str] = []
+    for relation in db.list_detected_relations(source_id):
+        cx = (float(relation.get("label_x1") or 0) + float(relation.get("label_x2") or 0)) / 2
+        cy = (float(relation.get("label_y1") or 0) + float(relation.get("label_y2") or 0)) / 2
+        if px1 <= cx <= px2 and py1 <= cy <= py2:
+            for key in ("context_text", "header_text", "column_header", "label_text"):
+                value = str(relation.get(key) or "").strip()
+                if value and value not in texts:
+                    texts.append(value)
+    configured = str(panel.get("name") or panel.get("panel_id") or "").strip()
+    return {
+        "table_name": configured,
+        "header_text": " | ".join(texts[:20]),
+        "assignment_source": "configured_panel_name_and_ocr_context" if texts else "configured_panel_name",
+    }
+
+
 def _latest_pointer(root: Path) -> Path:
     return root / DATASET_DIRNAME / "latest.txt"
 
@@ -345,6 +383,8 @@ def build_table_cell_dataset(workspace: str | Path) -> dict[str, Any]:
                     "file_name": filename,
                     "box": [px1, py1, px2, py2],
                     "annotation_count": len(panel_annotations),
+                    "semantic_side": _panel_semantic_side(db, source_id, panel),
+                    "semantic_assignment": _panel_semantic_assignment(db, source_id, panel),
                 })
                 split_panel_counts[split] += 1
                 for item, x1, y1, x2, y2 in panel_annotations:

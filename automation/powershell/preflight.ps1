@@ -22,7 +22,7 @@ function New-IsalaCheckResult {
 function Get-IsalaActionCatalog {
     return [ordered]@{
         "1"  = @{ Name = "Prepare ALL models and training images"; Script = "prepare-training.ps1"; Profile = "prepare" }
-        "2"  = @{ Name = "Detect PP-Structure table regions/cells (table-first)"; Script = "collect-training-data.ps1"; Profile = "collect" }
+        "2"  = @{ Name = "Detect table cells (table-first)"; Script = "collect-training-data.ps1"; Profile = "collect" }
         "60" = @{ Name = "Run complete active DICOM application pipeline"; Script = "run-application-pipeline.ps1"; Profile = "application-pipeline" }
         # Action 3 is the host-side entry point used by START.cmd to start the
         # local web interface. It must live in the same catalog as executable

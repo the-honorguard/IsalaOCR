@@ -87,7 +87,7 @@ DETECTION_RELEVANCE_REASONS = {
 
 ACTIONS = {
     "1": "ALLE modellen en trainingsimages voorbereiden",
-    "2": "PP-Structure tabelregio's en cellen detecteren",
+    "2": "Celdetectie uitvoeren",
     "60": "Volledige actieve DICOM-verwerkingspipeline",
     "5": "Localization-dataset bouwen (COCO)",
     "6": "Localization-dataset valideren",
@@ -721,7 +721,16 @@ def create_web_app(
         }
 
     def canonical_table_gt_mode() -> bool:
-        return localization_strategy() == "table_first" and ensure_table_cell_ground_truth(workspace_root()) is not None
+        if localization_strategy() != "table_first":
+            return False
+        # The GT store is created during initialisation, before the first cell
+        # detection run.  Its mere existence must not hide the detector
+        # candidates; switch to canonical-GT mode only after real GT cells have
+        # been persisted.
+        if ensure_table_cell_ground_truth(workspace_root()) is None:
+            return False
+        state = ground_truth_review_state(workspace_root())
+        return int(state.get("gt_cell_count") or 0) > 0
 
     def step4_review_counts(source_id: str | None = None) -> dict[str, int]:
         if canonical_table_gt_mode():

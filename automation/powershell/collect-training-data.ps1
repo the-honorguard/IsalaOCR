@@ -102,7 +102,7 @@ $deviceResolution = Resolve-IsalaTableExecutionDevice -Requested $Device -Prepar
         Write-Host "Creating full source renders only in: $normalizedInput"
         Write-Host "Render-only mode does not run OCR, PP-Structure, cell detection or mapping."
     } else {
-        Write-Host "Detecting PP-Structure table regions and cell geometry in: $normalizedInput"
+        Write-Host "Detecting table cells in the selected table regions: $normalizedInput"
         Write-Host "Table-first mode does not mix loose OCR text boxes or the active PicoDet/field detector into this pass."
         Write-Host "Pipeline A does not persist OCR values, field mappings or measurement output."
     }

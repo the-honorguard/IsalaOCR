@@ -17,7 +17,15 @@
   .table-row-band span, .table-column-band span { position:absolute; top:2px; left:3px; padding:1px 4px; border-radius:4px; color:#e8f5ff; background:rgba(10,24,37,.86); font:600 10px/1.2 system-ui,sans-serif; }
   .table-column-band span { top:3px; left:50%; transform:translateX(-50%); }
   .table-cell-layer { z-index:5; }
+  /* Stap 7 is uitsluitend celdetectie. Rij/kolomstructuur wordt pas in
+     Tabelstudio beoordeeld en mag hier geen extra acceptatielaag vormen. */
+  {% if not gt_mode and localization_strategy == 'table_first' %}
+  .table-structure-summary, .table-preprocess-benchmark,
+  .table-structure-row-layer, .table-structure-column-layer,
+  #table-region-layer, #table-cell-layer { display:none !important; }
+  {% endif %}
 </style>
+{% if not gt_mode and localization_strategy == 'table_first' %}<div class="notice info review-layer-legend"><strong>Beoordeel alleen de kandidaatkaders.</strong> Groen = accepteren · geel = aangepast voorstel · rood = afwijzen. Rij- en kolomstructuur komt later in Tabelstudio.</div>{% endif %}
 {% if not gt_mode and localization_strategy == 'table_first' and panel_state and not panel_state.detection_current %}
 <section class="notice warning"><strong>Deze review hoort nog niet bij het actuele panelprofiel.</strong> {% if not panel_state.configured %}Stel eerst de panelen in via Stap 2.{% else %}Het panelprofiel is gewijzigd; voer Stap 4 opnieuw uit voordat je deze boxes als table-resultaat beoordeelt.{% endif %} <a href="/process/panel-setup">Panel Setup openen</a></section>
 {% endif %}
