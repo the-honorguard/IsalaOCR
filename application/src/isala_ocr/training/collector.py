@@ -366,6 +366,8 @@ def _collect_localization_detections(
 
             if table_first:
                 benchmark_runs = table_preprocessing.get("runs") if isinstance(table_preprocessing, dict) else []
+                if not isinstance(benchmark_runs, list):
+                    benchmark_runs = []
                 run_summary = "; ".join(
                     f"{item.get('variant')}/{item.get('scope')}:"
                     f"tables={item.get('table_count', 0)},cells={item.get('cell_count', 0)},"
