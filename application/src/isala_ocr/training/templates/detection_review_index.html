@@ -1,28 +1,43 @@
 {% extends 'base.html' %}
-{% block title %}Detection Review Studio · IsalaOCR{% endblock %}
-{% block heading %}GT Studio{% endblock %}
-{% block subtitle %}Pipeline A · {% if gt_mode %}canonieke table-cell Ground Truth voor project {{ active_project.name }}{% elif localization_strategy == 'table_first' %}PP-Structure cell-boxes beoordelen voor project {{ active_project.name }}{% else %}expliciete trainingsvoorbeelden voor project {{ active_project.name }}{% endif %}{% endblock %}
+{% block title %}Stap 7 · GT Studio · IsalaOCR{% endblock %}
+{% block heading %}Stap 7 · GT Studio{% endblock %}
+{% block subtitle %}{% if gt_mode %}Canonieke table-cell Ground Truth voor project {{ active_project.name }}{% elif localization_strategy == 'table_first' %}Eerste celdetectie uitvoeren en PP-Structure cell-boxes beoordelen voor project {{ active_project.name }}{% else %}Expliciete trainingsvoorbeelden voor project {{ active_project.name }}{% endif %}{% endblock %}
 {% block content %}
+{% if localization_strategy == 'table_first' %}
+<section class="card cell-detection-entry">
+  <div>
+    <span class="eyebrow">STAP 7 · EERSTE DETECTIE + GT</span>
+    <h3>Celdetectie</h3>
+    <p class="muted">Stap 6 heeft alleen bepaald welke tabelregio links/rechts is. Start hier de volledige PP-Structure celdetectie. Daarna verschijnen de cellen hieronder voor beoordeling in GT Studio.</p>
+  </div>
+  <div class="actions">
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="2"><button type="submit" class="primary">Eerste / nieuwe celdetectie starten</button></form>
+    <a class="button ghost" href="/process/detect-candidates?view=panels">← Stap 6 · tabelregio selecteren</a>
+  </div>
+</section>
+{% endif %}
+
 {% if gt_mode %}
-<section class="pipeline-boundary-card"><strong>Canonieke Ground Truth</strong><span>Stap 5 toont vanaf nu altijd de oorspronkelijke/beheerde cel-GT. Nieuwe detector-runs uit Stap 4 worden hier niet ingemengd; die blijven modeloutput. Aanpassingen hier maken de bestaande trainingsdataset bewust verouderd.</span></section>
+<section class="pipeline-boundary-card"><strong>Canonieke Ground Truth</strong><span>Stap 7 toont de oorspronkelijke/beheerde cel-GT. Nieuwe celdetector-runs worden hier niet automatisch in gemengd; aanpassingen aan de GT maken de bestaande trainingsdataset bewust verouderd.</span></section>
 <section class="card section-gap">
-  <div class="toolbar"><div><h3>GT-bronnen</h3><p class="muted">Open één bron in GT Studio. Controleer de kaders en keur de bron goed; tabelanalyse volgt later.</p></div><div class="actions">{% if open_source_count %}<button type="button" class="ghost" id="complete-all-gt-sources">Alles als klaar markeren ({{ open_source_count }})</button>{% endif %}<a class="button primary" href="/process/table-model">Daarna naar celdetector trainen →</a></div></div>
-  <div class="notice"><strong>{{ header_counts.accepted }} canonieke GT-cellen.</strong> Deze geometrie is onafhankelijk van de actuele Stap-3-detecties.{% if open_source_count %} <span>{{ open_source_count }} bron{{ '' if open_source_count == 1 else 'nen' }} nog niet als gecontroleerd gemarkeerd.</span>{% endif %}</div>
+  <div class="toolbar"><div><h3>GT-bronnen</h3><p class="muted">Open één bron in GT Studio. Controleer de kaders en keur de bron goed; tabelanalyse volgt later.</p></div><div class="actions">{% if open_source_count %}<button type="button" class="ghost" id="complete-all-gt-sources">Alles als klaar markeren ({{ open_source_count }})</button>{% endif %}<a class="button primary" href="/process/table-model">Daarna naar Stap 8 · celdetector trainen →</a></div></div>
+  <div class="notice"><strong>{{ header_counts.accepted }} canonieke GT-cellen.</strong> Deze geometrie staat los van nieuwe modelruns.{% if open_source_count %} <span>{{ open_source_count }} bron{{ '' if open_source_count == 1 else 'nen' }} nog niet als gecontroleerd gemarkeerd.</span>{% endif %}</div>
   <div class="table-wrap"><table><tr><th>Bron</th><th>GT-cellen</th><th>GT gecontroleerd</th><th></th></tr>
-  {% for source in sources %}{% set c=source.review_counts %}<tr data-gt-source-id="{{ source.source_id }}" data-review-completed="{{ 1 if source.review_completed else 0 }}"><td class="mono">{{ source.source_id }}</td><td class="ok">{{ c.positive }}</td><td>{% if source.review_completed %}<span class="ok">✓ Ja</span>{% else %}<span class="warn">Nog controleren</span>{% endif %}</td><td><a class="button primary" href="/detection-review/{{ source.source_id }}">{{ 'GT bewerken' if source.review_completed else 'GT controleren' }}</a></td></tr>{% else %}<tr><td colspan="4">Nog geen canonieke Ground Truth. Rond eerst de initiële Stap-4-review af en bouw de eerste table-cell dataset.</td></tr>{% endfor %}
+  {% for source in sources %}{% set c=source.review_counts %}<tr data-gt-source-id="{{ source.source_id }}" data-review-completed="{{ 1 if source.review_completed else 0 }}"><td class="mono">{{ source.source_id }}</td><td class="ok">{{ c.positive }}</td><td>{% if source.review_completed %}<span class="ok">✓ Ja</span>{% else %}<span class="warn">Nog controleren</span>{% endif %}</td><td><a class="button primary" href="/detection-review/{{ source.source_id }}">{{ 'GT bewerken' if source.review_completed else 'GT controleren' }}</a></td></tr>{% else %}<tr><td colspan="4">Nog geen canonieke Ground Truth. Start hierboven de celdetectie en rond daarna de initiële GT-review af.</td></tr>{% endfor %}
   </table></div>
 </section>
 {% else %}
-<section class="pipeline-boundary-card"><strong>{% if localization_strategy == 'table_first' %}Initiële table-first review{% else %}Expliciete review{% endif %}</strong><span>{% if localization_strategy == 'table_first' %}Deze eerste review maakt de canonieke Ground Truth. Beoordeel de PP-Structure cell-boxes, corrigeer fouten en teken ontbrekende cellen. Na de eerste dataset blijft Stap 6 voortaan op deze GT staan.{% else %}Per afbeelding staat “Rest standaard includeren” standaard aan. Markeer alleen Niet relevant, Incorrect of pas geometrie aan; bij “Afbeelding klaar” worden resterende open ROI’s automatisch geïncludeerd.{% endif %}</span></section>
+<section class="pipeline-boundary-card"><strong>{% if localization_strategy == 'table_first' %}Initiële table-first review{% else %}Expliciete review{% endif %}</strong><span>{% if localization_strategy == 'table_first' %}Deze eerste review maakt de canonieke Ground Truth. Beoordeel de gedetecteerde cell-boxes, corrigeer fouten en teken ontbrekende cellen. Na de eerste dataset blijft deze GT de vaste waarheid voor volgende modelrondes.{% else %}Per afbeelding staat “Rest standaard includeren” standaard aan. Markeer alleen Niet relevant, Incorrect of pas geometrie aan; bij “Afbeelding klaar” worden resterende open ROI’s automatisch geïncludeerd.{% endif %}</span></section>
 <section class="card section-gap">
-  <div class="toolbar"><div><h3>Bronnen</h3><p class="muted">Open iedere bron in GT Studio en keur hem goed. Afgeronde bronnen worden standaard verborgen.</p></div><div class="actions">{% if completed_source_count %}<button type="button" class="ghost" id="toggle-completed-sources" aria-pressed="false">Toon afgeronde reviews ({{ completed_source_count }})</button>{% endif %}<a class="button primary" href="/process/table-model">Daarna naar celdetector trainen →</a></div></div>
+  <div class="toolbar"><div><h3>Bronnen</h3><p class="muted">Open iedere bron in GT Studio en keur hem goed. Afgeronde bronnen worden standaard verborgen.</p></div><div class="actions">{% if completed_source_count %}<button type="button" class="ghost" id="toggle-completed-sources" aria-pressed="false">Toon afgeronde reviews ({{ completed_source_count }})</button>{% endif %}<a class="button primary" href="/process/table-model">Daarna naar Stap 8 · celdetector trainen →</a></div></div>
   <div class="notice"><strong>{{ header_counts.accepted }} positieve trainingsvoorbeelden · {{ review_counts_global.negative if review_counts_global is defined else 0 }} negatief.</strong> {{ header_counts.pending }} kandidaten zijn nog open.{% if completed_source_count %} <span id="completed-source-visibility-note">{{ completed_source_count }} afgeronde bron{{ '' if completed_source_count == 1 else 'nen' }} verborgen.</span>{% endif %}</div>
   <div class="table-wrap"><table id="initial-review-source-table"><tr><th>Klaar</th><th>Bron</th><th>Kandidaten</th><th>Open</th><th>Included</th><th>Aangepast</th><th>Incorrect / niet relevant</th><th>Toegevoegd</th><th>Tabelcellen</th><th></th></tr>
-  {% for source in sources %}{% set c=source.review_counts %}<tr data-review-source-row data-review-completed="{{ 1 if source.review_completed else 0 }}" class="{% if source.review_completed %}review-source-complete initial-review-completed hidden{% endif %}"><td>{% if source.review_completed %}<span class="source-complete-mark">✓</span>{% else %}<span class="muted">—</span>{% endif %}</td><td class="mono">{{ source.source_id }}</td><td>{{ c.candidate_total }}</td><td class="warn">{{ c.pending }}</td><td class="ok">{{ c.positive }}</td><td>{{ c.adjusted }}</td><td class="bad">{{ c.negative }}</td><td>{{ c.added }}</td><td>{{ source.table_cell_count }}</td><td><a class="button primary" href="/detection-review/{{ source.source_id }}">Open GT Studio</a></td></tr>{% else %}<tr><td colspan="10">Nog geen celdetectie. Voer Stap 4 · Tabelregio’s en cellen detecteren uit.</td></tr>{% endfor %}
+  {% for source in sources %}{% set c=source.review_counts %}<tr data-review-source-row data-review-completed="{{ 1 if source.review_completed else 0 }}" class="{% if source.review_completed %}review-source-complete initial-review-completed hidden{% endif %}"><td>{% if source.review_completed %}<span class="source-complete-mark">✓</span>{% else %}<span class="muted">—</span>{% endif %}</td><td class="mono">{{ source.source_id }}</td><td>{{ c.candidate_total }}</td><td class="warn">{{ c.pending }}</td><td class="ok">{{ c.positive }}</td><td>{{ c.adjusted }}</td><td class="bad">{{ c.negative }}</td><td>{{ c.added }}</td><td>{{ source.table_cell_count }}</td><td><a class="button primary" href="/detection-review/{{ source.source_id }}">Open GT Studio</a></td></tr>{% else %}<tr><td colspan="10">Nog geen celdetectie. Start hierboven de eerste celdetectie.</td></tr>{% endfor %}
   {% if sources and not open_source_count %}<tr id="initial-review-filter-empty"><td colspan="10" class="muted">Alle bronafbeeldingen zijn afgerond. Gebruik “Toon afgeronde reviews” om ze opnieuw te bekijken.</td></tr>{% else %}<tr id="initial-review-filter-empty" class="hidden"><td colspan="10" class="muted">Alle zichtbare bronafbeeldingen zijn afgerond. Gebruik “Toon afgeronde reviews” om ze opnieuw te bekijken.</td></tr>{% endif %}
   </table></div>
 </section>
 {% endif %}
+<style>.cell-detection-entry{display:flex;justify-content:space-between;gap:24px;align-items:center;margin-bottom:14px}.cell-detection-entry h3{margin:3px 0}.cell-detection-entry p{max-width:850px}.cell-detection-entry form{display:inline-block}@media(max-width:800px){.cell-detection-entry{align-items:stretch;flex-direction:column}}</style>
 {% endblock %}
 {% block scripts %}
 {% if gt_mode and open_source_count %}
@@ -42,21 +57,12 @@
       for(const row of rows){
         const sourceId=row.dataset.gtSourceId;
         const response=await fetch(`/api/detection-review/${encodeURIComponent(sourceId)}/complete`,{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({completed:true}),
+          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({completed:true}),
         });
-        if(!response.ok){
-          const payload=await response.json().catch(()=>({}));
-          throw new Error(payload.error||`Afronden mislukt voor ${sourceId}`);
-        }
+        if(!response.ok){const payload=await response.json().catch(()=>({}));throw new Error(payload.error||`Afronden mislukt voor ${sourceId}`);}
       }
       window.location.reload();
-    }catch(error){
-      button.disabled=false;
-      button.textContent=original;
-      window.alert(error instanceof Error?error.message:'Niet alle GT-bronnen konden worden afgerond.');
-    }
+    }catch(error){button.disabled=false;button.textContent=original;window.alert(error instanceof Error?error.message:'Niet alle GT-bronnen konden worden afgerond.');}
   });
 })();
 </script>
