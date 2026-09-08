@@ -54,6 +54,7 @@ from .table_cell_ground_truth import (
 )
 from .table_region_ground_truth import clear_table_regions, list_table_regions, list_table_region_sources, save_table_regions
 from .table_region_training import build_table_region_dataset
+from .table_semantics import load_assignments as load_table_semantic_assignments, save_assignment as save_table_semantic_assignment, suggest_table_name
 from .table_model_comparison import (
     add_comparison_fp_to_ground_truth, review_comparison_issue, table_cell_comparison_state,
 )
@@ -3412,6 +3413,7 @@ def create_web_app(
         if step_key == "table-quality":
             quality = current_table_first_quality()
             preview = recognition_scope_preview(workspace_root())
+            semantic_assignments = load_table_semantic_assignments(workspace_root())
             # The persisted table raster is authoritative here. Do not rebuild
             # rows and columns by clustering canonical GT cells.
             studio_source_id = str(preview.get("source_id") or "")
@@ -3517,7 +3519,25 @@ def create_web_app(
             def table_record(table_id: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
                 cells = indexed_cells(cells)
                 padding = 16
-                return {"table_id": table_id, "table_name": str(cells[0].get("table_name") or cells[0].get("panel_name") or ("Tabel zonder profiel" if table_id == "__default__" else table_id)), "cells": cells, "rows": axis_groups(cells, "row_index"), "columns": axis_groups(cells, "column_index"), "crop": {"x1": max(0, min(int(item.get("x1") or 0) for item in cells) - padding), "y1": max(0, min(int(item.get("y1") or 0) for item in cells) - padding), "x2": max(int(item.get("x2") or 0) for item in cells) + padding, "y2": max(int(item.get("y2") or 0) for item in cells) + padding}}
+                fallback_name = str(cells[0].get("table_name") or cells[0].get("panel_name") or ("Tabel zonder profiel" if table_id == "__default__" else table_id))
+                relations = database.list_detected_relations(studio_source_id)
+                ocr_parts = []
+                bounds = (min(int(item.get("x1") or 0) for item in cells), min(int(item.get("y1") or 0) for item in cells), max(int(item.get("x2") or 0) for item in cells), max(int(item.get("y2") or 0) for item in cells))
+                for relation in relations:
+                    cx = (int(relation.get("label_x1") or 0) + int(relation.get("label_x2") or 0)) / 2
+                    cy = (int(relation.get("label_y1") or 0) + int(relation.get("label_y2") or 0)) / 2
+                    if bounds[0] <= cx <= bounds[2] and bounds[1] <= cy <= bounds[3]:
+                        for key in ("context_text", "label_text", "header_text", "column_header"):
+                            value = str(relation.get(key) or "").strip()
+                            if value and value not in ocr_parts:
+                                ocr_parts.append(value)
+                saved = semantic_assignments.get(table_id) or {}
+                suggested_name, suggestion_source = suggest_table_name(
+                    " | ".join(ocr_parts),
+                    [str(item.get("name") or "") for item in profile.get("panels") or [] if str(item.get("name") or "").strip()],
+                    fallback_name,
+                )
+                return {"table_id": table_id, "table_name": str(saved.get("table_name") or suggested_name), "table_name_source": str(saved.get("source") or suggestion_source), "ocr_header_text": " | ".join(ocr_parts), "cells": cells, "rows": axis_groups(cells, "row_index"), "columns": axis_groups(cells, "column_index"), "crop": {"x1": max(0, bounds[0] - padding), "y1": max(0, bounds[1] - padding), "x2": bounds[2] + padding, "y2": bounds[3] + padding}}
             studio = {
                 "source_id": str(preview.get("source_id") or ""),
                 "tables": [table_record(table_id, cells) for table_id, cells in sorted(table_groups.items())],
@@ -3670,6 +3690,8 @@ def create_web_app(
             return render_template(
                 "table_region_review.html", step=step, sources=review_sources, source=source,
                 source_id=source_id, regions=geometry.get("regions", []),
+                panel_profile=load_panel_profile(workspace_root()),
+                ocr_contexts=database.list_detected_relations(source_id) if source_id else [],
                 ground_truth_regions=list_table_regions(workspace_root(), source_id) if source_id else [],
                 detection_info=context.get("detection_info") or {},
                 header_counts={
@@ -3979,6 +4001,15 @@ def create_web_app(
             "profile": profile,
             "message": "Panelkaders verwijderd. De panelnamen uit Stap 1 zijn bewaard.",
         })
+
+    @app.post("/api/table-semantics/<table_id>")
+    def table_semantics_save_api(table_id: str):
+        payload = request.get_json(silent=True) or {}
+        table_name = str(payload.get("table_name") or "").strip()
+        if not table_name:
+            return jsonify({"error": "Tabelnaam is verplicht"}), 400
+        assignment = save_table_semantic_assignment(workspace_root(), table_id, table_name)
+        return jsonify({"ok": True, "table_id": table_id, "assignment": assignment})
 
     @app.get("/detection-review")
     def detection_review_index():

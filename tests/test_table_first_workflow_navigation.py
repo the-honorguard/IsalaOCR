@@ -31,7 +31,12 @@ def test_region_review_and_semantic_selection_are_separate_views():
     assert "request.args.get('view') == 'panels'" in review
     assert "Stap {{ 6 if panel_mode else 5 }}" in review
     assert "Door naar Stap 6 · tabelregio selecteren" in review
-    assert "Deze labels worden downstream gebruikt" in review
+    assert "De tabelnamen worden downstream gebruikt" in review
+    assert "Automatisch links/rechts" not in review
+    assert "exact één regio toe aan Links" not in review
+    assert "+ Tabeldefinitie" in review
+    assert "Sleutelwoorden" in review
+    assert "panel-hits" in review
     assert 'name="action_id" value="2"' not in review
 
 
