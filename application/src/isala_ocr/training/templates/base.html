@@ -29,19 +29,45 @@
     <a href="/" class="{% if request.path=='/' %}active{% endif %}">Overzicht</a>
     <a href="/test-pipeline" class="{% if request.path=='/test-pipeline' %}active{% endif %}">Proefpagina · DICOM → data</a>
     {% if localization_strategy == 'table_first' %}
-    <div class="nav-section nav-pipeline-a">MODEL FACTORY · GT WORKFLOW</div>
-    {% for nav in [('detection-models','1','Voorbereiding','/process/detection-models'),('input-selection','1A','Inputselectie','/process/input-selection'),('panel-setup','2','Tabelregio’s selecteren','/process/panel-setup'),('table-region-model','3','Tabelregio-model trainen','/process/table-region-model'),('detect-candidates','4','Tabelregio’s beoordelen','/process/detect-candidates'),('detection-review','5','GT Studio','/process/detection-review')] %}
-    {% if workflow_step_access.get(nav[0], False) %}<a href="{{ nav[3] }}" class="process-tab {% if request.path == nav[3] or (nav[0] == 'detection-review' and request.path.startswith('/detection-review')) %}active{% endif %}"><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}</span></a>
-    {% else %}<span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}<small class="lock-mark">🔒</small></span></span>{% endif %}
+
+    <div class="nav-section nav-pipeline-a">VOORBEREIDING</div>
+    {% for nav in [('detection-models','1','Voorbereiding','/process/detection-models'),('input-selection','2','Inputselectie','/process/input-selection')] %}
+      {% if workflow_step_access.get(nav[0], False) %}
+      <a href="{{ nav[3] }}" class="process-tab {% if request.path == nav[3] %}active{% endif %}"><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}</span></a>
+      {% else %}
+      <span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}<small class="lock-mark">🔒</small></span></span>
+      {% endif %}
     {% endfor %}
 
-    <div class="nav-section nav-pipeline-a">MODEL FACTORY · CELLEN · 6 → 7 → 6</div>
-    {% for nav in [('table-model','6','Celdetector trainen','/process/table-model'),('table-compare','7','Detectorafwijkingen reviewen','/process/table-compare')] %}
-    {% if workflow_step_access.get(nav[0], False) %}<a href="{{ nav[3] }}" class="process-tab {% if request.path == nav[3] %}active{% endif %}"><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}</span></a>
-    {% else %}<span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}<small class="lock-mark">🔒</small></span></span>{% endif %}
+    <div class="nav-section nav-pipeline-a">TABELREGIO</div>
+    {% set region_steps = [
+      ('panel-setup','3','Tabelregio GT','/process/panel-setup','gt'),
+      ('table-region-model','4','Tabelregio trainen','/process/table-region-model','train'),
+      ('detect-candidates','5','Tabelregio beoordelen','/process/detect-candidates','review'),
+      ('detect-candidates','6','Tabelregio selecteren','/process/detect-candidates?view=panels','panels')
+    ] %}
+    {% for nav in region_steps %}
+      {% set region_active = (nav[4] == 'panels' and request.path == '/process/detect-candidates' and request.args.get('view') == 'panels') or (nav[4] == 'review' and request.path == '/process/detect-candidates' and request.args.get('view') != 'panels') or (nav[4] not in ['review','panels'] and request.path == nav[3]) %}
+      {% if workflow_step_access.get(nav[0], False) %}
+      <a href="{{ nav[3] }}" class="process-tab {% if region_active %}active{% endif %}"><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}</span></a>
+      {% else %}
+      <span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}<small class="lock-mark">🔒</small></span></span>
+      {% endif %}
     {% endfor %}
-    <div class="nav-section nav-pipeline-a">TABLE DEFINITION</div>
-    {% if workflow_step_access.get('table-quality', False) %}<a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">8</span><span>Tabelstudio</span></a>{% else %}<span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">8</span><span>Tabelstudio<small class="lock-mark">🔒</small></span></span>{% endif %}
+
+    <div class="nav-section nav-pipeline-a">CELLEN</div>
+    {% for nav in [('detection-review','7','GT Studio','/process/detection-review'),('table-model','8','Celdetector trainen','/process/table-model'),('table-compare','9','Celdetector reviewen','/process/table-compare')] %}
+      {% set cell_active = request.path == nav[3] or (nav[0] == 'detection-review' and request.path.startswith('/detection-review')) %}
+      {% if workflow_step_access.get(nav[0], False) %}
+      <a href="{{ nav[3] }}" class="process-tab {% if cell_active %}active{% endif %}"><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}</span></a>
+      {% else %}
+      <span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}<small class="lock-mark">🔒</small></span></span>
+      {% endif %}
+    {% endfor %}
+
+    <div class="nav-section nav-pipeline-a">TABELDEFINITIE</div>
+    {% if workflow_step_access.get('table-quality', False) %}<a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">10</span><span>Tabelstudio</span></a>{% else %}<span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">10</span><span>Tabelstudio<small class="lock-mark">🔒</small></span></span>{% endif %}
+
     {% else %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTIE & CROPS</div>
     {% for step in process_steps if step.group == 'detection' %}
@@ -52,27 +78,29 @@
     {% endif %}
 
     <div class="nav-section nav-pipeline-a">RECOGNITION PREPARATION</div>
-      {% set recognition_preparation_keys = ['recognition-gt-studio'] %}
+    {% set recognition_preparation_keys = ['recognition-gt-studio'] %}
     {% for step in process_steps if step.key in recognition_preparation_keys %}
       {% set recognition_href = '/recognition-scope' if step.key == 'recognition-scope' else ('/recognition-gt-review' if step.key == 'recognition-gt-studio' else '/process/' ~ step.key) %}
+      {% set recognition_number = 11 if localization_strategy == 'table_first' else step['index'] %}
       {% if workflow_step_access.get(step.key, False) %}
       <a href="{{ recognition_href }}" class="process-tab {% if request.path == recognition_href or (step.key == 'recognition-gt-studio' and request.path.startswith('/recognition-gt-review')) %}active{% endif %}">
-        <span class="process-tab-number">{{ step['index'] }}</span><span>{{ step.title }}</span>
+        <span class="process-tab-number">{{ recognition_number }}</span><span>{{ step.title }}</span>
       </a>
       {% else %}
-      <span class="process-tab blocked" title="Eerst de vorige hoofdgroep afronden: Table/GT-workflow."><span class="process-tab-number">{{ step['index'] }}</span><span>{{ step.title }}<small class="lock-mark">🔒</small></span></span>
+      <span class="process-tab blocked" title="Eerst de vorige hoofdgroep afronden: Table/GT-workflow."><span class="process-tab-number">{{ recognition_number }}</span><span>{{ step.title }}<small class="lock-mark">🔒</small></span></span>
       {% endif %}
     {% endfor %}
 
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · RECOGNITION</div>
     {% set recognition_factory_keys = ['recognition-dataset','recognition-output-review'] %}
     {% for step in process_steps if step.key in recognition_factory_keys %}
+      {% set recognition_number = (12 if step.key == 'recognition-dataset' else 13) if localization_strategy == 'table_first' else step['index'] %}
       {% if workflow_step_access.get(step.key, False) %}
       <a href="/process/{{ step.key }}" class="process-tab {% if request.path == '/process/' ~ step.key %}active{% endif %}">
-        <span class="process-tab-number">{{ step['index'] }}</span><span>{{ step.title }}</span>
+        <span class="process-tab-number">{{ recognition_number }}</span><span>{{ step.title }}</span>
       </a>
       {% else %}
-      <span class="process-tab blocked" title="Eerst Recognition-GT afronden."><span class="process-tab-number">{{ step['index'] }}</span><span>{{ step.title }}<small class="lock-mark">🔒</small></span></span>
+      <span class="process-tab blocked" title="Eerst Recognition-GT afronden."><span class="process-tab-number">{{ recognition_number }}</span><span>{{ step.title }}<small class="lock-mark">🔒</small></span></span>
       {% endif %}
     {% endfor %}
 
@@ -83,14 +111,14 @@
     {% set application_keys = ['mapping','apply-mapping','value-review'] %}
     <div class="nav-section nav-pipeline-b">FASE 2 · APPLICATION PROCESSING · OPTIONEEL</div>
     {% for step in process_steps if step.key in application_keys %}
-  {% set application_href = '/mapping' if step.key == 'mapping' else ('/process/value-review' if step.key == 'value-review' else '/process/' ~ step.key) %}
+      {% set application_href = '/mapping' if step.key == 'mapping' else ('/process/value-review' if step.key == 'value-review' else '/process/' ~ step.key) %}
+      {% set application_number = (14 if step.key == 'mapping' else (15 if step.key == 'apply-mapping' else 16)) if localization_strategy == 'table_first' else (12 if step.key == 'mapping' else (13 if step.key == 'apply-mapping' else 14)) %}
       {% if workflow_step_access.get(step.key, False) %}
       <a href="{{ application_href }}" class="process-tab {% if request.path == application_href or (step.key == 'mapping' and (request.path.startswith('/mapping-labels') or request.path == '/mapping')) %}active{% endif %}">
-        {% set application_number = 12 if step.key == 'mapping' else (13 if step.key == 'apply-mapping' else 14) %}
         <span class="process-tab-number">{{ application_number }}</span><span>{{ step.title }}</span>
       </a>
       {% else %}
-      <span class="process-tab blocked" title="Eerst het Recognition-modelbundle activeren."><span class="process-tab-number">{{ 12 if step.key == 'mapping' else (13 if step.key == 'apply-mapping' else 14) }}</span><span>{{ step.title }}<small class="lock-mark">🔒</small></span></span>
+      <span class="process-tab blocked" title="Eerst het Recognition-modelbundle activeren."><span class="process-tab-number">{{ application_number }}</span><span>{{ step.title }}<small class="lock-mark">🔒</small></span></span>
       {% endif %}
     {% endfor %}
 
@@ -178,20 +206,33 @@
 <script>
 (() => {
   const path=window.location.pathname;
+  const query=new URLSearchParams(window.location.search);
   const h1=document.querySelector('.topbar h1');
   const subtitle=document.querySelector('.topbar p');
   const setTopbar=(title,sub)=>{if(h1)h1.textContent=title;if(subtitle)subtitle.textContent=sub;document.title=`${title} · IsalaOCR`;};
-  if(path==='/process/table-region-model'){
-    setTopbar('Stap 3 · Tabelregio-model trainen','Train en activeer het model dat volledige tabelregio’s automatisch leert vinden.');
+  if(path==='/process/detection-models'){
+    setTopbar('Stap 1 · Voorbereiding','Controleer de inference-, tabel- en trainingsruntime.');
+  }else if(path==='/process/input-selection'){
+    setTopbar('Stap 2 · Inputselectie','Bepaal welke bronnen onderdeel zijn van deze workflow.');
+  }else if(path==='/process/panel-setup'){
+    setTopbar('Stap 3 · Tabelregio GT','Maak geometrische Ground Truth met één class: table_region.');
+  }else if(path==='/process/table-region-model'){
+    setTopbar('Stap 4 · Tabelregio trainen','Train en activeer het model dat volledige tabelregio’s automatisch leert vinden.');
+  }else if(path==='/process/detect-candidates'&&query.get('view')==='panels'){
+    setTopbar('Stap 6 · Tabelregio selecteren','Wijs de definitieve regio’s semantisch toe als links/rechts.');
   }else if(path==='/process/detect-candidates'){
-    setTopbar('Stap 4 · Tabelregio’s beoordelen','Beoordeel de nieuwe regio-detecties; de oude GT blijft apart beschikbaar als referentie.');
+    setTopbar('Stap 5 · Tabelregio beoordelen','Beoordeel uitsluitend de geometrie van de nieuwe regio-detecties.');
   }else if(path==='/process/detection-review'||path.startsWith('/detection-review')){
-    setTopbar('Stap 5 · GT Studio','Beoordeel één bron tegelijk en keur de cel-Ground Truth goed; tabelstudio volgt later.');
+    setTopbar('Stap 7 · GT Studio','Start de eerste celdetectie en leg daarna de canonieke cel-GT vast.');
+  }else if(path==='/process/table-model'){
+    setTopbar('Stap 8 · Celdetector trainen','Train en activeer de celdetector uit de goedgekeurde cel-GT.');
   }else if(path==='/process/table-compare'){
-    setTopbar('Detectorafwijkingen reviewen','Beoordeel optioneel verschillen tussen een nieuwe celdetectorrun en de canonieke cel-GT.');
+    setTopbar('Stap 9 · Celdetector reviewen','Beoordeel verschillen tussen de celdetector en de canonieke cel-GT.');
+  }else if(path==='/process/table-quality'){
+    setTopbar('Stap 10 · Tabelstudio','Bepaal het tabelraster en de functionele scope voor Recognition.');
   }
   if(path==='/process/mapping'||path.startsWith('/mapping')){
-    setTopbar('Stap 13 · Mapping Studio','Koppel gelezen tabellabels aan applicatievelden. Tabelstructuur en waardekolommen komen uit Tabelstudio.');
+    setTopbar('Stap 14 · Mapping Studio','Koppel gelezen tabellabels aan applicatievelden. Tabelstructuur en waardekolommen komen uit Tabelstudio.');
   }
 })();
 </script>
