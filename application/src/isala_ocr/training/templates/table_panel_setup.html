@@ -1,349 +1,189 @@
 {% extends 'base.html' %}
-{% block body_class %}table-region-review-page{% endblock %}
-{% block title %}{% if step.index %}Stap {{ step.index }} · {% endif %}{{ step.title }} · IsalaOCR{% endblock %}
-{% block heading %}{% if step.index %}Stap {{ step.index }} · {% endif %}{{ step.title }}{% endblock %}
-{% block subtitle %}{{ step.subtitle }}{% endblock %}
+{% block body_class %}table-region-gt-page{% endblock %}
+{% block title %}Stap 2 · Regio-GT annoteren · IsalaOCR{% endblock %}
+{% block heading %}Stap 2 · Regio-GT annoteren{% endblock %}
+{% block subtitle %}Maak uitsluitend geometrische Ground Truth voor het tabelregiomodel. Elke box is dezelfde klasse: table_region. Links/rechts wordt pas ná modeltraining toegewezen.{% endblock %}
 {% block content %}
-{% if not sources %}
+{% if not sources or not source %}
 <section class="card section-gap">
   <h3>Nog geen bronpreview beschikbaar</h3>
-  <p>Voor Panel Setup is één volledige bronrender nodig. Maak eenmalig een voorbeeldscan; die draait nog over de volledige screenshot en wordt alleen gebruikt om de panelen te kunnen tekenen.</p>
-  <a class="button primary" href="/process/input-selection">Eerst input controleren</a>
-  <p class="muted">Na voltooiing: ververs deze pagina, teken de tabelregio’s en ga daarna naar Stap 3 om het regio-model te trainen. De voorbeeldscan telt niet als definitieve tabelrun.</p>
+  <p>Bereid eerst de geselecteerde bronnen voor. Daarna kun je hier de volledige tabelregio’s tekenen.</p>
+  <a class="button primary" href="/process/input-selection">Naar inputselectie</a>
 </section>
 {% else %}
-<section class="card section-gap panel-setup-toolbar-card table-region-review-toolbar">
-  <div class="panel-source-bar">
-    <div><span class="eyebrow">REFERENTIEBEELD</span><h3>1 · Kies een lezing</h3><p class="muted">Teken daarna de volledige tabelregio’s op deze lezing.</p></div>
-    <div class="panel-source-controls">
-      <button type="button" id="panel-prev-source" title="Vorige bron">←</button>
-      <form method="get" action="/process/panel-setup" class="panel-source-form"><label>Lezing<select name="source_id">{% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id == source_id %}selected{% endif %}>{{ item.source_id }}</option>{% endfor %}</select></label></form>
-      <button type="button" id="panel-next-source" title="Volgende bron">→</button>
+<section class="card gt-toolbar">
+  <div class="gt-toolbar-row">
+    <div>
+      <span class="eyebrow">REGIO-GT · VÓÓR MODELTRAINING</span>
+      <h3>{{ source_id }}</h3>
+      <p class="muted">Hier geef je alleen aan <strong>waar</strong> de tabellen staan. Geen LV/RV, links/rechts of andere semantiek.</p>
     </div>
+    <form method="get" action="/process/panel-setup">
+      <label>Lezing
+        <select name="source_id" onchange="this.form.submit()">
+          {% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id == source_id %}selected{% endif %}>{{ item.source_id }}</option>{% endfor %}
+        </select>
+      </label>
+    </form>
   </div>
-  <div class="panel-list-actions panel-review-save-actions panel-top-actions"><button type="button" id="table-region-gt-save" class="primary">✓ GT opslaan</button><button type="button" id="table-region-no-table" class="ghost">Geen tabel in deze bron</button><button type="button" id="table-region-detect" class="ghost">Bronnen voorbereiden + regio’s detecteren</button><button type="button" id="table-region-detect-source" class="ghost">Alleen deze bron opnieuw detecteren</button><button type="button" id="table-region-redetect-clear" class="danger">Wis GT</button><button type="button" id="panel-focus" class="ghost">⛶ Review fullscreen</button></div>
-
-  <details class="table-definition-card">
-    <summary class="table-definition-summary"><div class="table-definition-heading"><div><span class="eyebrow">1A · TABELEN DEFINIËREN</span><h3>Tabeltypen definiëren</h3></div><span id="table-definition-count" class="pill">0 tabellen</span></div></summary>
-    <div id="table-definition-list" class="table-definition-list"></div>
-    <div class="workflow-actions"><button type="button" id="table-definition-add">+ Tabeltype</button><button type="button" id="table-definition-save" class="primary">Tabeldefinities opslaan</button></div>
-    <div id="table-definition-message" class="inline-status"></div>
-  </details>
-
-  <details class="advanced-panel-tools"><summary>Geavanceerde hulpmiddelen en fallback-panelprofiel</summary><div class="advanced-panel-content"><p class="muted">Deze knoppen zijn alleen nodig voor het herbruikbare fallback-panelprofiel. Ze wijzigen niet de per-lezing tabelregio-GT.</p><div class="actions panel-setup-actions"><button type="button" id="panel-list-toggle" class="focus-only">Panelenlijst</button><button type="button" id="panel-draw" class="focus-only">+ Tabelregio tekenen</button><button type="button" id="panel-link" class="focus-only">↔ Geselecteerd kader koppelen</button><button type="button" id="panel-fit" disabled>✦ Snap naar Paddle-regio</button><button type="button" id="panel-save">Fallback-profiel opslaan</button><button type="button" id="panel-reset">Fallback-kaders wissen</button></div></div></details>
-  <div id="panel-message" class="inline-status panel-message"></div>
+  <div class="workflow-actions">
+    <button type="button" id="draw-region" class="primary">+ Tabelregio tekenen</button>
+    <button type="button" id="use-suggestions">Detectievoorstellen overnemen</button>
+    <button type="button" id="save-regions" class="primary">✓ Regio-GT opslaan</button>
+    <button type="button" id="no-table">Geen tabel in deze bron</button>
+    <button type="button" id="clear-regions" class="danger">GT wissen</button>
+    <a class="button ghost" href="/process/table-region-model">Naar regiomodel trainen</a>
+  </div>
+  <div id="gt-message" class="inline-status"></div>
 </section>
 
-<div class="panel-setup-layout section-gap">
-  <section class="card panel-canvas-card">
-    <div id="panel-stage" class="panel-stage" data-source-id="{{ source_id }}" data-width="{{ source.image_width }}" data-height="{{ source.image_height }}">
-      <img id="panel-source-image" src="/source-render/{{ source_id }}.png" alt="Volledige bron voor panel setup" draggable="false">
-      <div id="panel-model-layer" class="panel-layer"></div>
-      <div id="panel-suggestion-layer" class="panel-layer"></div>
-      <div id="panel-layer" class="panel-layer"></div>
-      <div id="panel-draft" class="panel-draft" hidden></div>
+<div class="gt-layout section-gap">
+  <section class="card gt-image-card">
+    <div id="gt-stage" class="gt-stage" data-width="{{ source.image_width }}" data-height="{{ source.image_height }}">
+      <img src="/source-render/{{ source_id }}.png" alt="Volledige bron" draggable="false">
+      <div id="suggestion-layer" class="gt-layer suggestion-layer"></div>
+      <div id="region-layer" class="gt-layer region-layer"></div>
+      <div id="draft-region" class="draft-region" hidden></div>
     </div>
-    <p class="panel-resize-help"><strong>Volledige tabelregio tekenen:</strong> selecteer een kader en sleep de blauwe handgrepen aan hoeken of randen. De groene kaders worden als tabelregio-GT opgeslagen.</p>
-    <div class="panel-geometry-legend"><span>🟠 ruwe modelgrens</span><span>🟡 post-processing</span><span>🔴 uitgesloten ruis</span></div>
+    <p class="muted help">Groen = opgeslagen/te bewaren regio-GT. Oranje = alleen een voorstel. Sleep een groen kader om het te verplaatsen; gebruik de hoekpunten om het formaat aan te passen.</p>
   </section>
-  <aside class="panel-review-side">
-    <select id="panel-target" hidden aria-hidden="true"></select>
-    <section id="panel-suggestion-card" class="card panel-suggestion-list-card panel-review-action-card"{% if region_ground_truth %} hidden{% endif %}>
-      <div class="toolbar"><div><span class="muted">DEZE LEZING</span><h3>Tabelvoorstellen</h3></div><span id="panel-suggestion-count" class="pill">0</span></div>
-      <p class="muted">Selecteer een voorstel. Accepteren zet het in de reviewqueue; GT opslaan maakt het definitief.</p>
-      <div id="panel-suggestion-list" class="panel-suggestion-list"></div>
-    </section>
-    <details class="panel-detection-info">
-      <summary>Meer info over detectie</summary>
-      {% if detection_info %}
-      <div class="panel-detection-info-grid">
-        <span>Run</span><strong class="mono">{{ detection_info.batch_id or 'onbekend' }}</strong>
-        <span>Gestart</span><strong>{{ detection_info.started_at or 'onbekend' }}</strong>
-        <span>Engine</span><strong>{{ detection_info.engine or 'onbekend' }} · {{ detection_info.device or 'onbekend' }}</strong>
-        <span>Gekozen</span><strong>{{ detection_info.selected_variant or 'onbekend' }} · {{ detection_info.selected_scope or 'onbekend' }} · score {{ detection_info.selected_score if detection_info.selected_score is not none else '—' }}</strong>
-        <span>Resultaat</span><strong>{{ detection_info.table_count }} tabellen · {{ detection_info.cell_count }} cellen · {{ detection_info.suggestion_count }} voorstellen</strong>
-      </div>
-      {% if detection_info.runs %}<div class="panel-detection-runs"><strong>Varianten</strong>{% for run in detection_info.runs %}<div><span>{{ run.variant }} / {{ run.scope }}</span><span>{{ run.table_count or 0 }} tabellen · {{ run.cell_count or 0 }} cellen · {{ run.row_count or 0 }} rijen · score {{ run.score or 0 }}</span></div>{% endfor %}</div>{% endif %}
-      {% else %}<p class="muted">Voor deze bron is nog geen detectiediagnose opgeslagen.</p>{% endif %}
-    </details>
-    <details id="panel-manual-card" class="card panel-review-action-card panel-manual-card">
-      <summary class="toolbar"><div><span class="muted">OPTIONEEL</span><h3>Handmatig tekenen</h3></div><span class="pill">Tabeltypen</span></summary>
-      <p class="muted">Gebruik dit alleen als een automatisch voorstel ontbreekt of niet klopt.</p>
-      <div id="panel-list" class="panel-list"></div>
-      <div id="panel-empty" class="notice info">Er zijn nog geen tabelregio’s getekend voor deze lezing.</div>
-    </details>
-    <section class="card panel-review-queue-card sticky-panel">
-      <div class="toolbar panel-review-heading"><div><span class="eyebrow">TABELREGIO REVIEW</span><h3>Bronwachtrij</h3></div><span class="pill">{{ table_review_sources|length }}</span></div>
-      <details class="table-source-list-card" open>
-        <summary><strong>Lezingen</strong><span class="pill">{{ table_review_sources|length }}</span></summary>
-        <div class="source-list">
-          {% for item in table_review_sources %}
-          <button type="button" class="source-row{% if item.source_id == source_id %} active{% endif %}" data-source-id="{{ item.source_id }}">
-            <div><strong class="mono">{{ item.source_id }}</strong><small>{{ item.region_count }} regio{{ '' if item.region_count == 1 else '’s' }}</small></div>
-            <span class="pill {{ 'ok' if item.review_completed else 'warn' }}">{{ 'klaar' if item.review_completed else 'open' }}</span>
-          </button>
-          {% endfor %}
-        </div>
-      </details>
-    </section>
-    <p class="muted">Groen = definitieve GT-regio. Geel = voorstel dat nog beoordeeld moet worden.</p>
+  <aside class="card gt-side">
+    <div class="toolbar"><div><span class="eyebrow">BRONNEN</span><h3>Regio-GT voortgang</h3></div><span class="pill">{{ table_review_sources|length }}</span></div>
+    <div class="source-list">
+      {% for item in table_review_sources %}
+      <a class="source-row{% if item.source_id == source_id %} active{% endif %}" href="/process/panel-setup?source_id={{ item.source_id|urlencode }}">
+        <span class="mono">{{ item.source_id }}</span>
+        <span class="pill {{ 'ok' if item.review_completed else 'warn' }}">{{ item.region_count or 0 }} · {{ 'klaar' if item.review_completed else 'open' }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    <div class="notice info">
+      <strong>Modeldoel</strong><br>
+      Deze GT bouwt een dataset met één class: <code>table_region</code>. De panelrol wordt hier bewust niet opgeslagen.
+    </div>
   </aside>
 </div>
-<div class="review-summary-strip table-region-review-summary"><span><strong id="table-review-summary-count">0</strong> tabelregio’s in deze lezing</span><span class="ok">Geel voorstel = automatisch gevonden</span><span class="ok">Groen kader = GT</span><span>GT opslaan gaat naar de volgende lezing</span></div>
 
-<style>
-.table-region-review-toolbar{border-color:#36536b;background:linear-gradient(135deg,rgba(17,40,55,.96),rgba(13,24,35,.98))}.table-region-review-summary{margin:0 0 12px;padding:10px 12px;border:1px solid #2b465b;border-radius:10px;background:rgba(10,20,30,.86);font-size:12px}.table-region-review-summary span{color:#a8bacb}.table-region-review-summary .ok{color:#6ee7b7}
-/* Table Region Review Studio: same composition as the cell reviewer. */
-body.table-region-review-page .gate-banner{display:none}
-body.table-region-review-page .content{max-width:1500px}
-body.table-region-review-page .table-region-review-toolbar{position:relative;z-index:2;margin-top:0;padding:8px 10px}
-/* Keep table definitions visible: they determine the LV/RV context used by
-   every table-region frame; these saved regions are the GT used by Step 3. */
-body.table-region-review-page .table-region-review-toolbar .panel-source-bar{padding-bottom:6px}
-body.table-region-review-page .table-definition-card{margin-top:8px;padding:9px 10px}
-body.table-region-review-page .table-definition-summary{list-style:none;cursor:pointer;padding:0}
-body.table-region-review-page .table-definition-summary::-webkit-details-marker{display:none}
-body.table-region-review-page .table-definition-summary:after{content:'▸';float:right;color:var(--muted);font-size:16px;line-height:1}
-body.table-region-review-page .table-definition-card[open] .table-definition-summary:after{content:'▾'}
-body.table-region-review-page .table-definition-card[open] .table-definition-summary{padding-bottom:8px;border-bottom:1px solid var(--border)}
-body.table-region-review-page .table-definition-card[open] .table-definition-list,
-body.table-region-review-page .table-definition-card[open] .workflow-actions,
-body.table-region-review-page .table-definition-card[open] .inline-status{margin-left:0;margin-right:0}
-body.table-region-review-page .table-definition-heading h3{font-size:15px;margin:2px 0}
-body.table-region-review-page .table-definition-heading p{font-size:11px}
-body.table-region-review-page .table-definition-list{margin:7px 0}
-body.table-region-review-page .table-definition-row{padding:6px 8px}
-body.table-region-review-page .table-definition-card .workflow-actions{gap:6px}
-body.table-region-review-page .panel-source-bar{align-items:center;gap:10px}
-body.table-region-review-page .panel-source-bar>div:first-child p{display:none}
-body.table-region-review-page .panel-source-bar h3{font-size:14px;margin:0}
-body.table-region-review-page .table-definition-heading{align-items:center}
-body.table-region-review-page .table-definition-heading h3{font-size:14px}
-body.table-region-review-page .table-definition-heading p{display:none}
-body.table-region-review-page .table-definition-row{padding:4px 6px}
-body.table-region-review-page .panel-geometry-legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:var(--muted)}
-body.table-region-review-page .panel-model-raw{position:absolute;box-sizing:border-box;border:2px dashed #f97316;pointer-events:none;z-index:1}
-body.table-region-review-page .panel-model-excluded{position:absolute;box-sizing:border-box;border:2px dashed #ef4444;background:rgba(239,68,68,.12);pointer-events:none;z-index:2}
-body.table-region-review-page .table-definition-row input{padding:6px 8px}
-body.table-region-review-page .table-definition-row button{padding:5px 7px}
-body.table-region-review-page .table-definition-card .workflow-actions button{padding:6px 9px}
-body.table-region-review-page .panel-setup-layout{grid-template-columns:minmax(0,1fr) 360px;margin-top:12px;margin-bottom:92px;align-items:start}
-body.table-region-review-page .panel-canvas-card{padding:10px;background:#070d13}
-body.table-region-review-page .panel-stage{max-height:calc(100vh - 300px);overflow:hidden}
-body.table-region-review-page .panel-review-side{display:flex;flex-direction:column;gap:12px;min-width:0;position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto;padding-right:2px}
-body.table-region-review-page .panel-review-side .card{background:#0c161f}
-body.table-region-review-page .panel-review-queue-card{position:static;max-height:none;overflow:visible}
-body.table-region-review-page .panel-review-heading{align-items:flex-start;margin-bottom:8px}
-body.table-region-review-page .panel-review-heading h3{margin:2px 0;font-size:16px}
-body.table-region-review-page .panel-review-heading p{margin:2px 0;font-size:11px}
-body.table-region-review-page .panel-review-current-source{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:8px;border:1px solid #36536b;border-radius:8px;background:#102332;margin-bottom:8px}
-body.table-region-review-page .panel-review-current-source .muted{grid-column:1/-1;font-size:10px}
-body.table-region-review-page .panel-review-current-source .pill{grid-column:2;grid-row:2}
-body.table-region-review-page .panel-review-action-card{padding:10px}
-body.table-region-review-page .panel-manual-card>summary{cursor:pointer;list-style:none}
-body.table-region-review-page .panel-manual-card>summary::-webkit-details-marker{display:none}
-body.table-region-review-page .panel-manual-card>summary:after{content:'▸';margin-left:auto;color:var(--muted);font-size:16px}
-body.table-region-review-page .panel-manual-card[open]>summary:after{content:'▾'}
-body.table-region-review-page .panel-detection-info{padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#0c161f;font-size:11px}
-body.table-region-review-page .panel-detection-info>summary{cursor:pointer;color:var(--muted);font-weight:650}
-body.table-region-review-page .panel-detection-info-grid{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin-top:8px}
-body.table-region-review-page .panel-detection-info-grid strong{font-weight:500;overflow-wrap:anywhere}
-body.table-region-review-page .panel-detection-runs{display:grid;gap:3px;margin-top:8px;padding-top:7px;border-top:1px solid var(--border)}
-body.table-region-review-page .panel-detection-runs>div{display:flex;justify-content:space-between;gap:8px;color:var(--muted)}
-body.table-region-review-page .panel-review-action-card .toolbar h3{font-size:15px;margin:2px 0}
-body.table-region-review-page .panel-review-action-card>p{font-size:11px;margin:4px 0 8px}
-body.table-region-review-page .panel-review-save-actions{margin-top:0;padding:0;border:0}
-body.table-region-review-page .panel-review-save-actions button{flex:1}
-body.table-region-review-page .table-region-review-summary{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
-body.table-region-review-page .table-region-review-toolbar .advanced-panel-tools{display:none}
-body.table-region-review-page .table-region-review-toolbar .panel-message{display:none}
-@media(max-width:760px){body.table-region-review-page .panel-setup-layout{grid-template-columns:1fr;margin-bottom:20px}body.table-region-review-page .panel-review-side{position:static;max-height:none;overflow:visible;padding-right:0}body.table-region-review-page .table-region-review-summary{display:block}body.table-region-review-page .table-region-review-summary span{display:block;margin:3px 0}}
-.panel-setup-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}.panel-stage{position:relative;line-height:0;user-select:none;touch-action:none;background:#05080c;border:1px solid var(--border);border-radius:10px;overflow:hidden}.panel-stage>img{display:block;width:100%;height:auto}.panel-layer{position:absolute;inset:0;pointer-events:none}.panel-box,.panel-suggestion{position:absolute;box-sizing:border-box;background:transparent}.panel-box{border:2px solid #45d7a0;pointer-events:auto;cursor:pointer}.panel-box.selected{outline:2px solid #65bfff;outline-offset:2px}.panel-label,.panel-suggestion span{position:absolute;left:2px;top:2px;padding:2px 5px;border-radius:4px;font-size:11px;line-height:1.2;background:#071018;color:#fff;white-space:nowrap}.panel-suggestion{border:1px dashed #f2b84b;pointer-events:auto;cursor:pointer;opacity:.72}.panel-draft{position:absolute;border:2px dashed #65bfff;background:rgba(80,170,255,.09);pointer-events:none}.panel-resize-handle{position:absolute;width:12px;height:12px;border:2px solid #071018;border-radius:50%;background:#65bfff;z-index:3}.panel-resize-handle[data-dir="nw"]{left:-7px;top:-7px;cursor:nwse-resize}.panel-resize-handle[data-dir="n"]{left:calc(50% - 6px);top:-7px;cursor:ns-resize}.panel-resize-handle[data-dir="ne"]{right:-7px;top:-7px;cursor:nesw-resize}.panel-resize-handle[data-dir="e"]{right:-7px;top:calc(50% - 6px);cursor:ew-resize}.panel-resize-handle[data-dir="se"]{right:-7px;bottom:-7px;cursor:nwse-resize}.panel-resize-handle[data-dir="s"]{left:calc(50% - 6px);bottom:-7px;cursor:ns-resize}.panel-resize-handle[data-dir="sw"]{left:-7px;bottom:-7px;cursor:nesw-resize}.panel-resize-handle[data-dir="w"]{left:-7px;top:calc(50% - 6px);cursor:ew-resize}.panel-list{display:flex;flex-direction:column;gap:10px}.panel-list-item{border:1px solid var(--border);border-radius:8px;padding:10px}.panel-list-item.selected{border-color:#65bfff}.panel-list-name{display:flex;justify-content:space-between;gap:8px;align-items:center}.panel-list-item .coords{font-size:11px;color:var(--muted);margin-top:6px}.panel-list-item-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}.panel-list-item-actions button{font-size:11px;padding:6px 8px}.panel-suggestion-list-card{margin:10px 0;padding:9px;border:1px solid var(--border);border-radius:8px;background:#0e1822}.panel-suggestion-list-card p{margin:5px 0;font-size:11px}.panel-suggestion-list{display:flex;flex-direction:column;gap:6px;margin-top:7px}.panel-suggestion-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px;border:1px solid var(--border);border-radius:7px;background:#101b25}.panel-suggestion-row small{display:block;color:var(--muted);font-size:10px}.panel-suggestion-row button{font-size:11px;padding:5px 7px;white-space:nowrap}.panel-source-controls{display:flex;align-items:end;gap:6px}.panel-source-controls>button{min-width:38px}.panel-source-form label{display:flex;gap:8px;align-items:center}.panel-source-form select{min-width:240px}.panel-setup-actions{flex-wrap:wrap}.panel-target-row{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:12px 0}.panel-target-row label{min-width:320px}.panel-target-row select{display:block;width:100%;margin-top:4px}.panel-resize-help{margin:10px 0 0;color:var(--muted);line-height:1.45}.focus-only{display:none}.panel-source-bar{display:flex;justify-content:space-between;align-items:end;gap:18px;padding-bottom:14px;border-bottom:1px solid var(--border)}.panel-source-bar h3{margin:3px 0}.workflow-actions{display:flex;flex-wrap:wrap;gap:7px;align-items:end}.workflow-actions form{margin:0}.workflow-actions label{font-size:11px;color:var(--muted)}.workflow-actions select{display:block;margin-top:3px;min-width:180px}.advanced-panel-tools{margin-top:12px;border-top:1px solid var(--border);padding-top:10px}.advanced-panel-tools summary{cursor:pointer;color:var(--muted);font-size:12px}.advanced-panel-content{padding-top:8px}.advanced-panel-content .actions{gap:7px}.panel-list-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
-.table-source-list-card{margin:8px 0 10px;padding:0;overflow:hidden;border:1px solid var(--border);border-radius:8px;background:#0e1822}.table-source-list-card>summary{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 9px;cursor:pointer;list-style:none}.table-source-list-card>summary::-webkit-details-marker{display:none}.table-source-list-card[open]>summary{border-bottom:1px solid var(--border)}.table-source-list-card .source-list{display:grid;gap:4px;padding:6px;max-height:190px;overflow:auto}.table-source-list-card .source-row{display:flex;align-items:center;justify-content:space-between;width:100%;gap:7px;padding:6px 7px;border:1px solid transparent;border-radius:6px;background:#101b25;color:var(--text);font:inherit;text-align:left;cursor:pointer}.table-source-list-card .source-row:hover,.table-source-list-card .source-row.active{border-color:#65bfff;background:#162637}.table-source-list-card .source-row small{display:block;color:var(--muted);font-size:10px}.table-source-list-card .source-row .pill{font-size:10px;padding:2px 6px}.table-source-list-card .source-row:disabled{cursor:wait;opacity:.7}
-body.table-region-review-page.source-loading .panel-stage,body.table-region-review-page.source-loading .panel-review-side{opacity:.55;pointer-events:none}
-.table-definition-card{margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:10px;background:#0b141d}.table-definition-heading{display:flex;justify-content:space-between;align-items:start;gap:14px}.table-definition-heading h3{margin:3px 0}.table-definition-heading p{margin:0;font-size:12px}.table-definition-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin:12px 0}.table-definition-row{display:flex;align-items:flex-end;gap:8px;min-width:0;padding:8px;border:1px solid var(--border);border-radius:8px;background:#101b25}.table-definition-row .workflow-number{flex:0 0 30px}.table-definition-row label{flex:1 1 auto;min-width:0;font-size:11px;color:var(--muted)}.table-definition-row input{display:block;box-sizing:border-box;width:100%;min-width:0;margin-top:3px}.table-definition-row button{flex:0 0 auto;width:auto;white-space:nowrap;padding:6px 8px;font-size:11px}
-body.panel-focus-mode{overflow:hidden}body.panel-focus-mode .panel-setup-layout{position:fixed;inset:0;z-index:10000;display:block;margin:0!important;background:#05080c}body.panel-focus-mode .panel-canvas-card{position:absolute;inset:0;margin:0;padding:0;border:0;border-radius:0;background:#05080c;overflow:hidden}body.panel-focus-mode .panel-stage{position:absolute;margin:0;border:0;border-radius:0;box-shadow:0 0 0 1px rgba(255,255,255,.08)}body.panel-focus-mode .panel-resize-help{position:fixed;left:50%;bottom:12px;z-index:10004;transform:translateX(-50%);margin:0;padding:7px 12px;border:1px solid var(--border);border-radius:8px;background:rgba(10,18,26,.94);max-width:min(760px,calc(100vw - 28px));font-size:12px;line-height:1.35}body.panel-focus-mode .panel-setup-toolbar-card{position:fixed;z-index:10006;top:12px;left:12px;width:min(780px,calc(100vw - 390px));max-height:calc(100vh - 24px);overflow:auto;margin:0;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:rgba(12,22,31,.96);box-shadow:0 12px 36px rgba(0,0,0,.35);backdrop-filter:blur(8px)}body.panel-focus-mode .panel-setup-toolbar-card .panel-setup-intro{display:none}body.panel-focus-mode .panel-setup-toolbar-card .toolbar{align-items:end;gap:8px}body.panel-focus-mode .panel-source-form select{min-width:180px}body.panel-focus-mode .panel-target-row{margin:6px 0;gap:8px}body.panel-focus-mode .panel-target-row label{min-width:250px}body.panel-focus-mode .panel-target-row>.muted{display:none}body.panel-focus-mode .panel-setup-actions{gap:6px}body.panel-focus-mode .panel-setup-actions button{padding-top:7px;padding-bottom:7px}body.panel-focus-mode .panel-message{margin-top:6px;max-height:70px;overflow:auto}body.panel-focus-mode .focus-only{display:inline-flex}body.panel-focus-mode .panel-review-side{position:fixed;z-index:10005;top:12px;right:12px;width:360px;max-height:calc(100vh - 24px);overflow:auto;margin:0;padding:0;border-radius:10px;filter:drop-shadow(0 12px 30px rgba(0,0,0,.35))}body.panel-focus-mode.panel-focus-list-hidden .panel-review-side{display:none}body.panel-focus-mode.panel-focus-list-hidden .panel-setup-toolbar-card{width:min(900px,calc(100vw - 24px))}
-@media(max-width:980px){.panel-setup-layout{grid-template-columns:1fr}.panel-source-bar{align-items:start;flex-direction:column}.panel-source-controls{width:100%}body.panel-focus-mode .panel-setup-toolbar-card{width:calc(100vw - 24px)}body.panel-focus-mode .panel-review-side{top:auto;bottom:12px;right:12px;width:min(360px,calc(100vw - 24px));max-height:40vh}}@media(max-width:620px){.panel-target-row label{min-width:0;width:100%}.panel-source-controls{width:100%}.panel-source-form{flex:1}.panel-source-form label{width:100%}.panel-source-form select{min-width:0;width:100%}.workflow-actions{align-items:stretch;flex-direction:column}.workflow-actions>*{width:100%}.panel-list-controls .actions,.panel-list-actions{flex-direction:column}.panel-list-controls button,.panel-list-actions button{width:100%}body.panel-focus-mode .panel-setup-toolbar-card{max-height:46vh}body.panel-focus-mode .panel-resize-help{display:none}}
-</style>
-<style>
-/* Fullscreen is a review canvas: keep only compact drawing controls over the image. */
-body.panel-focus-mode .panel-setup-toolbar-card{left:50%;transform:translateX(-50%);width:min(760px,calc(100vw - 24px));max-height:none;overflow:visible;padding:8px 10px}
-body.panel-focus-mode .panel-setup-toolbar-card{top:auto;bottom:16px}
-body.panel-focus-mode .panel-setup-toolbar-card{position:fixed!important;top:auto!important;bottom:16px!important}
-body.panel-focus-mode .panel-resize-help{display:none}
-body.panel-focus-mode .table-definition-card,body.panel-focus-mode .advanced-panel-tools{display:none}
-body.panel-focus-mode .panel-setup-toolbar-card .panel-source-bar{padding-bottom:7px;border-bottom:0}
-body.panel-focus-mode .panel-source-bar>div:first-child p,body.panel-focus-mode .panel-source-bar>div:first-child .eyebrow{display:none}
-body.panel-focus-mode .panel-source-bar h3{font-size:14px;margin:0}
-@media(max-width:700px){body.panel-focus-mode .panel-source-bar{align-items:center;flex-direction:row}body.panel-focus-mode .panel-source-controls{width:auto}}
-</style>
 <script>
 (()=>{
-  const stage=document.getElementById('panel-stage'), layer=document.getElementById('panel-layer'), modelLayer=document.getElementById('panel-model-layer'), draft=document.getElementById('panel-draft'), suggestionLayer=document.getElementById('panel-suggestion-layer'), sourceImage=document.getElementById('panel-source-image');
-  const list=document.getElementById('panel-list'), empty=document.getElementById('panel-empty'), reviewSummaryCount=document.getElementById('table-review-summary-count'), msg=document.getElementById('panel-message'), target=document.getElementById('panel-target'), suggestionList=document.getElementById('panel-suggestion-list'), suggestionCount=document.getElementById('panel-suggestion-count');
-  const suggestionCard=document.getElementById('panel-suggestion-card'), manualCard=document.getElementById('panel-manual-card'), currentSourceLabel=document.getElementById('panel-current-source-id'), currentSourceStatus=document.getElementById('panel-current-source-status');
-  const definitionList=document.getElementById('table-definition-list'), definitionCount=document.getElementById('table-definition-count'), definitionAdd=document.getElementById('table-definition-add'), definitionSave=document.getElementById('table-definition-save'), definitionMessage=document.getElementById('table-definition-message');
-  const drawBtn=document.getElementById('panel-draw'), linkBtn=document.getElementById('panel-link'), fitBtn=document.getElementById('panel-fit'), saveBtn=document.getElementById('panel-save'), regionGtSaveBtn=document.getElementById('table-region-gt-save'), noTableBtn=document.getElementById('table-region-no-table'), regionDatasetBtn=document.getElementById('table-region-dataset-build'), resetBtn=document.getElementById('panel-reset'), detectBtn=document.getElementById('table-region-detect'), detectSourceBtn=document.getElementById('table-region-detect-source'), redetectClearBtn=document.getElementById('table-region-redetect-clear');
-  const focusBtn=document.getElementById('panel-focus'), listToggleBtn=document.getElementById('panel-list-toggle');
-  const prevSourceBtn=document.getElementById('panel-prev-source'), nextSourceBtn=document.getElementById('panel-next-source'), sourceForm=document.querySelector('.panel-source-form'), sourceSelect=sourceForm?.querySelector('select[name="source_id"]');
-  let W=Number(stage.dataset.width), H=Number(stage.dataset.height), currentSourceId=stage.dataset.sourceId||{{ source_id|tojson }}; let drawing=false,start=null,selected=-1,resizing=null,dirty=false,focusMode=false,sourceLoading=false;
-  const sourceIds=[{% for item in sources %}{{ item.source_id|tojson }}{% if not loop.last %},{% endif %}{% endfor %}];
-  let reviewSources={{ table_review_sources|tojson }};
-  let definitions={{ (panel_profile.definitions or [])|tojson }}.map((d,i)=>({panel_id:d.panel_id||`panel-${i+1}`,name:d.name||`Panel ${i+1}`,hits:Array.isArray(d.hits)?d.hits:[]}));
-  const normalizePanelName=value=>String(value||'').trim().toLowerCase().replace(/\s+/g,' ');
-  const definitionForSavedPanel=p=>definitions.find(d=>String(d.panel_id||'')===String(p.panel_id||p.region_id||'')||normalizePanelName(d.name)===normalizePanelName(p.name||p.label));
-  const regionsToPanels=regions=>regions.map((p,i)=>{const d=definitionForSavedPanel(p);return {panel_id:d?.panel_id||p.region_id||p.panel_id||`panel-${i+1}`,name:d?.name||p.name||p.label||`Tabel ${i+1}`,x1:Number(p.x1)/W,y1:Number(p.y1)/H,x2:Number(p.x2)/W,y2:Number(p.y2)/H}});
-  // Step 2 is per-source table-region GT review. Never inject the legacy
-  // project-wide fallback panels here: they are not accepted GT for this source.
-  let panels=regionsToPanels({{ (region_ground_truth or [])|tojson }});
-  const queueStorageKey=sourceId=>`isala-table-region-review-queue-v1:${sourceId}`;
-  const loadQueue=(sourceId=currentSourceId)=>{try{const value=JSON.parse(localStorage.getItem(queueStorageKey(sourceId))||'[]');return Array.isArray(value)?value:[]}catch(_){return []}};
-  let reviewQueue=loadQueue();
-  const normalizeSuggestions=items=>(items||[]).map(item=>({x1:Number(item.x1)/W,y1:Number(item.y1)/H,x2:Number(item.x2)/W,y2:Number(item.y2)/H,raw_x1:Number(item.raw_x1??item.x1)/W,raw_y1:Number(item.raw_y1??item.y1)/H,raw_x2:Number(item.raw_x2??item.x2)/W,raw_y2:Number(item.raw_y2??item.y2)/H,excluded_boxes:(item.excluded_boxes||[]).map(b=>b.map(Number)),kind:item.kind||'table_region',variant:item.variant||'',suggestedPanelId:item.suggested_panel_id||item.suggestedPanelId||'',suggestedPanelName:item.suggested_panel_name||item.suggestedPanelName||'',suggestionScore:Number(item.suggestion_score||item.suggestionScore||0),suggestionBasis:item.suggestion_basis||item.suggestionBasis||'',ocrTableText:item.ocr_table_text||item.ocrTableText||'',accepted:false,selected:false}));
-  let suggestions=normalizeSuggestions({{ (suggestions or [])|tojson }});
-  const sameSuggestion=(a,b)=>a&&b&&a.suggestedPanelId===b.suggestedPanelId&&Math.abs(a.x1-b.x1)<.015&&Math.abs(a.y1-b.y1)<.015&&Math.abs(a.x2-b.x2)<.015&&Math.abs(a.y2-b.y2)<.015;
-  suggestions.forEach(s=>{s.accepted=reviewQueue.some(q=>sameSuggestion(s,q))});
-  const persistQueue=()=>{try{localStorage.setItem(queueStorageKey(currentSourceId),JSON.stringify(reviewQueue))}catch(_){/* queue remains in memory */}};
-  const clamp=v=>Math.max(0,Math.min(1,v));
-  const definitionFor=id=>definitions.find(d=>d.panel_id===id)||null;
-  const panelIndexFor=id=>panels.findIndex(p=>p.panel_id===id);
-  function escapeHtml(v){const d=document.createElement('div');d.textContent=String(v);return d.innerHTML}
-  function markDirty(value=true){dirty=value}
-  function syncNames(){panels.forEach(p=>{const d=definitionFor(p.panel_id);if(d)p.name=d.name})}
-  function renderDefinitions(){if(!definitionList)return;definitionList.innerHTML='';definitionCount.textContent=`${definitions.length} tabel${definitions.length===1?'':'len'}`;definitions.forEach((item,i)=>{const row=document.createElement('div');row.className='table-definition-row';row.innerHTML=`<span class="workflow-number">${i+1}</span><label>Naam<input data-name type="text" value="${escapeHtml(item.name)}" placeholder="Bijv. een herkenbare tabelnaam"></label><label>OCR-hits<input data-hits type="text" value="${escapeHtml((item.hits||[]).join(', '))}" placeholder="Bijv. left ventricle, ED Volume"></label><button type="button" data-remove>Verwijder</button>`;row.querySelector('[data-name]').addEventListener('input',event=>{definitions[i].name=event.target.value});row.querySelector('[data-hits]').addEventListener('input',event=>{definitions[i].hits=event.target.value.split(/[,;\n]+/).map(value=>value.trim()).filter(Boolean)});row.querySelector('[data-remove]').addEventListener('click',()=>{definitions.splice(i,1);renderDefinitions();render()});definitionList.appendChild(row)});if(!definitions.length){const note=document.createElement('div');note.className='notice info';note.textContent='Nog geen tabeltypen gedefinieerd. Je kunt ook direct een nieuwe tabelregio tekenen.';definitionList.appendChild(note)}}
-  function nextMissingDefinition(){return definitions.find(d=>panelIndexFor(d.panel_id)<0)||definitions[0]||null}
-  function currentDefinition(){return definitionFor(target.value)||nextMissingDefinition()}
-  function setPanelGeometry(definition,geometry){
-    if(!definition){const i=panels.length;panels.push({panel_id:`panel-${i+1}`,name:`Panel ${i+1}`,...geometry});selected=panels.length-1;markDirty();return}
-    const panelId=definition.panel_id||`panel-${panels.length+1}`;definition.panel_id=panelId;const i=panelIndexFor(panelId),value={panel_id:panelId,name:definition.name,...geometry};
-    if(i>=0){panels[i]=value;selected=i}else{panels.push(value);selected=panels.length-1}
-    target.value=panelId;markDirty();
-  }
-  function applyQueuedPanels(){reviewQueue.forEach(q=>{const definition=definitionFor(q.suggestedPanelId);if(!definition)return;const i=panelIndexFor(definition.panel_id),value={panel_id:definition.panel_id,name:definition.name,x1:q.x1,y1:q.y1,x2:q.x2,y2:q.y2};if(i>=0)panels[i]=value;else panels.push(value)})}
-  function renderTarget(){
-    const current=target.value;target.innerHTML='';
-    if(definitions.length){definitions.forEach(d=>{const option=document.createElement('option');option.value=d.panel_id;option.textContent=`${d.name}${panelIndexFor(d.panel_id)>=0?' · geplaatst':' · nog tekenen'}`;target.appendChild(option)});const preferred=definitionFor(current)||nextMissingDefinition()||definitions[0];if(preferred)target.value=preferred.panel_id}
-    else{const option=document.createElement('option');option.value='';option.textContent='Nieuwe tabelregio';target.appendChild(option)}
-  }
-  function selectSuggestion(index){
-    suggestions.forEach(item=>{item.selected=false;item.el?.classList.remove('is-selected')});
-    const suggestion=suggestions[index];if(!suggestion)return;suggestion.selected=true;suggestion.el?.classList.add('is-selected');
-    if(suggestion.suggestedPanelId)target.value=suggestion.suggestedPanelId;
-    msg.textContent='Voorstel geselecteerd. Gebruik Accepteren of Koppelen om het als GT-kader klaar te zetten.';msg.className='inline-status';renderSuggestions();
-  }
-  function renderSuggestionOverlays(){
-    modelLayer.innerHTML='';
-    suggestionLayer.innerHTML='';
-    suggestions.forEach((suggestion,index)=>{const raw=document.createElement('div');raw.className='panel-model-raw';raw.style.left=`${suggestion.raw_x1*100}%`;raw.style.top=`${suggestion.raw_y1*100}%`;raw.style.width=`${(suggestion.raw_x2-suggestion.raw_x1)*100}%`;raw.style.height=`${(suggestion.raw_y2-suggestion.raw_y1)*100}%`;modelLayer.appendChild(raw);suggestion.excluded_boxes.forEach(b=>{if(b.length!==4)return;const excluded=document.createElement('div');excluded.className='panel-model-excluded';excluded.style.left=`${b[0]/W*100}%`;excluded.style.top=`${b[1]/H*100}%`;excluded.style.width=`${(b[2]-b[0])/W*100}%`;excluded.style.height=`${(b[3]-b[1])/H*100}%`;modelLayer.appendChild(excluded)});const button=document.createElement('button');button.type='button';button.className='panel-suggestion'+(suggestion.selected?' is-selected':'');button.style.left=`${suggestion.x1*100}%`;button.style.top=`${suggestion.y1*100}%`;button.style.width=`${(suggestion.x2-suggestion.x1)*100}%`;button.style.height=`${(suggestion.y2-suggestion.y1)*100}%`;button.title='Post-processing resultaat';button.innerHTML=`<span>${escapeHtml(suggestion.suggestedPanelName||'post-processing')}</span>`;button.addEventListener('click',()=>selectSuggestion(index));suggestion.el=button;suggestionLayer.appendChild(button)});
-  }
+  const W={{ source.image_width|int }}, H={{ source.image_height|int }};
+  const sourceId={{ source_id|tojson }};
+  const stage=document.getElementById('gt-stage');
+  const layer=document.getElementById('region-layer');
+  const suggestionLayer=document.getElementById('suggestion-layer');
+  const draft=document.getElementById('draft-region');
+  const message=document.getElementById('gt-message');
+  const saved={{ region_ground_truth|tojson }};
+  const suggestions={{ suggestions|tojson }};
+  let regions=(saved||[]).map(r=>({x1:Number(r.x1),y1:Number(r.y1),x2:Number(r.x2),y2:Number(r.y2)}));
+  let drawMode=false, interaction=null;
+
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+  const point=(event)=>{
+    const rect=stage.getBoundingClientRect();
+    return {
+      x:clamp((event.clientX-rect.left)/rect.width*W,0,W),
+      y:clamp((event.clientY-rect.top)/rect.height*H,0,H)
+    };
+  };
+  const cssBox=(node,b)=>{
+    node.style.left=(b.x1/W*100)+'%'; node.style.top=(b.y1/H*100)+'%';
+    node.style.width=((b.x2-b.x1)/W*100)+'%'; node.style.height=((b.y2-b.y1)/H*100)+'%';
+  };
+  const valid=b=>b.x2-b.x1>=20 && b.y2-b.y1>=20;
   function render(){
-    syncNames();renderDefinitions();renderSuggestionOverlays();renderSuggestions();layer.innerHTML='';list.innerHTML='';empty.hidden=definitions.length>0||panels.length>0;fitBtn.disabled=selected<0||selected>=panels.length;renderTarget();
-    panels.forEach((p,i)=>{
-      const b=document.createElement('div');b.className='panel-box'+(i===selected?' selected':'');b.style.left=`${p.x1*100}%`;b.style.top=`${p.y1*100}%`;b.style.width=`${(p.x2-p.x1)*100}%`;b.style.height=`${(p.y2-p.y1)*100}%`;b.innerHTML=`<span class="panel-label">${escapeHtml(p.name||`Panel ${i+1}`)}</span>`;
-      b.addEventListener('pointerdown',e=>{if(drawing)return;e.stopPropagation();selected=i;if(p.panel_id)target.value=p.panel_id;render()});
-      if(i===selected){['nw','n','ne','e','se','s','sw','w'].forEach(dir=>{const h=document.createElement('span');h.className='panel-resize-handle';h.dataset.dir=dir;h.title='Sleep om panelgrootte aan te passen';h.addEventListener('pointerdown',e=>beginResize(e,i,dir));b.appendChild(h)})}
-      layer.appendChild(b);
-    });
-    if(reviewSummaryCount)reviewSummaryCount.textContent=String(panels.length);
-    const rows=definitions.length?definitions:panels.map((p,i)=>({panel_id:p.panel_id||`panel-${i+1}`,name:p.name||`Panel ${i+1}`}));
-    rows.forEach(d=>{const i=panelIndexFor(d.panel_id),p=i>=0?panels[i]:null;const item=document.createElement('div');item.className='panel-list-item'+(i===selected?' selected':'');item.innerHTML=`<div class="panel-list-name"><strong>${escapeHtml(d.name)}</strong><span class="pill">${p?'geplaatst':'nog tekenen'}</span></div>${p?`<div class="coords">x ${(p.x1*100).toFixed(1)}–${(p.x2*100).toFixed(1)}% · y ${(p.y1*100).toFixed(1)}–${(p.y2*100).toFixed(1)}%</div>`:'<div class="coords">Nog geen kader ingesteld.</div>'}<div class="panel-list-hint">Selecteer een groen kader in de afbeelding en kies daarna een actie voor deze tabel.</div><div class="panel-list-item-actions"><button type="button" data-panel-action="link" class="primary">↔ Geselecteerd kader koppelen</button><button type="button" data-panel-action="draw">+ Tabelregio tekenen</button></div>`;item.querySelector('[data-panel-action="link"]').addEventListener('click',()=>linkSelectedFrame(d));item.querySelector('[data-panel-action="draw"]').addEventListener('click',()=>startDrawing(d.panel_id));list.appendChild(item);
+    layer.innerHTML='';
+    regions.forEach((b,index)=>{
+      const node=document.createElement('div'); node.className='gt-region'; node.dataset.index=String(index); cssBox(node,b);
+      node.innerHTML=`<span class="region-label">table_region ${index+1}</span><button type="button" class="region-remove" title="Verwijderen">×</button><i class="resize nw" data-handle="nw"></i><i class="resize ne" data-handle="ne"></i><i class="resize sw" data-handle="sw"></i><i class="resize se" data-handle="se"></i>`;
+      layer.appendChild(node);
     });
   }
-  function renderSuggestions(){if(!suggestionList)return;suggestionList.innerHTML='';if(suggestionCount)suggestionCount.textContent=String(suggestions.length);if(manualCard)manualCard.open=suggestions.length===0;if(!suggestions.length){suggestionList.innerHTML='<small class="muted">Geen tabelvoorstellen beschikbaar voor deze lezing. Gebruik hieronder Handmatig tekenen.</small>';return}suggestions.forEach((s,index)=>{const row=document.createElement('div');row.className='panel-suggestion-row'+(s.selected?' selected':'');const label=s.suggestedPanelName||'Onbekend tabeltype';const detail=s.suggestedPanelName?`${Math.round(s.suggestionScore*100)}% · ${s.suggestionBasis||'snelle OCR-hit'}`:`Geen match${s.ocrTableText?` · OCR: ${s.ocrTableText.slice(0,90)}`:' · geen OCR-tekst beschikbaar'}`;const options=definitions.map(d=>`<option value="${escapeHtml(d.panel_id)}">${escapeHtml(d.name)}</option>`).join('');row.innerHTML=`<div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}</small></div>${s.accepted?'<button type="button" class="primary" disabled>✓ In queue</button>':s.suggestedPanelId?'<button type="button" class="primary">Accepteren</button>':`<div class="manual-link"><select aria-label="Tabeltype kiezen">${options}</select><button type="button" class="primary">Koppelen</button></div>`}`;const button=row.querySelector('button:not([disabled])');if(button)button.addEventListener('click',()=>{if(s.suggestedPanelId)acceptSuggestion(index);else{const selectedDefinition=definitionFor(row.querySelector('select')?.value);if(!selectedDefinition)return;s.suggestedPanelId=selectedDefinition.panel_id;s.suggestedPanelName=selectedDefinition.name;acceptSuggestion(index)}});suggestionList.appendChild(row)})}
-  function acceptSuggestion(index){const suggestion=suggestions[index],definition=definitionFor(suggestion.suggestedPanelId);if(!definition){msg.textContent='Dit voorstel heeft nog geen betrouwbare tabeltype-match. Koppel het handmatig via de tabeltypenlijst.';msg.className='inline-status warn';return}target.value=definition.panel_id;setPanelGeometry(definition,{x1:suggestion.x1,y1:suggestion.y1,x2:suggestion.x2,y2:suggestion.y2});suggestion.accepted=true;reviewQueue=reviewQueue.filter(q=>!sameSuggestion(q,suggestion));reviewQueue.push({x1:suggestion.x1,y1:suggestion.y1,x2:suggestion.x2,y2:suggestion.y2,suggestedPanelId:definition.panel_id,suggestedPanelName:definition.name});persistQueue();msg.textContent=`Tabelvoorstel voor ${definition.name} staat in de reviewqueue. Sla GT op om het definitief te bewaren.`;msg.className='inline-status ok';render()}
-  definitionAdd?.addEventListener('click',()=>{definitions.push({panel_id:'',name:`Tabel ${definitions.length+1}`});render()});
-  definitionSave?.addEventListener('click',async()=>{const clean=definitions.map(item=>({panel_id:item.panel_id||'',name:String(item.name||'').trim(),hits:Array.isArray(item.hits)?item.hits:[]})).filter(item=>item.name);if(!clean.length){definitionMessage.textContent='Voer minimaal één tabelnaam in.';definitionMessage.className='inline-status error';return}definitionMessage.textContent='Opslaan…';try{const res=await fetch('/api/table-panel-definitions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({definitions:clean})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);definitions=data.profile.definitions||clean;definitionMessage.textContent='Tabeldefinities opgeslagen.';definitionMessage.className='inline-status ok';render()}catch(error){definitionMessage.textContent=error.message||String(error);definitionMessage.className='inline-status error'}});
-  function point(e){const r=stage.getBoundingClientRect();return {x:clamp((e.clientX-r.left)/r.width),y:clamp((e.clientY-r.top)/r.height)}}
-  function startDrawing(panelId){if(panelId)target.value=panelId;drawing=true;if(drawBtn){drawBtn.textContent='Klik & sleep op afbeelding…';drawBtn.classList.add('primary')}msg.textContent=`Teken het zoekgebied voor ${currentDefinition()?.name||'het panel'}.`;msg.className='inline-status'}
-  function linkSelectedFrame(definition){if(selected<0||!panels[selected]||!definition){msg.textContent='Selecteer eerst een groen kader in de afbeelding.';msg.className='inline-status warn';return}panels[selected]={...panels[selected],panel_id:definition.panel_id,name:definition.name};target.value=definition.panel_id;markDirty();render();msg.textContent=`Kader expliciet gekoppeld aan ${definition.name}.`;msg.className='inline-status ok'}
-  drawBtn?.addEventListener('click',()=>{if(drawing){drawing=false;drawBtn.textContent='+ Tabelregio tekenen';return}startDrawing(target.value)});
-  linkBtn?.addEventListener('click',()=>linkSelectedFrame(currentDefinition()));
-  stage.addEventListener('pointerdown',e=>{if(!drawing)return;start=point(e);draft.hidden=false;draft.style.left=`${start.x*100}%`;draft.style.top=`${start.y*100}%`;draft.style.width='0';draft.style.height='0';stage.setPointerCapture(e.pointerId)});
-  stage.addEventListener('pointermove',e=>{if(!drawing||!start)return;const q=point(e),x1=Math.min(start.x,q.x),y1=Math.min(start.y,q.y),x2=Math.max(start.x,q.x),y2=Math.max(start.y,q.y);draft.style.left=`${x1*100}%`;draft.style.top=`${y1*100}%`;draft.style.width=`${(x2-x1)*100}%`;draft.style.height=`${(y2-y1)*100}%`});
-  stage.addEventListener('pointerup',e=>{if(!drawing||!start)return;const q=point(e),x1=Math.min(start.x,q.x),y1=Math.min(start.y,q.y),x2=Math.max(start.x,q.x),y2=Math.max(start.y,q.y);draft.hidden=true;start=null;if(x2-x1>.02&&y2-y1>.02){setPanelGeometry(currentDefinition(),{x1,y1,x2,y2});msg.textContent='Grof zoekgebied geplaatst. Gebruik eventueel Snap als start en maak het daarna ruim genoeg voor alle normale tabelvarianten.';msg.className='inline-status ok';render()}drawing=false;if(drawBtn)drawBtn.textContent='+ Gekozen panel tekenen';});
-  function beginResize(e,index,dir){e.preventDefault();e.stopPropagation();selected=index;const p=panels[index];resizing={index,dir,orig:{x1:p.x1,y1:p.y1,x2:p.x2,y2:p.y2}};window.addEventListener('pointermove',onResizeMove);window.addEventListener('pointerup',endResize,{once:true})}
-  function onResizeMove(e){if(!resizing)return;const q=point(e),r=resizing.orig,dir=resizing.dir,min=.012;let {x1,y1,x2,y2}=r;if(dir.includes('w'))x1=Math.min(q.x,x2-min);if(dir.includes('e'))x2=Math.max(q.x,x1+min);if(dir.includes('n'))y1=Math.min(q.y,y2-min);if(dir.includes('s'))y2=Math.max(q.y,y1+min);x1=clamp(x1);y1=clamp(y1);x2=clamp(x2);y2=clamp(y2);if(x2-x1<min||y2-y1<min)return;panels[resizing.index]={...panels[resizing.index],x1,y1,x2,y2};markDirty();render()}
-  function endResize(){window.removeEventListener('pointermove',onResizeMove);resizing=null;msg.textContent='Zoekgebied aangepast. Sla het profiel op wanneer het voor de normale tabelvarianten ruim genoeg staat.';msg.className='inline-status ok'}
-  function paddleSnapMatch(p,s){
-    const panelArea=Math.max(1e-9,(p.x2-p.x1)*(p.y2-p.y1)),suggestionArea=Math.max(1e-9,(s.x2-s.x1)*(s.y2-s.y1));
-    const ix=Math.max(0,Math.min(p.x2,s.x2)-Math.max(p.x1,s.x1)),iy=Math.max(0,Math.min(p.y2,s.y2)-Math.max(p.y1,s.y1)),inter=ix*iy;
-    if(inter<=0)return null; // never jump to another non-overlapping table
-    const union=panelArea+suggestionArea-inter,iou=union>0?inter/union:0,overlapPanel=inter/panelArea,overlapSuggestion=inter/suggestionArea;
-    const cx=(p.x1+p.x2)/2,cy=(p.y1+p.y2)/2,scx=(s.x1+s.x2)/2,scy=(s.y1+s.y2)/2;
-    const centerInside=cx>=s.x1&&cx<=s.x2&&cy>=s.y1&&cy<=s.y2,dist=Math.hypot(cx-scx,cy-scy);
-    return {score:iou*5+overlapPanel*3+overlapSuggestion+(centerInside?1:0)-dist*.25,overlapPanel};
+  function renderSuggestions(){
+    suggestionLayer.innerHTML='';
+    (suggestions||[]).forEach((raw,index)=>{
+      const b={x1:Number(raw.x1||0),y1:Number(raw.y1||0),x2:Number(raw.x2||0),y2:Number(raw.y2||0)};
+      if(!valid(b)) return;
+      const node=document.createElement('div'); node.className='gt-suggestion'; cssBox(node,b);
+      node.innerHTML=`<span>voorstel ${index+1}</span>`; suggestionLayer.appendChild(node);
+    });
   }
-  fitBtn.addEventListener('click',()=>{
-    if(selected<0||!suggestions.length)return;const p=panels[selected];let best=null,bestMatch=null;
-    suggestions.forEach(s=>{const match=paddleSnapMatch(p,s);if(match&&(!bestMatch||match.score>bestMatch.score)){best=s;bestMatch=match}});
-    if(!best){msg.textContent='Nog geen Paddle-suggestie overlapt dit zoekgebied. Laat het grove kader staan of resize het handmatig en voer Stap 3 daarna uit.';msg.className='inline-status warn';return}
-    panels[selected]={...panels[selected],x1:best.x1,y1:best.y1,x2:best.x2,y2:best.y2};markDirty();
-    msg.textContent=`Gesnapt naar overlappende Paddle-suggestie${best.variant?` (${best.variant.replaceAll('_',' ')})`:''}. Gebruik dit alleen als startpunt en verruim het gebied voor langere tabelvarianten.`;msg.className='inline-status ok';render();
+  function setMessage(text,kind='') { message.textContent=text; message.className='inline-status '+kind; }
+
+  document.getElementById('draw-region').addEventListener('click',()=>{
+    drawMode=!drawMode; stage.classList.toggle('drawing',drawMode);
+    document.getElementById('draw-region').textContent=drawMode?'Tekenen stoppen':'+ Tabelregio tekenen';
+    setMessage(drawMode?'Sleep over de volledige tabelregio.':'');
   });
-  async function goToNextSource(){const current=sourceIds.indexOf(currentSourceId),next=sourceIds[current+1];if(!next){msg.textContent='GT opgeslagen. Dit was de laatste lezing.';msg.className='inline-status ok';regionGtSaveBtn.disabled=false;return}await loadSource(next,{skipDirtyCheck:true})}
-  saveBtn.addEventListener('click',async()=>{msg.textContent='Opslaan…';msg.className='inline-status';try{const res=await fetch('/api/table-panels',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference_source_id:currentSourceId,reference_width:W,reference_height:H,panels})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);panels=data.profile.panels||panels;markDirty(false);msg.textContent=data.message;msg.className='inline-status ok';render()}catch(err){msg.textContent=err.message||String(err);msg.className='inline-status error'}});
-  regionGtSaveBtn.addEventListener('click',async()=>{regionGtSaveBtn.disabled=true;msg.textContent='GT opslaan…';msg.className='inline-status';try{const regions=panels.map(p=>({x1:Math.round(p.x1*W),y1:Math.round(p.y1*H),x2:Math.round(p.x2*W),y2:Math.round(p.y2*H),name:p.name||'table'}));const res=await fetch('/api/table-region-ground-truth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:currentSourceId,image_width:W,image_height:H,regions})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);const currentReview=reviewSources.find(item=>item.source_id===currentSourceId);if(currentReview){currentReview.region_count=regions.length;currentReview.review_completed=regions.length>0}reviewQueue=[];persistQueue();markDirty(false);renderSourceChrome();await goToNextSource()}catch(err){regionGtSaveBtn.disabled=false;msg.textContent=err.message||String(err);msg.className='inline-status error'}});
-  regionDatasetBtn?.addEventListener('click',async()=>{msg.textContent='Tabelregio-dataset bouwen…';msg.className='inline-status';try{const res=await fetch('/api/table-region-dataset',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);msg.textContent=`Dataset klaar: ${data.manifest.annotation_count} tabelregio('s) over ${data.manifest.source_count} lezingen.`;msg.className='inline-status ok'}catch(err){msg.textContent=err.message||String(err);msg.className='inline-status error'}});
-  const announceJob=job=>{if(job)window.dispatchEvent(new CustomEvent('isala:job-created',{detail:job}))};
-  detectBtn?.addEventListener('click',async()=>{detectBtn.disabled=true;msg.textContent='Bronrenders voorbereiden en tabelregio’s detecteren…';msg.className='inline-status';try{const res=await fetch('/api/table-region-detect',{method:'POST'});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);announceJob(data.job);detectBtn.disabled=false;msg.textContent=data.message||'Detectie gestart.';msg.className='inline-status ok'}catch(err){detectBtn.disabled=false;msg.textContent=err.message||String(err);msg.className='inline-status error'}});
-  detectSourceBtn?.addEventListener('click',async()=>{detectSourceBtn.disabled=true;msg.textContent='Deze bron opnieuw detecteren…';msg.className='inline-status';try{const res=await fetch('/api/table-region-detect-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:currentSourceId})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);announceJob(data.job);detectSourceBtn.disabled=false;msg.textContent=data.message||'Bronspecifieke detectie gestart.';msg.className='inline-status ok'}catch(err){detectSourceBtn.disabled=false;msg.textContent=err.message||String(err);msg.className='inline-status error'}});
-  redetectClearBtn?.addEventListener('click',async()=>{if(!confirm('De geaccepteerde tabelregio-GT van deze lezing wissen? Er wordt niets opnieuw gedetecteerd.'))return;redetectClearBtn.disabled=true;msg.textContent='GT wissen…';try{const res=await fetch('/api/table-region-clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:currentSourceId})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);panels=[];selected=-1;reviewQueue=[];persistQueue();markDirty(false);render();renderSourceChrome();msg.textContent=data.message||'GT gewist.';msg.className='inline-status ok';redetectClearBtn.disabled=false}catch(err){redetectClearBtn.disabled=false;msg.textContent=err.message||String(err);msg.className='inline-status error'}});
-  resetBtn.addEventListener('click',async()=>{if(!confirm('Alle tabelregio-kaders wissen? De tabeldefinities blijven bewaard.'))return;const res=await fetch('/api/table-panels',{method:'DELETE'});const data=await res.json().catch(()=>({}));if(res.ok){panels=[];selected=-1;markDirty(false);render();msg.textContent=data.message||'Tabelregio-kaders verwijderd.';msg.className='inline-status ok'}else{msg.textContent=data.error||`HTTP ${res.status}`;msg.className='inline-status error'}});
-  target?.addEventListener('change',()=>{const i=panelIndexFor(target.value);if(i>=0)selected=i;render()});
+  document.getElementById('use-suggestions').addEventListener('click',()=>{
+    const proposed=(suggestions||[]).map(raw=>({x1:Number(raw.x1||0),y1:Number(raw.y1||0),x2:Number(raw.x2||0),y2:Number(raw.y2||0)})).filter(valid);
+    if(!proposed.length){setMessage('Geen bruikbare detectievoorstellen voor deze bron.','error');return;}
+    regions=proposed; render(); setMessage(`${regions.length} voorstel(len) overgenomen. Controleer ze en sla daarna de GT op.`,'success');
+  });
+  layer.addEventListener('pointerdown',event=>{
+    const remove=event.target.closest('.region-remove');
+    if(remove){
+      const node=remove.closest('.gt-region'); regions.splice(Number(node.dataset.index),1); render(); event.preventDefault(); return;
+    }
+    const node=event.target.closest('.gt-region'); if(!node) return;
+    const index=Number(node.dataset.index), start=point(event), original={...regions[index]};
+    const handle=event.target.closest('[data-handle]')?.dataset.handle||'';
+    interaction={type:handle?'resize':'move',handle,index,start,original};
+    event.preventDefault();
+  });
+  stage.addEventListener('pointerdown',event=>{
+    if(!drawMode || event.target.closest('.gt-region')) return;
+    const start=point(event); interaction={type:'draw',start};
+    draft.hidden=false; cssBox(draft,{x1:start.x,y1:start.y,x2:start.x+1,y2:start.y+1}); event.preventDefault();
+  });
+  window.addEventListener('pointermove',event=>{
+    if(!interaction) return;
+    const p=point(event);
+    if(interaction.type==='draw'){
+      cssBox(draft,{x1:Math.min(interaction.start.x,p.x),y1:Math.min(interaction.start.y,p.y),x2:Math.max(interaction.start.x,p.x),y2:Math.max(interaction.start.y,p.y)}); return;
+    }
+    const b={...interaction.original}; const dx=p.x-interaction.start.x, dy=p.y-interaction.start.y;
+    if(interaction.type==='move'){
+      const width=b.x2-b.x1,height=b.y2-b.y1;
+      b.x1=clamp(b.x1+dx,0,W-width); b.x2=b.x1+width; b.y1=clamp(b.y1+dy,0,H-height); b.y2=b.y1+height;
+    }else{
+      if(interaction.handle.includes('w')) b.x1=clamp(b.x1+dx,0,b.x2-20);
+      if(interaction.handle.includes('e')) b.x2=clamp(b.x2+dx,b.x1+20,W);
+      if(interaction.handle.includes('n')) b.y1=clamp(b.y1+dy,0,b.y2-20);
+      if(interaction.handle.includes('s')) b.y2=clamp(b.y2+dy,b.y1+20,H);
+    }
+    regions[interaction.index]=b; render();
+  });
+  window.addEventListener('pointerup',event=>{
+    if(!interaction) return;
+    if(interaction.type==='draw'){
+      const p=point(event), b={x1:Math.min(interaction.start.x,p.x),y1:Math.min(interaction.start.y,p.y),x2:Math.max(interaction.start.x,p.x),y2:Math.max(interaction.start.y,p.y)};
+      draft.hidden=true; if(valid(b)){regions.push(b);render();}
+    }
+    interaction=null;
+  });
 
-  function layoutFocusStage(){
-    if(!focusMode){['width','height','left','top','transform'].forEach(k=>stage.style.removeProperty(k));return}
-    const pad=12, controls=document.querySelector('.panel-setup-toolbar-card'), reserved=(controls?.getBoundingClientRect().height||190)+42, availableH=Math.max(120,window.innerHeight-reserved), maxW=Math.max(100,window.innerWidth-pad*2), maxH=Math.max(100,availableH-24), scale=Math.min(maxW/W,maxH/H);
-    stage.style.width=`${Math.max(1,W*scale)}px`;stage.style.height=`${Math.max(1,H*scale)}px`;stage.style.left='50%';stage.style.top=`${availableH/2}px`;stage.style.transform='translate(-50%,-50%)';
+  async function save(allowEmpty=false){
+    const response=await fetch('/api/table-region-ground-truth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:sourceId,image_width:W,image_height:H,allow_empty:allowEmpty,regions:allowEmpty?[]:regions.map(b=>({...b,name:'table'}))})});
+    const data=await response.json(); if(!response.ok) throw new Error(data.error||`HTTP ${response.status}`); return data;
   }
-  async function setFocusMode(enabled,{manageNative=true}={}){
-    focusMode=enabled;document.body.classList.toggle('panel-focus-mode',enabled);
-    if(enabled){document.body.classList.add('panel-focus-list-hidden');focusBtn.textContent='✕ Sluiten';listToggleBtn.textContent='Panelenlijst tonen'}
-    else{document.body.classList.remove('panel-focus-list-hidden');focusBtn.textContent='⛶ Volledig scherm';listToggleBtn.textContent='Panelenlijst'}
-    layoutFocusStage();
-    if(!manageNative)return;
-    try{if(enabled&&!document.fullscreenElement&&document.fullscreenEnabled)await document.documentElement.requestFullscreen();else if(!enabled&&document.fullscreenElement)await document.exitFullscreen()}catch(_){/* viewport-focus blijft werken */}
-  }
-  focusBtn.addEventListener('click',()=>setFocusMode(!focusMode));
-  listToggleBtn.addEventListener('click',()=>{document.body.classList.toggle('panel-focus-list-hidden');listToggleBtn.textContent=document.body.classList.contains('panel-focus-list-hidden')?'Panelenlijst tonen':'Panelenlijst verbergen'});
-  document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&focusMode)setFocusMode(false,{manageNative:false})});
-  window.addEventListener('resize',layoutFocusStage);
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&focusMode&&!document.fullscreenElement)setFocusMode(false,{manageNative:false});if((e.key==='f'||e.key==='F')&&!['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)){e.preventDefault();setFocusMode(!focusMode)}});
-
-  function renderSourceChrome(){
-    const currentIndex=sourceIds.indexOf(currentSourceId),currentReview=reviewSources.find(item=>item.source_id===currentSourceId);
-    if(sourceSelect)sourceSelect.value=currentSourceId;if(prevSourceBtn)prevSourceBtn.disabled=sourceLoading||currentIndex<=0;if(nextSourceBtn)nextSourceBtn.disabled=sourceLoading||currentIndex<0||currentIndex>=sourceIds.length-1;
-    if(currentSourceLabel)currentSourceLabel.textContent=currentSourceId;
-    if(currentSourceStatus){const complete=Boolean(currentReview?.review_completed);currentSourceStatus.textContent=complete?'klaar':'open';currentSourceStatus.className=`pill ${complete?'ok':'warn'}`}
-    document.querySelectorAll('.source-row[data-source-id]').forEach(row=>{const item=reviewSources.find(entry=>entry.source_id===row.dataset.sourceId),complete=Boolean(item?.review_completed),count=Number(item?.region_count||0);row.classList.toggle('active',row.dataset.sourceId===currentSourceId);row.disabled=sourceLoading;const small=row.querySelector('small'),pill=row.querySelector('.pill');if(small)small.textContent=`${count} regio${count===1?'':'’s'}`;if(pill){pill.textContent=complete?'klaar':'open';pill.className=`pill ${complete?'ok':'warn'}`}});
-  }
-  function setSourceLoading(loading){sourceLoading=loading;document.body.classList.toggle('source-loading',loading);renderSourceChrome()}
-  async function loadSource(id,{skipDirtyCheck=false}={}){
-    if(!id||id===currentSourceId||sourceLoading)return;
-    if(!skipDirtyCheck&&dirty&&!confirm('Er zijn niet-opgeslagen wijzigingen aan deze lezing. Naar een andere bron gaan en deze wijzigingen verliezen?')){if(sourceSelect)sourceSelect.value=currentSourceId;return}
-    setSourceLoading(true);msg.textContent='Lezing laden…';msg.className='inline-status';
-    try{
-      const response=await fetch(`/api/table-panel-review-source/${encodeURIComponent(id)}`,{headers:{Accept:'application/json'}}),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);
-      currentSourceId=String(data.source.source_id);W=Number(data.source.image_width);H=Number(data.source.image_height);stage.dataset.sourceId=currentSourceId;stage.dataset.width=String(W);stage.dataset.height=String(H);sourceImage.src=data.source.image_url;try{await sourceImage.decode()}catch(_){/* onload/fallback rendering remains available */}
-      reviewSources=Array.isArray(data.review_sources)?data.review_sources:reviewSources;const savedRegions=Array.isArray(data.region_ground_truth)?data.region_ground_truth:[];panels=regionsToPanels(savedRegions);
-      suggestions=normalizeSuggestions(data.suggestions);reviewQueue=loadQueue(currentSourceId);suggestions.forEach(s=>{s.accepted=reviewQueue.some(q=>sameSuggestion(s,q))});applyQueuedPanels();selected=-1;drawing=false;start=null;resizing=null;dirty=false;if(suggestionCard)suggestionCard.hidden=savedRegions.length>0;
-      history.replaceState({},'',`/process/panel-setup?source_id=${encodeURIComponent(currentSourceId)}`);render();layoutFocusStage();msg.textContent='';msg.className='inline-status';regionGtSaveBtn.disabled=false;
-    }catch(error){msg.textContent=`Lezing laden mislukt: ${error.message||error}`;msg.className='inline-status error';if(sourceSelect)sourceSelect.value=currentSourceId}
-    finally{setSourceLoading(false)}
-  }
-  if(prevSourceBtn)prevSourceBtn.addEventListener('click',()=>{const index=sourceIds.indexOf(currentSourceId);if(index>0)loadSource(sourceIds[index-1])});
-  if(nextSourceBtn)nextSourceBtn.addEventListener('click',()=>{const index=sourceIds.indexOf(currentSourceId);if(index>=0&&index<sourceIds.length-1)loadSource(sourceIds[index+1])});
-  document.querySelectorAll('.source-row[data-source-id]').forEach(row=>row.addEventListener('click',()=>loadSource(row.dataset.sourceId)));
-  sourceSelect?.addEventListener('change',()=>loadSource(sourceSelect.value));
-  sourceForm?.addEventListener('submit',e=>{e.preventDefault();loadSource(sourceSelect?.value)});
-  window.addEventListener('beforeunload',e=>{if(!dirty)return;e.preventDefault();e.returnValue=''});
-
-  noTableBtn?.addEventListener('click',async()=>{noTableBtn.disabled=true;msg.textContent='Geen-tabel GT opslaan…';msg.className='inline-status';try{const res=await fetch('/api/table-region-ground-truth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:currentSourceId,image_width:W,image_height:H,regions:[],allow_empty:true})});const data=await res.json();if(!res.ok)throw new Error(data.error||`HTTP ${res.status}`);const currentReview=reviewSources.find(item=>item.source_id===currentSourceId);if(currentReview){currentReview.region_count=0;currentReview.review_completed=true}reviewQueue=[];persistQueue();markDirty(false);msg.textContent=data.message||'Geen tabel als GT opgeslagen.';msg.className='inline-status ok';renderSourceChrome();await goToNextSource()}catch(err){noTableBtn.disabled=false;msg.textContent=err.message||String(err);msg.className='inline-status error'}});
-  applyQueuedPanels();
-  renderSourceChrome();
-  render();
-  if(sessionStorage.getItem('isala-resume-table-review-focus')==='1'){sessionStorage.removeItem('isala-resume-table-review-focus');setFocusMode(true)}
+  document.getElementById('save-regions').addEventListener('click',async()=>{
+    try{setMessage('Regio-GT opslaan…');const data=await save(false);setMessage(data.message||'Regio-GT opgeslagen.','success');}
+    catch(error){setMessage(error.message||String(error),'error');}
+  });
+  document.getElementById('no-table').addEventListener('click',async()=>{
+    try{regions=[];render();const data=await save(true);setMessage(data.message||'Bron als expliciete negatieve GT opgeslagen.','success');}
+    catch(error){setMessage(error.message||String(error),'error');}
+  });
+  document.getElementById('clear-regions').addEventListener('click',async()=>{
+    try{const response=await fetch('/api/table-region-clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:sourceId})});const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);regions=[];render();setMessage(data.message||'GT gewist.','success');}
+    catch(error){setMessage(error.message||String(error),'error');}
+  });
+  renderSuggestions(); render();
 })();
 </script>
+<style>
+.gt-toolbar{padding:14px 16px}.gt-toolbar-row{display:flex;justify-content:space-between;gap:18px;align-items:end}.gt-toolbar h3{margin:3px 0}.gt-toolbar select{display:block;margin-top:4px;min-width:260px}.gt-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}.gt-image-card{padding:10px;background:#070d13}.gt-stage{position:relative;line-height:0;overflow:hidden;background:#05080c;border:1px solid var(--border);border-radius:8px;touch-action:none;user-select:none}.gt-stage.drawing{cursor:crosshair}.gt-stage>img{display:block;width:100%;height:auto;pointer-events:none}.gt-layer{position:absolute;inset:0;pointer-events:none}.region-layer{z-index:3}.suggestion-layer{z-index:2}.gt-region{position:absolute;box-sizing:border-box;border:2px solid #45d7a0;background:rgba(69,215,160,.08);pointer-events:auto;cursor:move;line-height:1.2}.gt-region .region-label,.gt-suggestion span{position:absolute;left:3px;top:3px;padding:2px 5px;border-radius:4px;background:#071018;color:#fff;font:11px/1.2 sans-serif;white-space:nowrap}.region-remove{position:absolute;right:3px;top:3px;width:22px;height:22px;padding:0;border-radius:4px;line-height:18px}.resize{position:absolute;width:12px;height:12px;border-radius:50%;background:#45d7a0;border:2px solid #071018}.resize.nw{left:-7px;top:-7px;cursor:nwse-resize}.resize.ne{right:-7px;top:-7px;cursor:nesw-resize}.resize.sw{left:-7px;bottom:-7px;cursor:nesw-resize}.resize.se{right:-7px;bottom:-7px;cursor:nwse-resize}.gt-suggestion{position:absolute;box-sizing:border-box;border:2px dashed #f59e0b;background:rgba(245,158,11,.05)}.draft-region{position:absolute;z-index:5;box-sizing:border-box;border:2px dashed #38bdf8;background:rgba(56,189,248,.08);pointer-events:none}.help{font-size:12px;line-height:1.45;margin:9px 0 0}.gt-side{padding:14px;position:sticky;top:12px}.source-list{display:grid;gap:5px;margin-top:12px;max-height:65vh;overflow:auto}.source-row{display:flex;justify-content:space-between;gap:8px;padding:8px;border:1px solid transparent;border-radius:7px;background:#101b25;color:var(--text);text-decoration:none;font-size:12px}.source-row.active,.source-row:hover{border-color:#65bfff;background:#162637}.gt-side .notice{margin-top:14px;font-size:12px;line-height:1.45}@media(max-width:900px){.gt-layout{grid-template-columns:1fr}.gt-side{position:static}}@media(max-width:620px){.gt-toolbar-row{align-items:stretch;flex-direction:column}.gt-toolbar select{min-width:0;width:100%}}
+</style>
 {% endif %}
 {% endblock %}
