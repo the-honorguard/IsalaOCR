@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% set panel_mode = request.args.get('view') == 'panels' %}
 {% block body_class %}table-region-model-review-page{% endblock %}
-{% block title %}Stap 4 · Regiomodel beoordelen en panelen toewijzen · IsalaOCR{% endblock %}
-{% block heading %}Stap 4 · Regiomodel beoordelen{% endblock %}
-{% block subtitle %}Beoordeel eerst uitsluitend de geometrie van het actieve tabelregiomodel. Wijs daarna pas de definitieve regio’s semantisch toe als links/rechts en start vervolgens de celdetectie.{% endblock %}
+{% block title %}Stap {{ 6 if panel_mode else 5 }} · {{ 'Tabelregio selecteren' if panel_mode else 'Tabelregio beoordelen' }} · IsalaOCR{% endblock %}
+{% block heading %}Stap {{ 6 if panel_mode else 5 }} · {{ 'Tabelregio selecteren' if panel_mode else 'Tabelregio beoordelen' }}{% endblock %}
+{% block subtitle %}{% if panel_mode %}Wijs de definitieve gedetecteerde tabelregio’s semantisch toe als links/rechts. Deze labels zijn geen classes van het regiomodel.{% else %}Beoordeel uitsluitend waar het actieve tabelregiomodel de tabellen heeft gevonden. Semantische links/rechts-toewijzing volgt pas in Stap 6.{% endif %}{% endblock %}
 {% block content %}
 {% if not source %}
 <section class="card"><h3>Geen detectie beschikbaar</h3><p>Voer eerst tabelregio-detectie uit met het actieve regiomodel.</p></section>
@@ -10,24 +11,41 @@
 <section class="card region-review-toolbar">
   <div class="region-review-toolbar-row">
     <div>
-      <span class="eyebrow">4A · MODELGEOMETRIE</span>
+      <span class="eyebrow">{{ 'STAP 6 · SEMANTIEK' if panel_mode else 'STAP 5 · MODELGEOMETRIE' }}</span>
       <h3>Bron {{ source_id }}</h3>
+      {% if panel_mode %}
+      <p class="muted">Koppel hier alleen de betekenis <strong>Links</strong> en <strong>Rechts</strong> aan de gevonden regio’s. Het tabelregiomodel blijft één class: <code>table_region</code>.</p>
+      {% else %}
       <p class="muted">Blauw is de nieuwe modeldetectie. Hier beoordelen we alleen <strong>waar</strong> de tabellen staan.</p>
+      {% endif %}
     </div>
     <form method="get" action="/process/detect-candidates">
+      {% if panel_mode %}<input type="hidden" name="view" value="panels">{% endif %}
       <label>Lezing<select name="source_id" onchange="this.form.submit()">
         {% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id == source_id %}selected{% endif %}>{{ item.source_id }}</option>{% endfor %}
       </select></label>
     </form>
   </div>
+
+  {% if not panel_mode %}
   <div class="workflow-actions">
     <button type="button" id="region-accept" class="primary">✓ Geselecteerde regio’s als regio-GT opslaan</button>
     <button type="button" id="region-redetect-all">Alle geselecteerde bronnen opnieuw detecteren</button>
     <button type="button" id="region-redetect">Alleen deze bron opnieuw detecteren</button>
     <a class="button ghost" href="/process/panel-setup?source_id={{ source_id|urlencode }}">Regio-GT handmatig corrigeren</a>
+    <a class="button primary" href="/process/detect-candidates?view=panels&source_id={{ source_id|urlencode }}">Door naar Stap 6 · tabelregio selecteren →</a>
   </div>
   <label class="region-gt-toggle"><input type="checkbox" id="show-gt"> Oude regio-GT tonen als referentie</label>
   <div id="region-review-message" class="inline-status"></div>
+  {% else %}
+  <div class="workflow-actions">
+    <button type="button" id="panel-auto">Automatisch links/rechts</button>
+    <button type="button" id="panel-save" class="primary">✓ Paneltoewijzing opslaan</button>
+    <a class="button ghost" href="/process/detect-candidates?source_id={{ source_id|urlencode }}">← Terug naar Stap 5</a>
+    <a class="button primary" href="/process/detection-review">Door naar Stap 7 · GT Studio →</a>
+  </div>
+  <div id="panel-assignment-message" class="inline-status"></div>
+  {% endif %}
 </section>
 
 <div class="region-review-layout">
@@ -37,127 +55,109 @@
       <div class="region-layer model-layer">
         {% for region in regions %}
         <label class="region-box model-region" data-index="{{ loop.index0 }}" data-x1="{{ region.x1 }}" data-y1="{{ region.y1 }}" data-x2="{{ region.x2 }}" data-y2="{{ region.y2 }}" style="left:{{ (region.x1 / source.image_width * 100)|round(4) }}%;top:{{ (region.y1 / source.image_height * 100)|round(4) }}%;width:{{ ((region.x2-region.x1) / source.image_width * 100)|round(4) }}%;height:{{ ((region.y2-region.y1) / source.image_height * 100)|round(4) }}%;">
-          <input type="checkbox" class="region-checkbox" checked data-x1="{{ region.x1 }}" data-y1="{{ region.y1 }}" data-x2="{{ region.x2 }}" data-y2="{{ region.y2 }}" data-name="table">
-          <span>MODEL {{ loop.index }}</span>
+          {% if not panel_mode %}<input type="checkbox" class="region-checkbox" checked>{% endif %}
+          <span>REGIO {{ loop.index }}</span>
         </label>
         {% endfor %}
       </div>
+      {% if not panel_mode %}
       <div class="region-layer gt-layer" hidden>
         {% for region in ground_truth_regions %}<div class="region-box gt-region" style="left:{{ (region.x1 / source.image_width * 100)|round(4) }}%;top:{{ (region.y1 / source.image_height * 100)|round(4) }}%;width:{{ ((region.x2-region.x1) / source.image_width * 100)|round(4) }}%;height:{{ ((region.y2-region.y1) / source.image_height * 100)|round(4) }}%;"><span>OUDE GT</span></div>{% endfor %}
       </div>
+      {% endif %}
     </div>
-    <p class="muted region-review-help">Uitgevinkte modelregio’s worden niet als nieuwe regio-GT opgeslagen en worden ook niet meegenomen in de paneltoewijzing.</p>
+    {% if panel_mode %}
+    <p class="muted region-review-help">De boxen komen uit het actieve regiomodel. De keuze links/rechts wordt apart opgeslagen als semantisch panelprofiel en verandert de region-detector-GT niet.</p>
+    {% else %}
+    <p class="muted region-review-help">Vink een foutieve modelregio uit. Opslaan als regio-GT is alleen bedoeld om goede/corrigeerde modeloutput aan de trainings-GT toe te voegen.</p>
+    {% endif %}
   </section>
+
   <aside class="card region-review-side">
-    <div class="toolbar"><div><span class="eyebrow">RESULTAAT</span><h3>{{ regions|length }} nieuwe regio’s</h3></div><span class="pill">{{ ground_truth_regions|length }} oude GT</span></div>
-    {% if detection_info %}<details open><summary>Meer info over detectie</summary><dl class="region-review-info"><dt>Run</dt><dd class="mono">{{ detection_info.batch_id or 'onbekend' }}</dd><dt>Gestart</dt><dd>{{ detection_info.started_at or 'onbekend' }}</dd><dt>Regiomodel</dt><dd class="mono">{{ detection_info.region_model or 'onbekend' }}</dd><dt>Modus</dt><dd>{{ detection_info.detection_mode or 'onbekend' }}</dd><dt>Engine</dt><dd>{{ detection_info.engine or 'onbekend' }} · {{ detection_info.device or 'onbekend' }}</dd></dl></details>{% endif %}
-    <div class="region-source-list"><strong>Bronnen</strong>{% for item in sources %}<a class="region-source-row{% if item.source_id == source_id %} active{% endif %}" href="/process/detect-candidates?source_id={{ item.source_id|urlencode }}">{{ item.source_id }}<span>{{ item.region_count or 0 }} regio’s</span></a>{% endfor %}</div>
+    {% if panel_mode %}
+      <div class="toolbar"><div><span class="eyebrow">PANELTOEWIJZING</span><h3>Links / rechts</h3></div><span class="pill">{{ regions|length }} regio’s</span></div>
+      <div id="panel-assignment-list" class="panel-assignment-list"></div>
+      <div class="notice info semantic-note"><strong>Scheiding blijft intact</strong><br>Deze labels worden downstream gebruikt voor celdetectie, GT en mapping. Het regiomodel wordt uitsluitend op <code>table_region</code> getraind.</div>
+    {% else %}
+      <div class="toolbar"><div><span class="eyebrow">RESULTAAT</span><h3>{{ regions|length }} nieuwe regio’s</h3></div><span class="pill">{{ ground_truth_regions|length }} oude GT</span></div>
+      {% if detection_info %}<details open><summary>Meer info over detectie</summary><dl class="region-review-info"><dt>Run</dt><dd class="mono">{{ detection_info.batch_id or 'onbekend' }}</dd><dt>Gestart</dt><dd>{{ detection_info.started_at or 'onbekend' }}</dd><dt>Regiomodel</dt><dd class="mono">{{ detection_info.region_model or 'onbekend' }}</dd><dt>Modus</dt><dd>{{ detection_info.detection_mode or 'onbekend' }}</dd><dt>Engine</dt><dd>{{ detection_info.engine or 'onbekend' }} · {{ detection_info.device or 'onbekend' }}</dd></dl></details>{% endif %}
+      <div class="region-source-list"><strong>Bronnen</strong>{% for item in sources %}<a class="region-source-row{% if item.source_id == source_id %} active{% endif %}" href="/process/detect-candidates?source_id={{ item.source_id|urlencode }}">{{ item.source_id }}<span>{{ item.region_count or 0 }} regio’s</span></a>{% endfor %}</div>
+    {% endif %}
   </aside>
 </div>
 
-<section class="card panel-assignment-card section-gap" id="panel-assignment">
-  <div class="panel-assignment-heading">
-    <div>
-      <span class="eyebrow">4B · SEMANTISCHE PANELTOEWIJZING · NÁ MODELTRAINING</span>
-      <h3>Links/rechts toewijzen</h3>
-      <p class="muted">Deze labels zijn <strong>geen classes van het tabelregiomodel</strong>. Ze worden apart opgeslagen als panelprofiel en worden pas downstream gebruikt voor celdetectie, GT en mapping.</p>
-    </div>
-    <span class="pill">verwacht: links + rechts</span>
-  </div>
-  <div class="panel-assignment-actions workflow-actions">
-    <button type="button" id="panel-auto">Automatisch links/rechts</button>
-    <button type="button" id="panel-save" class="primary">✓ Paneltoewijzing opslaan</button>
-  </div>
-  <div id="panel-assignment-list" class="panel-assignment-list"></div>
-  <div id="panel-assignment-message" class="inline-status"></div>
-
-  <div class="cell-detection-gate">
-    <div><strong>Volgende stap: cellen detecteren</strong><p class="muted">Pas nadat links/rechts is opgeslagen, draai je de volledige tabel/celdetectie. GT Studio beoordeelt daarna de cellen binnen deze panelen.</p></div>
-    <form method="post" action="/jobs" id="cell-detect-form">
-      <input type="hidden" name="action_id" value="2">
-      <button type="submit" id="cell-detect-button">Celdetectie voor geselecteerde bronnen starten</button>
-    </form>
-    {% if (detection_info.cell_count or 0)|int > 0 %}
-    <a class="button ghost" href="/process/detection-review">GT Studio openen · {{ detection_info.cell_count }} cellen gedetecteerd</a>
-    {% else %}
-    <span class="button ghost disabled" aria-disabled="true" title="Start eerst de volledige celdetectie">GT Studio na celdetectie</span>
-    {% endif %}
-  </div>
-</section>
-
 <script>
 (()=>{
-  const W={{ source.image_width|int }},H={{ source.image_height|int }},sourceId={{ source_id|tojson }};
-  const gt=document.getElementById('show-gt'),gtLayer=document.querySelector('.gt-layer');
-  const accept=document.getElementById('region-accept'),redetectAll=document.getElementById('region-redetect-all'),redetect=document.getElementById('region-redetect');
-  const reviewMessage=document.getElementById('region-review-message');
-  const panelList=document.getElementById('panel-assignment-list'),panelMessage=document.getElementById('panel-assignment-message');
+  const W={{ source.image_width|int }},H={{ source.image_height|int }},sourceId={{ source_id|tojson }},panelMode={{ panel_mode|tojson }};
   const modelRegions=[...document.querySelectorAll('.model-region')];
+  const boxes=()=>modelRegions.map(node=>({index:Number(node.dataset.index),x1:Number(node.dataset.x1),y1:Number(node.dataset.y1),x2:Number(node.dataset.x2),y2:Number(node.dataset.y2)}));
 
-  gt?.addEventListener('change',()=>{gtLayer.hidden=!gt.checked});
-  const checkedRegions=()=>modelRegions.filter(node=>node.querySelector('.region-checkbox')?.checked).map(node=>({
-    index:Number(node.dataset.index),x1:Number(node.dataset.x1),y1:Number(node.dataset.y1),x2:Number(node.dataset.x2),y2:Number(node.dataset.y2)
-  }));
-  const setReview=(text,kind='')=>{reviewMessage.textContent=text;reviewMessage.className='inline-status '+kind};
-  const setPanel=(text,kind='')=>{panelMessage.textContent=text;panelMessage.className='inline-status '+kind};
-
-  function renderAssignments(defaults=true){
-    const active=checkedRegions();
-    panelList.innerHTML='';
-    const sorted=[...active].sort((a,b)=>(a.x1+a.x2)-(b.x1+b.x2));
-    active.forEach(region=>{
-      let role='';
-      if(defaults && sorted.length===2) role=region.index===sorted[0].index?'left':'right';
-      const row=document.createElement('div');row.className='panel-assignment-row';row.dataset.index=String(region.index);
-      row.innerHTML=`<div><strong>Modelregio ${region.index+1}</strong><small>x ${Math.round(region.x1)}–${Math.round(region.x2)} · y ${Math.round(region.y1)}–${Math.round(region.y2)}</small></div><select class="panel-role"><option value="">Niet gebruiken</option><option value="left" ${role==='left'?'selected':''}>Links</option><option value="right" ${role==='right'?'selected':''}>Rechts</option></select>`;
-      panelList.appendChild(row);
+  if(!panelMode){
+    const gt=document.getElementById('show-gt'),gtLayer=document.querySelector('.gt-layer');
+    const accept=document.getElementById('region-accept'),redetectAll=document.getElementById('region-redetect-all'),redetect=document.getElementById('region-redetect');
+    const message=document.getElementById('region-review-message');
+    const selected=()=>modelRegions.filter(node=>node.querySelector('.region-checkbox')?.checked).map(node=>({x1:Number(node.dataset.x1),y1:Number(node.dataset.y1),x2:Number(node.dataset.x2),y2:Number(node.dataset.y2)}));
+    const setMessage=(text,kind='')=>{message.textContent=text;message.className='inline-status '+kind};
+    gt?.addEventListener('change',()=>{gtLayer.hidden=!gt.checked});
+    accept?.addEventListener('click',async()=>{
+      const regions=selected().map(item=>({...item,name:'table'}));
+      if(!regions.length){setMessage('Selecteer minimaal één geldige regio.','error');return;}
+      accept.disabled=true;setMessage('Nieuwe regio-GT opslaan…');
+      try{const response=await fetch('/api/table-region-review/'+encodeURIComponent(sourceId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_width:W,image_height:H,regions})});const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);setMessage(data.message||'Nieuwe regio-GT opgeslagen.','success');}
+      catch(error){setMessage(error.message||String(error),'error');accept.disabled=false;}
     });
-    if(!active.length) panelList.innerHTML='<div class="notice warning">Selecteer hierboven eerst minimaal één geldige modelregio.</div>';
+    redetectAll?.addEventListener('click',async()=>{
+      redetectAll.disabled=true;setMessage('Detectie voor alle geselecteerde bronnen gestart…');
+      try{const response=await fetch('/api/table-region-detect',{method:'POST'});const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);setMessage(data.message||'Detectie gestart.','success');}
+      catch(error){setMessage(error.message||String(error),'error');redetectAll.disabled=false;}
+    });
+    redetect?.addEventListener('click',async()=>{
+      redetect.disabled=true;setMessage('Nieuwe detectie voor deze bron gestart…');
+      try{const response=await fetch('/api/table-region-detect-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:sourceId})});const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);setMessage(data.message||'Detectie gestart.','success');}
+      catch(error){setMessage(error.message||String(error),'error');redetect.disabled=false;}
+    });
+    return;
   }
-  document.querySelectorAll('.region-checkbox').forEach(input=>input.addEventListener('change',()=>renderAssignments(false)));
-  document.getElementById('panel-auto').addEventListener('click',()=>{
-    const active=checkedRegions();
-    if(active.length!==2){setPanel(`Automatische links/rechts-toewijzing vereist exact 2 geselecteerde regio’s; nu ${active.length}.`,'error');return;}
-    renderAssignments(true);setPanel('Links/rechts bepaald op basis van horizontale positie. Controleer en sla op.','success');
-  });
 
-  accept?.addEventListener('click',async()=>{
-    const regions=checkedRegions().map(item=>({x1:item.x1,y1:item.y1,x2:item.x2,y2:item.y2,name:'table'}));
-    accept.disabled=true;setReview('Nieuwe regio-GT opslaan…');
-    try{const response=await fetch('/api/table-region-review/'+encodeURIComponent(sourceId),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image_width:W,image_height:H,regions})});const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);setReview(data.message||'Nieuwe regio-GT opgeslagen.','success');}
-    catch(error){setReview(error.message||String(error),'error');accept.disabled=false;}
+  const list=document.getElementById('panel-assignment-list'),message=document.getElementById('panel-assignment-message');
+  const setMessage=(text,kind='')=>{message.textContent=text;message.className='inline-status '+kind};
+  function render(auto=true){
+    const regions=boxes();
+    const sorted=[...regions].sort((a,b)=>(a.x1+a.x2)-(b.x1+b.x2));
+    list.innerHTML='';
+    regions.forEach(region=>{
+      let role='';
+      if(auto&&sorted.length===2) role=region.index===sorted[0].index?'left':'right';
+      const row=document.createElement('div');row.className='panel-assignment-row';row.dataset.index=String(region.index);
+      row.innerHTML=`<div><strong>Regio ${region.index+1}</strong><small>x ${Math.round(region.x1)}–${Math.round(region.x2)} · y ${Math.round(region.y1)}–${Math.round(region.y2)}</small></div><select class="panel-role"><option value="">Niet gebruiken</option><option value="left" ${role==='left'?'selected':''}>Links</option><option value="right" ${role==='right'?'selected':''}>Rechts</option></select>`;
+      list.appendChild(row);
+    });
+    if(!regions.length) list.innerHTML='<div class="notice warning">Er zijn geen modelregio’s beschikbaar. Ga terug naar Stap 5 en voer de regiomodel-detectie uit.</div>';
+  }
+  document.getElementById('panel-auto')?.addEventListener('click',()=>{
+    if(boxes().length!==2){setMessage(`Automatische toewijzing vereist exact 2 regio’s; nu ${boxes().length}.`,'error');return;}
+    render(true);setMessage('Links/rechts automatisch bepaald op horizontale positie. Controleer en sla op.','success');
   });
-  redetectAll?.addEventListener('click',async()=>{
-    redetectAll.disabled=true;setReview('Detectie voor alle geselecteerde bronnen gestart…');
-    try{const response=await fetch('/api/table-region-detect',{method:'POST'});const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);setReview('Detectie voor alle geselecteerde bronnen gestart. Open de taakweergave voor de voortgang.','success');}
-    catch(error){setReview(error.message||String(error),'error');redetectAll.disabled=false;}
-  });
-  redetect?.addEventListener('click',async()=>{
-    redetect.disabled=true;setReview('Nieuwe detectie voor deze bron gestart…');
-    try{const response=await fetch('/api/table-region-detect-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_id:sourceId})});const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);setReview(data.message||'Detectie gestart.','success');}
-    catch(error){setReview(error.message||String(error),'error');redetect.disabled=false;}
-  });
-
-  document.getElementById('panel-save').addEventListener('click',async()=>{
-    const activeByIndex=new Map(checkedRegions().map(item=>[item.index,item]));
-    const assignments=[...panelList.querySelectorAll('.panel-assignment-row')].map(row=>({index:Number(row.dataset.index),role:row.querySelector('.panel-role').value})).filter(item=>item.role);
+  document.getElementById('panel-save')?.addEventListener('click',async()=>{
+    const byIndex=new Map(boxes().map(item=>[item.index,item]));
+    const assignments=[...list.querySelectorAll('.panel-assignment-row')].map(row=>({index:Number(row.dataset.index),role:row.querySelector('.panel-role').value})).filter(item=>item.role);
     const roles=new Set(assignments.map(item=>item.role));
-    if(assignments.length!==2 || !roles.has('left') || !roles.has('right')){setPanel('Wijs exact één regio toe aan Links en exact één regio aan Rechts.','error');return;}
-    const panels=assignments.map(item=>{const b=activeByIndex.get(item.index);return {panel_id:item.role,name:item.role==='left'?'Links':'Rechts',x1:b.x1/W,y1:b.y1/H,x2:b.x2/W,y2:b.y2/H}});
-    setPanel('Paneltoewijzing opslaan…');
+    if(assignments.length!==2||!roles.has('left')||!roles.has('right')){setMessage('Wijs exact één regio toe aan Links en exact één regio aan Rechts.','error');return;}
+    const panels=assignments.map(item=>{const b=byIndex.get(item.index);return {panel_id:item.role,name:item.role==='left'?'Links':'Rechts',x1:b.x1/W,y1:b.y1/H,x2:b.x2/W,y2:b.y2/H}});
+    setMessage('Paneltoewijzing opslaan…');
     try{
       let response=await fetch('/api/table-panel-definitions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({definitions:[{panel_id:'left',name:'Links',hits:['links','left']},{panel_id:'right',name:'Rechts',hits:['rechts','right']}]})});
       let data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);
       response=await fetch('/api/table-panels',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reference_source_id:sourceId,reference_width:W,reference_height:H,panels})});
       data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);
-      setPanel('Panelen opgeslagen: links/rechts staat nu los van de region-detector en is beschikbaar voor de cell-workflow.','success');
-    }catch(error){setPanel(error.message||String(error),'error');}
+      setMessage('Links/rechts opgeslagen. Stap 7 GT Studio kan nu de eerste celdetectie starten.','success');
+    }catch(error){setMessage(error.message||String(error),'error');}
   });
-  renderAssignments(true);
+  render(true);
 })();
 </script>
 <style>
-.region-review-toolbar{padding:14px 16px;margin-bottom:14px}.region-review-toolbar-row{display:flex;justify-content:space-between;align-items:end;gap:16px}.region-review-toolbar h3{margin:3px 0}.region-review-toolbar select{display:block;margin-top:4px;min-width:260px}.region-review-toolbar .workflow-actions{margin-top:12px}.region-gt-toggle{display:inline-flex;gap:7px;align-items:center;margin-top:12px;color:var(--muted);font-size:12px}.region-review-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:14px;align-items:start}.region-review-image-card{padding:10px;background:#070d13}.region-review-stage{position:relative;line-height:0;overflow:hidden;background:#05080c;border:1px solid var(--border);border-radius:8px}.region-review-stage>img{display:block;width:100%;height:auto}.region-layer{position:absolute;inset:0;pointer-events:none}.region-box{position:absolute;box-sizing:border-box}.region-box input{position:absolute;top:5px;right:5px;width:18px;height:18px;pointer-events:auto;accent-color:#38bdf8}.region-box span{position:absolute;left:3px;top:3px;padding:2px 5px;border-radius:4px;background:#071018;color:#fff;font:11px/1.2 sans-serif;white-space:nowrap}.model-region{border:2px solid #38bdf8;background:rgba(56,189,248,.08)}.gt-region{border:2px solid #45d7a0;background:rgba(69,215,160,.06)}.region-review-help{font-size:12px;line-height:1.4;margin:9px 0 0}.region-review-side{padding:14px;position:sticky;top:12px}.region-review-side h3{margin:3px 0}.region-review-side details{margin-top:14px;padding-top:10px;border-top:1px solid var(--border)}.region-review-side summary{cursor:pointer;color:var(--muted);font-size:12px}.region-review-info{display:grid;grid-template-columns:auto 1fr;gap:5px 10px;font-size:11px;margin-top:9px}.region-review-info dd{margin:0;overflow-wrap:anywhere}.region-source-list{display:grid;gap:5px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}.region-source-row{display:flex;justify-content:space-between;gap:8px;padding:8px;border:1px solid transparent;border-radius:7px;background:#101b25;color:var(--text);text-decoration:none;font-size:12px}.region-source-row span{color:var(--muted);font-size:11px}.region-source-row.active,.region-source-row:hover{border-color:#65bfff;background:#162637}.panel-assignment-card{padding:16px;border-color:#36536b}.panel-assignment-heading{display:flex;justify-content:space-between;gap:18px;align-items:start}.panel-assignment-heading h3{margin:4px 0}.panel-assignment-heading p{max-width:900px}.panel-assignment-list{display:grid;gap:8px;margin:12px 0}.panel-assignment-row{display:grid;grid-template-columns:1fr 220px;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:#0c161f}.panel-assignment-row div{display:grid;gap:3px}.panel-assignment-row small{color:var(--muted)}.panel-role{width:100%}.cell-detection-gate{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}.cell-detection-gate p{margin:4px 0 0}.button.disabled{opacity:.45;pointer-events:none;cursor:not-allowed}@media(max-width:900px){.region-review-layout{grid-template-columns:1fr}.region-review-side{position:static}.cell-detection-gate{grid-template-columns:1fr}.panel-assignment-row{grid-template-columns:1fr}}@media(max-width:620px){.region-review-toolbar-row,.panel-assignment-heading{align-items:stretch;flex-direction:column}.region-review-toolbar select{min-width:0;width:100%}}
+.region-review-toolbar{padding:14px 16px;margin-bottom:14px}.region-review-toolbar-row{display:flex;justify-content:space-between;align-items:end;gap:16px}.region-review-toolbar h3{margin:3px 0}.region-review-toolbar select{display:block;margin-top:4px;min-width:260px}.region-review-toolbar .workflow-actions{margin-top:12px}.region-gt-toggle{display:inline-flex;gap:7px;align-items:center;margin-top:12px;color:var(--muted);font-size:12px}.region-review-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:14px;align-items:start}.region-review-image-card{padding:10px;background:#070d13}.region-review-stage{position:relative;line-height:0;overflow:hidden;background:#05080c;border:1px solid var(--border);border-radius:8px}.region-review-stage>img{display:block;width:100%;height:auto}.region-layer{position:absolute;inset:0;pointer-events:none}.region-box{position:absolute;box-sizing:border-box}.region-box input{position:absolute;top:5px;right:5px;width:18px;height:18px;pointer-events:auto;accent-color:#38bdf8}.region-box span{position:absolute;left:3px;top:3px;padding:2px 5px;border-radius:4px;background:#071018;color:#fff;font:11px/1.2 sans-serif;white-space:nowrap}.model-region{border:2px solid #38bdf8;background:rgba(56,189,248,.08)}.gt-region{border:2px solid #45d7a0;background:rgba(69,215,160,.06)}.region-review-help{font-size:12px;line-height:1.4;margin:9px 0 0}.region-review-side{padding:14px;position:sticky;top:12px}.region-review-side h3{margin:3px 0}.region-review-side details{margin-top:14px;padding-top:10px;border-top:1px solid var(--border)}.region-review-side summary{cursor:pointer;color:var(--muted);font-size:12px}.region-review-info{display:grid;grid-template-columns:auto 1fr;gap:5px 10px;font-size:11px;margin-top:9px}.region-review-info dd{margin:0;overflow-wrap:anywhere}.region-source-list{display:grid;gap:5px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}.region-source-row{display:flex;justify-content:space-between;gap:8px;padding:8px;border:1px solid transparent;border-radius:7px;background:#101b25;color:var(--text);text-decoration:none;font-size:12px}.region-source-row span{color:var(--muted);font-size:11px}.region-source-row.active,.region-source-row:hover{border-color:#65bfff;background:#162637}.panel-assignment-list{display:grid;gap:8px;margin-top:14px}.panel-assignment-row{display:grid;grid-template-columns:1fr 125px;gap:10px;align-items:center;padding:10px;border:1px solid var(--border);border-radius:8px;background:#0c161f}.panel-assignment-row>div{display:grid;gap:3px}.panel-assignment-row small{color:var(--muted)}.panel-role{width:100%}.semantic-note{margin-top:14px;font-size:12px;line-height:1.45}@media(max-width:900px){.region-review-layout{grid-template-columns:1fr}.region-review-side{position:static}}@media(max-width:620px){.region-review-toolbar-row{align-items:stretch;flex-direction:column}.region-review-toolbar select{min-width:0;width:100%}.panel-assignment-row{grid-template-columns:1fr}}
 </style>
 {% endif %}
 {% endblock %}
