@@ -15,12 +15,3 @@ from .table_hard_negative_policy import install_table_hard_example_replay_policy
 
 _install_table_hard_example_replay_policy()
 del _install_table_hard_example_replay_policy
-
-# PP-Structure's generic preprocessing benchmark and the learned table-region
-# backend expose slightly different metadata. Normalize that API boundary before
-# collector.py consumes it so a learned-model run never fails merely because no
-# preprocessing benchmark list exists.
-from .table_benchmark_metadata_policy import install_table_benchmark_metadata_policy as _install_table_benchmark_metadata_policy
-
-_install_table_benchmark_metadata_policy()
-del _install_table_benchmark_metadata_policy
