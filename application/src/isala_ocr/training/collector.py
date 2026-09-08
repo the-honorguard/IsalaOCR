@@ -333,7 +333,7 @@ def _collect_localization_detections(
                             clipped = box.clamp(width, height)
                             if clipped.width >= 20 and clipped.height >= 20:
                                 table_regions.append(TableRegion(
-                                    table_id=f"detected-table-region-{index}",
+                                    table_id=f"{decoded.source_id}:detected-table-region-{index}",
                                     box=clipped, confidence=score, cells=(),
                                 ))
                         table_preprocessing = {

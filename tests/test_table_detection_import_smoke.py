@@ -18,3 +18,15 @@ def test_collector_guards_missing_or_none_benchmark_runs():
     guard = "if not isinstance(benchmark_runs, list):\n                    benchmark_runs = []"
     assert assignment in collector
     assert guard in collector
+
+
+def test_region_only_table_ids_are_namespaced_per_source():
+    root = Path(__file__).resolve().parents[1]
+    collector = (root / "application" / "src" / "isala_ocr" / "training" / "collector.py").read_text(
+        encoding="utf-8"
+    )
+
+    safe_id = 'table_id=f"{decoded.source_id}:detected-table-region-{index}"'
+    unsafe_id = 'table_id=f"detected-table-region-{index}"'
+    assert safe_id in collector
+    assert unsafe_id not in collector
