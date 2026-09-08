@@ -1,15 +1,15 @@
 {% extends 'base.html' %}
-{% block title %}{% if step.index %}Stap {{ step.index }} · {% endif %}{{ step.title }} · IsalaOCR{% endblock %}
-{% block heading %}{% if step.index %}Stap {{ step.index }} · {% endif %}{{ step.title }}{% endblock %}
-{% block subtitle %}{{ step.subtitle }}{% endblock %}
+{% block title %}Stap 4 · Tabelregio trainen · IsalaOCR{% endblock %}
+{% block heading %}Stap 4 · Tabelregio trainen{% endblock %}
+{% block subtitle %}Train en activeer het model dat volledige tabelregio’s leert vinden uit de geometrische GT van Stap 3.{% endblock %}
 {% block content %}
 <section class="gate-banner {% if reviewed_sources %}gate-banner-open{% else %}gate-banner-closed{% endif %}">
   <div>
     <span class="gate-kicker">TABLE REGION · MODEL FACTORY</span>
     <h2>Van tabelregio-GT naar detector</h2>
-    <p>De GT uit Stap 2 is de trainingsdata. Hier train en activeer je eerst het model dat volledige tabelregio’s automatisch leert vinden.</p>
+    <p>De GT uit Stap 3 is de trainingsdata. Alle kaders hebben dezelfde class <code>table_region</code>; links/rechts wordt pas in Stap 6 toegewezen.</p>
   </div>
-  <div class="actions"><a class="button" href="/process/panel-setup">← Terug naar Stap 2</a>{% if dataset %}<a class="button primary" href="/process/detect-candidates">Naar Stap 4 · detecteren →</a>{% endif %}</div>
+  <div class="actions"><a class="button" href="/process/panel-setup">← Terug naar Stap 3</a>{% if dataset %}<a class="button primary" href="/process/detect-candidates">Naar Stap 5 · beoordelen →</a>{% endif %}</div>
 </section>
 
 <section class="card section-gap region-training-page">
@@ -20,10 +20,10 @@
   <div class="region-training-steps">
     <section class="region-training-step"><span class="workflow-number">1</span><div><h3>Dataset bouwen</h3><p class="muted">Maak één full-page COCO-dataset met de opgeslagen tabelregio’s.</p><form method="post" action="/jobs"><input type="hidden" name="action_id" value="54"><button class="primary" type="submit" {% if not reviewed_sources %}disabled{% endif %}>Dataset bouwen</button></form></div></section>
     <section class="region-training-step"><span class="workflow-number">2</span><div><h3>Detector trainen</h3><p class="muted">Train dezelfde tabelregio-detector op GPU of CPU.</p><div class="actions"><form method="post" action="/jobs"><input type="hidden" name="action_id" value="55"><button type="submit" {% if not dataset %}disabled{% endif %}>Train GPU</button></form><form method="post" action="/jobs"><input type="hidden" name="action_id" value="56"><button type="submit" {% if not dataset %}disabled{% endif %}>Train CPU</button></form></div></div></section>
-    <section class="region-training-step"><span class="workflow-number">3</span><div><h3>Model activeren</h3><p class="muted">Maak de nieuwste geslaagde tabelregio-run actief voor Stap 4.</p><form method="post" action="/jobs"><input type="hidden" name="action_id" value="57"><button type="submit" {% if not dataset %}disabled{% endif %}>Activeren</button></form></div></section>
+    <section class="region-training-step"><span class="workflow-number">3</span><div><h3>Model activeren</h3><p class="muted">Maak de nieuwste geslaagde tabelregio-run actief voor Stap 5.</p><form method="post" action="/jobs"><input type="hidden" name="action_id" value="57"><button type="submit" {% if not dataset %}disabled{% endif %}>Activeren</button></form></div></section>
   </div>
   {% if dataset %}<div class="notice success"><strong>Laatste dataset:</strong> {{ dataset.dataset_id }} · {{ dataset.annotation_count }} trainingskaders over {{ dataset.source_count }} lezingen.</div>{% endif %}
-  <div class="workflow-actions"><a class="button" href="/process/panel-setup">Meer lezingen beoordelen</a>{% if dataset %}<a class="button primary" href="/process/detect-candidates">Door naar Stap 4 · detecteren →</a>{% endif %}</div>
+  <div class="workflow-actions"><a class="button" href="/process/panel-setup">Meer regio-GT annoteren</a>{% if dataset %}<a class="button primary" href="/process/detect-candidates">Door naar Stap 5 · beoordelen →</a>{% endif %}</div>
 </section>
 <style>
 .region-training-page{max-width:1250px}.region-training-summary{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:1px solid var(--border,#2a3a4c);padding-bottom:18px}.region-training-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:22px 0}.region-training-step{display:flex;gap:14px;padding:18px;border:1px solid var(--border,#2a3a4c);border-radius:12px;background:rgba(18,30,42,.72)}.region-training-step h3{margin:0 0 8px}.region-training-step p{min-height:42px}.region-training-step form{display:inline-block}.region-training-step button:disabled{opacity:.45;cursor:not-allowed}@media(max-width:1050px){.region-training-steps{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:650px){.region-training-steps{grid-template-columns:1fr}.region-training-summary{flex-direction:column}}
