@@ -46,6 +46,7 @@ from .table_cell_training import active_table_cell_model, table_cell_training_st
 from .source_preview import prepare_source_renders
 from .legacy_routes import register_legacy_routes
 from .routes_projects import register_project_routes
+from .routes_status import register_status_routes
 from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
 from .json_store import read_json as _read_json
 from .table_cell_ground_truth import (
@@ -5826,18 +5827,13 @@ def create_web_app(
         separator="&" if "?" in destination else "?"
         return redirect(f"{destination}{separator}job_id={job_id}")
 
-    @app.get("/api/status")
-    def api_status():
-        # The activity dock polls this endpoint frequently. It only needs queue,
-        # worker and active-model state; building the full process snapshot here
-        # caused repeated database and filesystem scans every 1.5 seconds.
-        _, active = registry_state()
-        return jsonify({"jobs": job_statuses(), "worker": worker_state(), "active_model": active})
-
-    @app.get("/api/jobs")
-    def api_jobs():
-        """Backward-compatible queue snapshot for older local clients."""
-        return jsonify({"jobs": job_statuses(), "worker": worker_state()})
+    register_status_routes(
+        app,
+        database=database,
+        registry_state=registry_state,
+        job_statuses=job_statuses,
+        worker_state=worker_state,
+    )
 
     @app.get("/api/localization-readiness")
     def api_localization_readiness():
@@ -6157,9 +6153,6 @@ def create_web_app(
         response.headers["Cache-Control"]="no-store, max-age=0"
         response.headers["X-Isala-Log-Stream"]=stream
         return response
-
-    @app.get("/health")
-    def health(): return {"ok":True,"counts":database.counts(),"webui":True}
 
     return app
 
