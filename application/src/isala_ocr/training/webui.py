@@ -44,6 +44,7 @@ from .table_panels import clear_panel_geometry, load_panel_profile, save_panel_d
 from .table_cell_training import active_table_cell_model, table_cell_training_state
 from .source_preview import prepare_source_renders
 from .legacy_routes import register_legacy_routes
+from .routes_detection_candidate import register_detection_candidate_routes
 from .routes_documents import register_document_routes
 from .routes_field_mapping_config import register_field_mapping_config_routes
 from .routes_media import register_media_routes
@@ -4429,32 +4430,12 @@ def create_web_app(
             return jsonify({"ok": False, "error": "Ground Truth-cel niet gevonden" if canonical_table_gt_mode() else "Handmatige annotatie niet gevonden"}), 404
         return jsonify({"ok": True, "counts": step4_review_counts(source_id)})
 
-    @app.get("/detection-candidate/<source_id>/<candidate_id>.png")
-    def detection_candidate_crop(source_id: str, candidate_id: str):
-        candidate = database.get_detection_candidate(source_id, candidate_id)
-        source = database.get_detection_source(source_id)
-        if candidate is None or source is None:
-            abort(404)
-        relative = str(candidate.get("crop_path") or "")
-        if relative:
-            path = safe_workspace_file(relative)
-            if path.is_file():
-                return send_file(path, mimetype="image/png", max_age=0)
-        render = safe_workspace_file(str(source.get("render_path") or ""))
-        if not render.is_file():
-            abort(404)
-        import cv2
-        image = cached_render_image(render)
-        if image is None:
-            abort(404)
-        x1, y1, x2, y2 = (int(candidate[key]) for key in ("x1", "y1", "x2", "y2"))
-        crop = image[y1:y2, x1:x2]
-        if not crop.size:
-            abort(404)
-        ok, encoded = cv2.imencode(".png", crop)
-        if not ok:
-            abort(500)
-        return Response(encoded.tobytes(), mimetype="image/png", headers={"Cache-Control": "no-store"})
+    register_detection_candidate_routes(
+        app,
+        database=database,
+        safe_workspace_file=safe_workspace_file,
+        cached_render_image=cached_render_image,
+    )
 
 
     @app.get("/detections")
