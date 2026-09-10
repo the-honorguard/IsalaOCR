@@ -44,6 +44,7 @@ from .table_panels import clear_panel_geometry, load_panel_profile, save_panel_d
 from .table_cell_training import active_table_cell_model, table_cell_training_state
 from .source_preview import prepare_source_renders
 from .legacy_routes import register_legacy_routes
+from .routes_documents import register_document_routes
 from .routes_media import register_media_routes
 from .routes_projects import register_project_routes
 from .routes_status import register_status_routes
@@ -5283,49 +5284,6 @@ def create_web_app(
             header_total_label="profielen", header_pending_label="open", header_accepted_label="actief",
         )
 
-    @app.get("/documents")
-    def documents():
-        return render_template("documents.html", sources=source_rows())
-
-    @app.get("/documents/<source_id>")
-    def document(source_id:str):
-        samples=source_samples(source_id)
-        if not samples: abort(404)
-        field_options = {item["field_key"]: item for item in header_field_options()}
-        fallback_count = 0
-        for sample in samples:
-            method = str(sample.get("extraction_method") or "")
-            sample["is_fallback"] = method in {"fixed_fallback", "fixed_roi"}
-            fallback_count += int(sample["is_fallback"])
-            profile_field = field_options.get(str(sample.get("field_key") or ""), {})
-            sample["canonical_header"] = str(profile_field.get("canonical_label") or sample.get("field_label") or "")
-            sample["panel"] = str(profile_field.get("panel") or "")
-            sample["crop_exists"] = safe_workspace_file(str(sample.get("crop_path") or "")).is_file()
-            sample["can_train_header"] = bool(
-                str(sample.get("locator_label_text") or "").strip()
-                and str(sample.get("header_crop_path") or "").strip()
-            )
-            if sample["is_fallback"]:
-                matched = str(sample.get("locator_label_text") or "").strip()
-                if matched:
-                    sample["fallback_reason"] = (
-                        f"Beste rijheadermatch '{matched}' bleef onder de acceptatiedrempel "
-                        f"van {locator_label_threshold * 100:.0f}%."
-                    )
-                else:
-                    sample["fallback_reason"] = (
-                        "Er is geen bruikbare rijheadertekst gevonden; daarom zijn de vaste profielcoördinaten gebruikt."
-                    )
-        study_info, study_info_fields = source_study_info(source_id)
-        return render_template(
-            "document.html", source_id=source_id, samples=samples,
-            image_width=samples[0]["image_width"], image_height=samples[0]["image_height"],
-            render_exists=(workspace_root()/"source_renders"/f"{source_id}.png").is_file(),
-            study_info=study_info, study_info_fields=study_info_fields,
-            extracted_output_exists=(workspace_root()/"extracted_output"/f"{source_id}.json").is_file(),
-            fallback_count=fallback_count, locator_label_threshold=locator_label_threshold,
-        )
-
     register_media_routes(
         app,
         database=database,
@@ -5333,24 +5291,17 @@ def create_web_app(
         loaded_config=loaded_config,
     )
 
-    @app.get("/output-review/<source_id>")
-    def output_review(source_id: str):
-        path = safe_workspace_file(Path("extracted_output") / f"{source_id}.json")
-        if not path.is_file():
-            abort(404)
-        payload = _read_json(path, {})
-        measurements = []
-        for field_key, value in (payload.get("measurements") or {}).items():
-            if isinstance(value, dict):
-                measurements.append({"field_key": field_key, **value})
-        source = database.get_detection_source(source_id) or {}
-        return render_template(
-            "output_review.html", source_id=source_id, measurements=measurements,
-            generated_at=payload.get("generated_at") or "",
-            image_width=int(source.get("image_width") or 1),
-            image_height=int(source.get("image_height") or 1),
-            render_exists=(workspace_root() / "source_renders" / f"{source_id}.png").is_file(),
-        )
+    register_document_routes(
+        app,
+        database=database,
+        workspace_root=workspace_root,
+        safe_workspace_file=safe_workspace_file,
+        source_rows=source_rows,
+        source_samples=source_samples,
+        header_field_options=header_field_options,
+        source_study_info=source_study_info,
+        locator_label_threshold=locator_label_threshold,
+    )
 
     @app.get("/roi-review")
     def roi_review_home():
