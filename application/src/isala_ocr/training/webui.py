@@ -5880,8 +5880,8 @@ def create_web_app(
         # Recognition remains a hard server-side boundary. Hiding buttons is
         # not sufficient because queued/replayed HTTP requests must not start
         # recognition work without approved Recognition-GT samples.
-            if action_id in {"24", "25", "26", "27", "28"} and not current_recognition_gate().get("ready"):
-                abort(423, description="Recognition is locked until approved Recognition-GT samples are available")
+        if action_id in {"24", "25", "26", "27", "28"} and not current_recognition_gate().get("ready"):
+            abort(423, description="Recognition is locked until approved Recognition-GT samples are available")
         options={}
         if action_id == "2":
             table_model_id = str(request.form.get("table_model_id") or "").strip()
