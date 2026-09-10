@@ -49,6 +49,7 @@ from .routes_field_mapping_config import register_field_mapping_config_routes
 from .routes_media import register_media_routes
 from .routes_projects import register_project_routes
 from .routes_roi_review import register_roi_review_routes
+from .routes_sample_review import register_sample_review_routes
 from .routes_status import register_status_routes
 from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
 from .json_store import read_json as _read_json
@@ -5379,48 +5380,13 @@ def create_web_app(
             header_pending_label="te beoordelen", header_accepted_label="goedgekeurd",
         )
 
-    @app.get("/sample/<sample_id>")
-    def sample(sample_id: str):
-        current = database.get(sample_id)
-        if not current or current["roi_review_status"] != "correct":
-            abort(404)
-        filters = _filter_args()
-        candidates = query_samples(filters, limit=10000)
-        ids = [item["sample_id"] for item in candidates]
-        try:
-            index = ids.index(sample_id)
-        except ValueError:
-            index = -1
-        counts = value_review_counts()
-        return render_template(
-            "sample.html", sample=current,
-            previous_id=ids[index - 1] if index > 0 else None,
-            next_id=ids[index + 1] if 0 <= index < len(ids) - 1 else None,
-            filters=filters, header_counts=counts, header_total_label="waarden",
-            header_pending_label="te beoordelen", header_accepted_label="goedgekeurd",
-        )
-
-    @app.post("/sample/<sample_id>")
-    def sample_review(sample_id: str):
-        current = database.get(sample_id)
-        if not current or current["roi_review_status"] != "correct":
-            abort(404)
-        action = request.form.get("action", "value_save")
-        notes = request.form.get("notes", "")
-        label = request.form.get("exact_label", "")
-        if action in {"value_correct", "ocr_correct"}:
-            database.review(sample_id, "accepted", current["raw_ocr"], notes, "value")
-        elif action in {"value_save", "save"}:
-            database.review(sample_id, "accepted", label, notes, "value")
-        elif action == "placeholder":
-            database.review(sample_id, "accepted", label, notes, "placeholder")
-        elif action == "no_value":
-            database.review(sample_id, "no_value", None, notes, "no_value")
-        elif action in {"unreadable", "excluded", "pending"}:
-            database.review(sample_id, action, None, notes)
-        else:
-            abort(400)
-        return redirect(url_for("queue"))
+    register_sample_review_routes(
+        app,
+        database=database,
+        filter_args=_filter_args,
+        query_samples=query_samples,
+        value_review_counts=value_review_counts,
+    )
 
     register_legacy_routes(app, process_step)
 
