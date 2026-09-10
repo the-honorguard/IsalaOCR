@@ -15,6 +15,7 @@ htmlcov/
 
 # Virtual environments
 .venv/
+.venv-py311/
 venv/
 env/
 

@@ -23,7 +23,6 @@ import cv2
 from flask import Flask, Response, abort, flash, g, has_request_context, jsonify, redirect, render_template, request, send_file, stream_with_context, url_for
 
 from ..config import load_config
-from ..image_io import load_input
 from .db import MISSING_MARKERS, TrainingDatabase, VALID_OCR_CONTENT_FILTERS
 from .header_normalization import (
     build_header_normalization_model, canonical_screen_label, load_header_aliases,
@@ -45,6 +44,7 @@ from .table_panels import clear_panel_geometry, load_panel_profile, save_panel_d
 from .table_cell_training import active_table_cell_model, table_cell_training_state
 from .source_preview import prepare_source_renders
 from .legacy_routes import register_legacy_routes
+from .routes_media import register_media_routes
 from .routes_projects import register_project_routes
 from .routes_status import register_status_routes
 from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
@@ -5326,61 +5326,12 @@ def create_web_app(
             fallback_count=fallback_count, locator_label_threshold=locator_label_threshold,
         )
 
-    @app.get("/source-render/<source_id>.png")
-    def source_render(source_id:str):
-        path=safe_workspace_file(Path("source_renders")/f"{source_id}.png")
-        if not path.is_file(): abort(404)
-        return send_file(path,mimetype="image/png",max_age=0)
-
-    @app.get("/table-cell-dataset-image/<dataset_id>/<path:relative_path>")
-    def table_cell_dataset_image(dataset_id: str, relative_path: str):
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", dataset_id):
-            abort(404)
-        if Path(relative_path).name != relative_path or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,255}", relative_path):
-            abort(404)
-        path = safe_workspace_file(Path("table_cell_datasets") / dataset_id / "images" / relative_path)
-        if not path.is_file():
-            abort(404)
-        return send_file(path, mimetype="image/png", max_age=0)
-
-    @app.get("/input-preview/<path:relative_path>")
-    def input_preview(relative_path: str):
-        """Serve a safe visual preview for the pre-scan input selection screen."""
-        root = Path("/input").resolve()
-        path = (root / relative_path).resolve()
-        suffix = path.suffix.lower()
-        if root not in path.parents or not path.is_file():
-            abort(404)
-        if suffix in {".dcm", ".dicom"}:
-            try:
-                settings = loaded_config.dicom if loaded_config is not None else {}
-                decoded = load_input(path, settings)
-                import cv2
-                ok, encoded = cv2.imencode(".jpg", decoded.image, [int(cv2.IMWRITE_JPEG_QUALITY), 88])
-                if not ok:
-                    abort(404)
-                return send_file(io.BytesIO(encoded.tobytes()), mimetype="image/jpeg", max_age=0)
-            except Exception:
-                abort(404)
-        if suffix not in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
-            abort(404)
-        return send_file(path, max_age=0)
-
-    @app.get("/dataset-image/<dataset_id>/<path:relative_path>")
-    def dataset_image(dataset_id: str, relative_path: str):
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", dataset_id):
-            abort(404)
-        path = safe_workspace_file(Path("datasets") / dataset_id / relative_path)
-        if not path.is_file():
-            abort(404)
-        return send_file(path, max_age=0)
-
-    @app.get("/extracted-output/<source_id>.json")
-    def extracted_output(source_id: str):
-        path = safe_workspace_file(Path("extracted_output") / f"{source_id}.json")
-        if not path.is_file():
-            abort(404)
-        return send_file(path, mimetype="application/json", max_age=0)
+    register_media_routes(
+        app,
+        database=database,
+        safe_workspace_file=safe_workspace_file,
+        loaded_config=loaded_config,
+    )
 
     @app.get("/output-review/<source_id>")
     def output_review(source_id: str):
@@ -5400,35 +5351,6 @@ def create_web_app(
             image_height=int(source.get("image_height") or 1),
             render_exists=(workspace_root() / "source_renders" / f"{source_id}.png").is_file(),
         )
-
-    @app.get("/locator-overlay/<source_id>.png")
-    def locator_overlay(source_id:str):
-        path=safe_workspace_file(Path("locator_overlays")/f"{source_id}.png")
-        if not path.is_file(): abort(404)
-        return send_file(path,mimetype="image/png",max_age=0)
-
-    @app.get("/crop/<sample_id>")
-    def crop(sample_id:str):
-        sample=database.get(sample_id)
-        if not sample: abort(404)
-        path=safe_workspace_file(sample["crop_path"])
-        if not path.is_file(): abort(404)
-        return send_file(path,mimetype="image/png",max_age=0)
-
-
-    @app.get("/header-crop/<sample_id>")
-    def header_crop(sample_id: str):
-        sample = database.get(sample_id)
-        if not sample:
-            abort(404)
-        relative = str(sample.get("header_crop_path") or "")
-        if not relative:
-            abort(404)
-        path = safe_workspace_file(relative)
-        if not path.is_file():
-            abort(404)
-        return send_file(path, mimetype="image/png", max_age=0)
-
 
     @app.get("/roi-review")
     def roi_review_home():
