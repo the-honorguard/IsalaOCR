@@ -45,6 +45,7 @@ from .table_cell_training import active_table_cell_model, table_cell_training_st
 from .source_preview import prepare_source_renders
 from .legacy_routes import register_legacy_routes
 from .routes_detection_candidate import register_detection_candidate_routes
+from .routes_home import register_home_routes
 from .routes_documents import register_document_routes
 from .routes_field_mapping_config import register_field_mapping_config_routes
 from .routes_media import register_media_routes
@@ -2637,19 +2638,12 @@ def create_web_app(
         models_root=models,
     )
 
-    @app.get("/")
-    def home():
-        # Build the expensive workflow snapshot once. Older code rebuilt it in
-        # pipeline_state() and repeated several database/filesystem lookups again.
-        snapshot = process_snapshot()
-        return render_template(
-            "home.html",
-            stages=pipeline_state(snapshot),
-            jobs=job_statuses(8),
-            value=snapshot["value"],
-            roi_counts=snapshot["roi"],
-            generic=snapshot,
-        )
+    register_home_routes(
+        app,
+        process_snapshot=process_snapshot,
+        pipeline_state=pipeline_state,
+        job_statuses=job_statuses,
+    )
 
 
     @app.route("/test-pipeline", methods=["GET", "POST"])
