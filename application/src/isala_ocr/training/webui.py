@@ -52,6 +52,7 @@ from .routes_projects import register_project_routes
 from .routes_roi_review import register_roi_review_routes
 from .routes_sample_review import register_sample_review_routes
 from .routes_status import register_status_routes
+from .routes_table_panel_review import register_table_panel_review_routes
 from .routes_value_review import register_value_review_routes
 from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
 from .json_store import read_json as _read_json
@@ -2959,24 +2960,10 @@ def create_web_app(
             "detection_info": detection_info,
         }
 
-    @app.get("/api/table-panel-review-source/<source_id>")
-    def table_panel_review_source_api(source_id: str):
-        context = _table_panel_review_context(source_id)
-        source = context["source"]
-        if source is None or context["source_id"] != source_id:
-            return jsonify({"error": "Bron niet gevonden"}), 404
-        return jsonify({
-            "source": {
-                "source_id": context["source_id"],
-                "image_width": int(source.get("image_width") or 0),
-                "image_height": int(source.get("image_height") or 0),
-                "image_url": f"/source-render/{context['source_id']}.png",
-            },
-            "region_ground_truth": context["region_ground_truth"],
-            "suggestions": context["suggestions"],
-            "review_sources": context["table_review_sources"],
-            "detection_info": context["detection_info"],
-        })
+    register_table_panel_review_routes(
+        app,
+        table_panel_review_context=_table_panel_review_context,
+    )
 
     @app.route("/process/<step_key>", methods=["GET", "POST"])
     def process_step(step_key: str):
