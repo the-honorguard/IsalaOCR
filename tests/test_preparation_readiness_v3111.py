@@ -9,10 +9,13 @@ def read(relative: str) -> str:
 
 def test_table_first_preparation_is_scoped_to_inference_component() -> None:
     webui = read("application/src/isala_ocr/training/webui.py")
+    # The /api/v2/preparation route lives in routes_localization_v2.py now;
+    # preparation_for_current_strategy() itself stayed in webui.py.
+    routes_localization_v2 = read("application/src/isala_ocr/training/routes_localization_v2.py")
     assert "def preparation_for_current_strategy()" in webui
     assert 'if item.get("key") == "inference"' in webui
     assert '"scope": "table_first"' in webui
-    assert 'return jsonify({"ok": True, "preparation": preparation_for_current_strategy()})' in webui
+    assert 'return jsonify({"ok": True, "preparation": preparation_for_current_strategy()})' in routes_localization_v2
     assert 'state["preparation"] = preparation_for_current_strategy()' in webui
 
 

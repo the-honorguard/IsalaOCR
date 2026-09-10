@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WEBUI = ROOT / "application/src/isala_ocr/training/webui.py"
+ROUTES_LOCALIZATION_V2 = ROOT / "application/src/isala_ocr/training/routes_localization_v2.py"
 TEMPLATE = ROOT / "application/src/isala_ocr/training/templates/react_localization_workbench.html"
 CLIENT = ROOT / "frontend/src/localization-workbench.ts"
 BUILT = ROOT / "application/src/isala_ocr/training/static/react/localization-workbench.js"
@@ -20,7 +21,8 @@ def test_step4_has_dedicated_react_route_and_mount() -> None:
 
 
 def test_reactive_backend_contract_keeps_rest_endpoints() -> None:
-    webui = WEBUI.read_text(encoding="utf-8")
+    # These routes live in routes_localization_v2.py now (split out of webui.py).
+    webui = ROUTES_LOCALIZATION_V2.read_text(encoding="utf-8")
     for route in (
         '/api/v2/localization/workbench',
         '/api/v2/localization/split',

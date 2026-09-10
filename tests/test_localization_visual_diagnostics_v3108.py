@@ -83,7 +83,8 @@ def test_threshold_button_always_scrolls_to_diagnostics_and_surfaces_errors():
 
 
 def test_visual_diagnostics_serve_frozen_dataset_image_and_explain_metric_name():
-    webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
+    # api_v2_localization_quality_image() lives in routes_localization_v2.py now.
+    webui = (ROOT / "application/src/isala_ocr/training/routes_localization_v2.py").read_text(encoding="utf-8")
     frontend = (ROOT / "frontend/src/localization-quality.ts").read_text(encoding="utf-8")
     assert '/api/v2/localization/quality/image/<dataset_id>/<source_id>' in webui
     assert 'localization_dataset_image_path' in webui

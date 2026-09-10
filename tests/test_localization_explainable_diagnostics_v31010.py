@@ -57,7 +57,8 @@ def test_visual_details_include_iou_sweep_and_keep_canonical_gate_iou(tmp_path: 
 def test_quality_ui_explains_metrics_uses_validation_for_confidence_and_has_iou_sweep():
     source = (ROOT / "frontend/src/localization-quality.ts").read_text(encoding="utf-8")
     built = (ROOT / "application/src/isala_ocr/training/static/react/localization-quality.js").read_text(encoding="utf-8")
-    webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
+    # api_v2_localization_quality_details() lives in routes_localization_v2.py now.
+    webui = (ROOT / "application/src/isala_ocr/training/routes_localization_v2.py").read_text(encoding="utf-8")
     for text in (
         "Wat betekenen deze waarden?",
         "Confidence wordt uitsluitend op VALIDATION gekozen",

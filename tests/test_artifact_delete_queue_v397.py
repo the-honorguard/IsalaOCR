@@ -14,7 +14,8 @@ def test_worker_executes_artifact_delete_as_queued_job() -> None:
 
 def test_delete_endpoint_only_enqueues_and_never_calls_sync_delete() -> None:
     root = Path(__file__).resolve().parents[1]
-    webui = (root / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
+    # This route now lives in routes_localization_v2.py (split out of webui.py).
+    webui = (root / "application/src/isala_ocr/training/routes_localization_v2.py").read_text(encoding="utf-8")
     start = webui.index('@app.post("/api/v2/localization/artifacts/delete")')
     end = webui.index('@app.post("/api/v2/localization/split")', start)
     route = webui[start:end]

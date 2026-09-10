@@ -127,7 +127,8 @@ def test_ground_truth_change_marks_evaluation_stale(tmp_path: Path) -> None:
 
 def test_quality_page_polls_component_state_and_never_reloads_page() -> None:
     root = Path(__file__).resolve().parents[1]
-    webui = (root / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
+    # This route lives in routes_localization_v2.py now (split out of webui.py).
+    webui = (root / "application/src/isala_ocr/training/routes_localization_v2.py").read_text(encoding="utf-8")
     template = (root / "application/src/isala_ocr/training/templates/react_localization_quality.html").read_text(encoding="utf-8")
     source = (root / "frontend/src/localization-quality.ts").read_text(encoding="utf-8")
     built = (root / "application/src/isala_ocr/training/static/react/localization-quality.js").read_text(encoding="utf-8")
