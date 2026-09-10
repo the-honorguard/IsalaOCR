@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -13,7 +14,7 @@ def test_sidebar_contains_all_process_tabs_and_versioned_assets() -> None:
     base = (ROOT / "application/src/isala_ocr/training/templates/base.html").read_text(encoding="utf-8")
     webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
     assert "PROCESS_STEPS = [" in webui
-    assert 'href="/process/{{ step.key }}"' in base
+    assert "step_href = '/detection-review' if step.key == 'detection-review'" in base
     assert "filename='app.js',v=app_version" in base
     assert "filename='app.css',v=app_version" in base
     for key in (
@@ -47,6 +48,7 @@ else:
     FLASK_AVAILABLE = True
     sys.path.insert(0, str(ROOT / "application" / "src"))
     from isala_ocr.training.webui import PROCESS_STEPS, create_web_app
+    from isala_ocr.training.recognition_ground_truth_web import install_recognition_ground_truth_review
 
 
 def make_app(tmp_path: Path):
@@ -54,13 +56,15 @@ def make_app(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir(parents=True)
     (project / "VERSION").write_text("3.5.14", encoding="utf-8")
-    return create_web_app(
+    app = create_web_app(
         workspace,
         models_root=tmp_path / "models",
         output_root=tmp_path / "output",
         project_root=project,
         config_path=ROOT / "application" / "config" / "app.yaml",
-    ), workspace
+    )
+    install_recognition_ground_truth_review(app, workspace)
+    return app, workspace
 
 
 @pytest.mark.skipif(not FLASK_AVAILABLE, reason="Flask is not installed in the test runtime")
@@ -79,6 +83,29 @@ def test_every_process_tab_renders_without_data(tmp_path: Path) -> None:
             assert "Stap None" not in text
         if response.status_code == 200:
             assert step["title"] in text
+
+
+@pytest.mark.skipif(not FLASK_AVAILABLE, reason="Flask is not installed in the test runtime")
+def test_all_literal_internal_navigation_targets_match_registered_routes(tmp_path: Path) -> None:
+    """Keep every hard-coded template URL aligned with the actual WebUI map."""
+    app, _ = make_app(tmp_path)
+    route_patterns = []
+    for rule in app.url_map.iter_rules():
+        if rule.endpoint == "static":
+            continue
+        pattern = re.sub(r"<[^>]+>", r"[^/]+", rule.rule.rstrip("/"))
+        route_patterns.append(re.compile(rf"^{pattern}/?$"))
+
+    ignored_prefixes = ("/api/", "/static/", "/source-render/", "/input-preview/")
+    template_root = ROOT / "application/src/isala_ocr/training/templates"
+    for template in template_root.rglob("*.html"):
+        content = template.read_text(encoding="utf-8")
+        for target in re.findall(r'(?:href|action)="(/[^"{? ]+)', content):
+            if target.startswith(ignored_prefixes) or target.endswith("/"):
+                continue  # dynamic Jinja identifiers continue after this prefix.
+            assert any(pattern.fullmatch(target) for pattern in route_patterns), (
+                f"{template.relative_to(template_root)} links to unregistered route {target}"
+            )
 
 
 @pytest.mark.skipif(not FLASK_AVAILABLE, reason="Flask is not installed in the test runtime")

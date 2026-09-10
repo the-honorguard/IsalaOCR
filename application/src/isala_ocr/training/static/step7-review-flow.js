@@ -82,23 +82,16 @@
       };
     };
 
+    // A saved review only changes the issue list. Keep the document at exactly
+    // the same scroll offset; moving it to follow an adjacent row made every
+    // click feel like a navigation action.
     const restoreViewportAnchor = snapshot => {
       window.requestAnimationFrame(() => {
-        const anchor = snapshot?.anchor;
-        if (!anchor || !anchor.isConnected || anchor.style?.display === 'none' || anchor.classList?.contains('is-filtered')) {
-          if (!document.body.classList.contains('step7-review-focus-mode')) window.scrollTo(0, snapshot?.windowY || 0);
-          return;
+        if (document.body.classList.contains('step7-review-focus-mode')) return;
+        const y = Number(snapshot?.windowY);
+        if (Number.isFinite(y) && Math.abs(window.scrollY - y) > 0.5) {
+          window.scrollTo({top: y, behavior: 'auto'});
         }
-
-        const scrollBox = anchor.closest?.('.comparison-issue-list');
-        let delta = anchor.getBoundingClientRect().top - snapshot.anchorTop;
-        if (scrollBox && Math.abs(delta) > 0.5) {
-          const maxScroll = Math.max(0, scrollBox.scrollHeight - scrollBox.clientHeight);
-          scrollBox.scrollTop = Math.max(0, Math.min(maxScroll, scrollBox.scrollTop + delta));
-        }
-
-        delta = anchor.getBoundingClientRect().top - snapshot.anchorTop;
-        if (Math.abs(delta) > 0.5 && !document.body.classList.contains('step7-review-focus-mode')) window.scrollBy(0, delta);
       });
     };
 
@@ -284,6 +277,9 @@
           }
         }
 
+        // A promoted prediction is removed from the blue candidate layer. Reload
+        // the current review image so the freshly persisted canonical GT is
+        // painted by the normal purple GT overlay immediately.
         if (!closesItem) {
           delete row.dataset.optimisticHidden;
           row.style.display = '';

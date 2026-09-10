@@ -98,8 +98,20 @@ def test_step4_template_has_explicit_canonical_gt_mode() -> None:
     root = Path(__file__).resolve().parents[1]
     index = (root / "application/src/isala_ocr/training/templates/detection_review_index.html").read_text(encoding="utf-8")
     studio = (root / "application/src/isala_ocr/training/templates/detection_review_studio.html").read_text(encoding="utf-8")
+    css = (root / "application/src/isala_ocr/training/static/app.css").read_text(encoding="utf-8")
     webui = (root / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
-    assert "Canonieke Ground Truth" in index
+    assert "Canonieke Ground Truth" not in index
+    assert "quick-review-banner" not in studio
+    assert 'id="source-switch"' in studio
+    assert 'id="redetect-source"' in studio
+    assert 'name="action_id" value="2"' in studio
+    assert 'name="source_id" value="{{ source_id }}"' in studio
+    assert 'data-track-in-queue="true"' in studio
+    assert "model-candidate-layer" in studio
+    assert "/api/table-region-detect-source" not in studio
+    assert ".review-studio-toolbar{display:grid" in css
+    assert ".review-source-nav #source-switch{flex:0 1 240px" in css
+    assert ".model-candidate-box" in css
     assert "detectorpredictions staan alleen in Stap 7" in studio
     assert "canonical_table_gt_mode" in webui
     assert '"title":"GT Studio"' in webui

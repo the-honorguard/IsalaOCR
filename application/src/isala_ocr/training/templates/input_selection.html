@@ -4,18 +4,18 @@
 {% block subtitle %}Controleer welke bronafbeeldingen werkelijk onderdeel worden van deze verwerkingsronde{% endblock %}
 {% block content %}
 <section class="card input-selection-hero">
-  <div class="toolbar"><div><span class="eyebrow">DATASET-INGANG</span><h2>Eerst controleren, daarna verwerken</h2><p class="muted">Vink alleen afbeeldingen aan die je in deze ronde wilt meenemen. Nieuwe bestanden staan automatisch open. De keuze wordt opgeslagen per project en bepaalt welke bestanden de tabel/celcollector verwerkt.</p></div><div class="input-selection-metrics"><span><strong>{{ selection.total }}</strong> totaal</span><span class="warn"><strong>{{ selection.new }}</strong> nieuw/open</span><span class="ok"><strong>{{ selection.selected }}</strong> geselecteerd</span></div></div>
+  <div class="toolbar"><div><span class="eyebrow">DATASET-INGANG</span><h2>Eerst controleren, daarna verwerken</h2><p class="muted">Vink alleen afbeeldingen aan die je in deze ronde wilt meenemen. Ongebruikte bestanden staan automatisch open. De keuze wordt opgeslagen per project en bepaalt welke bestanden de tabel/celcollector verwerkt.</p></div><div class="input-selection-metrics"><span><strong>{{ selection.total }}</strong> totaal</span><span class="warn"><strong>{{ selection.new }}</strong> ongebruikt</span><span class="ok"><strong>{{ selection.selected }}</strong> geselecteerd</span></div></div>
 </section>
 
 <form method="post" class="input-selection-form">
-  <div class="input-selection-toolbar card"><div><strong>{{ selection.selected }} van {{ selection.total }} geselecteerd</strong><span class="muted">Niet aangevinkte afbeeldingen worden niet gedetecteerd.</span></div><div class="actions"><button type="button" class="button" data-select-all>Alles aan</button><button type="button" class="button" data-select-none>Alles uit</button><button type="submit" name="open_panel" value="1" class="primary" {% if not selection.selected %}disabled{% endif %}>Opslaan en naar Stap 2</button></div></div>
+  <div class="input-selection-toolbar card"><div class="actions"><button type="button" class="button" data-select-all>Alles aan</button><button type="button" class="button" data-select-none>Alles uit</button><button type="submit" name="open_panel" value="1" class="primary" {% if not selection.selected %}disabled{% endif %}>Opslaan</button></div></div>
   {% if selection.files %}
   <div class="input-selection-grid">
     {% for item in selection.files %}
     <label class="input-selection-item {% if item.selected %}is-selected{% endif %} {% if item.is_new %}is-new{% endif %}">
       <input type="checkbox" name="selected_file" value="{{ item.key }}" {% if item.selected %}checked{% endif %}>
       <div class="input-selection-preview">{% if item.preview_url %}<img src="{{ item.preview_url }}" alt="Voorbeeld {{ item.name }}">{% else %}<span>Voorbeeld<br>na eerste scan</span>{% endif %}</div>
-      <div class="input-selection-info"><strong title="{{ item.key }}">{{ item.name }}</strong><small>{{ item.directory or 'input' }} · {{ '%.1f'|format(item.size / 1048576) }} MB</small><span class="pill {% if item.selected %}ok{% elif item.is_new %}warn{% endif %}">{% if item.selected %}geselecteerd{% elif item.is_new %}nieuw{% else %}beschikbaar{% endif %}</span></div>
+      <div class="input-selection-info"><strong title="{{ item.key }}">{{ item.name }}</strong><small>{{ item.directory or 'input' }} · {{ '%.1f'|format(item.size / 1048576) }} MB</small><span class="pill {% if item.selected %}ok{% elif item.is_new %}warn{% endif %}">{% if item.selected %}geselecteerd{% elif item.is_new %}ongebruikt{% else %}beschikbaar{% endif %}</span></div>
     </label>
     {% endfor %}
   </div>

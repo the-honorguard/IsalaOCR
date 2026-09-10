@@ -1,4 +1,8 @@
-from isala_ocr.training.table_model_comparison import EVALUATION_SCHEMA_VERSION, _evaluate_panel
+from isala_ocr.training.table_model_comparison import (
+    EVALUATION_SCHEMA_VERSION,
+    _evaluate_panel,
+    functional_geometry_suggestions,
+)
 from isala_ocr.training.table_model_evaluation_policy import AUTO_FUNCTIONAL_GT_COVERAGE, AUTO_FUNCTIONAL_PREDICTION_EXCESS
 
 
@@ -94,3 +98,47 @@ def test_policy_thresholds_and_schema():
     assert AUTO_FUNCTIONAL_GT_COVERAGE == 0.92
     assert AUTO_FUNCTIONAL_PREDICTION_EXCESS == 0.30
     assert EVALUATION_SCHEMA_VERSION == 8
+
+
+def test_reviewable_suggestion_accepts_a_wider_single_cell_crop():
+    candidate = {
+        "panels": [{
+            "source_id": "source-a",
+            "panel_id": "rv",
+            "panel_name": "Right ventricle",
+            "ground_truth": [{"box": [100, 100, 300, 140]}],
+            "issues": [{
+                "issue_id": "safe-wide-crop",
+                "type": "geometry",
+                "match_reason": "iou",
+                "prediction_box": [20, 100, 380, 140],
+                "gt_boxes": [[100, 100, 300, 140]],
+            }],
+        }],
+    }
+
+    suggestions = functional_geometry_suggestions(candidate, {})
+
+    assert suggestions["issue_ids"] == ["safe-wide-crop"]
+
+
+def test_reviewable_suggestion_rejects_a_crop_reaching_neighbour_cell():
+    candidate = {
+        "panels": [{
+            "source_id": "source-a",
+            "panel_id": "rv",
+            "panel_name": "Right ventricle",
+            "ground_truth": [{"box": [0, 0, 100, 20]}, {"box": [100, 0, 200, 20]}],
+            "issues": [{
+                "issue_id": "neighbour-capture",
+                "type": "geometry",
+                "match_reason": "iou",
+                "prediction_box": [0, 0, 160, 20],
+                "gt_boxes": [[0, 0, 100, 20]],
+            }],
+        }],
+    }
+
+    suggestions = functional_geometry_suggestions(candidate, {})
+
+    assert suggestions["issue_ids"] == []

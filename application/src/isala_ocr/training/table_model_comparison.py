@@ -1219,6 +1219,64 @@ def _gt_worklist_for_run(run: dict[str, Any], reviews: dict[str, Any]) -> list[d
     return result
 
 
+# These are deliberately suggestions rather than a new evaluator threshold.
+# A user still explicitly applies the list in Step 9. They are looser than the
+# immutable run metric policy, but retain that policy's no-neighbour safeguard.
+FUNCTIONAL_SUGGESTION_GT_COVERAGE = 0.85
+FUNCTIONAL_SUGGESTION_PREDICTION_EXCESS = 0.45
+
+
+def functional_geometry_suggestions(candidate: dict[str, Any], run_reviews: dict[str, Any]) -> dict[str, Any]:
+    """Return conservative, reviewable functional-correct suggestions."""
+    suggestions: list[dict[str, Any]] = []
+    for panel in candidate.get("panels") or []:
+        if not isinstance(panel, dict):
+            continue
+        truth = panel.get("ground_truth") or []
+        for issue in panel.get("issues") or []:
+            if not isinstance(issue, dict) or str(issue.get("type") or "") != "geometry":
+                continue
+            if _review_for_issue(issue, run_reviews):
+                continue
+            # FP/FN recovery is deliberately left for human review.
+            if str(issue.get("match_reason") or "") != "iou" or issue.get("spatial_recovered"):
+                continue
+            prediction_box = _box(issue.get("prediction_box"))
+            gt_boxes = issue.get("gt_boxes") or []
+            gt_box = _box(gt_boxes[0]) if len(gt_boxes) == 1 else None
+            if prediction_box is None or gt_box is None:
+                continue
+            quality = _geometry_quality(prediction_box, gt_box)
+            if (
+                float(quality.get("gt_coverage") or 0.0) < FUNCTIONAL_SUGGESTION_GT_COVERAGE
+                or float(quality.get("prediction_excess") or 1.0) > FUNCTIONAL_SUGGESTION_PREDICTION_EXCESS
+            ):
+                continue
+            reaches_other_cell = any(
+                isinstance(other_gt, dict)
+                and (other_box := _box(other_gt.get("box"))) is not None
+                and tuple(other_box) != tuple(gt_box)
+                and _gt_boxes_are_spatially_distinct(gt_box, other_box)
+                and _box_center_inside(other_box, prediction_box)
+                for other_gt in truth
+            )
+            if reaches_other_cell:
+                continue
+            suggestions.append({
+                "issue_id": str(issue.get("issue_id") or ""),
+                "source_id": str(panel.get("source_id") or ""),
+                "panel_name": str(panel.get("panel_name") or panel.get("panel_id") or ""),
+                "gt_coverage": float(quality.get("gt_coverage") or 0.0),
+                "prediction_excess": float(quality.get("prediction_excess") or 0.0),
+            })
+    return {
+        "issues": suggestions,
+        "issue_ids": [item["issue_id"] for item in suggestions if item["issue_id"]],
+        "gt_coverage": FUNCTIONAL_SUGGESTION_GT_COVERAGE,
+        "prediction_excess": FUNCTIONAL_SUGGESTION_PREDICTION_EXCESS,
+    }
+
+
 def training_report_for_run(workspace: str | Path, run: dict[str, Any]) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
     reviews = comparison_reviews(root)
@@ -1448,6 +1506,7 @@ def table_cell_comparison_state(
 
     reviews = comparison_reviews(root).get(str(candidate.get("run_id")), {})
     reviews = reviews if isinstance(reviews, dict) else {}
+    functional_suggestions = functional_geometry_suggestions(candidate, reviews)
     issue_panels = []
     total_issues = reviewed_issues = 0
     decision_counts: dict[str, int] = {}
@@ -1497,4 +1556,5 @@ def table_cell_comparison_state(
         "training_report": report,
         "gt_worklist": _gt_worklist_for_run(candidate, comparison_reviews(root)),
         "training_feedback": latest_completed_training_feedback(root),
+        "functional_suggestions": functional_suggestions,
     }

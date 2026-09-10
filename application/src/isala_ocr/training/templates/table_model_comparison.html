@@ -3,6 +3,16 @@
 {% block heading %}Stap 7 · Afwijkingen reviewen{% endblock %}
 {% block subtitle %}Beoordeel alleen wat het actieve table-cell model anders doet dan de canonieke Ground Truth.{% endblock %}
 {% block content %}
+{% set active_model = comparison.active_model or {} %}
+{% set detection = comparison.detection_context or {} %}
+<section class="card model-provenance-card section-gap">
+  <div class="toolbar"><div><span class="eyebrow">MODELPROVENANCE</span><h3>Welke modelresultaten zie ik?</h3></div><span class="pill {{ 'bad' if detection.stale_against_active_model else 'ok' }}">{{ 'Mismatch — eerst opnieuw detecteren' if detection.stale_against_active_model else 'Komt overeen' }}</span></div>
+  <div class="model-provenance-grid">
+    <div><small>Actief model</small><strong>{{ active_model.model_name or active_model.model_id or 'Geen model geactiveerd' }}</strong><code>{{ active_model.model_id or '—' }}</code></div>
+    <div><small>Model gebruikt voor deze resultaten</small><strong>{{ detection.model_name or 'Nog niet beschikbaar' }}</strong><code>{{ detection.model_id or '—' }}</code></div>
+    <div><small>Gebruikte GT-dataset</small><strong>{{ comparison.dataset.dataset_id if comparison.dataset else '—' }}</strong><code>{{ detection.detection_batch_id or 'Geen detectierun' }}</code></div>
+  </div>
+</section>
 
 {% if not comparison.ready %}
 <section class="notice warning">
@@ -44,6 +54,28 @@
   <section class="card compare-score-card"><span class="muted">Open afwijkingen</span><div class="metric {{ 'ok' if comparison.open_issue_count == 0 else 'warn' }}">{{ comparison.open_issue_count }}</div><small>Alleen deze punten vragen nog een keuze</small></section>
 </div>
 
+{% set functional_suggestions = comparison.functional_suggestions or {} %}
+{% if functional_suggestions.issues and comparison.review_writable %}
+<section class="card section-gap functional-suggestion-card">
+  <div class="toolbar">
+    <div>
+      <span class="eyebrow">VEILIGE VOORSELECTIE</span>
+      <h3>{{ functional_suggestions.issues|length }} kaders zijn waarschijnlijk functioneel correct</h3>
+      <p class="muted">Alleen geometrieën met minstens {{ '%.0f%%'|format(functional_suggestions.gt_coverage * 100) }} GT-dekking, maximaal {{ '%.0f%%'|format(functional_suggestions.prediction_excess * 100) }} extra kader en zonder naburige cel in beeld. Extra detecties, gemiste cellen en samengevoegde cellen blijven open.</p>
+    </div>
+    <form method="post" class="functional-suggestion-form">
+      <input type="hidden" name="comparison_action" value="apply_functional_suggestions">
+      <input type="hidden" name="run_id" value="{{ cur.run_id }}">
+      <input type="hidden" name="reference_run_id" value="{{ ref.run_id }}">
+      <input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}">
+      {% for suggestion in functional_suggestions.issues %}<input type="hidden" name="issue_id" value="{{ suggestion.issue_id }}">{% endfor %}
+      <button class="primary" type="submit">{{ functional_suggestions.issues|length }} veilige suggesties toepassen</button>
+    </form>
+  </div>
+  <small class="muted">Voorbeelden: {% for suggestion in functional_suggestions.issues[:4] %}{{ suggestion.panel_name }} ({{ '%.0f%%'|format(suggestion.gt_coverage * 100) }} gedekt){% if not loop.last %} · {% endif %}{% endfor %}</small>
+</section>
+{% endif %}
+
 <section class="card section-gap decision-guide">
   <div class="toolbar"><div><span class="eyebrow">PER AFWIJKING ÉÉN KEUZE</span><h3>Wat moet ik aanklikken?</h3></div></div>
   <div class="decision-guide-grid">
@@ -75,6 +107,7 @@
     {% set open = namespace(count=0) %}
     {% for item in panel.issues %}{% set d = item.review.decision or '' %}{% if not d or d == 'deferred' %}{% set open.count = open.count + 1 %}{% endif %}{% endfor %}
     <article class="comparison-panel-card" {% if open.count == 0 %}style="display:none"{% endif %}>
+      <a class="step7-hidden-gt-link" href="/detection-review/{{ panel.source_id }}" aria-hidden="true" tabindex="-1">Open GT Studio</a>
       <div class="comparison-panel-head">
         <div><strong>{{ panel.panel_name }}</strong><small class="mono">{{ panel.source_id }} · {{ panel.split|upper }}</small></div>
         <span class="pill {{ 'ok' if open.count == 0 else 'warn' }}">{{ open.count }} open</span>
@@ -103,11 +136,14 @@
             </div>
             <div class="comparison-issue-actions">
               {% if not comparison.review_writable %}
-                <span class="pill">Alleen lezen</span>
+                <button class="ghost action-slot" disabled>Functioneel correct ✓</button><button class="ghost action-slot" disabled>Toevoegen als GT</button><button class="ghost action-slot" disabled>Model fout ✓</button><button class="ghost action-slot" disabled>GT aanpassen</button>
               {% else %}
                 {% if issue.type == 'geometry' %}
                 <form method="post" class="comparison-issue-form"><input type="hidden" name="comparison_action" value="review_issue"><input type="hidden" name="run_id" value="{{ cur.run_id }}"><input type="hidden" name="issue_id" value="{{ issue.issue_id }}"><input type="hidden" name="decision" value="functional_ok"><input type="hidden" name="reference_run_id" value="{{ ref.run_id }}"><input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}"><button class="ghost" title="Deze geometrie is voor downstream gebruik goed genoeg; de GT blijft exact zoals hij is.">Functioneel correct ✓</button></form>
-                {% endif %}
+                {% else %}<button class="ghost action-slot" disabled>Functioneel correct ✓</button>{% endif %}
+                {% if issue.type == 'fp' %}
+                <form method="post" class="comparison-issue-form"><input type="hidden" name="comparison_action" value="add_prediction_to_gt"><input type="hidden" name="run_id" value="{{ cur.run_id }}"><input type="hidden" name="issue_id" value="{{ issue.issue_id }}"><input type="hidden" name="reference_run_id" value="{{ ref.run_id }}"><input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}"><button class="ghost" title="Deze extra detectie is een echte cel; voeg hem toe aan de canonieke Ground Truth.">Toevoegen als GT</button></form>
+                {% else %}<button class="ghost action-slot" disabled>Toevoegen als GT</button>{% endif %}
                 <form method="post" class="comparison-issue-form"><input type="hidden" name="comparison_action" value="review_issue"><input type="hidden" name="run_id" value="{{ cur.run_id }}"><input type="hidden" name="issue_id" value="{{ issue.issue_id }}"><input type="hidden" name="decision" value="model_error"><input type="hidden" name="reference_run_id" value="{{ ref.run_id }}"><input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}"><button class="ghost" title="De canonieke GT klopt; deze afwijking is een fout van het model.">Model fout ✓</button></form>
                 <form method="post" class="comparison-issue-form"><input type="hidden" name="comparison_action" value="review_issue"><input type="hidden" name="run_id" value="{{ cur.run_id }}"><input type="hidden" name="issue_id" value="{{ issue.issue_id }}"><input type="hidden" name="decision" value="gt_check"><input type="hidden" name="reference_run_id" value="{{ ref.run_id }}"><input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}"><button class="ghost" title="De Ground Truth zelf lijkt niet te kloppen; sla dit oordeel op en open de GT Studio.">GT aanpassen</button></form>
               {% endif %}
@@ -129,7 +165,7 @@
 {% endif %}
 
 <style>
-.iteration-loop{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:12px;align-items:stretch}.iteration-step{display:flex;gap:11px;align-items:flex-start;padding:13px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}.iteration-step>span{display:grid;place-items:center;flex:0 0 30px;height:30px;border:1px solid var(--line);border-radius:50%;font-weight:700}.iteration-step>div{display:grid;gap:3px}.iteration-step small{color:var(--muted)}.iteration-step.active{border-color:#a77a36}.iteration-step.done{border-color:#2a7653}.iteration-arrow{display:grid;place-items:center;color:var(--muted);font-size:20px}.iteration-hero-actions{align-items:center}.compare-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.compare-score-card small{display:block;margin-top:5px}.decision-guide-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.decision-guide-grid>div{padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}.decision-guide-grid p{margin:.45rem 0 0;color:var(--muted)}.comparison-panel-list{display:grid;gap:16px}.comparison-panel-card{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel2)}.comparison-panel-head{display:flex;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line)}.comparison-panel-head>div{display:grid;gap:3px}.comparison-panel-body{display:grid;grid-template-columns:minmax(420px,1.15fr) minmax(360px,.85fr)}.comparison-image-stage{position:relative;align-self:start;background:#071018;overflow:hidden}.comparison-image-stage img{display:block;width:100%;height:auto}.compare-box{position:absolute;box-sizing:border-box;pointer-events:none}.gt-box{border:1px solid rgba(64,210,135,.55)}.prediction-box{border:1px solid rgba(77,163,255,.42)}.issue-box{z-index:3;border-width:3px;border-style:solid}.issue-gt{z-index:4;border-width:2px;border-style:dashed}.issue-fp{border-color:#ff6378}.issue-fn{border-color:#f0a84a}.issue-geometry{border-color:#f0d34a}.issue-merged{border-color:#c284ff}.comparison-issue-list{padding:12px;display:grid;gap:9px;align-content:start;max-height:680px;overflow:auto}.comparison-issue-row{border:1px solid var(--line);border-radius:9px;padding:10px;display:grid;gap:9px;transition:border-color .12s ease,background .12s ease,box-shadow .12s ease}.comparison-issue-row.is-hovered{border-color:rgba(255,255,255,.65);background:rgba(255,255,255,.035);box-shadow:0 0 0 1px rgba(255,255,255,.12)}.comparison-issue-row.is-selected{border-color:rgba(255,255,255,.92);background:rgba(255,255,255,.075);box-shadow:0 0 0 2px rgba(255,255,255,.28)}.compare-box.is-hovered{z-index:30!important;box-shadow:0 0 0 3px rgba(255,255,255,.95),0 0 18px 6px rgba(255,255,255,.35);background:rgba(255,255,255,.12)}.compare-box.is-selected{z-index:31!important;box-shadow:0 0 0 4px rgba(255,255,255,.98),0 0 22px 8px rgba(255,255,255,.42);background:rgba(255,255,255,.16)}.comparison-clickable-box{pointer-events:auto;cursor:pointer}.comparison-issue-copy>div{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.comparison-issue-copy small{color:var(--muted)}.issue-dot{width:9px;height:9px;border-radius:50%;display:inline-block}.issue-dot-fp{background:#ff6378}.issue-dot-fn{background:#f0a84a}.issue-dot-geometry{background:#f0d34a}.issue-dot-merged{background:#c284ff}.comparison-issue-actions{display:flex;gap:6px;flex-wrap:wrap}.comparison-issue-actions form{margin:0}.comparison-issue-actions button,.comparison-issue-actions .button{padding:6px 9px;font-size:12px}.step7-hidden-gt-link{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}.comparison-inline-status{min-height:0}.iteration-boundary{margin-bottom:24px}@media(max-width:1100px){.comparison-panel-body{grid-template-columns:1fr}.decision-guide-grid,.compare-summary-grid{grid-template-columns:1fr}.iteration-loop{grid-template-columns:1fr}.iteration-arrow{transform:rotate(90deg)}}
+.iteration-loop{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:12px;align-items:stretch}.iteration-step{display:flex;gap:11px;align-items:flex-start;padding:13px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}.iteration-step>span{display:grid;place-items:center;flex:0 0 30px;height:30px;border:1px solid var(--line);border-radius:50%;font-weight:700}.iteration-step>div{display:grid;gap:3px}.iteration-step small{color:var(--muted)}.iteration-step.active{border-color:#a77a36}.iteration-step.done{border-color:#2a7653}.iteration-arrow{display:grid;place-items:center;color:var(--muted);font-size:20px}.iteration-hero-actions{align-items:center}.compare-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.compare-score-card small{display:block;margin-top:5px}.decision-guide-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.decision-guide-grid>div{padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}.decision-guide-grid p{margin:.45rem 0 0;color:var(--muted)}.comparison-panel-list{display:grid;gap:16px}.comparison-panel-card{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel2)}.comparison-panel-head{display:flex;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line)}.comparison-panel-head>div{display:grid;gap:3px}.comparison-panel-body{display:grid;grid-template-columns:minmax(420px,1.15fr) minmax(360px,.85fr)}.comparison-image-stage{position:relative;align-self:start;background:#071018;overflow:hidden}.comparison-image-stage img{display:block;width:100%;height:auto}.compare-box{position:absolute;box-sizing:border-box;pointer-events:none}.gt-box{border:1px solid rgba(64,210,135,.55)}.prediction-box{border:1px solid rgba(77,163,255,.42)}.issue-box{z-index:3;border-width:3px;border-style:solid}.issue-gt{z-index:4;border-width:2px;border-style:dashed}.issue-fp{border-color:#ff6378}.issue-fn{border-color:#f0a84a}.issue-geometry{border-color:#f0d34a}.issue-merged{border-color:#c284ff}.comparison-issue-list{padding:12px;display:grid;gap:9px;align-content:start;max-height:680px;overflow:auto}.comparison-issue-row{border:1px solid var(--line);border-radius:9px;padding:10px;display:grid;gap:9px;transition:border-color .12s ease,background .12s ease,box-shadow .12s ease}.comparison-issue-row.is-hovered{border-color:rgba(255,255,255,.65);background:rgba(255,255,255,.035);box-shadow:0 0 0 1px rgba(255,255,255,.12)}.comparison-issue-row.is-selected{border-color:rgba(255,255,255,.92);background:rgba(255,255,255,.075);box-shadow:0 0 0 2px rgba(255,255,255,.28)}.compare-box.is-hovered{z-index:30!important;box-shadow:0 0 0 3px rgba(255,255,255,.95),0 0 18px 6px rgba(255,255,255,.35);background:rgba(255,255,255,.12)}.compare-box.is-selected{z-index:31!important;box-shadow:0 0 0 4px rgba(255,255,255,.98),0 0 22px 8px rgba(255,255,255,.42);background:rgba(255,255,255,.16)}.comparison-clickable-box{pointer-events:auto;cursor:pointer}.comparison-issue-copy>div{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.comparison-issue-copy small{color:var(--muted)}.issue-dot{width:9px;height:9px;border-radius:50%;display:inline-block}.issue-dot-fp{background:#ff6378}.issue-dot-fn{background:#f0a84a}.issue-dot-geometry{background:#f0d34a}.issue-dot-merged{background:#c284ff}.comparison-issue-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.comparison-issue-actions form{margin:0;min-width:0}.comparison-issue-actions button,.comparison-issue-actions .button{padding:6px 9px;font-size:12px;width:100%;min-height:34px}.comparison-issue-actions button:disabled{opacity:.32;cursor:not-allowed}.action-slot{min-width:0}.step7-hidden-gt-link{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}.comparison-inline-status{min-height:0}.iteration-boundary{margin-bottom:24px}@media(max-width:1100px){.comparison-panel-body{grid-template-columns:1fr}.decision-guide-grid,.compare-summary-grid{grid-template-columns:1fr}.iteration-loop{grid-template-columns:1fr}.iteration-arrow{transform:rotate(90deg)}}
 </style>
 
 <script>
@@ -156,4 +192,6 @@
   });
 })();
 </script>
+<style>.model-provenance-card{border-color:var(--border-strong,#41556d)}.model-provenance-card .toolbar{align-items:center}.model-provenance-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.model-provenance-grid>div{display:grid;gap:4px;padding:12px;border:1px solid var(--border,#2b3b4d);border-radius:8px;background:rgba(255,255,255,.025)}.model-provenance-grid small{color:var(--muted,#9fb1c5)}.model-provenance-grid strong,.model-provenance-grid code{overflow-wrap:anywhere}.model-provenance-grid code{font-size:11px;color:var(--muted,#9fb1c5)}.pill.bad{color:#ff8a8a;border-color:#8d3d49}@media(max-width:800px){.model-provenance-grid{grid-template-columns:1fr}}</style>
 {% endblock %}
+

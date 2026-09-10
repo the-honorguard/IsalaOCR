@@ -10,7 +10,7 @@ Push-Location $ProjectRoot
 try {
     . (Join-Path $PSScriptRoot "training-common.ps1")
     . (Join-Path $PSScriptRoot "runtime-preparation.ps1")
-    Assert-IsalaActionPreflight -ActionId "60"
+    Assert-IsalaActionPreflight -ActionId "61"
     Assert-Docker
     Assert-IsalaRuntimePrepared | Out-Null
     if ([string]::IsNullOrWhiteSpace($InputPath)) { $InputPath = Get-IsalaContainerProjectInput }

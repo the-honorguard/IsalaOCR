@@ -23,7 +23,7 @@ function Get-IsalaActionCatalog {
     return [ordered]@{
         "1"  = @{ Name = "Prepare ALL models and training images"; Script = "prepare-training.ps1"; Profile = "prepare" }
         "2"  = @{ Name = "Detect table cells (table-first)"; Script = "collect-training-data.ps1"; Profile = "collect" }
-        "60" = @{ Name = "Run complete active DICOM application pipeline"; Script = "run-application-pipeline.ps1"; Profile = "application-pipeline" }
+        "61" = @{ Name = "Run complete active DICOM application pipeline"; Script = "run-application-pipeline.ps1"; Profile = "application-pipeline" }
         # Action 3 is the host-side entry point used by START.cmd to start the
         # local web interface. It must live in the same catalog as executable
         # pipeline actions because label-training-data.ps1 protects itself with
@@ -73,6 +73,7 @@ function Get-IsalaActionCatalog {
         "55" = @{ Name = "Train full-page table-region detector on GPU"; Script = "train-table-region-model.ps1"; Profile = "table-region-train"; Arguments = @{ Device = "gpu" } }
         "56" = @{ Name = "Train full-page table-region detector on CPU"; Script = "train-table-region-model.ps1"; Profile = "table-region-train"; Arguments = @{ Device = "cpu" } }
         "57" = @{ Name = "Activate full-page table-region detector"; Script = "activate-table-region-model.ps1"; Profile = "table-region-activate" }
+        "60" = @{ Name = "Build, train and activate full-page table-region detector"; Script = "run-table-region-pipeline.ps1"; Profile = "table-region-full" }
         "59" = @{ Name = "Detect table regions only for review"; Script = "collect-training-data.ps1"; Profile = "collect" }
         "20" = @{ Name = "Prepare Mapping Studio data after geometry gate"; Script = "prepare-mapping-data.ps1"; Profile = "mapping-prepare" }
         "21" = @{ Name = "Apply current raster/cell mappings"; Script = "apply-mappings.ps1"; Profile = "mapping-apply" }
@@ -259,6 +260,19 @@ function Invoke-IsalaContainerPermissionCheck {
         'compose','--profile','doctor','run','--rm','--pull','never',
         'workspace-doctor','check','--json'
     ) -TimeoutSeconds 90
+    $output = Get-IsalaProcessOutputText -Result $result -Fallback ""
+    # Docker Desktop can finish the doctor command and emit its complete JSON,
+    # then hang while Compose removes the one-shot container.  In that case the
+    # mount check itself succeeded; treating the cleanup timeout as a permission
+    # failure sends the user to an unrelated repair flow.
+    $reportedPass = (
+        $output -match '"passed"\s*:\s*true' -and
+        $output -match '"failure_count"\s*:\s*0'
+    )
+    if ($reportedPass) {
+        return New-IsalaCheckResult -Scope "Permissions" -Name "Container bind mounts" -Status "PASS" `
+            -Message "Input is readable and output/models/training are writable as UID/GID 10001:10001."
+    }
     if ($null -ne $result -and -not $result.TimedOut -and $result.ExitCode -eq 0) {
         return New-IsalaCheckResult -Scope "Permissions" -Name "Container bind mounts" -Status "PASS" `
             -Message "Input is readable and output/models/training are writable as UID/GID 10001:10001."

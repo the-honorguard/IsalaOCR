@@ -53,6 +53,15 @@ def test_permission_repair_is_scoped_and_verified() -> None:
     assert "chown -R" not in preflight
 
 
+def test_successful_doctor_json_wins_over_compose_cleanup_timeout() -> None:
+    preflight = read("automation/powershell/preflight.ps1")
+    pass_check = preflight.index('$reportedPass = (')
+    timeout_failure = preflight.index('if ($null -ne $result -and $result.TimedOut)')
+    assert pass_check < timeout_failure
+    assert '\"failure_count\"\\s*:\\s*0' in preflight
+    assert '\"passed\"\\s*:\\s*true' in preflight
+
+
 def test_each_executable_pipeline_action_script_has_direct_preflight_guard() -> None:
     preflight = read("automation/powershell/preflight.ps1")
     expected_scripts = {

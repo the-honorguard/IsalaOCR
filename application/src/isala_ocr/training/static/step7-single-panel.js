@@ -380,9 +380,9 @@
         return;
       }
     }
-    // A review can remove or resize rows. Always return the issue queue to its
-    // canonical top position so the action buttons never jump between items.
-    showPanel(activeIndex);
+    // Preserve the reviewer’s place after a decision; only explicit panel navigation
+    // returns the issue list to its top.
+    showPanel(activeIndex, { scrollIssues: false });
   };
 
   const enterSinglePanelMode = () => {

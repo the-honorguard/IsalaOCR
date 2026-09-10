@@ -82,6 +82,7 @@
 {% endif %}
 
 {% if step.key == 'detection-models' %}
+<style>.content > p.muted{display:none}</style>
 {% set inference = preparation.components[0] if preparation.components else none %}
 <div id="preparation-overview">
   <section class="card preparation-readiness-hero {{ 'ready' if preparation.all_ready else 'incomplete' }}">
@@ -113,9 +114,6 @@
     </div>
 
     <div class="preparation-readiness-action">
-      <span class="muted preparation-next-step" data-prep-ready-action {% if not preparation.all_ready %}hidden{% endif %}>
-        Ga verder via de linkerzijbalk: Stap 2 · Tabelregio’s selecteren
-      </span>
       <form method="post" action="/jobs" data-prep-repair-action {% if preparation.all_ready %}hidden{% endif %}>
         <input type="hidden" name="action_id" data-prep-repair-action-id value="{% if not inference or inference.download.state == 'unknown' %}19{% elif inference.download.state == 'missing' %}30{% elif inference.install.state == 'missing' %}35{% else %}42{% endif %}">
         <button class="primary preparation-repair-button">
@@ -126,24 +124,20 @@
     </div>
   </section>
 
-  <div class="notice warning section-gap" data-prep-warning {% if not preparation.unknown_count %}hidden{% endif %}>{{ preparation.unknown_count }} controle(s) zijn niet actueel. Vernieuw de status voordat je verdergaat.</div>
-
-  <section class="card section-gap">
-    <div class="toolbar">
-      <div>
-        <span class="eyebrow">DATA VOORBEREIDEN</span>
-        <h3>Nieuwe input verwerken</h3>
-        <p class="muted">Nieuwe bestanden in de projectmap worden pas zichtbaar in de WebUI nadat de table-first collector ze heeft ingelezen. Dit maakt bronrenders, tabelregio’s en celgeometrie aan; het wijzigt geen GT en traint geen model.</p>
-      </div>
-      <div class="preparation-data-action">
-        <div class="preparation-data-counts">
-          <span><strong>{{ input_file_count }}</strong> bestand{{ '' if input_file_count == 1 else 'en' }} in input</span>
-          <span><strong>{{ registered_source_count }}</strong> geregistreerde bron{{ '' if registered_source_count == 1 else 'nen' }}</span>
-        </div>
-        <a class="button primary preparation-data-button" href="/process/input-selection"><strong>Input controleren</strong><span>Afbeeldingen selecteren vóór verwerking</span></a>
-      </div>
-    </div>
+  <section class="card section-gap preparation-model-table">
+    <div class="toolbar"><div><span class="eyebrow">LOKALE MODELLEN</span><h3>Model- en runtime-status</h3></div><span class="pill {{ 'ok' if preparation.all_ready else 'warn' }}">{{ preparation.model_file_count }} bestanden in cache</span></div>
+    <div class="table-wrap"><table><thead><tr><th>Onderdeel</th><th>Model</th><th>Gebruik</th><th>Cache</th><th>Runtime</th></tr></thead><tbody>
+      {% for item in preparation.components %}
+        {% for model in item.model_entries %}
+        <tr><td>{% if loop.first %}<strong>{{ item.title }}</strong>{% endif %}</td><td><strong>{{ model.name }}</strong></td><td>{{ model.purpose }}</td><td><span class="pill {{ 'ok' if item.download.state == 'ready' else 'warn' }}">{{ 'aanwezig' if item.download.state == 'ready' else 'ontbreekt' if item.download.state == 'missing' else 'onbekend' }}</span></td><td><span class="pill {{ 'ok' if item.install.state == 'ready' else 'warn' }}">{{ 'gevalideerd' if item.install.state == 'ready' else 'ontbreekt' if item.install.state == 'missing' else 'niet gecontroleerd' }}</span></td></tr>
+        {% else %}
+        <tr><td><strong>{{ item.title }}</strong></td><td>{% for file in item.files %}<div class="mono wrap-anywhere">{{ file }}</div>{% endfor %}</td><td>{{ item.description }}</td><td><span class="pill {{ 'ok' if item.download.state == 'ready' else 'warn' }}">{{ 'aanwezig' if item.download.state == 'ready' else 'ontbreekt' if item.download.state == 'missing' else 'onbekend' }}</span></td><td><span class="pill {{ 'ok' if item.install.state == 'ready' else 'warn' }}">{{ 'gevalideerd' if item.install.state == 'ready' else 'ontbreekt' if item.install.state == 'missing' else 'niet gecontroleerd' }}</span></td></tr>
+        {% endfor %}
+      {% endfor %}
+    </tbody></table></div>
   </section>
+
+  <div class="notice warning section-gap" data-prep-warning {% if not preparation.unknown_count %}hidden{% endif %}>{{ preparation.unknown_count }} controle(s) zijn niet actueel. Vernieuw de status voordat je verdergaat.</div>
 
   {% if localization_strategy != 'table_first' %}<section class="card section-gap panel-definition-setup" id="panel-name-setup">
     <div class="toolbar">
@@ -262,10 +256,6 @@
     </div>
   </details>
 
-  <section class="card section-gap preparation-boundary-note">
-    <h3>Pipelinegrens</h3>
-    <p>Alle externe downloads en runtime-builds horen in Stap 1. Vanaf Stap 2 werkt de table-pipeline met de lokaal voorbereide componenten en downloadt niets stilzwijgend bij.</p>
-  </section>
 </div>
 
 {% endif %}
@@ -378,4 +368,4 @@
 {% endif %}
 
 {% endblock %}
-{% block scripts %}{% if step.key == 'detection-models' %}<script src="{{ url_for('static', filename='preparation-page.js', v=app_version) }}"></script>{% endif %}{% endblock %}
+{% block scripts %}{% if step.key == 'detection-models' %}<script src="{{ url_for('static', filename='preparation-page.js', v=app_version) }}"></script>{% endif %}{% if step.key == 'recognition-output-review' %}<script>document.querySelectorAll('p.muted').forEach((node)=>{if(node.textContent.includes('Geen verschillen gevonden tussen oud en nieuw model'))node.remove();});</script>{% endif %}{% endblock %}

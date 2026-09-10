@@ -7,11 +7,32 @@
   <h2>Celdetector trainen</h2>
   <p>Gebruik de acties op deze pagina om de goedgekeurde GT om te zetten naar een dataset, te valideren, te trainen en het nieuwe model te activeren. De modelafwijkingen beoordeel je daarna in Stap 9.</p>
   <div class="actions">
+    <form method="post" action="/jobs" class="full-pipeline-action">
+      <input type="hidden" name="action_id" value="53">
+      <label>Startpunt<select name="start_from"><option value="standard" selected>Standaard RT-DETR-model (schone start)</option><option value="active">Actief model voortzetten</option></select></label>
+      <button type="submit" class="primary"><strong>Alles uitvoeren</strong><span>Dataset bouwen → valideren → trainen → activeren → nieuwe celdetectie</span></button>
+    </form>
+  </div>
+  <p class="muted pipeline-note">Deze knop voert de volledige Stap 8-pijplijn uit met de opgeslagen beoordelingen. Losse acties hieronder blijven beschikbaar voor herstel of controle.</p>
+  <div class="actions secondary-actions">
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="48"><button type="submit">Dataset bouwen</button></form>
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="49"><button type="submit">Dataset valideren</button></form>
-    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="50"><button type="submit">Train GPU</button></form>
-    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="51"><button type="submit">Train CPU</button></form>
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="50"><label>Startpunt<select name="start_from"><option value="standard" selected>Standaard RT-DETR-model (schone start)</option><option value="active">Actief model voortzetten</option></select></label><button type="submit">Train GPU</button></form>
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="51"><label>Startpunt<select name="start_from"><option value="standard" selected>Standaard RT-DETR-model (schone start)</option><option value="active">Actief model voortzetten</option></select></label><button type="submit">Train CPU</button></form>
     <form method="post" action="/jobs"><input type="hidden" name="action_id" value="52"><button type="submit">Model activeren</button></form>
   </div>
 </section>
+{% set active_model = model_state.active_model or {} %}
+<section class="card model-provenance-card section-gap">
+  <div class="toolbar"><div><span class="eyebrow">ACTIEVE MODELREGISTRATIE</span><h3>Model dat nu gebruikt wordt</h3></div><span class="pill {{ 'ok' if active_model.model_id else 'warn' }}">{{ 'Actief' if active_model.model_id else 'Geen actief model' }}</span></div>
+  <div class="model-provenance-grid"><div><small>Model</small><strong>{{ active_model.model_name or active_model.model_id or '—' }}</strong><code>{{ active_model.model_id or '—' }}</code></div><div><small>Training run</small><strong>{{ active_model.run_id or '—' }}</strong><code>Dataset: {{ active_model.dataset_id or (dataset.dataset_id if dataset else '—') }}</code></div><div><small>Evaluatie</small><strong>F1 {{ '%.1f%%'|format(((active_model.evaluation or {}).f1 or 0)*100) }}</strong><code>{{ active_model.activated_at or 'Nog niet geactiveerd' }}</code></div></div>
+</section>
+<style>
+.full-pipeline-action button{display:grid;gap:3px;min-width:360px;text-align:left}
+.full-pipeline-action button span{font-size:12px;font-weight:400;opacity:.85}
+.pipeline-note{margin:10px 0 14px}.secondary-actions{opacity:.9}
+.secondary-actions label,.full-pipeline-action label{display:grid;gap:4px;font-size:12px;color:var(--muted,#9fb1c5)}.secondary-actions select,.full-pipeline-action select{min-height:34px;background:var(--surface-2,#111b27);color:inherit;border:1px solid var(--border,#2b3b4d);border-radius:6px;padding:4px 8px}
+.model-provenance-card{border-color:var(--border-strong,#41556d)}.model-provenance-card .toolbar{align-items:center}.model-provenance-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.model-provenance-grid>div{display:grid;gap:4px;padding:12px;border:1px solid var(--border,#2b3b4d);border-radius:8px;background:rgba(255,255,255,.025)}.model-provenance-grid small{color:var(--muted,#9fb1c5)}.model-provenance-grid strong,.model-provenance-grid code{overflow-wrap:anywhere}.model-provenance-grid code{font-size:11px;color:var(--muted,#9fb1c5)}@media(max-width:800px){.model-provenance-grid{grid-template-columns:1fr}}
+@media(max-width:650px){.full-pipeline-action button{min-width:0;width:100%}}
+</style>
 {% endblock %}

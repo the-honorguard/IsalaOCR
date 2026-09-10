@@ -1,6 +1,7 @@
 param(
     [ValidateSet("cpu","gpu")][string]$Device = "gpu",
-    [int]$Epochs = 0
+    [int]$Epochs = 0,
+    [ValidateSet("standard","active")][string]$StartFrom = "standard"
 )
 . (Join-Path $PSScriptRoot "training-common.ps1")
 $ActionId = if ($Device -eq "gpu") { "50" } else { "51" }
@@ -122,7 +123,7 @@ $TrainingMode = "fresh"
 $LearningRate = 0.0001
 $EffectiveEpochs = $Epochs
 $ActiveTableModelPath = Join-Path $HostWorkspace "table_cell_models\active.json"
-if (Test-Path -LiteralPath $ActiveTableModelPath -PathType Leaf) {
+if ($StartFrom -eq "active" -and (Test-Path -LiteralPath $ActiveTableModelPath -PathType Leaf)) {
     try {
         $ActiveTableModel = Get-Content -LiteralPath $ActiveTableModelPath -Raw | ConvertFrom-Json
         $ParentRunId = [string]$ActiveTableModel.run_id
@@ -157,6 +158,9 @@ if (Test-Path -LiteralPath $ActiveTableModelPath -PathType Leaf) {
         $TrainingMode = "fresh"
         $LearningRate = 0.0001
     }
+}
+if ($StartFrom -eq "standard") {
+    Write-Host "Starting from the official RT-DETR-L base model (clean start)." -ForegroundColor Cyan
 }
 
 # RT-DETR-L CPU training is a portability fallback, not the fast path. Keep the

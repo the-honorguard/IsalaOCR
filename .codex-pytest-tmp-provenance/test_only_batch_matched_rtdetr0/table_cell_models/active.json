@@ -1,0 +1,1 @@
+{"model_id": "rtdetr", "model_name": "RT-DETR-L", "run_id": "run-1", "dataset_id": "cells", "inference_dir": "table_cell_models/rtdetr/inference", "activated_at": "2026-09-09T12:00:00+00:00"}

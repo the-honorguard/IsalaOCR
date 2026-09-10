@@ -14,7 +14,8 @@ def test_step7_review_flow_preserves_viewport_during_optimistic_removal():
     assert "const viewportSnapshot = captureViewportAnchor(row);" in source
     assert "hideOptimistically(row, optimisticDecision);" in source
     assert "restoreViewportAnchor(viewportSnapshot);" in source
-    assert "window.scrollBy(0, delta);" in source
+    assert "window.scrollBy(0, delta);" not in source
+    assert "window.scrollTo({top: y, behavior: 'auto'})" in source
 
 
 def test_step7_status_feedback_cannot_shift_review_layout():

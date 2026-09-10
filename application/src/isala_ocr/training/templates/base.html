@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{% block title %}IsalaOCR{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static',filename='app.css',v=app_version,rev='20260826a') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='app.css',v=app_version,rev='20260909j') }}">
   <link rel="stylesheet" href="{{ url_for('static',filename='step7-review.css',v=app_version,rev='20260817b') }}">
-  <link rel="stylesheet" href="{{ url_for('static',filename='step7-single-panel.css',v=app_version,rev='20260817c') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='step7-single-panel.css',v=app_version,rev='20260909a') }}">
   <link rel="stylesheet" href="{{ url_for('static',filename='mapping-review-studio.css',v=app_version) }}">
   {% block head %}{% endblock %}
 </head>
@@ -56,7 +56,7 @@
     {% endfor %}
 
     <div class="nav-section nav-pipeline-a">CELLEN</div>
-    {% for nav in [('detection-review','7','GT Studio','/process/detection-review'),('table-model','8','Celdetector trainen','/process/table-model'),('table-compare','9','Celdetector reviewen','/process/table-compare')] %}
+    {% for nav in [('detection-review','7','GT Studio','/detection-review'),('table-model','8','Celdetector trainen','/process/table-model'),('table-compare','9','Celdetector reviewen','/process/table-compare')] %}
       {% set cell_active = request.path == nav[3] or (nav[0] == 'detection-review' and request.path.startswith('/detection-review')) %}
       {% if workflow_step_access.get(nav[0], False) %}
       <a href="{{ nav[3] }}" class="process-tab {% if cell_active %}active{% endif %}"><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}</span></a>
@@ -71,7 +71,8 @@
     {% else %}
     <div class="nav-section nav-pipeline-a">MODEL FACTORY · DETECTIE & CROPS</div>
     {% for step in process_steps if step.group == 'detection' %}
-    <a href="/process/{{ step.key }}" class="process-tab {% if request.path == '/process/' ~ step.key or (step.key == 'detection-review' and request.path.startswith('/detection-review')) %}active{% endif %}">
+    {% set step_href = '/detection-review' if step.key == 'detection-review' else '/process/' ~ step.key %}
+    <a href="{{ step_href }}" class="process-tab {% if request.path == step_href or (step.key == 'detection-review' and request.path.startswith('/detection-review')) %}active{% endif %}">
       <span class="process-tab-number">{{ step['index'] }}</span><span>{{ step.title }}</span>
     </a>
     {% endfor %}
@@ -196,10 +197,10 @@
 </section>
 
 <script>window.ISALA_ACTION_DURATION_ESTIMATES={{ action_duration_estimates|tojson }};</script>
-<script src="{{ url_for('static',filename='app.js',v=app_version,rev='20260826a') }}"></script>
+<script src="{{ url_for('static',filename='app.js',v=app_version,rev='20260909a') }}"></script>
 <script src="{{ url_for('static',filename='job-runtime.js',v=app_version,rev='20260826b') }}"></script>
 <script src="{{ url_for('static',filename='step7-review-flow.js',v=app_version,rev='20260817b') }}"></script>
-<script src="{{ url_for('static',filename='step7-single-panel.js',v=app_version,rev='20260817c') }}"></script>
+<script src="{{ url_for('static',filename='step7-single-panel.js',v=app_version,rev='20260909a') }}"></script>
 <script defer src="{{ url_for('static',filename='mapping-review-studio.js',v=app_version,rev='20260824a') }}"></script>
 <script>document.getElementById('project-switch-select')?.addEventListener('change',()=>document.getElementById('project-switch-form').submit());</script>
 {% if localization_strategy == 'table_first' %}
@@ -222,7 +223,7 @@
     setTopbar('Stap 6 · Tabelregio selecteren','Wijs de definitieve regio’s semantisch toe als links/rechts.');
   }else if(path==='/process/detect-candidates'){
     setTopbar('Stap 5 · Tabelregio beoordelen','Beoordeel uitsluitend de geometrie van de nieuwe regio-detecties.');
-  }else if(path==='/process/detection-review'||path.startsWith('/detection-review')){
+  }else if(path==='/detection-review'||path.startsWith('/detection-review')){
     setTopbar('Stap 7 · GT Studio','Start de eerste celdetectie en leg daarna de canonieke cel-GT vast.');
   }else if(path==='/process/table-model'){
     setTopbar('Stap 8 · Celdetector trainen','Train en activeer de celdetector uit de goedgekeurde cel-GT.');

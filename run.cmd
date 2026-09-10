@@ -10,11 +10,16 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo.
+echo ================================================================
+echo IsalaOCR WebUI-watcher wordt gestart.
+echo Codewijzigingen worden na 60 seconden stilte automatisch gebouwd.
+echo De watcher blijft actief; stoppen met Ctrl+C.
+echo ================================================================
+echo.
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File ".\automation\powershell\watch-webui.ps1" -QuietSeconds 60
 set "RESULT=%ERRORLEVEL%"
-if not "%RESULT%"=="0" (
-  echo.
-  echo De automatische WebUI-updater is gestopt met code %RESULT%.
-  pause
-)
+echo.
+echo De automatische WebUI-updater is gestopt met code %RESULT%.
+pause
 exit /b %RESULT%

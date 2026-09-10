@@ -133,6 +133,7 @@ ACTIONS = {
     "55": "Tabelregio-detector trainen op GPU",
     "56": "Tabelregio-detector trainen op CPU",
     "57": "Tabelregio-detector activeren",
+    "60": "Stap 4 volledig uitvoeren (dataset, training en activatie)",
     "59": "Alleen tabelregio’s detecteren voor beoordeling",
     "20": "Mappinggegevens voorbereiden na detectiepoort",
     "21": "Nieuwe raster/celkaders toepassen op de bevestigde mappings",
@@ -215,6 +216,7 @@ ACTION_DURATION_ESTIMATES = {
     "55": {"label": "± 5–20 min", "detail": "PicoDet-S tabelregio-detector trainen op GPU."},
     "56": {"label": "± 30–120 min", "detail": "PicoDet-S tabelregio-detector trainen op CPU."},
     "57": {"label": "± 10–30 sec", "detail": "Een bestaand tabelregio-model als voorste detectorlaag activeren."},
+    "60": {"label": "± 5–20 min", "detail": "Tabelregio-dataset bouwen → GPU-trainen → activeren."},
     # Legacy aliases remain annotated because older queued/retry jobs can surface in the UI.
     "107": {"label": "± 10–60 sec", "detail": "Legacy recognition-dataset bouwen."},
     "108": {"label": "± 10–30 sec", "detail": "Legacy recognition-dataset valideren."},
@@ -232,7 +234,7 @@ PROCESS_STEPS = [
     {"key": "detection-models","index":1,"group":"detection","title":"Voorbereiding","subtitle":"Controleer of PP-StructureV3 en de inference/table-modelcache beschikbaar zijn.","action_ids":["14","19","30","35","42"],"requirements":["Docker Desktop actief","Inference OCR + tabelmodellen lokaal beschikbaar","Tabelregio’s en tabelnamen worden in Stap 2 gedefinieerd","Geen detector-training nodig voor de table-first proef"]},
     {"key": "input-selection","index":"1A","group":"input","title":"Inputselectie","subtitle":"Bepaal welke bronafbeeldingen onderdeel worden van deze verwerkingsronde.","action_ids":[],"requirements":["Voorbereiding afgerond","Bestanden in de projectmap input","Alle gewenste afbeeldingen expliciet geselecteerd"]},
     {"key": "panel-setup","index":2,"group":"detection","title":"Tabelregio’s selecteren","subtitle":"Beoordeel per lezing de volledige tabelregio’s in de fullscreen reviewer en sla ze op als Ground Truth.","action_ids":[],"requirements":["Minimaal één bronpreview","Per lezing alle volledige tabellen omkaderen","Tabeldefinities en tabelregio-GT opslaan"]},
-    {"key": "table-region-model","index":3,"group":"detection","title":"Tabelregio-model trainen","subtitle":"Train eerst een model dat volledige tabelregio’s automatisch leert vinden uit de GT van Stap 2.","action_ids":["54","55","56","57"],"requirements":["Tabelregio-GT opgeslagen in Stap 2","Dataset gebouwd en gevalideerd vóór training","Regio-model geactiveerd vóór de volgende detectie"]},
+    {"key": "table-region-model","index":3,"group":"detection","title":"Tabelregio-model trainen","subtitle":"Train eerst een model dat volledige tabelregio’s automatisch leert vinden uit de GT van Stap 2.","action_ids":["54","55","56","57","60"],"requirements":["Tabelregio-GT opgeslagen in Stap 2","Dataset gebouwd en gevalideerd vóór training","Regio-model geactiveerd vóór de volgende detectie"]},
     {"key": "detect-candidates","index":4,"group":"detection","title":"Tabelregio’s detecteren en beoordelen","subtitle":"Draai alleen het actieve tabelregio-model. Beoordeel daarna de gevonden regio’s voordat er cellen worden gedetecteerd.","action_ids":["59"],"requirements":["Voorbereiding afgerond","Tabelregio-model getraind en geactiveerd","Bronnen in input"]},
     {"key": "detection-review","index":5,"group":"detection","title":"GT Studio","subtitle":"Beoordeel de celdetectie per bron en leg de canonieke cel-GT vast voor de celdetector.","action_ids":[],"requirements":["Tabelregio’s en cellen gedetecteerd","Bronrender","Per bron GT controleren en goedkeuren"]},
     {"key": "table-model","index":6,"group":"detection","title":"Celdetector trainen","subtitle":"Bouw uit de reviewcorrecties trainingsdata, train/activeer de celdetector en gebruik het nieuwe model in de volgende detectieronde.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde GT-review","Positieve functionele cellen","Dataset gebouwd en gevalideerd vóór training"]},
@@ -722,16 +724,7 @@ def create_web_app(
         }
 
     def canonical_table_gt_mode() -> bool:
-        if localization_strategy() != "table_first":
-            return False
-        # The GT store is created during initialisation, before the first cell
-        # detection run.  Its mere existence must not hide the detector
-        # candidates; switch to canonical-GT mode only after real GT cells have
-        # been persisted.
-        if ensure_table_cell_ground_truth(workspace_root()) is None:
-            return False
-        state = ground_truth_review_state(workspace_root())
-        return int(state.get("gt_cell_count") or 0) > 0
+        return localization_strategy() == "table_first" and ensure_table_cell_ground_truth(workspace_root()) is not None
 
     def step4_review_counts(source_id: str | None = None) -> dict[str, int]:
         if canonical_table_gt_mode():
@@ -1298,6 +1291,16 @@ def create_web_app(
                 "install_action_id": str(raw.get("install_action_id") or install_id),
                 "check_action_id": str(raw.get("check_action_id") or check_id),
                 "ready": download["ready"] is True and install["ready"] is True,
+                "model_entries": (
+                    [
+                        {"name": "PP-OCRv6 small detection", "purpose": "Tekstgebieden detecteren"},
+                        {"name": "PP-OCRv6 small recognition", "purpose": "Tekst in gevonden gebieden herkennen"},
+                        {"name": "PP-StructureV3 layout", "purpose": "Document- en schermindeling herkennen"},
+                        {"name": "PP-StructureV3 table", "purpose": "Tabelstructuur herkennen"},
+                        {"name": "PP-StructureV3 cell", "purpose": "Celgeometrie binnen tabellen herkennen"},
+                        {"name": "PP-OCRv6 medium baseline", "purpose": "Baseline voor Recognition-vergelijking"},
+                    ] if key == "inference" else []
+                ),
             })
 
         all_downloads_ready = all(item["download"]["ready"] is True for item in components)
@@ -3168,12 +3171,44 @@ def create_web_app(
                 return redirect(url_for("process_step", step_key=step_key, source_id=request.form.get("source_id", "")))
             if step_key == "table-compare":
                 action = str(request.form.get("comparison_action") or "").strip().lower()
-                if action not in {"review_issue", "add_prediction_to_gt"}:
+                if action not in {"review_issue", "add_prediction_to_gt", "apply_functional_suggestions"}:
                     abort(400)
                 run_id = str(request.form.get("run_id") or "").strip()[:180]
                 issue_id = str(request.form.get("issue_id") or "").strip()[:80]
                 reference = str(request.form.get("reference_run_id") or "").strip()
                 candidate = str(request.form.get("candidate_run_id") or "").strip()
+                if action == "apply_functional_suggestions":
+                    state = table_cell_comparison_state(
+                        workspace_root(),
+                        reference_run_id=reference or None,
+                        candidate_run_id=candidate or run_id or None,
+                    )
+                    active_run = str((state.get("candidate") or {}).get("run_id") or "")
+                    allowed_ids = set((state.get("functional_suggestions") or {}).get("issue_ids") or [])
+                    requested_ids = {
+                        str(value).strip()[:80]
+                        for value in request.form.getlist("issue_id")
+                        if str(value).strip()
+                    }
+                    selected_ids = sorted(allowed_ids.intersection(requested_ids))
+                    if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
+                        flash("De veilige suggesties horen bij de nieuwste, schrijfbare detectierun.", "error")
+                    elif not selected_ids:
+                        flash("Er zijn geen geldige, nog open functionele suggesties om toe te passen.", "warning")
+                    else:
+                        for suggested_issue_id in selected_ids:
+                            review_comparison_issue(workspace_root(), run_id, suggested_issue_id, "functional_ok")
+                        flash(
+                            f"{len(selected_ids)} veilige geometrieën als functioneel correct gemarkeerd. "
+                            "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
+                            "success",
+                        )
+                    parameters = {}
+                    if reference:
+                        parameters["reference"] = reference
+                    if candidate:
+                        parameters["candidate"] = candidate
+                    return redirect(url_for("process_step", step_key=step_key, **parameters))
                 wants_json = (
                     request.headers.get("X-Requested-With") == "XMLHttpRequest"
                     or request.accept_mimetypes.best == "application/json"
@@ -3802,46 +3837,34 @@ def create_web_app(
     def detection_review_source_rows() -> list[dict[str, Any]]:
         sources = database.list_detection_sources()
         table_counts = database.detection_table_counts_by_source()
-        if canonical_table_gt_mode():
-            gt_by_id = {str(item["source_id"]): item for item in list_ground_truth_sources(workspace_root())}
-            source_by_id = {str(item["source_id"]): item for item in sources}
-            result: list[dict[str, Any]] = []
-            for source_id, gt_source in gt_by_id.items():
-                source = source_by_id.get(source_id)
-                if source is None:
-                    continue
-                geometry = table_counts.get(source_id, {"regions": 0, "cells": 0})
-                counts = ground_truth_counts(workspace_root(), source_id)
-                result.append({
-                    **source,
-                    "review_completed": bool(gt_source.get("review_completed", True)),
-                    "review_completed_at": gt_source.get("review_completed_at"),
-                    "review_counts": counts,
-                    "table_region_count": int(geometry.get("regions", 0)),
-                    "table_cell_count": int(geometry.get("cells", 0)),
-                    "render_exists": safe_workspace_file(str(source.get("render_path") or "")).is_file(),
-                    "gt_mode": True,
-                })
-            return result
+        canonical_sources = {
+            str(item["source_id"]): item
+            for item in list_ground_truth_sources(workspace_root())
+        } if canonical_table_gt_mode() else {}
         if localization_strategy() == "table_first":
             quality = current_table_first_quality()
-            review_counts = {
+            candidate_counts = {
                 str(item["source_id"]): table_review_counts(str(item["source_id"]), quality)
                 for item in sources
             }
         else:
-            review_counts = database.detection_review_counts_by_source()
+            candidate_counts = database.detection_review_counts_by_source()
         result: list[dict[str, Any]] = []
         for source in sources:
             source_id = str(source["source_id"])
+            gt_source = canonical_sources.get(source_id)
             geometry = table_counts.get(source_id, {"regions": 0, "cells": 0})
+            is_canonical_gt = gt_source is not None
+            counts = ground_truth_counts(workspace_root(), source_id) if is_canonical_gt else candidate_counts.get(source_id, {})
             result.append({
                 **source,
-                "review_counts": review_counts.get(source_id, {}),
+                "review_completed": bool(gt_source.get("review_completed", False)) if gt_source else bool(source.get("review_completed", False)),
+                "review_completed_at": gt_source.get("review_completed_at") if gt_source else source.get("review_completed_at"),
+                "review_counts": counts,
                 "table_region_count": int(geometry.get("regions", 0)),
                 "table_cell_count": int(geometry.get("cells", 0)),
                 "render_exists": safe_workspace_file(str(source.get("render_path") or "")).is_file(),
-                "gt_mode": False,
+                "gt_mode": is_canonical_gt,
             })
         return result
 
@@ -4011,6 +4034,60 @@ def create_web_app(
         assignment = save_table_semantic_assignment(workspace_root(), table_id, table_name)
         return jsonify({"ok": True, "table_id": table_id, "assignment": assignment})
 
+    @app.post("/api/table-semantic-detect/<source_id>")
+    def table_semantic_detect_api(source_id: str):
+        geometry = database.list_detection_table_geometry(source_id)
+        profile = load_panel_profile(workspace_root())
+        definitions = list(profile.get("definitions") or [])
+        relations = database.list_detected_relations(source_id)
+        if not definitions:
+            return jsonify({"error": "Maak eerst minimaal één tabeldefinitie met sleutelwoorden."}), 400
+        proposals = []
+        for index, region in enumerate(geometry.get("regions") or []):
+            rx1, ry1, rx2, ry2 = (float(region.get(key) or 0) for key in ("x1", "y1", "x2", "y2"))
+            text_parts = []
+            for relation in relations:
+                cx = (float(relation.get("label_x1") or 0) + float(relation.get("label_x2") or 0)) / 2
+                cy = (float(relation.get("label_y1") or 0) + float(relation.get("label_y2") or 0)) / 2
+                if rx1 <= cx <= rx2 and ry1 <= cy <= ry2:
+                    text_parts.extend(str(relation.get(key) or "") for key in ("context_text", "label_text", "header_text", "column_header"))
+            # Table-first detection intentionally skips full-page OCR. Run a
+            # focused OCR pass here, on the selected region, when no persisted
+            # relation context is available for semantic assignment.
+            if not text_parts:
+                source = database.get_detection_source(source_id) or {}
+                render_path = safe_workspace_file(str(source.get("render_path") or ""))
+                if render_path.is_file():
+                    try:
+                        image = cv2.imread(str(render_path))
+                        if image is not None:
+                            height, width = image.shape[:2]
+                            crop = image[max(0, int(ry1)):min(height, int(ry2)), max(0, int(rx1)):min(width, int(rx2))]
+                            ok, encoded = cv2.imencode(".png", crop)
+                            if ok:
+                                completed = subprocess.run(
+                                    ["tesseract", "stdin", "stdout", "--psm", "6"],
+                                    input=encoded.tobytes(), capture_output=True, check=False, timeout=20,
+                                )
+                                text_parts.append(completed.stdout.decode("utf-8", errors="ignore"))
+                    except (OSError, subprocess.SubprocessError, ValueError):
+                        pass
+            haystack = normalize_for_matching(" ".join(text_parts))
+            scored = []
+            for definition in definitions:
+                terms = [str(definition.get("name") or "")] + [str(item) for item in (definition.get("hits") or [])]
+                score = sum(1 for term in terms if term and normalize_for_matching(term) in haystack)
+                scored.append((score, definition))
+            scored.sort(key=lambda item: item[0], reverse=True)
+            best_score = scored[0][0] if scored else 0
+            tied = [item for item in scored if item[0] == best_score and best_score > 0]
+            proposals.append({
+                "region_index": index, "table_name": tied[0][1]["name"] if len(tied) == 1 else "",
+                "confidence": "matched" if len(tied) == 1 and best_score > 0 else "uncertain",
+                "score": best_score, "ocr_text": " | ".join(dict.fromkeys(text_parts))[:1000],
+            })
+        return jsonify({"ok": True, "source_id": source_id, "proposals": proposals})
+
     @app.get("/detection-review")
     def detection_review_index():
         rows = detection_review_source_rows()
@@ -4037,16 +4114,21 @@ def create_web_app(
         source = database.get_detection_source(source_id)
         if source is None:
             abort(404)
-        gt_mode = canonical_table_gt_mode()
+        canonical_gt_sources = {
+            str(item.get("source_id") or ""): item
+            for item in list_ground_truth_sources(workspace_root())
+        } if canonical_table_gt_mode() else {}
+        gt_source = canonical_gt_sources.get(source_id)
+        gt_mode = gt_source is not None
         if gt_mode:
-            gt_source = next((item for item in list_ground_truth_sources(workspace_root()) if str(item.get("source_id")) == source_id), None)
-            if gt_source is None:
-                abort(404)
             source = {
                 **source,
-                "review_completed": bool(gt_source.get("review_completed", True)),
+                "review_completed": bool(gt_source.get("review_completed", False)),
                 "review_completed_at": gt_source.get("review_completed_at"),
             }
+        # New sources remain detector-review sources until a reviewer explicitly
+        # creates canonical GT. Their model output is never discarded or mistaken
+        # for Ground Truth.
         candidates = [] if gt_mode else database.list_detection_candidates(source_id, include_rejected=True)
         annotations = database.list_detection_annotations(source_id, active_only=True, include_ignored=True)
         geometry = database.list_detection_table_geometry(source_id)
@@ -4177,8 +4259,8 @@ def create_web_app(
         if request.args.get("view", "legacy").strip().lower() != "legacy":
             studio_sources = (
                 [
-                    {"source_id": str(item["source_id"]), "review_completed": bool(item.get("review_completed", True))}
-                    for item in list_ground_truth_sources(workspace_root())
+                    {"source_id": str(item["source_id"]), "review_completed": bool(item.get("review_completed"))}
+                    for item in database.list_detection_sources()
                 ]
                 if gt_mode else
                 [
@@ -4202,8 +4284,8 @@ def create_web_app(
             reasons=DETECTION_REVIEW_REASONS, relevance_reasons=DETECTION_RELEVANCE_REASONS, review_counts=counts,
             sources=(
                 [
-                    {"source_id": str(item["source_id"]), "review_completed": bool(item.get("review_completed", True))}
-                    for item in list_ground_truth_sources(workspace_root())
+                    {"source_id": str(item["source_id"]), "review_completed": bool(item.get("review_completed"))}
+                    for item in database.list_detection_sources()
                 ]
                 if gt_mode else
                 [
@@ -4354,6 +4436,30 @@ def create_web_app(
         except (TypeError, ValueError) as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         return jsonify({"ok": True, "annotation": item, "counts": step4_review_counts(source_id)})
+
+    @app.post("/api/detection-review/<source_id>/<candidate_id>/promote-to-gt")
+    def detection_review_promote_candidate_to_gt_api(source_id: str, candidate_id: str):
+        """Promote one reviewed table-cell proposal to canonical GT."""
+        candidate = database.get_detection_candidate(source_id, candidate_id)
+        if candidate is None:
+            return jsonify({"ok": False, "error": "Kandidaat niet gevonden"}), 404
+        box = (
+            int(candidate.get("corrected_x1") or candidate["x1"]),
+            int(candidate.get("corrected_y1") or candidate["y1"]),
+            int(candidate.get("corrected_x2") or candidate["x2"]),
+            int(candidate.get("corrected_y2") or candidate["y2"]),
+        )
+        try:
+            gt = add_ground_truth_cell(workspace_root(), source_id, box, provenance="step7_prediction_gt")
+            database.review_detection_candidate(
+                source_id=source_id, candidate_id=candidate_id, review_status="correct",
+                relevance_status="relevant", reason_code="", relevance_reason="",
+                notes="Promoted to canonical GT",
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        item = {**gt, "annotation_id": gt["gt_id"], "training_role": "positive", "provenance": gt.get("provenance", "step7_prediction_gt")}
+        return jsonify({"ok": True, "annotation": item, "counts": ground_truth_counts(workspace_root(), source_id)})
 
     @app.post("/api/detection-review/<source_id>/accept-unreviewed")
     def detection_review_accept_unreviewed_api(source_id: str):
@@ -5783,7 +5889,7 @@ def create_web_app(
                 abort(400)
             if table_model_id:
                 options["table_model_id"] = table_model_id
-        if action_id in {"20","21","22"}:
+        if action_id in {"2", "20", "21", "22"}:
             source_id=str(request.form.get("source_id","")).strip()
             if source_id:
                 if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", source_id):
@@ -5794,6 +5900,11 @@ def create_web_app(
             if device not in {"cpu","gpu"}:
                 abort(400)
             options["device"]=device
+        if action_id in {"50", "51", "53"}:
+            start_from = str(request.form.get("start_from") or "standard").strip().lower()
+            if start_from not in {"standard", "active"}:
+                abort(400)
+            options["start_from"] = start_from
         payload = enqueue_job(action_id, options)
         job_id = str(payload["job_id"])
         flash(f"Taak gestart: {ACTIONS[action_id]}","success")

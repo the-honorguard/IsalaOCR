@@ -31,6 +31,7 @@ interface GTStudioProps {
   image?: GTImageReview | null;
   onPrevious?: () => void;
   onNext?: () => void;
+  onRedetect?: () => void;
   onApprove?: () => void;
   onToggleTraining?: () => void;
 }
@@ -54,6 +55,7 @@ export function GTStudio(props: GTStudioProps) {
       h("aside", { className: "gt-controls" },
         h("button", { onClick: props.onPrevious }, "Previous"),
         h("button", { onClick: props.onNext }, "Next"),
+        h("button", { onClick: props.onRedetect }, "Herken opnieuw"),
         h("button", { onClick: props.onApprove }, "Approve GT"),
         h("button", { onClick: props.onToggleTraining }, "Toggle training")
       )

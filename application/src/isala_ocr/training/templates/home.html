@@ -21,7 +21,7 @@
     <a href="/process/panel-setup" class="stage {% if s2 and s2.complete %}complete{% endif %}"><div class="stage-index">2</div><strong>Tabelregio’s selecteren</strong><div class="muted">Teken de volledige tabellen als Ground Truth.</div></a>
     <a href="/process/table-region-model" class="stage {% if s3 and s3.complete %}complete{% endif %}"><div class="stage-index">3</div><strong>Regio-model trainen</strong><div class="muted">Leer volledige tabelregio’s automatisch herkennen.</div></a>
     <a href="/process/detect-candidates" class="stage {% if s4 and s4.complete %}complete{% endif %}"><div class="stage-index">4</div><strong>Regio’s + cellen detecteren</strong><div class="muted">Gebruik het regio-model en maak celvoorstellen.</div></a>
-    <a href="/process/detection-review" class="stage {% if s5 and s5.complete %}complete{% endif %}"><div class="stage-index">5</div><strong>GT Studio</strong><div class="muted">Per bron de cel-Ground Truth controleren en goedkeuren.</div></a>
+    <a href="/detection-review" class="stage {% if s5 and s5.complete %}complete{% endif %}"><div class="stage-index">5</div><strong>GT Studio</strong><div class="muted">Per bron de cel-Ground Truth controleren en goedkeuren.</div></a>
   </div>
 </section>
 
@@ -62,3 +62,4 @@
   <section class="card"><div class="toolbar"><h3>Recente taken</h3><a href="/jobs/manage">Wachtrij</a></div>{% for j in jobs %}<div class="job"><span>{{ j.action_name }}</span><span class="job-status {{ j.status }}">{{ j.status }}</span></div>{% else %}<p class="muted">Nog geen webtaken.</p>{% endfor %}</section>
 </div>
 {% endblock %}
+

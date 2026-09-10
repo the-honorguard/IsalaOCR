@@ -10,6 +10,7 @@
         h('aside',{className:'gt-controls'},
           h('button',{onClick:props.onPrevious},'Previous'),
           h('button',{onClick:props.onNext},'Next'),
+          h('button',{onClick:props.onRedetect},'Herken opnieuw'),
           h('button',{onClick:props.onApprove},'Approve GT'),
           h('button',{onClick:props.onToggleTraining},'Toggle training')
         )
@@ -18,5 +19,5 @@
   }
   const bootstrap=window.__ISALA_GT_STUDIO__;
   const root=document.getElementById('gt-studio-root');
-  if(root&&bootstrap){ReactDOM.render(h(GTStudio,{image:bootstrap.image,onPrevious:bootstrap.onPrevious,onNext:bootstrap.onNext,onApprove:bootstrap.onApprove,onToggleTraining:bootstrap.onToggleTraining}),root);}
+  if(root&&bootstrap){ReactDOM.render(h(GTStudio,{image:bootstrap.image,onPrevious:bootstrap.onPrevious,onNext:bootstrap.onNext,onRedetect:bootstrap.onRedetect,onApprove:bootstrap.onApprove,onToggleTraining:bootstrap.onToggleTraining}),root);}
 })();

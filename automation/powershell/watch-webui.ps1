@@ -10,12 +10,6 @@ if ($QuietSeconds -lt 0) {
 
 $ErrorActionPreference = "Stop"
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$watchMutex = New-Object System.Threading.Mutex($false, "IsalaOCR-WebUiWatcher")
-if (-not $watchMutex.WaitOne(0)) {
-    Write-Host "Er draait al een WebUI-watcher; deze tweede watcher wordt gestopt." -ForegroundColor DarkYellow
-    $watchMutex.Dispose()
-    exit 0
-}
 $watchRoots = @(
     (Join-Path $projectRoot "application\src\isala_ocr"),
     (Join-Path $projectRoot "application\config"),
@@ -46,8 +40,7 @@ Write-Host "Stoppen: Ctrl+C · Handmatig opnieuw bouwen: R" -ForegroundColor Dar
 $pendingFingerprint = $null
 $pendingSince = $null
 
-try {
-    while ($true) {
+while ($true) {
         Start-Sleep -Milliseconds $PollMilliseconds
         try {
             if (-not [Console]::IsInputRedirected -and [Console]::KeyAvailable) {
@@ -91,9 +84,4 @@ try {
             Write-Host ("Automatische update mislukt: {0}" -f $_.Exception.Message) -ForegroundColor Red
             Write-Host "De watcher blijft actief en probeert opnieuw bij de volgende wijziging." -ForegroundColor DarkGray
         }
-    }
-} finally {
-    Write-Host "WebUI watch mode gestopt." -ForegroundColor DarkGray
-    $watchMutex.ReleaseMutex()
-    $watchMutex.Dispose()
 }

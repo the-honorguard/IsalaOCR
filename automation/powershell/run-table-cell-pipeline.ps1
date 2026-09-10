@@ -1,6 +1,7 @@
 param(
     [ValidateSet("auto", "cpu", "gpu")]
-    [string]$ExecutionDevice = "auto"
+    [string]$ExecutionDevice = "auto",
+    [ValidateSet("standard","active")][string]$StartFrom = "standard"
 )
 
 . (Join-Path $PSScriptRoot "training-common.ps1")
@@ -134,6 +135,8 @@ try {
                     $step5Summary.requested_device = $ExecutionDevice
                     Write-Step5DiagnosticsSummary
                 }
+                $requestedStart = ([string]$job.options.start_from).Trim().ToLowerInvariant()
+                if ($requestedStart -in @("standard", "active")) { $StartFrom = $requestedStart }
             }
         }
         catch {
@@ -240,7 +243,7 @@ try {
     }
 
     Write-Host ("Alles laten draaien: {0}-training..." -f $resolvedDevice.ToUpperInvariant()) -ForegroundColor Cyan
-    & (Join-Path $PSScriptRoot "train-table-cell-model.ps1") -Device $resolvedDevice
+    & (Join-Path $PSScriptRoot "train-table-cell-model.ps1") -Device $resolvedDevice -StartFrom $StartFrom
     if ($LASTEXITCODE -ne 0) { throw "Table-cell detector training failed on $resolvedDevice." }
 
     Write-Host "Alles laten draaien: model activeren..." -ForegroundColor Cyan

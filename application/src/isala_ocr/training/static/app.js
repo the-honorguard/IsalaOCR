@@ -513,6 +513,14 @@
       if (form.dataset.refreshOnComplete !== '0' && payload.job_id) {
         refreshOnCompleteJobs.add(String(payload.job_id));
       }
+      // Source-specific detector reruns stay in the background, but must never
+      // disappear behind a previously hidden review task bar. The compact dock
+      // remains collapsed; it now shows this task and exposes the full queue.
+      if (form.dataset.trackInQueue === 'true') {
+        dock.classList.remove('force-hidden');
+        document.body.classList.remove('review-activity-hidden');
+        window.localStorage.setItem('isala-detection-review:activity', '0');
+      }
       window.dispatchEvent(new CustomEvent('isala:job-created', {detail: payload}));
       renderJobOptions();
       setActiveJob(payload.job_id, false);

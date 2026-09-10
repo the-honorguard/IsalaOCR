@@ -168,8 +168,14 @@ def _dataset_source_state(root: Path, db: TrainingDatabase) -> tuple[list[dict[s
         ]
         by_source = {source_id: [{**item, "annotation_id": item.get("gt_id")} for item in list_ground_truth_cells(root, source_id)] for source_id in source_ids}
         return sources, by_source, canonical
-    sources = [item for item in db.list_detection_sources() if bool(item.get("review_completed"))]
-    by_source = {str(item["source_id"]): _current_table_annotations(db, str(item["source_id"])) for item in sources}
+    # Step 6 candidate reviews are already usable supervision.  Do not require
+    # the older whole-source review flag: that flag belongs to the legacy GT
+    # flow and prevented explicitly accepted/rejected table cells from reaching
+    # the first training round.
+    all_sources = db.list_detection_sources()
+    by_source = {str(item["source_id"]): _current_table_annotations(db, str(item["source_id"])) for item in all_sources}
+    sources = [item for item in all_sources if by_source.get(str(item["source_id"])) or bool(item.get("review_completed"))]
+    by_source = {str(item["source_id"]): by_source.get(str(item["source_id"]), []) for item in sources}
     return sources, by_source, None
 
 
@@ -285,7 +291,7 @@ def build_table_cell_dataset(workspace: str | Path) -> dict[str, Any]:
     db = TrainingDatabase(root / "samples.sqlite3")
     sources, by_source, canonical = _dataset_source_state(root, db)
     if not sources:
-        raise ValueError("Rond eerst minimaal één table-cell review volledig af")
+        raise ValueError("Beoordeel eerst minimaal één cel als goedgekeurd in Stap 6")
     if canonical is not None:
         incomplete_gt_sources = [str(item["source_id"]) for item in sources if not bool(item.get("gt_review_completed"))]
         if incomplete_gt_sources:
@@ -299,7 +305,7 @@ def build_table_cell_dataset(workspace: str | Path) -> dict[str, Any]:
     for source_id in source_ids:
         all_annotations.extend(by_source.get(source_id, []))
     if not all_annotations:
-        raise ValueError("De afgeronde table-review bevat nog geen positieve functionele cellen")
+        raise ValueError("De beoordeelde cellen bevatten nog geen goedgekeurde positieve voorbeelden")
     panels_by_source = _training_panels(root, db, sources, canonical)
     if not panels_by_source:
         raise ValueError("Er zijn nog geen gedetecteerde tabelregio’s beschikbaar")
@@ -796,6 +802,12 @@ def activate_table_cell_model(workspace: str | Path, model_id: str = "latest") -
     inference_dir = root / str(model.get("inference_dir") or "")
     if not inference_dir.is_dir():
         raise FileNotFoundError(f"Inference directory ontbreekt voor {model_id}")
+    evaluation = model.get("evaluation") if isinstance(model.get("evaluation"), dict) else {}
+    if evaluation and float(evaluation.get("f1") or 0.0) <= 0.0:
+        raise ValueError(
+            f"Model {model_id} mag niet worden geactiveerd: de vaste validatie heeft F1=0 "
+            f"({evaluation.get('tp', 0)} TP, {evaluation.get('fp', 0)} FP, {evaluation.get('fn', 0)} FN)."
+        )
     payload = {**model, "active": True, "activated_at": utc_now()}
     _write_json(base / "active.json", payload)
     return payload

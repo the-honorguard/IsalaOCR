@@ -95,15 +95,17 @@ def test_canonical_gt_is_authoritative_table_first_mapping_gate(tmp_path: Path) 
     assert quality["canonical_gt"]["open_source_count"] == 1
 
 
-def test_gt_studio_exposes_persistent_source_check_and_model_predictions_stay_in_step7() -> None:
+def test_gt_studio_uses_cell_level_review_without_a_visible_source_approval() -> None:
     studio = (ROOT / "application/src/isala_ocr/training/templates/detection_review_studio.html").read_text(encoding="utf-8")
     quality = (ROOT / "application/src/isala_ocr/training/templates/table_quality.html").read_text(encoding="utf-8")
     webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
 
-    assert "GT-afbeelding gecontroleerd" in studio
-    assert "sourceDone.onclick=finishSource" in studio
+    assert 'class="review-dock-source" hidden' in studio
+    assert 'id="source-done"' in studio
+    assert "GT-afbeelding gecontroleerd" not in studio
+    assert "Afbeelding klaar ✓" not in studio
     assert "markGtSourceDirty" in studio
     assert "set_ground_truth_source_review_completed" in webui
     assert "Nieuwe modelpredictions tellen hier niet als open kandidaten" in webui
     assert "GT en modelfeedback blijven gescheiden" in quality
-    assert "Stap 7 · Rijen, kolommen en celcrops" in quality
+    assert "Stap 8 · Rijen, kolommen en celcrops" in quality

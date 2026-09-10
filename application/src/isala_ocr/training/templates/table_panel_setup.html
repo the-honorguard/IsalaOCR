@@ -13,11 +13,6 @@
 {% else %}
 <section class="card gt-toolbar">
   <div class="gt-toolbar-row">
-    <div>
-      <span class="eyebrow">REGIO-GT · VÓÓR MODELTRAINING</span>
-      <h3>{{ source_id }}</h3>
-      <p class="muted">Hier geef je alleen aan <strong>waar</strong> de tabellen staan. Geen LV/RV, links/rechts of andere semantiek.</p>
-    </div>
     <form method="get" action="/process/panel-setup">
       <label>Lezing
         <select name="source_id" onchange="this.form.submit()">
@@ -28,11 +23,10 @@
   </div>
   <div class="workflow-actions">
     <button type="button" id="draw-region" class="primary">+ Tabelregio tekenen</button>
-    <button type="button" id="use-suggestions">Detectievoorstellen overnemen</button>
+    <button type="button" id="use-suggestions">Voorstellen van deze afbeelding overnemen</button>
     <button type="button" id="save-regions" class="primary">✓ Regio-GT opslaan</button>
     <button type="button" id="no-table">Geen tabel in deze bron</button>
     <button type="button" id="clear-regions" class="danger">GT wissen</button>
-    <a class="button ghost" href="/process/table-region-model">Naar regiomodel trainen</a>
   </div>
   <div id="gt-message" class="inline-status"></div>
 </section>
@@ -45,7 +39,11 @@
       <div id="region-layer" class="gt-layer region-layer"></div>
       <div id="draft-region" class="draft-region" hidden></div>
     </div>
-    <p class="muted help">Groen = opgeslagen/te bewaren regio-GT. Oranje = alleen een voorstel. Sleep een groen kader om het te verplaatsen; gebruik de hoekpunten om het formaat aan te passen.</p>
+    <div class="gt-legend" aria-label="Legenda">
+      <span><i class="saved"></i>Opgeslagen regio</span>
+      <span><i class="proposal"></i>Detectievoorstel</span>
+      <span class="gt-legend-help">Sleep of gebruik de hoekpunten om een opgeslagen kader aan te passen.</span>
+    </div>
   </section>
   <aside class="card gt-side">
     <div class="toolbar"><div><span class="eyebrow">BRONNEN</span><h3>Regio-GT voortgang</h3></div><span class="pill">{{ table_review_sources|length }}</span></div>
@@ -56,10 +54,6 @@
         <span class="pill {{ 'ok' if item.review_completed else 'warn' }}">{{ item.region_count or 0 }} · {{ 'klaar' if item.review_completed else 'open' }}</span>
       </a>
       {% endfor %}
-    </div>
-    <div class="notice info">
-      <strong>Modeldoel</strong><br>
-      Deze GT bouwt een dataset met één class: <code>table_region</code>. De panelrol wordt hier bewust niet opgeslagen.
     </div>
   </aside>
 </div>
@@ -76,6 +70,7 @@
   const saved={{ region_ground_truth|tojson }};
   const suggestions={{ suggestions|tojson }};
   let regions=(saved||[]).map(r=>({x1:Number(r.x1),y1:Number(r.y1),x2:Number(r.x2),y2:Number(r.y2)}));
+  let suggestionsVisible=true;
   let drawMode=false, interaction=null;
 
   const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
@@ -101,6 +96,7 @@
   }
   function renderSuggestions(){
     suggestionLayer.innerHTML='';
+    if(!suggestionsVisible) return;
     (suggestions||[]).forEach((raw,index)=>{
       const b={x1:Number(raw.x1||0),y1:Number(raw.y1||0),x2:Number(raw.x2||0),y2:Number(raw.y2||0)};
       if(!valid(b)) return;
@@ -172,7 +168,7 @@
     catch(error){setMessage(error.message||String(error),'error');}
   });
   document.getElementById('no-table').addEventListener('click',async()=>{
-    try{regions=[];render();const data=await save(true);setMessage(data.message||'Bron als expliciete negatieve GT opgeslagen.','success');}
+    try{regions=[];suggestionsVisible=false;render();renderSuggestions();const data=await save(true);setMessage(data.message||'Bron als expliciete negatieve GT opgeslagen.','success');}
     catch(error){setMessage(error.message||String(error),'error');}
   });
   document.getElementById('clear-regions').addEventListener('click',async()=>{
@@ -183,7 +179,7 @@
 })();
 </script>
 <style>
-.gt-toolbar{padding:14px 16px}.gt-toolbar-row{display:flex;justify-content:space-between;gap:18px;align-items:end}.gt-toolbar h3{margin:3px 0}.gt-toolbar select{display:block;margin-top:4px;min-width:260px}.gt-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}.gt-image-card{padding:10px;background:#070d13}.gt-stage{position:relative;line-height:0;overflow:hidden;background:#05080c;border:1px solid var(--border);border-radius:8px;touch-action:none;user-select:none}.gt-stage.drawing{cursor:crosshair}.gt-stage>img{display:block;width:100%;height:auto;pointer-events:none}.gt-layer{position:absolute;inset:0;pointer-events:none}.region-layer{z-index:3}.suggestion-layer{z-index:2}.gt-region{position:absolute;box-sizing:border-box;border:2px solid #45d7a0;background:rgba(69,215,160,.08);pointer-events:auto;cursor:move;line-height:1.2}.gt-region .region-label,.gt-suggestion span{position:absolute;left:3px;top:3px;padding:2px 5px;border-radius:4px;background:#071018;color:#fff;font:11px/1.2 sans-serif;white-space:nowrap}.region-remove{position:absolute;right:3px;top:3px;width:22px;height:22px;padding:0;border-radius:4px;line-height:18px}.resize{position:absolute;width:12px;height:12px;border-radius:50%;background:#45d7a0;border:2px solid #071018}.resize.nw{left:-7px;top:-7px;cursor:nwse-resize}.resize.ne{right:-7px;top:-7px;cursor:nesw-resize}.resize.sw{left:-7px;bottom:-7px;cursor:nesw-resize}.resize.se{right:-7px;bottom:-7px;cursor:nwse-resize}.gt-suggestion{position:absolute;box-sizing:border-box;border:2px dashed #f59e0b;background:rgba(245,158,11,.05)}.draft-region{position:absolute;z-index:5;box-sizing:border-box;border:2px dashed #38bdf8;background:rgba(56,189,248,.08);pointer-events:none}.help{font-size:12px;line-height:1.45;margin:9px 0 0}.gt-side{padding:14px;position:sticky;top:12px}.source-list{display:grid;gap:5px;margin-top:12px;max-height:65vh;overflow:auto}.source-row{display:flex;justify-content:space-between;gap:8px;padding:8px;border:1px solid transparent;border-radius:7px;background:#101b25;color:var(--text);text-decoration:none;font-size:12px}.source-row.active,.source-row:hover{border-color:#65bfff;background:#162637}.gt-side .notice{margin-top:14px;font-size:12px;line-height:1.45}@media(max-width:900px){.gt-layout{grid-template-columns:1fr}.gt-side{position:static}}@media(max-width:620px){.gt-toolbar-row{align-items:stretch;flex-direction:column}.gt-toolbar select{min-width:0;width:100%}}
+.gt-toolbar{padding:14px 16px}.gt-toolbar-row{display:flex;justify-content:flex-end;gap:18px;align-items:end}.gt-toolbar select{display:block;margin-top:4px;min-width:260px}.gt-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}.gt-image-card{padding:10px;background:#070d13}.gt-stage{position:relative;line-height:0;overflow:hidden;background:#05080c;border:1px solid var(--border);border-radius:8px;touch-action:none;user-select:none}.gt-stage.drawing{cursor:crosshair}.gt-stage>img{display:block;width:100%;height:auto;pointer-events:none}.gt-layer{position:absolute;inset:0;pointer-events:none}.region-layer{z-index:3}.suggestion-layer{z-index:2}.gt-region{position:absolute;box-sizing:border-box;border:2px solid #45d7a0;background:rgba(69,215,160,.08);pointer-events:auto;cursor:move;line-height:1.2}.gt-region .region-label,.gt-suggestion span{position:absolute;left:3px;top:3px;padding:2px 5px;border-radius:4px;background:#071018;color:#fff;font:11px/1.2 sans-serif;white-space:nowrap}.region-remove{position:absolute;right:3px;top:3px;width:22px;height:22px;padding:0;border-radius:4px;line-height:18px}.resize{position:absolute;width:12px;height:12px;border-radius:50%;background:#45d7a0;border:2px solid #071018}.resize.nw{left:-7px;top:-7px;cursor:nwse-resize}.resize.ne{right:-7px;top:-7px;cursor:nesw-resize}.resize.sw{left:-7px;bottom:-7px;cursor:nesw-resize}.resize.se{right:-7px;bottom:-7px;cursor:nwse-resize}.gt-suggestion{position:absolute;box-sizing:border-box;border:2px dashed #f59e0b;background:rgba(245,158,11,.05)}.draft-region{position:absolute;z-index:5;box-sizing:border-box;border:2px dashed #38bdf8;background:rgba(56,189,248,.08);pointer-events:none}.gt-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:9px 0 0;color:var(--muted);font-size:12px}.gt-legend span{display:inline-flex;align-items:center;gap:6px}.gt-legend i{display:inline-block;width:18px;height:11px;border-radius:2px}.gt-legend .saved{border:2px solid #45d7a0;background:rgba(69,215,160,.08)}.gt-legend .proposal{border:2px dashed #f59e0b;background:rgba(245,158,11,.05)}.gt-legend .gt-legend-help{margin-left:auto}.gt-side{padding:14px;position:sticky;top:12px}.source-list{display:grid;gap:5px;margin-top:12px;max-height:260px;overflow:auto}.source-row{display:flex;justify-content:space-between;gap:8px;padding:8px;border:1px solid transparent;border-radius:7px;background:#101b25;color:var(--text);text-decoration:none;font-size:12px}.source-row.active,.source-row:hover{border-color:#65bfff;background:#162637}@media(max-width:900px){.gt-layout{grid-template-columns:1fr}.gt-side{position:static}}@media(max-width:620px){.gt-toolbar-row{align-items:stretch;flex-direction:column}.gt-toolbar select{min-width:0;width:100%}.gt-legend .gt-legend-help{margin-left:0;flex-basis:100%}}
 </style>
 {% endif %}
 {% endblock %}

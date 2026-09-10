@@ -2,51 +2,50 @@
     "schema_version":  1,
     "project_id":  "cmr_testcase_01",
     "status":  "completed",
-    "started_at":  "2026-08-18T21:31:00.6640872+02:00",
-    "completed_at":  "2026-08-18T21:39:55.8263162+02:00",
+    "started_at":  "2026-09-10T14:20:42.1277847+02:00",
+    "completed_at":  "2026-09-10T14:33:59.9296972+02:00",
     "requested_device":  "auto",
     "resolved_device":  "gpu",
     "training_backend":  "gpu",
     "inference_backend":  "gpu",
     "gpu_name":  "NVIDIA GeForce RTX 3070",
-    "dataset_id":  "table-cells-20260818T193114538984Z-71fc7ca1",
+    "dataset_id":  "table-cells-20260910T122056829648Z-e7f63322",
     "dataset":  {
-                    "source_count":  14,
-                    "panel_count":  28,
-                    "annotation_count":  891,
-                    "training_image_count":  28,
-                    "training_annotation_count":  891,
+                    "source_count":  31,
+                    "panel_count":  62,
+                    "annotation_count":  1873,
+                    "training_image_count":  62,
+                    "training_annotation_count":  1871,
                     "splits":  {
                                    "train":  {
-                                                 "sources":  9,
-                                                 "panels":  18,
-                                                 "annotations":  594
+                                                 "sources":  21,
+                                                 "panels":  42,
+                                                 "annotations":  1251
                                              },
                                    "val":  {
-                                               "sources":  2,
-                                               "panels":  4,
-                                               "annotations":  108
+                                               "sources":  5,
+                                               "panels":  10,
+                                               "annotations":  300
                                            },
                                    "test":  {
-                                                "sources":  3,
-                                                "panels":  6,
-                                                "annotations":  189
+                                                "sources":  5,
+                                                "panels":  10,
+                                                "annotations":  320
                                             }
                                },
                     "training_feedback":  {
-                                              "run_id":  "detect-20260818T182035Z-579f5e2aaa",
-                                              "model_id":  "table-RTDETR-L-table-run-20260818T201222-RTDETR-L",
-                                              "model_error_count":  33,
+                                              "run_id":  "detect-20260909T171108Z-274c17d91c",
+                                              "model_id":  "table-RTDETR-L-table-run-20260909T190359-RTDETR-L",
+                                              "model_error_count":  238,
                                               "decision_counts":  {
-                                                                      "model_error":  33,
-                                                                      "functional_ok":  50,
-                                                                      "gt_added":  24
+                                                                      "functional_ok":  94,
+                                                                      "model_error":  238
                                                                   },
-                                              "policy":  "dynamic panel hard-example replay; newest model_error panel -\u003e weight 2; consecutive recurrence -\u003e weight 3 max; a clean newer review resets to weight 1; train split only; no negative-only crops and no physical image copies",
-                                              "hard_example_registry_count":  26,
-                                              "replay_candidate_panel_count":  17,
-                                              "replay_selected_extra_draws":  9,
-                                              "replay_budget_ratio":  0.5
+                                              "policy":  "dynamic panel hard-example replay; newest model_error panel -\u003e weight 2; consecutive recurrence -\u003e weight 3 max; recurrent/high-confidence panels get replay priority; a clean newer review resets to weight 1; train split only; no negative-only crops and no physical image copies",
+                                              "hard_example_registry_count":  15,
+                                              "replay_candidate_panel_count":  11,
+                                              "replay_selected_extra_draws":  21,
+                                              "replay_budget_ratio":  1.5
                                           }
                 },
     "validation":  {
@@ -59,16 +58,16 @@
                                     ],
                        "splits":  {
                                       "train":  {
-                                                    "images":  18,
-                                                    "annotations":  594
+                                                    "images":  42,
+                                                    "annotations":  1251
                                                 },
                                       "val":  {
-                                                  "images":  4,
-                                                  "annotations":  108
+                                                  "images":  10,
+                                                  "annotations":  300
                                               },
                                       "test":  {
-                                                   "images":  6,
-                                                   "annotations":  189
+                                                   "images":  10,
+                                                   "annotations":  320
                                                }
                                   },
                        "numeric_sanity":  {
@@ -81,16 +80,16 @@
                                                            ],
                                               "splits":  {
                                                              "train":  {
-                                                                           "images":  18,
-                                                                           "annotations":  594
+                                                                           "images":  42,
+                                                                           "annotations":  1251
                                                                        },
                                                              "val":  {
-                                                                         "images":  4,
-                                                                         "annotations":  108
+                                                                         "images":  10,
+                                                                         "annotations":  300
                                                                      },
                                                              "test":  {
-                                                                          "images":  6,
-                                                                          "annotations":  189
+                                                                          "images":  10,
+                                                                          "annotations":  320
                                                                       }
                                                          }
                                           }
@@ -98,232 +97,327 @@
     "hard_example_replay":  {
                                 "schema_version":  1,
                                 "strategy":  "dynamic_panel_weighted_replay",
-                                "budget_ratio":  0.5,
-                                "base_train_panels":  18,
-                                "candidate_panel_count":  17,
-                                "requested_extra_draws":  34,
-                                "budget_extra_draws":  9,
-                                "selected_extra_draws":  9,
-                                "effective_train_draws":  27,
+                                "budget_ratio":  1.5,
+                                "base_train_panels":  42,
+                                "candidate_panel_count":  11,
+                                "requested_extra_draws":  21,
+                                "budget_extra_draws":  21,
+                                "selected_extra_draws":  21,
+                                "effective_train_draws":  63,
                                 "max_replay_weight":  3,
                                 "panels":  [
                                                {
-                                                   "panel_key":  "2837386836db1bf29897e10f::left-ventricle-volume-result",
-                                                   "source_id":  "2837386836db1bf29897e10f",
-                                                   "panel_id":  "left-ventricle-volume-result",
-                                                   "panel_name":  "Left ventricle Volume Result",
-                                                   "file_name":  "2837386836db1bf29897e10f__left-ventricle-volume-result.png",
+                                                   "panel_key":  "195bbccacd4d2ed5babc0874::left",
+                                                   "source_id":  "195bbccacd4d2ed5babc0874",
+                                                   "panel_id":  "left",
+                                                   "panel_name":  "left",
+                                                   "file_name":  "195bbccacd4d2ed5babc0874__left.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  2,
+                                                   "total_error_runs":  2,
+                                                   "latest_error_count":  19,
+                                                   "latest_error_types":  [
+                                                                              "fn",
+                                                                              "fp",
+                                                                              "geometry",
+                                                                              "merged"
+                                                                          ],
+                                                   "max_confidence":  0.9799972803969133
+                                               },
+                                               {
+                                                   "panel_key":  "195bbccacd4d2ed5babc0874::right",
+                                                   "source_id":  "195bbccacd4d2ed5babc0874",
+                                                   "panel_id":  "right",
+                                                   "panel_name":  "right",
+                                                   "file_name":  "195bbccacd4d2ed5babc0874__right.png",
                                                    "replay_count":  1,
                                                    "effective_weight":  2,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  8,
-                                                   "total_error_runs":  8,
+                                                   "requested_weight":  2,
+                                                   "error_streak":  1,
+                                                   "total_error_runs":  1,
                                                    "latest_error_count":  2,
                                                    "latest_error_types":  [
+                                                                              "fn",
                                                                               "fp"
                                                                           ],
-                                                   "max_confidence":  0.9772634506225586
+                                                   "max_confidence":  0.85
                                                },
                                                {
-                                                   "panel_key":  "4d5cca8727ec4e226d2fa767::left-ventricle-volume-result",
-                                                   "source_id":  "4d5cca8727ec4e226d2fa767",
-                                                   "panel_id":  "left-ventricle-volume-result",
-                                                   "panel_name":  "Left ventricle Volume Result",
-                                                   "file_name":  "4d5cca8727ec4e226d2fa767__left-ventricle-volume-result.png",
-                                                   "replay_count":  1,
-                                                   "effective_weight":  2,
+                                                   "panel_key":  "4254f4cafedeab601827471b::left",
+                                                   "source_id":  "4254f4cafedeab601827471b",
+                                                   "panel_id":  "left",
+                                                   "panel_name":  "left",
+                                                   "file_name":  "4254f4cafedeab601827471b__left.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  8,
-                                                   "total_error_runs":  8,
-                                                   "latest_error_count":  2,
+                                                   "error_streak":  2,
+                                                   "total_error_runs":  2,
+                                                   "latest_error_count":  22,
                                                    "latest_error_types":  [
-                                                                              "fp"
+                                                                              "fn",
+                                                                              "fp",
+                                                                              "geometry",
+                                                                              "merged"
                                                                           ],
-                                                   "max_confidence":  0.9507550597190857
+                                                   "max_confidence":  0.9996829032897949
                                                },
                                                {
-                                                   "panel_key":  "4d5cca8727ec4e226d2fa767::right-ventricle-volume-result",
-                                                   "source_id":  "4d5cca8727ec4e226d2fa767",
-                                                   "panel_id":  "right-ventricle-volume-result",
-                                                   "panel_name":  "Right ventricle Volume Result",
-                                                   "file_name":  "4d5cca8727ec4e226d2fa767__right-ventricle-volume-result.png",
-                                                   "replay_count":  1,
-                                                   "effective_weight":  2,
+                                                   "panel_key":  "4254f4cafedeab601827471b::right",
+                                                   "source_id":  "4254f4cafedeab601827471b",
+                                                   "panel_id":  "right",
+                                                   "panel_name":  "right",
+                                                   "file_name":  "4254f4cafedeab601827471b__right.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  7,
-                                                   "total_error_runs":  7,
-                                                   "latest_error_count":  2,
+                                                   "error_streak":  2,
+                                                   "total_error_runs":  2,
+                                                   "latest_error_count":  11,
                                                    "latest_error_types":  [
-                                                                              "fp"
+                                                                              "fn",
+                                                                              "geometry",
+                                                                              "merged"
                                                                           ],
-                                                   "max_confidence":  0.9474198818206787
+                                                   "max_confidence":  0.99206241656994
                                                },
                                                {
-                                                   "panel_key":  "80e835586f59b8303b0d23a4::left-ventricle-volume-result",
-                                                   "source_id":  "80e835586f59b8303b0d23a4",
-                                                   "panel_id":  "left-ventricle-volume-result",
-                                                   "panel_name":  "Left ventricle Volume Result",
-                                                   "file_name":  "80e835586f59b8303b0d23a4__left-ventricle-volume-result.png",
-                                                   "replay_count":  1,
-                                                   "effective_weight":  2,
+                                                   "panel_key":  "53ac0715a39fbbcefe46e400::left",
+                                                   "source_id":  "53ac0715a39fbbcefe46e400",
+                                                   "panel_id":  "left",
+                                                   "panel_name":  "left",
+                                                   "file_name":  "53ac0715a39fbbcefe46e400__left.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  7,
-                                                   "total_error_runs":  7,
-                                                   "latest_error_count":  3,
+                                                   "error_streak":  2,
+                                                   "total_error_runs":  2,
+                                                   "latest_error_count":  16,
                                                    "latest_error_types":  [
-                                                                              "fp"
+                                                                              "fn",
+                                                                              "fp",
+                                                                              "geometry",
+                                                                              "merged"
                                                                           ],
-                                                   "max_confidence":  0.9646040797233582
+                                                   "max_confidence":  0.9846989925091083
                                                },
                                                {
-                                                   "panel_key":  "86701d04742e3c4745b33450::left-ventricle-volume-result",
-                                                   "source_id":  "86701d04742e3c4745b33450",
-                                                   "panel_id":  "left-ventricle-volume-result",
-                                                   "panel_name":  "Left ventricle Volume Result",
-                                                   "file_name":  "86701d04742e3c4745b33450__left-ventricle-volume-result.png",
-                                                   "replay_count":  1,
-                                                   "effective_weight":  2,
+                                                   "panel_key":  "5a3c4f03a115b51a237dab35::left",
+                                                   "source_id":  "5a3c4f03a115b51a237dab35",
+                                                   "panel_id":  "left",
+                                                   "panel_name":  "left",
+                                                   "file_name":  "5a3c4f03a115b51a237dab35__left.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  7,
-                                                   "total_error_runs":  7,
-                                                   "latest_error_count":  2,
+                                                   "error_streak":  2,
+                                                   "total_error_runs":  2,
+                                                   "latest_error_count":  18,
                                                    "latest_error_types":  [
-                                                                              "fp"
+                                                                              "fn",
+                                                                              "geometry",
+                                                                              "merged"
                                                                           ],
-                                                   "max_confidence":  0.956974983215332
+                                                   "max_confidence":  0.9907858896255494
                                                },
                                                {
-                                                   "panel_key":  "9a92b29ef0942817d6e8ca6e::right-ventricle-volume-result",
-                                                   "source_id":  "9a92b29ef0942817d6e8ca6e",
-                                                   "panel_id":  "right-ventricle-volume-result",
-                                                   "panel_name":  "Right ventricle Volume Result",
-                                                   "file_name":  "9a92b29ef0942817d6e8ca6e__right-ventricle-volume-result.png",
-                                                   "replay_count":  1,
-                                                   "effective_weight":  2,
+                                                   "panel_key":  "b27419ec769898da105ee58e::left",
+                                                   "source_id":  "b27419ec769898da105ee58e",
+                                                   "panel_id":  "left",
+                                                   "panel_name":  "left",
+                                                   "file_name":  "b27419ec769898da105ee58e__left.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  7,
-                                                   "total_error_runs":  7,
+                                                   "error_streak":  2,
+                                                   "total_error_runs":  2,
+                                                   "latest_error_count":  19,
+                                                   "latest_error_types":  [
+                                                                              "fn",
+                                                                              "fp",
+                                                                              "geometry",
+                                                                              "merged"
+                                                                          ],
+                                                   "max_confidence":  0.9977123141288757
+                                               },
+                                               {
+                                                   "panel_key":  "b27419ec769898da105ee58e::right",
+                                                   "source_id":  "b27419ec769898da105ee58e",
+                                                   "panel_id":  "right",
+                                                   "panel_name":  "right",
+                                                   "file_name":  "b27419ec769898da105ee58e__right.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  2,
+                                                   "total_error_runs":  2,
+                                                   "latest_error_count":  19,
+                                                   "latest_error_types":  [
+                                                                              "fn",
+                                                                              "fp",
+                                                                              "merged"
+                                                                          ],
+                                                   "max_confidence":  0.9984457953409716
+                                               },
+                                               {
+                                                   "panel_key":  "bacd002e7dbfe3d9677c794d::left",
+                                                   "source_id":  "bacd002e7dbfe3d9677c794d",
+                                                   "panel_id":  "left",
+                                                   "panel_name":  "left",
+                                                   "file_name":  "bacd002e7dbfe3d9677c794d__left.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  2,
+                                                   "total_error_runs":  2,
+                                                   "latest_error_count":  14,
+                                                   "latest_error_types":  [
+                                                                              "fn",
+                                                                              "fp",
+                                                                              "geometry",
+                                                                              "merged"
+                                                                          ],
+                                                   "max_confidence":  0.9969240427017212
+                                               },
+                                               {
+                                                   "panel_key":  "bacd002e7dbfe3d9677c794d::right",
+                                                   "source_id":  "bacd002e7dbfe3d9677c794d",
+                                                   "panel_id":  "right",
+                                                   "panel_name":  "right",
+                                                   "file_name":  "bacd002e7dbfe3d9677c794d__right.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  2,
+                                                   "total_error_runs":  2,
                                                    "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fp"
+                                                                              "fn"
                                                                           ],
-                                                   "max_confidence":  0.9800849556922913
+                                                   "max_confidence":  0.0
                                                },
                                                {
-                                                   "panel_key":  "bcb1a14e26e65de3aaa61e81::left-ventricle-volume-result",
-                                                   "source_id":  "bcb1a14e26e65de3aaa61e81",
-                                                   "panel_id":  "left-ventricle-volume-result",
-                                                   "panel_name":  "Left ventricle Volume Result",
-                                                   "file_name":  "bcb1a14e26e65de3aaa61e81__left-ventricle-volume-result.png",
-                                                   "replay_count":  1,
-                                                   "effective_weight":  2,
+                                                   "panel_key":  "e0e11f8c6673ba0724a6750c::right",
+                                                   "source_id":  "e0e11f8c6673ba0724a6750c",
+                                                   "panel_id":  "right",
+                                                   "panel_name":  "right",
+                                                   "file_name":  "e0e11f8c6673ba0724a6750c__right.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  8,
-                                                   "total_error_runs":  8,
-                                                   "latest_error_count":  1,
+                                                   "error_streak":  2,
+                                                   "total_error_runs":  2,
+                                                   "latest_error_count":  15,
                                                    "latest_error_types":  [
-                                                                              "fp"
+                                                                              "fn",
+                                                                              "fp",
+                                                                              "geometry",
+                                                                              "merged"
                                                                           ],
-                                                   "max_confidence":  0.962432861328125
-                                               },
-                                               {
-                                                   "panel_key":  "bcb1a14e26e65de3aaa61e81::right-ventricle-volume-result",
-                                                   "source_id":  "bcb1a14e26e65de3aaa61e81",
-                                                   "panel_id":  "right-ventricle-volume-result",
-                                                   "panel_name":  "Right ventricle Volume Result",
-                                                   "file_name":  "bcb1a14e26e65de3aaa61e81__right-ventricle-volume-result.png",
-                                                   "replay_count":  1,
-                                                   "effective_weight":  2,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  7,
-                                                   "total_error_runs":  7,
-                                                   "latest_error_count":  1,
-                                                   "latest_error_types":  [
-                                                                              "fp"
-                                                                          ],
-                                                   "max_confidence":  0.9800849556922913
-                                               },
-                                               {
-                                                   "panel_key":  "ead2ecf7296e44b6bd3249f2::right-ventricle-volume-result",
-                                                   "source_id":  "ead2ecf7296e44b6bd3249f2",
-                                                   "panel_id":  "right-ventricle-volume-result",
-                                                   "panel_name":  "Right ventricle Volume Result",
-                                                   "file_name":  "ead2ecf7296e44b6bd3249f2__right-ventricle-volume-result.png",
-                                                   "replay_count":  1,
-                                                   "effective_weight":  2,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  7,
-                                                   "total_error_runs":  7,
-                                                   "latest_error_count":  1,
-                                                   "latest_error_types":  [
-                                                                              "fp"
-                                                                          ],
-                                                   "max_confidence":  0.9786911010742188
+                                                   "max_confidence":  0.9950754046440125
                                                }
                                            ]
                             },
-    "model_id":  "table-RTDETR-L-table-run-20260818T213206-RTDETR-L",
-    "run_id":  "table-run-20260818T213206-RTDETR-L",
+    "model_id":  "table-RTDETR-L-table-run-20260910T142157-RTDETR-L",
+    "run_id":  "table-run-20260910T142157-RTDETR-L",
     "training_run":  {
-                         "training_mode":  "continue",
-                         "parent_model_id":  "table-RTDETR-L-table-run-20260818T201222-RTDETR-L",
-                         "epochs":  40,
+                         "training_mode":  "fresh",
+                         "parent_model_id":  "",
+                         "epochs":  50,
                          "batch_size":  3,
-                         "learning_rate":  3E-05,
-                         "base_train_images":  18,
-                         "hard_example_replay_draws":  9,
-                         "hard_example_replay_panels":  9,
+                         "learning_rate":  0.0001,
+                         "base_train_images":  42,
+                         "hard_example_replay_draws":  21,
+                         "hard_example_replay_panels":  11,
                          "hard_example_replay_runtime":  {
                                                              "strategy":  "dynamic_panel_weighted_replay",
-                                                             "base_records":  18,
-                                                             "extra_draws":  9,
-                                                             "effective_records":  27,
-                                                             "panel_count":  9,
-                                                             "budget_ratio":  0.5,
-                                                             "candidate_panel_count":  17,
-                                                             "requested_extra_draws":  34,
-                                                             "dataset":  "/training/workspace/projects/cmr_testcase_01/table_cell_datasets/table-cells-20260818T193114538984Z-71fc7ca1",
+                                                             "base_records":  42,
+                                                             "extra_draws":  21,
+                                                             "effective_records":  63,
+                                                             "panel_count":  11,
+                                                             "budget_ratio":  1.5,
+                                                             "candidate_panel_count":  11,
+                                                             "requested_extra_draws":  21,
+                                                             "dataset":  "/training/workspace/projects/cmr_testcase_01/table_cell_datasets/table-cells-20260910T122056829648Z-e7f63322",
                                                              "annotation":  "annotations/instance_train.json"
                                                          },
-                         "started_at":  "2026-08-18T19:32:10.120996+00:00",
-                         "completed_at":  "2026-08-18T19:36:37.443604+00:00"
+                         "started_at":  "2026-09-10T12:22:00.701336+00:00",
+                         "completed_at":  "2026-09-10T12:30:03.759956+00:00"
                      },
     "model_validation":  {
-                             "dataset_id":  "table-cells-20260818T193114538984Z-71fc7ca1",
+                             "dataset_id":  "table-cells-20260910T122056829648Z-e7f63322",
                              "split":  "val",
                              "confidence":  0.25,
                              "iou_threshold":  0.5,
-                             "tp":  108,
+                             "tp":  300,
                              "fp":  0,
                              "fn":  0,
                              "recall":  1.0,
                              "precision":  1.0,
                              "f1":  1.0,
                              "false_positives_per_panel":  0.0,
-                             "panel_count":  4,
-                             "evaluated_at":  "2026-08-18T19:37:37.034522+00:00",
+                             "panel_count":  10,
+                             "evaluated_at":  "2026-09-10T12:30:47.178599+00:00",
                              "images":  [
                                             {
-                                                "file_name":  "a53913ec7d41d58384415386__left-ventricle-volume-result.png",
+                                                "file_name":  "028e57a7081d876bde821abc__right.png",
                                                 "tp":  27,
                                                 "fp":  0,
                                                 "fn":  0
                                             },
                                             {
-                                                "file_name":  "a53913ec7d41d58384415386__right-ventricle-volume-result.png",
+                                                "file_name":  "028e57a7081d876bde821abc__left.png",
+                                                "tp":  30,
+                                                "fp":  0,
+                                                "fn":  0
+                                            },
+                                            {
+                                                "file_name":  "21cf884625858fc6bd32ad15__left.png",
+                                                "tp":  30,
+                                                "fp":  0,
+                                                "fn":  0
+                                            },
+                                            {
+                                                "file_name":  "21cf884625858fc6bd32ad15__right.png",
+                                                "tp":  21,
+                                                "fp":  0,
+                                                "fn":  0
+                                            },
+                                            {
+                                                "file_name":  "3127d4057f28fc0b482171ad__left.png",
+                                                "tp":  30,
+                                                "fp":  0,
+                                                "fn":  0
+                                            },
+                                            {
+                                                "file_name":  "3127d4057f28fc0b482171ad__right.png",
                                                 "tp":  27,
                                                 "fp":  0,
                                                 "fn":  0
                                             },
                                             {
-                                                "file_name":  "bcc4bceea17c19580924f189__left-ventricle-volume-result.png",
+                                                "file_name":  "6b63e421c526cb1ff28b5e19__right.png",
                                                 "tp":  27,
                                                 "fp":  0,
                                                 "fn":  0
                                             },
                                             {
-                                                "file_name":  "bcc4bceea17c19580924f189__right-ventricle-volume-result.png",
+                                                "file_name":  "6b63e421c526cb1ff28b5e19__left.png",
                                                 "tp":  27,
+                                                "fp":  0,
+                                                "fn":  0
+                                            },
+                                            {
+                                                "file_name":  "6c6403dd591a7a0a1a1d9ef9__right.png",
+                                                "tp":  36,
+                                                "fp":  0,
+                                                "fn":  0
+                                            },
+                                            {
+                                                "file_name":  "6c6403dd591a7a0a1a1d9ef9__left.png",
+                                                "tp":  45,
                                                 "fp":  0,
                                                 "fn":  0
                                             }
