@@ -48,6 +48,7 @@ from .routes_documents import register_document_routes
 from .routes_field_mapping_config import register_field_mapping_config_routes
 from .routes_media import register_media_routes
 from .routes_projects import register_project_routes
+from .routes_roi_review import register_roi_review_routes
 from .routes_status import register_status_routes
 from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
 from .json_store import read_json as _read_json
@@ -5226,71 +5227,14 @@ def create_web_app(
         locator_label_threshold=locator_label_threshold,
     )
 
-    @app.get("/roi-review")
-    def roi_review_home():
-        status = str(request.args.get("status", "all")).strip().lower()
-        if status not in {"all", "pending", "correct", "incorrect", "deferred"}:
-            abort(400)
-        sources = source_rows()
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT source_id, roi_review_status, COUNT(*) AS amount
-                FROM samples
-                WHERE extraction_method<>'mapped_generic_stale'
-                GROUP BY source_id, roi_review_status
-                """
-            ).fetchall()
-        counts_by_source: dict[str, dict[str, int]] = {}
-        for row in rows:
-            local = counts_by_source.setdefault(
-                str(row["source_id"]),
-                {"pending": 0, "correct": 0, "incorrect": 0, "deferred": 0},
-            )
-            local[str(row["roi_review_status"])] = int(row["amount"])
-        for source in sources:
-            source["roi_counts"] = counts_by_source.get(
-                str(source["source_id"]),
-                {"pending": 0, "correct": 0, "incorrect": 0, "deferred": 0},
-            )
-        roi_counts = roi_review_counts()
-        return render_template(
-            "roi_review.html", sources=sources, roi_counts=roi_counts, selected_status=status,
-            header_counts={"total": roi_counts["total"], "pending": roi_counts["pending"] + roi_counts["deferred"], "accepted": roi_counts["correct"]},
-            header_total_label="ROI's", header_pending_label="niet afgerond",
-            header_accepted_label="correct",
-        )
-
-    @app.route("/roi-review/<source_id>", methods=["GET", "POST"])
-    def roi_review_document(source_id: str):
-        samples = [
-            sample for sample in source_samples(source_id)
-            if str(sample.get("extraction_method") or "") != "mapped_generic_stale"
-        ]
-        if not samples:
-            abort(404)
-        if request.method == "POST":
-            for sample in samples:
-                sid = sample["sample_id"]
-                status = str(request.form.get(f"roi_status_{sid}", "keep"))
-                notes = str(request.form.get(f"roi_notes_{sid}", ""))
-                if status == "keep":
-                    continue
-                database.review_roi(sid, status, notes)
-            flash("ROI-beoordeling voor deze DICOM is opgeslagen.", "success")
-            return redirect(url_for("roi_review_document", source_id=source_id))
-        return render_template(
-            "roi_review_document.html", source_id=source_id, samples=samples,
-            image_width=samples[0]["image_width"], image_height=samples[0]["image_height"],
-            render_exists=(workspace_root()/"source_renders"/f"{source_id}.png").is_file(),
-            header_counts={
-                "total": len(samples),
-                "pending": sum(1 for sample in samples if sample["roi_review_status"] in {"pending", "deferred"}),
-                "accepted": sum(1 for sample in samples if sample["roi_review_status"] == "correct"),
-            },
-            header_total_label="ROI's", header_pending_label="niet afgerond",
-            header_accepted_label="correct",
-        )
+    register_roi_review_routes(
+        app,
+        database=database,
+        workspace_root=workspace_root,
+        source_rows=source_rows,
+        source_samples=source_samples,
+        roi_review_counts=roi_review_counts,
+    )
 
     @app.get("/review")
     def review_home():
