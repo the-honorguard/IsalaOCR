@@ -40,7 +40,7 @@ from .localization_dataset import (
     save_localization_split_config,
 )
 from .table_quality import table_first_quality
-from .table_panels import clear_panel_geometry, load_panel_profile, save_panel_definitions, save_panel_profile
+from .table_panels import load_panel_profile
 from .table_cell_training import active_table_cell_model, table_cell_training_state
 from .source_preview import prepare_source_renders
 from .legacy_routes import register_legacy_routes
@@ -53,6 +53,7 @@ from .routes_projects import register_project_routes
 from .routes_roi_review import register_roi_review_routes
 from .routes_sample_review import register_sample_review_routes
 from .routes_status import register_status_routes
+from .routes_table_panel_config import register_table_panel_config_routes
 from .routes_table_panel_review import register_table_panel_review_routes
 from .routes_value_review import register_value_review_routes
 from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
@@ -62,9 +63,8 @@ from .table_cell_ground_truth import (
     ground_truth_counts, ground_truth_review_state, list_ground_truth_cells, list_ground_truth_sources,
     set_ground_truth_source_review_completed, update_ground_truth_cell,
 )
-from .table_region_ground_truth import clear_table_regions, list_table_regions, list_table_region_sources, save_table_regions
-from .table_region_training import build_table_region_dataset
-from .table_semantics import load_assignments as load_table_semantic_assignments, save_assignment as save_table_semantic_assignment, suggest_table_name
+from .table_region_ground_truth import list_table_regions, list_table_region_sources
+from .table_semantics import load_assignments as load_table_semantic_assignments, suggest_table_name
 from .table_model_comparison import (
     add_comparison_fp_to_ground_truth, review_comparison_issue, table_cell_comparison_state,
 )
@@ -3768,91 +3768,12 @@ def create_web_app(
             })
         return result
 
-    @app.post("/api/table-panel-definitions")
-    def table_panel_definitions_save_api():
-        payload = request.get_json(silent=True) or {}
-        definitions = payload.get("definitions")
-        if not isinstance(definitions, list):
-            return jsonify({"error": "definitions moet een lijst zijn"}), 400
-        try:
-            profile = save_panel_definitions(workspace_root(), definitions=definitions)
-        except (TypeError, ValueError) as exc:
-            return jsonify({"error": str(exc)}), 400
-        return jsonify({
-            "ok": True,
-            "profile": profile,
-            "message": f"{len(profile.get('definitions') or [])} tabeldefinitie(s) opgeslagen. Stap 2 gebruikt deze namen voortaan automatisch.",
-        })
-
-    @app.post("/api/table-panels")
-    def table_panels_save_api():
-        payload = request.get_json(silent=True) or {}
-        panels = payload.get("panels")
-        if not isinstance(panels, list):
-            return jsonify({"error": "panels moet een lijst zijn"}), 400
-        try:
-            profile = save_panel_profile(
-                workspace_root(), panels=panels,
-                reference_source_id=str(payload.get("reference_source_id") or "")[:180],
-                reference_width=int(payload.get("reference_width") or 0),
-                reference_height=int(payload.get("reference_height") or 0),
-                mode="manual",
-            )
-        except (TypeError, ValueError) as exc:
-            return jsonify({"error": str(exc)}), 400
-        # A changed panel profile invalidates the previous table/cell measurement.
-        # We deliberately preserve the old data for inspection, but the normal
-        # workflow will require Step 4 to be rerun before review can continue.
-        return jsonify({
-            "ok": True, "profile": profile,
-            "message": f"{len(profile.get('panels') or [])} fallback-panel(en) opgeslagen. Voer Stap 4 opnieuw uit.",
-        })
-
-    @app.post("/api/table-region-ground-truth")
-    def table_region_ground_truth_save_api():
-        payload = request.get_json(silent=True) or {}
-        source_id = str(payload.get("source_id") or "").strip()
-        regions = payload.get("regions")
-        if not source_id or not isinstance(regions, list):
-            return jsonify({"error": "source_id en regions zijn verplicht"}), 400
-        try:
-            source = save_table_regions(
-                workspace_root(), source_id,
-                image_width=int(payload.get("image_width") or 0),
-                image_height=int(payload.get("image_height") or 0),
-                regions=regions,
-                allow_empty=bool(payload.get("allow_empty")),
-            )
-        except (TypeError, ValueError, OSError) as exc:
-            return jsonify({"error": str(exc)}), 400
-        return jsonify({
-            "ok": True,
-            "source": source,
-            "message": f"{len(source.get('regions') or [])} tabelregio('s) opgeslagen als GT voor deze lezing.",
-        })
-
-    @app.post("/api/table-region-review/<source_id>")
-    def table_region_review_accept_api(source_id: str):
-        payload = request.get_json(silent=True) or {}
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", source_id):
-            return jsonify({"error": "Ongeldig source_id"}), 400
-        if not any(str(item.get("source_id") or "") == source_id for item in database.list_detection_sources()):
-            return jsonify({"error": "Bron niet gevonden"}), 404
-        regions = payload.get("regions")
-        if not isinstance(regions, list):
-            return jsonify({"error": "regions is verplicht"}), 400
-        try:
-            source = next(item for item in database.list_detection_sources() if str(item.get("source_id") or "") == source_id)
-            saved = save_table_regions(
-                workspace_root(), source_id,
-                image_width=int(payload.get("image_width") or source.get("image_width") or 0),
-                image_height=int(payload.get("image_height") or source.get("image_height") or 0),
-                regions=regions,
-                allow_empty=bool(payload.get("allow_empty")),
-            )
-        except (StopIteration, TypeError, ValueError, OSError) as exc:
-            return jsonify({"error": str(exc)}), 400
-        return jsonify({"ok": True, "source": saved, "message": f"{len(saved.get('regions') or [])} regio’s als nieuwe GT opgeslagen."})
+    register_table_panel_config_routes(
+        app,
+        database=database,
+        workspace_root=workspace_root,
+        safe_workspace_file=safe_workspace_file,
+    )
 
     @app.post("/api/table-region-redetect")
     def table_region_redetect_api():
@@ -3861,18 +3782,6 @@ def create_web_app(
             return jsonify({"error": "source_id is verplicht"}), 400
         payload = enqueue_job("59", action_name="Tabelregio’s opnieuw detecteren voor beoordeling")
         return jsonify({"ok": True, "job": payload, "message": "Nieuwe voorspelling gestart; bestaande handmatige GT blijft bewaard."}), 202
-
-    @app.post("/api/table-region-clear")
-    def table_region_clear_api():
-        source_id = str((request.get_json(silent=True) or {}).get("source_id") or "").strip()
-        if not source_id:
-            return jsonify({"error": "source_id is verplicht"}), 400
-        removed = clear_table_regions(workspace_root(), source_id)
-        return jsonify({
-            "ok": True,
-            "removed": removed,
-            "message": "Tabelregio-GT gewist; er is geen nieuwe detectie gestart.",
-        })
 
     @app.post("/api/table-region-detect")
     def table_region_detect_api():
@@ -3904,89 +3813,6 @@ def create_web_app(
             action_name="Alleen huidige bron · tabelregio’s detecteren",
         )
         return jsonify({"ok": True, "job": payload, "message": f"Alleen bron {source_id} opnieuw op tabelregio’s detecteren gestart."}), 202
-
-    @app.post("/api/table-region-dataset")
-    def table_region_dataset_build_api():
-        try:
-            manifest = build_table_region_dataset(workspace_root())
-        except (TypeError, ValueError, OSError) as exc:
-            return jsonify({"error": str(exc)}), 400
-        return jsonify({"ok": True, "manifest": manifest, "message": "Tabelregio-dataset opgebouwd."})
-
-    @app.delete("/api/table-panels")
-    def table_panels_reset_api():
-        try:
-            profile = clear_panel_geometry(workspace_root())
-        except OSError as exc:
-            return jsonify({"error": str(exc)}), 500
-        return jsonify({
-            "ok": True,
-            "profile": profile,
-            "message": "Panelkaders verwijderd. De panelnamen uit Stap 1 zijn bewaard.",
-        })
-
-    @app.post("/api/table-semantics/<table_id>")
-    def table_semantics_save_api(table_id: str):
-        payload = request.get_json(silent=True) or {}
-        table_name = str(payload.get("table_name") or "").strip()
-        if not table_name:
-            return jsonify({"error": "Tabelnaam is verplicht"}), 400
-        assignment = save_table_semantic_assignment(workspace_root(), table_id, table_name)
-        return jsonify({"ok": True, "table_id": table_id, "assignment": assignment})
-
-    @app.post("/api/table-semantic-detect/<source_id>")
-    def table_semantic_detect_api(source_id: str):
-        geometry = database.list_detection_table_geometry(source_id)
-        profile = load_panel_profile(workspace_root())
-        definitions = list(profile.get("definitions") or [])
-        relations = database.list_detected_relations(source_id)
-        if not definitions:
-            return jsonify({"error": "Maak eerst minimaal één tabeldefinitie met sleutelwoorden."}), 400
-        proposals = []
-        for index, region in enumerate(geometry.get("regions") or []):
-            rx1, ry1, rx2, ry2 = (float(region.get(key) or 0) for key in ("x1", "y1", "x2", "y2"))
-            text_parts = []
-            for relation in relations:
-                cx = (float(relation.get("label_x1") or 0) + float(relation.get("label_x2") or 0)) / 2
-                cy = (float(relation.get("label_y1") or 0) + float(relation.get("label_y2") or 0)) / 2
-                if rx1 <= cx <= rx2 and ry1 <= cy <= ry2:
-                    text_parts.extend(str(relation.get(key) or "") for key in ("context_text", "label_text", "header_text", "column_header"))
-            # Table-first detection intentionally skips full-page OCR. Run a
-            # focused OCR pass here, on the selected region, when no persisted
-            # relation context is available for semantic assignment.
-            if not text_parts:
-                source = database.get_detection_source(source_id) or {}
-                render_path = safe_workspace_file(str(source.get("render_path") or ""))
-                if render_path.is_file():
-                    try:
-                        image = cv2.imread(str(render_path))
-                        if image is not None:
-                            height, width = image.shape[:2]
-                            crop = image[max(0, int(ry1)):min(height, int(ry2)), max(0, int(rx1)):min(width, int(rx2))]
-                            ok, encoded = cv2.imencode(".png", crop)
-                            if ok:
-                                completed = subprocess.run(
-                                    ["tesseract", "stdin", "stdout", "--psm", "6"],
-                                    input=encoded.tobytes(), capture_output=True, check=False, timeout=20,
-                                )
-                                text_parts.append(completed.stdout.decode("utf-8", errors="ignore"))
-                    except (OSError, subprocess.SubprocessError, ValueError):
-                        pass
-            haystack = normalize_for_matching(" ".join(text_parts))
-            scored = []
-            for definition in definitions:
-                terms = [str(definition.get("name") or "")] + [str(item) for item in (definition.get("hits") or [])]
-                score = sum(1 for term in terms if term and normalize_for_matching(term) in haystack)
-                scored.append((score, definition))
-            scored.sort(key=lambda item: item[0], reverse=True)
-            best_score = scored[0][0] if scored else 0
-            tied = [item for item in scored if item[0] == best_score and best_score > 0]
-            proposals.append({
-                "region_index": index, "table_name": tied[0][1]["name"] if len(tied) == 1 else "",
-                "confidence": "matched" if len(tied) == 1 and best_score > 0 else "uncertain",
-                "score": best_score, "ocr_text": " | ".join(dict.fromkeys(text_parts))[:1000],
-            })
-        return jsonify({"ok": True, "source_id": source_id, "proposals": proposals})
 
     @app.get("/detection-review")
     def detection_review_index():
