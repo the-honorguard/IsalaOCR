@@ -57,6 +57,7 @@ from .routes_sample_review import register_sample_review_routes
 from .routes_status import register_status_routes
 from .routes_table_panel_config import register_table_panel_config_routes
 from .routes_table_panel_review import register_table_panel_review_routes
+from .routes_table_region_detect import register_table_region_detect_routes
 from .routes_value_review import register_value_review_routes
 from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
 from .json_store import read_json as _read_json
@@ -3754,44 +3755,13 @@ def create_web_app(
         safe_workspace_file=safe_workspace_file,
     )
 
-    @app.post("/api/table-region-redetect")
-    def table_region_redetect_api():
-        source_id = str((request.get_json(silent=True) or {}).get("source_id") or "").strip()
-        if not source_id:
-            return jsonify({"error": "source_id is verplicht"}), 400
-        payload = enqueue_job("59", action_name="Tabelregio’s opnieuw detecteren voor beoordeling")
-        return jsonify({"ok": True, "job": payload, "message": "Nieuwe voorspelling gestart; bestaande handmatige GT blijft bewaard."}), 202
-
-    @app.post("/api/table-region-detect")
-    def table_region_detect_api():
-        if loaded_config is None:
-            return jsonify({"error": "De actieve configuratie ontbreekt"}), 409
-        try:
-            result = prepare_source_renders("/input", workspace_root(), loaded_config)
-        except Exception as exc:
-            _record_webui_error("source_render_prepare_for_table_detection", exc)
-            return jsonify({"error": f"Bronrenders konden niet worden voorbereid: {type(exc).__name__}: {exc}"}), 500
-        payload = enqueue_job("59", action_name="Tabelregio’s detecteren voor beoordeling")
-        return jsonify({"ok": True, "job": payload, "sources": result.get("sources", 0), "message": "Bronrenders voorbereid; alleen tabelregio-detectie gestart."}), 202
-
-    @app.post("/api/table-region-detect-source")
-    def table_region_detect_source_api():
-        if loaded_config is None:
-            return jsonify({"error": "De actieve configuratie ontbreekt"}), 409
-        source_id = str((request.get_json(silent=True) or {}).get("source_id") or "").strip()
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", source_id):
-            return jsonify({"error": "Ongeldig source_id"}), 400
-        try:
-            prepare_source_renders("/input", workspace_root(), loaded_config)
-        except Exception as exc:
-            _record_webui_error("source_render_prepare_for_single_table_detection", exc)
-            return jsonify({"error": f"Bronrenders konden niet worden voorbereid: {type(exc).__name__}: {exc}"}), 500
-        payload = enqueue_job(
-            "59",
-            {"source_id": source_id},
-            action_name="Alleen huidige bron · tabelregio’s detecteren",
-        )
-        return jsonify({"ok": True, "job": payload, "message": f"Alleen bron {source_id} opnieuw op tabelregio’s detecteren gestart."}), 202
+    register_table_region_detect_routes(
+        app,
+        workspace_root=workspace_root,
+        enqueue_job=enqueue_job,
+        loaded_config=loaded_config,
+        record_webui_error=_record_webui_error,
+    )
 
     @app.get("/detection-review")
     def detection_review_index():
