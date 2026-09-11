@@ -125,7 +125,8 @@ def test_automatic_mapping_ignores_reference_range_relations(tmp_path: Path) -> 
 
 def test_detection_view_defaults_to_mapping_candidates_and_uses_roi_preview() -> None:
     root = Path(__file__).resolve().parents[1]
-    webui = (root / "application" / "src" / "isala_ocr" / "training" / "webui.py").read_text(encoding="utf-8")
+    # generic_detection_document() now lives in routes_generic_detections.py (split out of webui.py).
+    webui = (root / "application" / "src" / "isala_ocr" / "training" / "routes_generic_detections.py").read_text(encoding="utf-8")
     template = (root / "application" / "src" / "isala_ocr" / "training" / "templates" / "generic_detection.html").read_text(encoding="utf-8")
     mapping_template = (root / "application" / "src" / "isala_ocr" / "training" / "templates" / "mapping_studio.html").read_text(encoding="utf-8")
     assert 'request.args.get("role", "candidates")' in webui
