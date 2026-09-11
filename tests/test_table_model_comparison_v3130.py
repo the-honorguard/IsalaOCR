@@ -5,11 +5,13 @@ from pathlib import Path
 
 import pytest
 
+from isala_ocr.training import table_model_comparison
 from isala_ocr.training.db import TrainingDatabase
 from isala_ocr.training.table_cell_ground_truth import ground_truth_review_state
 from isala_ocr.training.table_model_comparison import (
     BASELINE_RUN_ID,
     review_comparison_issue,
+    review_comparison_issues_bulk,
     table_cell_comparison_state,
 )
 
@@ -235,6 +237,69 @@ def test_step7_gt_check_reopens_only_the_affected_source_for_gt_review(tmp_path:
     source = next(item for item in review_state["sources"] if item["source_id"] == "source-a")
     assert source["review_completed"] is False
     assert review_state["ready"] is False
+
+
+def test_review_comparison_issues_bulk_writes_reviews_once(tmp_path: Path, monkeypatch) -> None:
+    dataset_id = _seed_dataset(tmp_path)
+    _seed_baseline_and_current(tmp_path, dataset_id)
+    # Add a second stray candidate away from any GT cell so this run carries two
+    # independent fp issues, enough to prove a bulk call covers more than one
+    # issue in its single write.
+    detections = json.loads((tmp_path / "localization_detections" / "source-a.json").read_text(encoding="utf-8"))
+    detections["candidates"].append(
+        {"candidate_id": "extra-2", "source_kind": "table_cell", "confidence": 0.65, "x1": 80, "y1": 80, "x2": 90, "y2": 90}
+    )
+    _write_json(tmp_path / "localization_detections" / "source-a.json", detections)
+
+    state = table_cell_comparison_state(tmp_path)
+    issue_ids = [
+        issue["issue_id"]
+        for panel in state["issue_panels"]
+        for issue in panel["issues"]
+        if issue["type"] == "fp"
+    ]
+    assert len(issue_ids) >= 2
+    run_id = state["candidate"]["run_id"]
+
+    write_calls: list[Path] = []
+    original_write = table_model_comparison._write_json
+
+    def counting_write(path, payload):
+        if Path(path).name == "reviews.json":
+            write_calls.append(Path(path))
+        return original_write(path, payload)
+
+    monkeypatch.setattr(table_model_comparison, "_write_json", counting_write)
+
+    applied = review_comparison_issues_bulk(tmp_path, run_id, issue_ids, "model_error")
+
+    assert applied == issue_ids
+    assert len(write_calls) == 1
+    updated = table_cell_comparison_state(tmp_path, candidate_run_id=run_id)
+    assert updated["reviewed_issue_count"] == len(issue_ids)
+    for panel in updated["issue_panels"]:
+        for issue in panel["issues"]:
+            if issue["issue_id"] in issue_ids:
+                assert issue["review"]["decision"] == "model_error"
+
+
+def test_review_comparison_issues_bulk_skips_unknown_ids_and_keeps_valid_ones(tmp_path: Path) -> None:
+    dataset_id = _seed_dataset(tmp_path)
+    _seed_baseline_and_current(tmp_path, dataset_id)
+    state = table_cell_comparison_state(tmp_path)
+    fp = next(
+        issue
+        for panel in state["issue_panels"]
+        for issue in panel["issues"]
+        if issue["type"] == "fp"
+    )
+    run_id = state["candidate"]["run_id"]
+
+    applied = review_comparison_issues_bulk(tmp_path, run_id, [fp["issue_id"], "does-not-exist"], "model_error")
+
+    assert applied == [fp["issue_id"]]
+    updated = table_cell_comparison_state(tmp_path, candidate_run_id=run_id)
+    assert updated["reviewed_issue_count"] == 1
 
 
 def test_step7_workflow_and_ui_are_explicitly_separate_from_step4() -> None:

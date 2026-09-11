@@ -68,7 +68,8 @@ from .table_cell_ground_truth import (
 from .table_region_ground_truth import list_table_regions, list_table_region_sources
 from .table_semantics import load_assignments as load_table_semantic_assignments, suggest_table_name
 from .table_model_comparison import (
-    add_comparison_fp_to_ground_truth, review_comparison_issue, table_cell_comparison_state,
+    add_comparison_fp_to_ground_truth, review_comparison_issue, review_comparison_issues_bulk,
+    table_cell_comparison_state,
 )
 from .recognition_ground_truth import (
     recognition_gt_counts, recognition_scope_preview, save_recognition_scope,
@@ -204,7 +205,7 @@ ACTION_DURATION_ESTIMATES = {
     "51": {"label": "± 1–4 uur", "detail": "CPU-alternatief; sterk hardware- en dataset-afhankelijk."},
     "52": {"label": "± 10–30 sec", "detail": "Bestaand getraind table-cell model activeren; er wordt niet opnieuw getraind."},
     "53": {"label": "± 10–30 min", "detail": "Dataset bouwen → valideren → trainen → activeren → nieuwe celdetectie."},
-    "54": {"label": "± 10–60 sec", "detail": "Volledige bronbeelden met Stap-2 tabelregio-GT naar COCO omzetten."},
+    "54": {"label": "± 10–60 sec", "detail": "Volledige bronbeelden met Stap-3 tabelregio-GT naar COCO omzetten."},
     "55": {"label": "± 5–20 min", "detail": "PicoDet-S tabelregio-detector trainen op GPU."},
     "56": {"label": "± 30–120 min", "detail": "PicoDet-S tabelregio-detector trainen op CPU."},
     "57": {"label": "± 10–30 sec", "detail": "Een bestaand tabelregio-model als voorste detectorlaag activeren."},
@@ -223,14 +224,14 @@ ACTION_DURATION_ESTIMATES = {
 }
 
 PROCESS_STEPS = [
-    {"key": "detection-models","index":1,"group":"detection","title":"Voorbereiding","subtitle":"Controleer of PP-StructureV3 en de inference/table-modelcache beschikbaar zijn.","action_ids":["14","19","30","35","42"],"requirements":["Docker Desktop actief","Inference OCR + tabelmodellen lokaal beschikbaar","Tabelregio’s en tabelnamen worden in Stap 2 gedefinieerd","Geen detector-training nodig voor de table-first proef"]},
+    {"key": "detection-models","index":1,"group":"detection","title":"Voorbereiding","subtitle":"Controleer of PP-StructureV3 en de inference/table-modelcache beschikbaar zijn.","action_ids":["14","19","30","35","42"],"requirements":["Docker Desktop actief","Inference OCR + tabelmodellen lokaal beschikbaar","Tabelregio’s en tabelnamen worden in Stap 3 gedefinieerd","Geen detector-training nodig voor de table-first proef"]},
     {"key": "input-selection","index":"1A","group":"input","title":"Inputselectie","subtitle":"Bepaal welke bronafbeeldingen onderdeel worden van deze verwerkingsronde.","action_ids":[],"requirements":["Voorbereiding afgerond","Bestanden in de projectmap input","Alle gewenste afbeeldingen expliciet geselecteerd"]},
     {"key": "panel-setup","index":2,"group":"detection","title":"Tabelregio’s selecteren","subtitle":"Beoordeel per lezing de volledige tabelregio’s in de fullscreen reviewer en sla ze op als Ground Truth.","action_ids":[],"requirements":["Minimaal één bronpreview","Per lezing alle volledige tabellen omkaderen","Tabeldefinities en tabelregio-GT opslaan"]},
-    {"key": "table-region-model","index":3,"group":"detection","title":"Tabelregio-model trainen","subtitle":"Train eerst een model dat volledige tabelregio’s automatisch leert vinden uit de GT van Stap 2.","action_ids":["54","55","56","57","60"],"requirements":["Tabelregio-GT opgeslagen in Stap 2","Dataset gebouwd en gevalideerd vóór training","Regio-model geactiveerd vóór de volgende detectie"]},
+    {"key": "table-region-model","index":3,"group":"detection","title":"Tabelregio-model trainen","subtitle":"Train eerst een model dat volledige tabelregio’s automatisch leert vinden uit de GT van Stap 3.","action_ids":["54","55","56","57","60"],"requirements":["Tabelregio-GT opgeslagen in Stap 3","Dataset gebouwd en gevalideerd vóór training","Regio-model geactiveerd vóór de volgende detectie"]},
     {"key": "detect-candidates","index":4,"group":"detection","title":"Tabelregio’s detecteren en beoordelen","subtitle":"Draai alleen het actieve tabelregio-model. Beoordeel daarna de gevonden regio’s voordat er cellen worden gedetecteerd.","action_ids":["59"],"requirements":["Voorbereiding afgerond","Tabelregio-model getraind en geactiveerd","Bronnen in input"]},
     {"key": "detection-review","index":5,"group":"detection","title":"GT Studio","subtitle":"Beoordeel de celdetectie per bron en leg de canonieke cel-GT vast voor de celdetector.","action_ids":[],"requirements":["Tabelregio’s en cellen gedetecteerd","Bronrender","Per bron GT controleren en goedkeuren"]},
     {"key": "table-model","index":6,"group":"detection","title":"Celdetector trainen","subtitle":"Bouw uit de reviewcorrecties trainingsdata, train/activeer de celdetector en gebruik het nieuwe model in de volgende detectieronde.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde GT-review","Positieve functionele cellen","Dataset gebouwd en gevalideerd vóór training"]},
-    {"key": "table-compare","index":None,"group":"tables","title":"Detectorafwijkingen reviewen","subtitle":"Optionele technische vergelijking van een nieuwe detectorrun met de vaste Ground Truth.","action_ids":[],"requirements":["Canonieke Ground Truth uit Stap 5","Table-cell dataset uit Stap 6","Nieuwe detectierun uit Stap 4"]},
+    {"key": "table-compare","index":None,"group":"tables","title":"Detectorafwijkingen reviewen","subtitle":"Optionele technische vergelijking van een nieuwe detectorrun met de vaste Ground Truth.","action_ids":[],"requirements":["Canonieke Ground Truth uit Stap 7","Table-cell dataset uit Stap 8","Nieuwe detectierun uit Stap 8"]},
     {"key": "table-quality","index":8,"group":"tables","title":"Tabelstudio","subtitle":"Maak vanuit de getrainde celdetector het rij-kolomraster en bepaal welke bezette rastercellen naar Recognition gaan.","action_ids":[],"requirements":["Celdetector getraind en opnieuw gedraaid","Goedgekeurde celposities"]},
 
     {"key": "recognition-gt-studio","index":10,"group":"value","title":"Recognition GT Studio","subtitle":"Controleer de Recognition-tekst uit de bestaande cellen en keur de trainingsvoorbeelden goed.","action_ids":[],"requirements":["Tabelstudio afgerond","Recognition-samples beschikbaar"]},
@@ -590,23 +591,23 @@ def create_web_app(
             state = "no_ground_truth"
             title = "Canonieke Ground Truth ontbreekt"
             summary = "Er is nog geen bruikbare canonieke table-cell Ground Truth."
-            next_step = "Ga naar Stap 5 en leg de gewenste cellen vast."
+            next_step = "Ga naar Stap 7 en leg de gewenste cellen vast."
         elif open_sources:
             state = "canonical_gt_needs_review"
             title = "Ground Truth-controle nog niet afgerond"
             summary = (
                 f"{open_sources} van {source_count} bronafbeelding(en) moeten nog expliciet als GT-gecontroleerd worden gemarkeerd. "
-                "Nieuwe modelpredictions tellen hier niet als open kandidaten; die beoordeel je in Stap 7."
+                "Nieuwe modelpredictions tellen hier niet als open kandidaten; die beoordeel je in Stap 9."
             )
-            next_step = "Open Stap 5 · GT Studio, controleer de bron en kies GT goedkeuren."
+            next_step = "Open Stap 7 · GT Studio, controleer de bron en kies GT goedkeuren."
         else:
             state = "canonical_gt_ready"
             title = "Canonieke Ground Truth is volledig gecontroleerd"
             summary = (
                 f"Alle {source_count} bronafbeeldingen zijn als GT-gecontroleerd gemarkeerd; de canonieke GT bevat {gt_cells} cellen. "
-                "Een nieuwe Stap-4-run wijzigt deze status niet. Modelverschillen worden uitsluitend in Stap 7 beoordeeld."
+                "Een nieuwe Stap-8-run wijzigt deze status niet. Modelverschillen worden uitsluitend in Stap 9 beoordeeld."
             )
-            next_step = "Gebruik Stap 7 voor de actuele modelvergelijking of Stap 6 voor een volgende trainingsdataset."
+            next_step = "Gebruik Stap 9 voor de actuele modelvergelijking of Stap 8 voor een volgende trainingsdataset."
         return {
             "strategy": "table_first", "canonical_ground_truth": True,
             "ready": ready, "state": state, "tone": "success" if ready else "warning",
@@ -638,8 +639,8 @@ def create_web_app(
                     "strategy": "table_first", "ready": False, "state": "panels_missing", "tone": "warning",
                     "title": "Stel eerst de table-panels in",
                     "reason": "De table-pipeline heeft nog geen door jou gekozen resultaatpanelen.",
-                    "summary": "Stel in Stap 2 de volledige tabelregio’s in voordat Stap 3 draait.",
-                    "next_step": "Open Stap 2 · Tabelregio’s selecteren.",
+                    "summary": "Stel in Stap 3 de volledige tabelregio’s in voordat Stap 4 draait.",
+                    "next_step": "Open Stap 3 · Tabelregio’s selecteren.",
                     "sources": [], "totals": {}, "thresholds": table_first_thresholds(),
                 }
             if panel_state.get("needs_rerun"):
@@ -647,8 +648,8 @@ def create_web_app(
                     "strategy": "table_first", "ready": False, "state": "panel_detection_stale", "tone": "warning",
                     "title": "Voer de table-detectie opnieuw uit",
                     "reason": "Het panelprofiel is nieuwer dan de huidige cell-detectie.",
-                    "summary": "Voer Stap 4 opnieuw uit na een wijziging in Stap 2.",
-                    "next_step": "Voer Stap 4 · Tabelregio’s en cellen detecteren opnieuw uit.",
+                    "summary": "Voer Stap 5 opnieuw uit na een wijziging in Stap 3.",
+                    "next_step": "Voer Stap 5 · Tabelregio’s opnieuw detecteren en beoordelen uit.",
                     "sources": [], "totals": {}, "thresholds": table_first_thresholds(),
                 }
             try:
@@ -660,7 +661,7 @@ def create_web_app(
                     "title": "Table-first status kon niet worden berekend",
                     "reason": f"Diagnostiek: {reference}.",
                     "summary": f"Diagnostiek: {reference}.",
-                    "next_step": "Open Stap 5 en controleer of de panelgerichte tabelanalyse/reviewdata aanwezig is.",
+                    "next_step": "Open Stap 7 en controleer of de panelgerichte tabelanalyse/reviewdata aanwezig is.",
                     "sources": [], "totals": {}, "thresholds": table_first_thresholds(),
                 }
         return request_cached("current_table_first_quality", load)
@@ -2561,7 +2562,7 @@ def create_web_app(
                 else f"{len(list_table_region_sources(workspace_root()))} lezing(en) met GT · model nog niet actief"
             ),
             "table-compare": (
-                "nieuwe Stap-4-run klaar voor vergelijking" if active_table_model else "eerst een getraind tablecelmodel activeren en Stap 4 uitvoeren"
+                "nieuwe Stap-8-run klaar voor vergelijking" if active_table_model else "eerst een getraind tablecelmodel activeren en Stap 8 uitvoeren"
             ),
             "localization-dataset": (
                 (f"{loc_dataset.get('image_count', 0)} beelden · {loc_dataset.get('annotation_count', 0)} boxen · "
@@ -2991,7 +2992,7 @@ def create_web_app(
                         return redirect(url_for("process_step", step_key="input-selection"))
                     try:
                         result = prepare_source_renders("/input", workspace_root(), loaded_config)
-                        flash(f"{result['sources']} volledige bronpreview(s) voorbereid. Stap 2 voor tabelregio’s is nu beschikbaar.", "success")
+                        flash(f"{result['sources']} volledige bronpreview(s) voorbereid. Stap 3 voor tabelregio’s is nu beschikbaar.", "success")
                         return redirect(url_for("process_step", step_key="panel-setup"))
                     except Exception as exc:
                         _record_webui_error("source_render_prepare", exc)
@@ -3062,7 +3063,12 @@ def create_web_app(
                 return redirect(url_for("process_step", step_key=step_key, source_id=request.form.get("source_id", "")))
             if step_key == "table-compare":
                 action = str(request.form.get("comparison_action") or "").strip().lower()
-                if action not in {"review_issue", "add_prediction_to_gt", "apply_functional_suggestions"}:
+                if action not in {
+                    "review_issue",
+                    "add_prediction_to_gt",
+                    "apply_functional_suggestions",
+                    "apply_obvious_error_suggestions",
+                }:
                     abort(400)
                 run_id = str(request.form.get("run_id") or "").strip()[:180]
                 issue_id = str(request.form.get("issue_id") or "").strip()[:80]
@@ -3087,11 +3093,40 @@ def create_web_app(
                     elif not selected_ids:
                         flash("Er zijn geen geldige, nog open functionele suggesties om toe te passen.", "warning")
                     else:
-                        for suggested_issue_id in selected_ids:
-                            review_comparison_issue(workspace_root(), run_id, suggested_issue_id, "functional_ok")
+                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "functional_ok")
                         flash(
-                            f"{len(selected_ids)} veilige geometrieën als functioneel correct gemarkeerd. "
+                            f"{len(applied)} veilige geometrieën als functioneel correct gemarkeerd. "
                             "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
+                            "success",
+                        )
+                    parameters = {}
+                    if reference:
+                        parameters["reference"] = reference
+                    if candidate:
+                        parameters["candidate"] = candidate
+                    return redirect(url_for("process_step", step_key=step_key, **parameters))
+                if action == "apply_obvious_error_suggestions":
+                    state = table_cell_comparison_state(
+                        workspace_root(),
+                        reference_run_id=reference or None,
+                        candidate_run_id=candidate or run_id or None,
+                    )
+                    active_run = str((state.get("candidate") or {}).get("run_id") or "")
+                    allowed_ids = set((state.get("obvious_error_suggestions") or {}).get("issue_ids") or [])
+                    requested_ids = {
+                        str(value).strip()[:80]
+                        for value in request.form.getlist("issue_id")
+                        if str(value).strip()
+                    }
+                    selected_ids = sorted(allowed_ids.intersection(requested_ids))
+                    if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
+                        flash("De foutsuggesties horen bij de nieuwste, schrijfbare detectierun.", "error")
+                    elif not selected_ids:
+                        flash("Er zijn geen geldige, nog open foutsuggesties om toe te passen.", "warning")
+                    else:
+                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "model_error")
+                        flash(
+                            f"{len(applied)} overduidelijk te grote detecties als modelfout gemarkeerd.",
                             "success",
                         )
                     parameters = {}
@@ -3118,7 +3153,7 @@ def create_web_app(
                         suffix = " (bestond al in GT)" if promoted.get("already_present") else ""
                         message = (
                             "Prediction toegevoegd aan de canonieke Ground Truth" + suffix +
-                            ". De huidige table-cell trainingsdataset is nu verouderd; bouw hem in Stap 5 opnieuw."
+                            ". De huidige table-cell trainingsdataset is nu verouderd; bouw hem in Stap 8 opnieuw."
                         )
                 else:
                     decision = str(request.form.get("decision") or "").strip().lower()

@@ -674,7 +674,7 @@ def build_step4_baseline(workspace: str | Path, dataset: dict[str, Any] | None =
 
     return _evaluate_run(
         run_id=BASELINE_RUN_ID,
-        label="Model 0 · eerste Stap-3-run",
+        label="Model 0 · eerste Stap-8-run",
         model_id="generic-ppstructure",
         model_name="Generieke PP-Structure wireless table-cell detector",
         dataset_id=str(dataset.get("dataset_id") or ""),
@@ -861,7 +861,7 @@ def capture_current_detection_run(workspace: str | Path) -> dict[str, Any] | Non
         key = f"{panel.get('source_id')}::{panel.get('panel_id')}"
         predictions_by_panel[key] = _machine_predictions_for_panel(diagnostics.get(str(panel.get("source_id") or ""), []), full_box)
 
-    label = f"{model_id} · Stap 3"
+    label = f"{model_id} · Stap 8"
     run = _evaluate_run(
         run_id=run_id,
         label=label,
@@ -1277,6 +1277,62 @@ def functional_geometry_suggestions(candidate: dict[str, Any], run_reviews: dict
     }
 
 
+# Mirrors functional_geometry_suggestions but flags the opposite extreme:
+# a prediction far taller than any GT cell the reviewer already accepted in
+# that same panel is an obvious model error, never a legitimate cell. Height
+# (not area) is the signal because column width legitimately varies a lot
+# between cells, while a cell's height rarely should. The reference is the
+# tallest GT box in the *same panel* rather than a dataset-wide value,
+# because typical cell height differs by table type; a global reference
+# would be too permissive for panels made of small cells. A user still
+# explicitly applies the list, same as the functional suggestions above.
+OBVIOUS_ERROR_HEIGHT_RATIO = 2.0
+
+
+def obvious_error_suggestions(candidate: dict[str, Any], run_reviews: dict[str, Any]) -> dict[str, Any]:
+    """Return conservative suggestions for predictions far taller than their panel's GT."""
+    suggestions: list[dict[str, Any]] = []
+    for panel in candidate.get("panels") or []:
+        if not isinstance(panel, dict):
+            continue
+        truth = panel.get("ground_truth") or []
+        gt_heights = [
+            gt_box[3] - gt_box[1]
+            for gt in truth
+            if isinstance(gt, dict) and (gt_box := _box(gt.get("box"))) is not None
+        ]
+        if not gt_heights:
+            continue
+        max_gt_height = max(gt_heights)
+        if max_gt_height <= 0:
+            continue
+        for issue in panel.get("issues") or []:
+            if not isinstance(issue, dict) or str(issue.get("type") or "") not in {"fp", "geometry"}:
+                continue
+            if _review_for_issue(issue, run_reviews):
+                continue
+            prediction_box = _box(issue.get("prediction_box"))
+            if prediction_box is None:
+                continue
+            height_ratio = (prediction_box[3] - prediction_box[1]) / max_gt_height
+            if height_ratio < OBVIOUS_ERROR_HEIGHT_RATIO:
+                continue
+            suggestions.append({
+                "issue_id": str(issue.get("issue_id") or ""),
+                "source_id": str(panel.get("source_id") or ""),
+                "panel_name": str(panel.get("panel_name") or panel.get("panel_id") or ""),
+                "type": str(issue.get("type") or ""),
+                "height_ratio": height_ratio,
+                "max_gt_height": max_gt_height,
+            })
+    suggestions.sort(key=lambda item: item["height_ratio"], reverse=True)
+    return {
+        "issues": suggestions,
+        "issue_ids": [item["issue_id"] for item in suggestions if item["issue_id"]],
+        "height_ratio_threshold": OBVIOUS_ERROR_HEIGHT_RATIO,
+    }
+
+
 def training_report_for_run(workspace: str | Path, run: dict[str, Any]) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
     reviews = comparison_reviews(root)
@@ -1325,7 +1381,7 @@ def review_comparison_issue(workspace: str | Path, run_id: str, issue_id: str, d
         raise KeyError(run_id)
     current = capture_current_detection_run(root)
     if current is not None and str(current.get("run_id") or "") != run_id:
-        raise ValueError("Historische detectieruns zijn alleen-lezen; beoordeel uitsluitend de nieuwste Stap-3-run")
+        raise ValueError("Historische detectieruns zijn alleen-lezen; beoordeel uitsluitend de nieuwste Stap-8-run")
     selected_panel: dict[str, Any] | None = None
     selected_issue: dict[str, Any] | None = None
     for panel in run.get("panels") or []:
@@ -1360,6 +1416,66 @@ def review_comparison_issue(workspace: str | Path, run_id: str, issue_id: str, d
     return dict(run_reviews.get(issue_id) or {})
 
 
+def review_comparison_issues_bulk(
+    workspace: str | Path, run_id: str, issue_ids: list[str], decision: str
+) -> list[str]:
+    """Apply one review decision to many issues in a single reviews.json write.
+
+    Mirrors review_comparison_issue's validation, but looks the run up once
+    and reads/writes reviews.json once instead of once per issue. The bulk
+    suggestion actions (apply_functional_suggestions, apply_obvious_error_suggestions)
+    can select dozens of issues on a noisy run, and calling review_comparison_issue
+    in a loop made that scale roughly quadratically on exactly the runs where
+    it matters most, with no atomicity across the loop if a later call failed.
+    """
+    root = resolve_project_workspace(workspace)
+    allowed = {"model_error", "functional_ok", "gt_check", "gt_added", "deferred", "clear"}
+    if decision not in allowed:
+        raise ValueError("Onbekende vervolg-reviewbeslissing")
+    runs = {str(item.get("run_id")): item for item in list_comparison_runs(root)}
+    run = runs.get(run_id)
+    if not run or run_id == BASELINE_RUN_ID:
+        raise KeyError(run_id)
+    current = capture_current_detection_run(root)
+    if current is not None and str(current.get("run_id") or "") != run_id:
+        raise ValueError("Historische detectieruns zijn alleen-lezen; beoordeel uitsluitend de nieuwste Stap-8-run")
+
+    issues_by_id: dict[str, dict[str, Any]] = {}
+    for panel in run.get("panels") or []:
+        if not isinstance(panel, dict):
+            continue
+        for issue in panel.get("issues") or []:
+            candidate_id = str((issue or {}).get("issue_id") or "")
+            if candidate_id:
+                issues_by_id[candidate_id] = issue
+
+    payload = comparison_reviews(root)
+    run_reviews = payload.setdefault(run_id, {})
+    gt_check_source_ids: set[str] = set()
+    applied: list[str] = []
+    for issue_id in issue_ids:
+        issue = issues_by_id.get(issue_id)
+        if issue is None:
+            continue
+        if decision == "functional_ok" and str(issue.get("type") or "") != "geometry":
+            continue
+        if decision == "gt_check":
+            source_id = str(issue.get("source_id") or "").strip()
+            if source_id:
+                gt_check_source_ids.add(source_id)
+        if decision == "clear":
+            run_reviews.pop(issue_id, None)
+        else:
+            run_reviews[issue_id] = {"decision": decision, "reviewed_at": utc_now()}
+        applied.append(issue_id)
+    if not applied:
+        return applied
+    _write_json(_reviews_path(root), payload)
+    for source_id in gt_check_source_ids:
+        set_ground_truth_source_review_completed(root, source_id, False)
+    return applied
+
+
 def add_comparison_fp_to_ground_truth(workspace: str | Path, run_id: str, issue_id: str) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
     runs = {str(item.get("run_id")): item for item in list_comparison_runs(root)}
@@ -1368,7 +1484,7 @@ def add_comparison_fp_to_ground_truth(workspace: str | Path, run_id: str, issue_
         raise KeyError(run_id)
     current = capture_current_detection_run(root)
     if current is not None and str(current.get("run_id") or "") != str(run_id or ""):
-        raise ValueError("Historische detectieruns zijn alleen-lezen; Ground Truth-promotie is alleen toegestaan vanuit de nieuwste Stap-3-run")
+        raise ValueError("Historische detectieruns zijn alleen-lezen; Ground Truth-promotie is alleen toegestaan vanuit de nieuwste Stap-8-run")
 
     selected_panel: dict[str, Any] | None = None
     selected_issue: dict[str, Any] | None = None
@@ -1442,7 +1558,7 @@ def table_cell_comparison_state(
     if not dataset:
         return {
             "ready": False,
-            "reason": "Bouw eerst in Stap 6 een table-cell trainingsdataset uit de afgeronde Stap-4-ground-truth.",
+            "reason": "Bouw eerst in Stap 8 een table-cell trainingsdataset uit de afgeronde Stap-7-ground-truth.",
             "history": history,
         }
 
@@ -1455,8 +1571,8 @@ def table_cell_comparison_state(
             "ready": False,
             "detection_stale": True,
             "reason": (
-                f"Het actieve model is {active_model_id}, maar de laatste complete Stap-3-detectie is gemaakt met "
-                f"{detected_model_id or 'een ouder/generiek model'}. Voer Stap 3 opnieuw uit; oude reviewdata blijft alleen historie."
+                f"Het actieve model is {active_model_id}, maar de laatste complete Stap-8-detectie is gemaakt met "
+                f"{detected_model_id or 'een ouder/generiek model'}. Voer Stap 8 opnieuw uit; oude reviewdata blijft alleen historie."
             ),
             "dataset": dataset,
             "active_model": active,
@@ -1471,7 +1587,7 @@ def table_cell_comparison_state(
     if not detection_context.get("available") and migration_candidate is None:
         return {
             "ready": False,
-            "reason": "Er is nog geen complete Stap-3-detectierun voor de huidige bronnen. Voer Stap 3 opnieuw uit.",
+            "reason": "Er is nog geen complete Stap-8-detectierun voor de huidige bronnen. Voer Stap 8 opnieuw uit.",
             "dataset": dataset,
             "active_model": active,
             "detection_context": detection_context,
@@ -1483,7 +1599,7 @@ def table_cell_comparison_state(
     if len(runs) < 2 or not current_run:
         return {
             "ready": False,
-            "reason": "Er is wel Ground Truth, maar nog geen nieuwe Stap-3-detectierun om ermee te vergelijken.",
+            "reason": "Er is wel Ground Truth, maar nog geen nieuwe Stap-8-detectierun om ermee te vergelijken.",
             "dataset": dataset,
             "runs": runs,
             "history": history,
@@ -1507,6 +1623,7 @@ def table_cell_comparison_state(
     reviews = comparison_reviews(root).get(str(candidate.get("run_id")), {})
     reviews = reviews if isinstance(reviews, dict) else {}
     functional_suggestions = functional_geometry_suggestions(candidate, reviews)
+    error_suggestions = obvious_error_suggestions(candidate, reviews)
     issue_panels = []
     total_issues = reviewed_issues = 0
     decision_counts: dict[str, int] = {}
@@ -1557,4 +1674,5 @@ def table_cell_comparison_state(
         "gt_worklist": _gt_worklist_for_run(candidate, comparison_reviews(root)),
         "training_feedback": latest_completed_training_feedback(root),
         "functional_suggestions": functional_suggestions,
+        "obvious_error_suggestions": error_suggestions,
     }
