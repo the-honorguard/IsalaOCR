@@ -130,8 +130,15 @@ if ($StartFrom -eq "active" -and (Test-Path -LiteralPath $ActiveTableModelPath -
         $ParentModelId = [string]$ActiveTableModel.model_id
         if (-not [string]::IsNullOrWhiteSpace($ParentRunId)) {
             $ParentRunRoot = Join-Path $HostWorkspace ("table_cell_runs\{0}" -f $ParentRunId)
+            # NOTE: -Descending applies to every sort key unless a key overrides it,
+            # so each key below sets its own Ascending/Descending explicitly. Without
+            # that, the best_model preference key was silently reversed and this
+            # picked the most recently written NON-best_model checkpoint (typically
+            # the last epoch) instead of the checkpoint with the best validation score.
             $ParentWeight = Get-ChildItem -LiteralPath $ParentRunRoot -Recurse -File -Filter *.pdparams -ErrorAction SilentlyContinue |
-                Sort-Object @{Expression={ if ($_.FullName -match '[\\/]best_model[\\/]') { 0 } else { 1 } }}, LastWriteTimeUtc -Descending |
+                Sort-Object -Property `
+                    @{Expression={ if ($_.FullName -match '[\\/]best_model[\\/]') { 0 } else { 1 } }; Ascending=$true}, `
+                    @{Expression="LastWriteTimeUtc"; Descending=$true} |
                 Select-Object -First 1
             if ($null -ne $ParentWeight -and $ParentWeight.Length -gt 1MB) {
                 # System.IO.Path.GetRelativePath is unavailable in Windows

@@ -11,8 +11,14 @@ Assert-TrainingImagePrepared -Device $Device | Out-Null
 if (-not $RunDirectory) { $RunDirectory = Get-LatestRunDirectory }
 $RunDirectory = (Resolve-Path $RunDirectory).Path
 if (-not $WeightFile) {
+    # NOTE: -Descending applies to every sort key unless a key overrides it, so
+    # each key below sets its own Ascending/Descending explicitly. Without that,
+    # the best_accuracy preference key was silently reversed and this picked the
+    # most recently written NON-best_accuracy checkpoint instead of the best one.
     $weights = Get-ChildItem $RunDirectory -Recurse -Filter *.pdparams -File |
-        Sort-Object @{Expression={ if ($_.FullName -match "best_accuracy") { 0 } else { 1 } }}, LastWriteTime -Descending
+        Sort-Object -Property `
+            @{Expression={ if ($_.FullName -match "best_accuracy") { 0 } else { 1 } }; Ascending=$true}, `
+            @{Expression="LastWriteTime"; Descending=$true}
     if (-not $weights) { throw "No .pdparams weights found under $RunDirectory" }
     $WeightFile = $weights[0].FullName
 }
