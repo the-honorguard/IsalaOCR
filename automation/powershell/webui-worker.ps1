@@ -26,6 +26,7 @@ function Add-WorkerLog {
     [System.IO.File]::AppendAllText($Path,$line,$encoding)
 }
 
+# Docker/Compose uses both stdout and stderr for progress output, so scan both streams.
 function Get-LiveProgressLabel {
     param([Parameter(Mandatory=$true)][string]$StdoutPath,[Parameter(Mandatory=$true)][string]$StderrPath)
     $paths=@($StdoutPath,$StderrPath) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }

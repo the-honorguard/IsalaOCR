@@ -240,6 +240,71 @@ def install_table_model_evaluation_policy() -> None:
         accepted_pairs: set[tuple[int, int]] = set()
         truth = panel.get("ground_truth") or []
 
+        # The base evaluator never turns a high-IoU match (>= geometry_iou) into
+        # a "geometry" issue at all, so the neighbour-centre safeguard below
+        # never gets a chance to see it. A wide crop can clear the IoU bar and
+        # still reach into a neighbouring logical cell; demote those matches to
+        # a reviewable geometry issue before the accept/reject pass below runs.
+        panel_key = f"{panel.get('source_id')}::{panel.get('panel_id')}"
+        demoted = 0
+        for match in result.get("matches") or []:
+            if float(match.get("iou") or 0.0) < geometry_iou:
+                continue  # already handled as an issue by the base evaluator
+            try:
+                pred_index = int(match.get("prediction_index"))
+                gt_index = int(match.get("gt_index"))
+            except (TypeError, ValueError):
+                continue
+            if not (0 <= pred_index < len(predictions)) or not (0 <= gt_index < len(truth)):
+                continue
+            pred = predictions[pred_index]
+            gt = truth[gt_index]
+            if tuple(pred.get("box") or []) in merged_prediction_boxes:
+                continue
+            prediction_box = comparison._box(pred.get("box"))
+            gt_box = comparison._box(gt.get("box"))
+            if prediction_box is None or gt_box is None:
+                continue
+            reaches_other_cell = False
+            for other_index, other_gt in enumerate(truth):
+                if other_index == gt_index or not isinstance(other_gt, dict):
+                    continue
+                other_box = comparison._box(other_gt.get("box"))
+                if other_box is None:
+                    continue
+                if not comparison._gt_boxes_are_spatially_distinct(gt_box, other_box):
+                    continue
+                if comparison._box_center_inside(other_box, prediction_box):
+                    reaches_other_cell = True
+                    break
+            if not reaches_other_cell:
+                continue
+            quality = geometry_quality(prediction_box, gt_box)
+            issue = {
+                "type": "geometry",
+                "label": "Geometrie afwijkend",
+                "prediction_box": pred.get("box"),
+                "gt_boxes": [gt.get("box")],
+                "confidence": pred.get("confidence", 0.0),
+                "iou": float(match.get("iou") or 0.0),
+                "match_reason": match.get("match_reason") or "iou",
+                **quality,
+            }
+            issue["issue_id"] = comparison._issue_identifier(panel_key, issue)
+            issue["source_id"] = panel.get("source_id")
+            issue["panel_id"] = panel.get("panel_id")
+            issue["panel_name"] = panel.get("panel_name")
+            issue["file_name"] = panel.get("file_name")
+            issue["width"] = panel.get("width")
+            issue["height"] = panel.get("height")
+            issue["split"] = panel.get("split")
+            result.setdefault("issues", [])
+            result["issues"].append(issue)
+            demoted += 1
+        if demoted:
+            result["direct_correct"] = max(0, int(result.get("direct_correct") or 0) - demoted)
+            result["geometry_mismatch"] = int(result.get("geometry_mismatch") or 0) + demoted
+
         for issue in result.get("issues") or []:
             if not isinstance(issue, dict) or str(issue.get("type") or "") != "geometry":
                 kept_issues.append(issue)

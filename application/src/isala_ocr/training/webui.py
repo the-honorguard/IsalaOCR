@@ -81,7 +81,6 @@ from .projects import (
 ACTIONS = {
     "1": "ALLE modellen en trainingsimages voorbereiden",
     "2": "Celdetectie uitvoeren",
-    "60": "Volledige actieve DICOM-verwerkingspipeline",
     "5": "Localization-dataset bouwen (COCO)",
     "6": "Localization-dataset valideren",
     "7": "Field detector trainen op NVIDIA GPU",
@@ -155,7 +154,6 @@ ACTIONS = {
 ACTION_DURATION_ESTIMATES = {
     "1": {"label": "± 20–60 min", "detail": "Volledige voorbereiding; eerste run en downloads kunnen langer duren."},
     "2": {"label": "± 2–10 min", "detail": "Afhankelijk van aantal bronnen/panelen en preprocessing-varianten."},
-    "60": {"label": "± 1–5 min", "detail": "DICOM door actieve tabel-, mapping- en recognition-modellen naar één datablok."},
     "5": {"label": "± 10–60 sec", "detail": "Afhankelijk van het aantal gereviewde bronnen."},
     "6": {"label": "± 10–30 sec", "detail": "Dataset- en PaddleDetection-validatie."},
     "7": {"label": "± 5–20 min", "detail": "GPU-training; afhankelijk van dataset en GPU."},
@@ -208,6 +206,7 @@ ACTION_DURATION_ESTIMATES = {
     "55": {"label": "± 5–20 min", "detail": "PicoDet-S tabelregio-detector trainen op GPU."},
     "56": {"label": "± 30–120 min", "detail": "PicoDet-S tabelregio-detector trainen op CPU."},
     "57": {"label": "± 10–30 sec", "detail": "Een bestaand tabelregio-model als voorste detectorlaag activeren."},
+    "59": {"label": "± 1–5 min", "detail": "Alleen tabelregio-detectie; afhankelijk van het aantal bronnen."},
     "60": {"label": "± 5–20 min", "detail": "Tabelregio-dataset bouwen → GPU-trainen → activeren."},
     # Legacy aliases remain annotated because older queued/retry jobs can surface in the UI.
     "107": {"label": "± 10–60 sec", "detail": "Legacy recognition-dataset bouwen."},
