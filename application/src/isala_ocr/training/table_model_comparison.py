@@ -1749,6 +1749,7 @@ def table_cell_comparison_state(
     issue_panels = []
     total_issues = reviewed_issues = 0
     decision_counts: dict[str, int] = {}
+    open_geometry_issue_ids: list[str] = []
     for panel in candidate.get("panels") or []:
         issues = []
         for issue in panel.get("issues") or []:
@@ -1768,6 +1769,10 @@ def table_cell_comparison_state(
             if decision and decision != "deferred":
                 reviewed_issues += 1
                 decision_counts[decision] = decision_counts.get(decision, 0) + 1
+            elif str(issue.get("type") or "") == "geometry":
+                issue_id = str(issue.get("issue_id") or "")
+                if issue_id:
+                    open_geometry_issue_ids.append(issue_id)
         if issues:
             issue_panels.append({**panel, "issues": issues})
 
@@ -1798,4 +1803,5 @@ def table_cell_comparison_state(
         "functional_suggestions": functional_suggestions,
         "obvious_error_suggestions": error_suggestions,
         "incomplete_detection_suggestions": incomplete_suggestions,
+        "open_geometry_issue_ids": open_geometry_issue_ids,
     }

@@ -3068,6 +3068,7 @@ def create_web_app(
                     "apply_functional_suggestions",
                     "apply_obvious_error_suggestions",
                     "apply_incomplete_detection_suggestions",
+                    "apply_all_open_geometry_functional_ok",
                 }:
                     abort(400)
                 run_id = str(request.form.get("run_id") or "").strip()[:180]
@@ -3157,6 +3158,42 @@ def create_web_app(
                         applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "model_error")
                         flash(
                             f"{len(applied)} onvolledige detecties als modelfout gemarkeerd.",
+                            "success",
+                        )
+                    parameters = {}
+                    if reference:
+                        parameters["reference"] = reference
+                    if candidate:
+                        parameters["candidate"] = candidate
+                    return redirect(url_for("process_step", step_key=step_key, **parameters))
+                if action == "apply_all_open_geometry_functional_ok":
+                    # Unlike apply_functional_suggestions above, this is not limited to the
+                    # conservative gt_coverage/prediction_excess thresholds: a reviewer who has
+                    # seen enough geometry afwijkingen to trust the button can approve every
+                    # still-open one on this run in a single click, same "functional_ok" decision
+                    # as the per-issue button.
+                    state = table_cell_comparison_state(
+                        workspace_root(),
+                        reference_run_id=reference or None,
+                        candidate_run_id=candidate or run_id or None,
+                    )
+                    active_run = str((state.get("candidate") or {}).get("run_id") or "")
+                    allowed_ids = set(state.get("open_geometry_issue_ids") or [])
+                    requested_ids = {
+                        str(value).strip()[:80]
+                        for value in request.form.getlist("issue_id")
+                        if str(value).strip()
+                    }
+                    selected_ids = sorted(allowed_ids.intersection(requested_ids))
+                    if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
+                        flash("Dit geldt alleen voor de nieuwste, schrijfbare detectierun.", "error")
+                    elif not selected_ids:
+                        flash("Er zijn geen open geometrie-afwijkingen meer om zo te markeren.", "warning")
+                    else:
+                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "functional_ok")
+                        flash(
+                            f"{len(applied)} open geometrie-afwijkingen als functioneel correct gemarkeerd. "
+                            "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
                             "success",
                         )
                     parameters = {}
