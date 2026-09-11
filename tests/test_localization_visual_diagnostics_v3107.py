@@ -54,7 +54,8 @@ def test_match_details_exposes_tp_fp_fn_and_actionable_fp_causes():
 
 
 def test_visual_diagnostics_are_wired_into_step5_and_can_confirm_missing_ground_truth():
-    webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
+    # api_v2_localization_quality_details() lives in routes_localization_v2.py now.
+    webui = (ROOT / "application/src/isala_ocr/training/routes_localization_v2.py").read_text(encoding="utf-8")
     frontend = (ROOT / "frontend/src/localization-quality.ts").read_text(encoding="utf-8")
     css = (ROOT / "application/src/isala_ocr/training/static/react/localization-quality.css").read_text(encoding="utf-8")
 

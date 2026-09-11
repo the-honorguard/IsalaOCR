@@ -47,7 +47,8 @@ def test_quality_ui_is_next_action_first_and_hides_raw_metrics_under_advanced() 
 
 def test_visual_diagnostics_support_split_iou_and_fp_cause_focus() -> None:
     frontend = (ROOT / "frontend/src/localization-quality.ts").read_text(encoding="utf-8")
-    webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
+    # api_v2_localization_quality_details() lives in routes_localization_v2.py now.
+    webui = (ROOT / "application/src/isala_ocr/training/routes_localization_v2.py").read_text(encoding="utf-8")
     assert '"IoU (alleen diagnose)"' in frontend
     assert '"TEST (hold-out)"' in frontend
     assert 'Near-match / IoU' in frontend

@@ -63,7 +63,8 @@ def test_child_python_imports_local_pkg_resources_compatibility_via_pythonpath()
 
 def test_step4_has_live_readiness_api_and_component_polling():
     client = (ROOT / "frontend" / "src" / "localization-workbench.ts").read_text(encoding="utf-8")
-    webui = (ROOT / "application" / "src" / "isala_ocr" / "training" / "webui.py").read_text(encoding="utf-8")
+    # This route lives in routes_localization_v2.py now (split out of webui.py).
+    webui = (ROOT / "application" / "src" / "isala_ocr" / "training" / "routes_localization_v2.py").read_text(encoding="utf-8")
     app_js = (ROOT / "application" / "src" / "isala_ocr" / "training" / "static" / "app.js").read_text(encoding="utf-8")
     assert "/api/localization-readiness" in webui
     assert "/api/v2/localization/workbench" in client

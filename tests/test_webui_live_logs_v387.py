@@ -40,10 +40,13 @@ def test_activity_dock_exposes_separate_stream_tabs_and_live_follow() -> None:
 
 
 def test_web_api_has_independent_log_streams() -> None:
+    # job_log() lives in routes_jobs.py (split out of webui.py); job_statuses(),
+    # which builds the stderr_bytes counter, stays in webui.py.
     webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
-    assert 'stream=str(request.args.get("stream") or "overview")' in webui
-    assert '{"overview","stdout","stderr","worker"}' in webui
-    assert 'response.headers["X-Isala-Log-Stream"]=stream' in webui
+    routes_jobs = (ROOT / "application/src/isala_ocr/training/routes_jobs.py").read_text(encoding="utf-8")
+    assert 'stream=str(request.args.get("stream") or "overview")' in routes_jobs
+    assert '{"overview","stdout","stderr","worker"}' in routes_jobs
+    assert 'response.headers["X-Isala-Log-Stream"]=stream' in routes_jobs
     assert 'item["stderr_bytes"]' in webui
 
 

@@ -142,6 +142,10 @@ def test_mappingstudio_exposes_reject_reason_feedback_controls() -> None:
     template = (root / "application/src/isala_ocr/training/templates/mapping_studio.html").read_text(encoding="utf-8")
     css = (root / "application/src/isala_ocr/training/static/app.css").read_text(encoding="utf-8")
     webui = (root / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
+    # /mapping/<source_id>/relation-feedback lives in routes_mapping_studio.py now.
+    routes_mapping_studio = (
+        root / "application/src/isala_ocr/training/routes_mapping_studio.py"
+    ).read_text(encoding="utf-8")
 
     assert "Afkeuren…" in template
     assert "Afkeuren & leren" in template
@@ -150,6 +154,6 @@ def test_mappingstudio_exposes_reject_reason_feedback_controls() -> None:
     assert "mapping-restore-button" in template
     assert "Feedbackleren actief" in template
     for reason_code in RELATION_FEEDBACK_REASONS:
-        assert reason_code in webui or "feedback_reasons" in template
-    assert "/relation-feedback" in webui
+        assert reason_code in webui or reason_code in routes_mapping_studio or "feedback_reasons" in template
+    assert "/relation-feedback" in routes_mapping_studio
     assert ".mapping-relation-row.mapping-rejected" in css
