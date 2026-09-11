@@ -1,8 +1,0 @@
-{
-  "detect-legacy-containment": {
-    "9116e20e839ad6e9f69a": {
-      "decision": "gt_check",
-      "reviewed_at": "2026-08-31T17:11:26.938690+00:00"
-    }
-  }
-}

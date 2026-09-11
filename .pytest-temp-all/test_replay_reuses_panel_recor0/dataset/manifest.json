@@ -1,1 +1,0 @@
-{"hard_example_replay": {"strategy": "dynamic_panel_weighted_replay", "selected_extra_draws": 2, "panels": [{"file_name": "a.png", "replay_count": 2, "error_streak": 2}]}}

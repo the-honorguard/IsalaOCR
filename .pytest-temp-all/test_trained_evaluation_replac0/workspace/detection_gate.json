@@ -1,6 +1,0 @@
-{
-  "ready": false,
-  "reason": "Laatste getrainde field detector haalt de detection gate niet: recall 0.000 >= 0.950 niet gehaald; precision 0.000 >= 0.900 niet gehaald; auto_accept_rate 0.000 >= 0.850 niet gehaald",
-  "evaluation_id": "loc-eval-trained-20260831T171114Z-595d4e96",
-  "updated_at": "2026-08-31T17:11:14.178291+00:00"
-}
