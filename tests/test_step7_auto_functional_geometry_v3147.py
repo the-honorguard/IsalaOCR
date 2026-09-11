@@ -122,6 +122,32 @@ def test_reviewable_suggestion_accepts_a_wider_single_cell_crop():
     assert suggestions["issue_ids"] == ["safe-wide-crop"]
 
 
+def test_reviewable_suggestion_accepts_a_perfectly_contained_crop():
+    # Regression test: `quality.get("prediction_excess") or 1.0` treats a
+    # real 0.0 excess (prediction exactly matches the GT box, the cleanest
+    # possible case) as falsy and silently replaces it with the worst-case
+    # fallback of 1.0, which used to make this fail the excess check.
+    candidate = {
+        "panels": [{
+            "source_id": "source-a",
+            "panel_id": "rv",
+            "panel_name": "Right ventricle",
+            "ground_truth": [{"box": [100, 100, 300, 140]}],
+            "issues": [{
+                "issue_id": "exact-match",
+                "type": "geometry",
+                "match_reason": "iou",
+                "prediction_box": [100, 100, 300, 140],
+                "gt_boxes": [[100, 100, 300, 140]],
+            }],
+        }],
+    }
+
+    suggestions = functional_geometry_suggestions(candidate, {})
+
+    assert suggestions["issue_ids"] == ["exact-match"]
+
+
 def test_reviewable_suggestion_rejects_a_crop_reaching_neighbour_cell():
     candidate = {
         "panels": [{
