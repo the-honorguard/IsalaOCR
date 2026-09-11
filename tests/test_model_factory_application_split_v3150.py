@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "application/src/isala_ocr/training/templates/base.html"
 CMR_USE_CASE = ROOT / "application/config/use_cases/philips_cmr_volume_results.yaml"
 GENERIC_USE_CASE = ROOT / "application/config/use_cases/generic_document.yaml"
-ARCH = ROOT / "docs/architecture/model-factory-and-application-processing.md"
+ARCH = ROOT / "documentation/architecture/model-factory-and-application-processing.md"
 VERSION = ROOT / "project/VERSION"
 
 

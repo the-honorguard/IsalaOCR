@@ -8,7 +8,7 @@ DATASET = ROOT / "application/src/isala_ocr/training/dataset.py"
 METADATA = ROOT / "application/src/isala_ocr/training/recognition_model_factory.py"
 BASE = ROOT / "application/src/isala_ocr/training/templates/base.html"
 MENU = ROOT / "automation/powershell/training-menu.ps1"
-ARCH = ROOT / "docs/architecture/model-factory-and-application-processing.md"
+ARCH = ROOT / "documentation/architecture/model-factory-and-application-processing.md"
 VERSION = ROOT / "project/VERSION"
 
 
