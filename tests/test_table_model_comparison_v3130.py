@@ -206,6 +206,44 @@ def test_step7_geometry_exposes_functional_quality_and_accepts_functional_ok(tmp
     assert (tmp_path / "table_cell_datasets" / dataset_id / "annotations" / "instance_val.json").read_text(encoding="utf-8") == before
 
 
+def test_step9_open_geometry_issue_ids_allow_bulk_approval_below_safe_threshold(tmp_path: Path) -> None:
+    dataset_id = _seed_dataset(tmp_path)
+    _seed_baseline_and_current(tmp_path, dataset_id)
+    # The original GT cell is a 10x10 box at (10,10)-(20,20). Shrink the
+    # matching prediction to 10x6 (60% of the GT area, fully contained, so
+    # iou == coverage == 0.6): still a "geometry" issue (0.50 <= iou < 0.75)
+    # but well below the 85% safe-suggestion threshold, i.e. exactly the kind
+    # of issue the safe "veilige voorselectie" bucket deliberately excludes.
+    detections = json.loads((tmp_path / "localization_detections" / "source-a.json").read_text(encoding="utf-8"))
+    detections["candidates"][0].update({"x1": 10, "y1": 10, "x2": 20, "y2": 16})
+    _write_json(tmp_path / "localization_detections" / "source-a.json", detections)
+
+    state = table_cell_comparison_state(tmp_path)
+    geometry = next(
+        issue
+        for panel in state["issue_panels"]
+        for issue in panel["issues"]
+        if issue["type"] == "geometry"
+    )
+    assert geometry["gt_coverage"] == pytest.approx(0.6)
+    assert geometry["issue_id"] in state["open_geometry_issue_ids"]
+    assert geometry["issue_id"] not in state["functional_suggestions"]["issue_ids"]
+
+    run_id = state["candidate"]["run_id"]
+    applied = review_comparison_issues_bulk(tmp_path, run_id, state["open_geometry_issue_ids"], "functional_ok")
+    assert geometry["issue_id"] in applied
+
+    reviewed = table_cell_comparison_state(tmp_path, candidate_run_id=run_id)
+    reviewed_geometry = next(
+        issue
+        for panel in reviewed["issue_panels"]
+        for issue in panel["issues"]
+        if issue["issue_id"] == geometry["issue_id"]
+    )
+    assert reviewed_geometry["review"]["decision"] == "functional_ok"
+    assert reviewed["open_geometry_issue_ids"] == []
+
+
 def test_step7_functional_ok_is_restricted_to_geometry_issues(tmp_path: Path) -> None:
     dataset_id = _seed_dataset(tmp_path)
     _seed_baseline_and_current(tmp_path, dataset_id)

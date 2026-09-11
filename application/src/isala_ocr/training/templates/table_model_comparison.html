@@ -81,6 +81,27 @@
 </section>
 {% endif %}
 
+{% set open_geometry_ids = comparison.open_geometry_issue_ids or [] %}
+{% if open_geometry_ids and comparison.review_writable %}
+<section class="card section-gap functional-suggestion-card">
+  <div class="toolbar">
+    <div>
+      <span class="eyebrow">ALLES IN ÉÉN KEER</span>
+      <h3>{{ open_geometry_ids|length }} open geometrie-afwijking{{ 'en' if open_geometry_ids|length != 1 }} in totaal</h3>
+      <p class="muted">Dit past geen drempel toe zoals de veilige voorselectie hierboven: elke nog openstaande geometrie-afwijking op deze run wordt in één keer op "Functioneel correct" gezet, inclusief de voorbeelden verderop met lagere GT-dekking. Gebruik dit alleen wanneer je die afwijkingen al hebt gezien en vertrouwt.</p>
+    </div>
+    <form method="post" class="functional-suggestion-form">
+      <input type="hidden" name="comparison_action" value="apply_all_open_geometry_functional_ok">
+      <input type="hidden" name="run_id" value="{{ cur.run_id }}">
+      <input type="hidden" name="reference_run_id" value="{{ ref.run_id }}">
+      <input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}">
+      {% for issue_id in open_geometry_ids %}<input type="hidden" name="issue_id" value="{{ issue_id }}">{% endfor %}
+      <button class="ghost" type="submit">Alle {{ open_geometry_ids|length }} functioneel correct maken</button>
+    </form>
+  </div>
+</section>
+{% endif %}
+
 {% set error_suggestions = comparison.obvious_error_suggestions or {} %}
 {% if error_suggestions.issues and comparison.review_writable %}
 <section class="card section-gap functional-suggestion-card">
