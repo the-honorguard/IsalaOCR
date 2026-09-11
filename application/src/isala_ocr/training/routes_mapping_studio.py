@@ -43,7 +43,13 @@ def register_mapping_studio_routes(
     enqueue_job: Callable[..., dict[str, Any]],
 ) -> None:
     def _first_open_mapping_source(sources: list[dict[str, Any]]) -> str | None:
-        """Return the first source that still needs Mapping Studio review."""
+        """Return the first source that still needs Mapping Studio review.
+
+        list_detected_relations() already LEFT JOINs field_mappings and
+        exposes the result as mapping_status, so this only needs the one
+        query per source instead of also calling list_mappings(source_id)
+        just to look the same status back up by relation_id.
+        """
         for item in sources:
             source_id = str(item.get("source_id") or "")
             if not source_id:
@@ -55,11 +61,7 @@ def register_mapping_studio_routes(
             ]
             if not relations:
                 continue
-            mappings = {
-                str(mapping.get("relation_id") or ""): mapping
-                for mapping in database.list_mappings(source_id)
-            }
-            if any(str(mappings.get(str(relation.get("relation_id")), {}).get("status") or "") != "confirmed" for relation in relations):
+            if any(str(relation.get("mapping_status") or "") != "confirmed" for relation in relations):
                 return source_id
         return None
 
