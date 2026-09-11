@@ -1,8 +1,0 @@
-{
-  "detect-reviewed-v1": {
-    "fn-hard": {
-      "decision": "model_error",
-      "reviewed_at": "2026-08-14T13:05:00+00:00"
-    }
-  }
-}

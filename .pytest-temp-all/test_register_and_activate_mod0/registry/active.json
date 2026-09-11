@@ -1,9 +1,0 @@
-{
-  "model_id": "model-1",
-  "activated_at": "2026-08-31T17:11:32.978099+00:00",
-  "path": "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\.pytest-temp-all\\test_register_and_activate_mod0\\models\\active-recognition",
-  "metrics": {
-    "exact_match_accuracy": 0.97,
-    "character_error_rate": 0.01
-  }
-}
