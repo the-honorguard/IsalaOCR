@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import copy
 import hashlib
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -10,19 +12,60 @@ from .json_store import read_json as _read_json, write_json_atomic as _write_jso
 
 GROUND_TRUTH_FILENAME = "table_cell_ground_truth.json"
 
+# This file is often the whole canonical GT for a project - every reviewed
+# source and cell - and load_table_cell_ground_truth() used to reload and
+# re-parse it from disk on every single call. Several callers (notably
+# table_cell_training.py's _dataset_source_state()) called it once per
+# source in a loop, and it's on the request path of nearly every page in
+# table-first mode via canonical_table_gt_mode()/process_snapshot(). Cache
+# by file signature (mtime+size), the same convention already used by
+# registry_state() and ProjectManager._catalog().
+#
+# Reads get the cached object directly, not a copy: a deep copy of a large
+# payload just to read a handful of fields (or one source's slice, in a
+# per-source loop) turned out to cost *more* than the disk read + JSON parse
+# it was meant to save - measured 2x slower against a 100-source/500-cell
+# ground truth. Every read-only caller here only ever builds new dicts/lists
+# from what it reads and never mutates the returned structure in place, so
+# this is safe; the one place that does mutate in place (_mutate(), below)
+# is responsible for its own deep copy before touching anything.
+_ground_truth_cache: dict[str, tuple[tuple[int, int] | None, dict[str, Any] | None]] = {}
+_ground_truth_cache_lock = threading.Lock()
+
+
+def _file_signature(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
 
 def ground_truth_path(workspace: str | Path) -> Path:
     return resolve_project_workspace(workspace) / GROUND_TRUTH_FILENAME
 
 
 def load_table_cell_ground_truth(workspace: str | Path) -> dict[str, Any] | None:
-    payload = _read_json(ground_truth_path(workspace), None)
+    path = ground_truth_path(workspace)
+    signature = _file_signature(path)
+    key = str(path)
+    with _ground_truth_cache_lock:
+        cached = _ground_truth_cache.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+
+    payload = _read_json(path, None)
     if not isinstance(payload, dict) or int(payload.get("schema_version") or 0) != 1:
-        return None
-    sources = payload.get("sources")
-    if not isinstance(sources, dict):
-        return None
-    return payload
+        result = None
+    else:
+        sources = payload.get("sources")
+        result = payload if isinstance(sources, dict) else None
+
+    with _ground_truth_cache_lock:
+        _ground_truth_cache[key] = (signature, result)
+        if len(_ground_truth_cache) > 8:
+            _ground_truth_cache.pop(next(iter(_ground_truth_cache)))
+    return result
 
 
 def _latest_dataset_root(root: Path) -> tuple[str, Path] | None:
@@ -256,6 +299,10 @@ def _mutate(workspace: str | Path, mutator) -> dict[str, Any]:
     payload = ensure_table_cell_ground_truth(root)
     if payload is None:
         raise FileNotFoundError("Er is nog geen canonieke table-cell Ground Truth")
+    # load_table_cell_ground_truth() returns the cached object directly (see
+    # its docstring comment) - copy before mutating so this never corrupts
+    # the cache for a concurrent reader.
+    payload = copy.deepcopy(payload)
     result = mutator(payload)
     payload["revision"] = int(payload.get("revision") or 0) + 1
     payload["updated_at"] = utc_now()

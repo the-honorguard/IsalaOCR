@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -10,6 +11,29 @@ from .json_store import read_json_object, write_json_atomic
 
 PANEL_PROFILE_VERSION = 2
 PANEL_PROFILE_NAME = "table_panel_profile.json"
+
+# load_panel_profile() re-reads the file and redoes panel/definition
+# normalization on every call. table_region_ground_truth.py's
+# _panel_semantics_for_region() calls it once per region, so a source with
+# several table regions repeated this per source per page render. Cache by
+# file signature (same convention as table_cell_ground_truth.py and
+# table_region_ground_truth.py's caches).
+#
+# Reads get the cached object directly, not a copy - a deep copy on every
+# read cost more than the work it replaced when called once per region in a
+# loop (measured against table_cell_ground_truth.py's identical cache).
+# Every caller here (in this file and elsewhere) only reads from the
+# result and builds new dicts/lists from it; none mutate it in place.
+_panel_profile_cache: dict[str, tuple[tuple[int, int] | None, dict[str, Any]]] = {}
+_panel_profile_cache_lock = threading.Lock()
+
+
+def _file_signature(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
 
 
 def _utcnow() -> str:
@@ -103,8 +127,15 @@ def _normalize_panels(
 
 def load_panel_profile(workspace: str | Path) -> dict[str, Any]:
     path = panel_profile_path(workspace)
+    signature = _file_signature(path)
+    key = str(path)
+    with _panel_profile_cache_lock:
+        cached = _panel_profile_cache.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+
     if not path.is_file():
-        return {
+        result = {
             "schema_version": PANEL_PROFILE_VERSION,
             "mode": "manual",
             "definitions": [],
@@ -112,39 +143,46 @@ def load_panel_profile(workspace: str | Path) -> dict[str, Any]:
             "definitions_updated_at": "",
             "updated_at": "",
         }
-    payload = read_json_object(path)
-
-    # Existing v1 profiles did not have a separate setup list. Normalize panels
-    # first, then derive one persistent definition per existing panel.
-    panels = _normalize_panels(payload.get("panels") or [])
-    raw_definitions = payload.get("definitions")
-    if isinstance(raw_definitions, list) and raw_definitions:
-        definitions = _normalize_definitions(raw_definitions)
     else:
-        definitions = _normalize_definitions(
-            {"panel_id": item.get("panel_id"), "name": item.get("name")} for item in panels
-        )
+        payload = read_json_object(path)
 
-    definition_by_id = {item["panel_id"]: item for item in definitions}
-    synced_panels = []
-    for panel in panels:
-        item = dict(panel)
-        definition = definition_by_id.get(str(item.get("panel_id") or ""))
-        if definition:
-            item["name"] = definition["name"]
-        synced_panels.append(item)
+        # Existing v1 profiles did not have a separate setup list. Normalize panels
+        # first, then derive one persistent definition per existing panel.
+        panels = _normalize_panels(payload.get("panels") or [])
+        raw_definitions = payload.get("definitions")
+        if isinstance(raw_definitions, list) and raw_definitions:
+            definitions = _normalize_definitions(raw_definitions)
+        else:
+            definitions = _normalize_definitions(
+                {"panel_id": item.get("panel_id"), "name": item.get("name")} for item in panels
+            )
 
-    return {
-        "schema_version": int(payload.get("schema_version") or PANEL_PROFILE_VERSION),
-        "mode": str(payload.get("mode") or "manual"),
-        "reference_source_id": str(payload.get("reference_source_id") or ""),
-        "reference_width": int(payload.get("reference_width") or 0),
-        "reference_height": int(payload.get("reference_height") or 0),
-        "definitions": definitions,
-        "panels": synced_panels,
-        "definitions_updated_at": str(payload.get("definitions_updated_at") or ""),
-        "updated_at": str(payload.get("updated_at") or ""),
-    }
+        definition_by_id = {item["panel_id"]: item for item in definitions}
+        synced_panels = []
+        for panel in panels:
+            item = dict(panel)
+            definition = definition_by_id.get(str(item.get("panel_id") or ""))
+            if definition:
+                item["name"] = definition["name"]
+            synced_panels.append(item)
+
+        result = {
+            "schema_version": int(payload.get("schema_version") or PANEL_PROFILE_VERSION),
+            "mode": str(payload.get("mode") or "manual"),
+            "reference_source_id": str(payload.get("reference_source_id") or ""),
+            "reference_width": int(payload.get("reference_width") or 0),
+            "reference_height": int(payload.get("reference_height") or 0),
+            "definitions": definitions,
+            "panels": synced_panels,
+            "definitions_updated_at": str(payload.get("definitions_updated_at") or ""),
+            "updated_at": str(payload.get("updated_at") or ""),
+        }
+
+    with _panel_profile_cache_lock:
+        _panel_profile_cache[key] = (signature, result)
+        if len(_panel_profile_cache) > 8:
+            _panel_profile_cache.pop(next(iter(_panel_profile_cache)))
+    return result
 
 
 def save_panel_definitions(
