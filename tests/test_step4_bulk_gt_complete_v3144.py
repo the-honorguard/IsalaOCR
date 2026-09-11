@@ -13,7 +13,7 @@ def test_step4_gt_index_has_bulk_complete_control():
     ).read_text(encoding="utf-8")
 
     assert 'id="complete-all-gt-sources"' in template
-    assert "Alles als klaar markeren" in template
+    assert "Alles als beoordeeld markeren ({{ open_source_count }})" in template
     assert 'data-gt-source-id="{{ source.source_id }}"' in template
     assert 'data-review-completed="{{ 1 if source.review_completed else 0 }}"' in template
     assert "/api/detection-review/${encodeURIComponent(sourceId)}/complete" in template
