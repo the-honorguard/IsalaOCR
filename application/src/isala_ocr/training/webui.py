@@ -14,7 +14,7 @@ import threading
 import traceback
 import uuid
 from difflib import SequenceMatcher
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -61,7 +61,7 @@ from .routes_test_pipeline import register_test_pipeline_routes
 from .routes_table_region_detect import register_table_region_detect_routes
 from .routes_value_review import register_value_review_routes
 from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
-from .json_store import read_json as _read_json
+from .json_store import read_json as _read_json, write_json_atomic as _write_json_atomic
 from .table_cell_ground_truth import (
     ensure_table_cell_ground_truth, ground_truth_counts, ground_truth_review_state,
 )
@@ -1645,9 +1645,83 @@ def create_web_app(
                     _job_file_cache.pop(stale_key, None)
         return payload
 
+    _JOB_PRUNE_INTERVAL_SECONDS = 3600
+    _JOB_PRUNE_RETAIN_COUNT = 500
+    _JOB_PRUNE_RETAIN_DAYS = 90
+    _job_prune_lock = threading.Lock()
+
+    def _prune_old_job_files() -> None:
+        """Bound the job-status history so job_statuses() doesn't scan it forever.
+
+        Nothing else archives or removes old completed/failed job files, so on
+        a long-lived deployment the history - and therefore the cost of every
+        job_statuses() call, including the one the activity dock polls every
+        ~2 seconds - only ever grows. Runs at most once per hour (throttled via
+        a marker file, so the check on every call is a single cheap JSON read).
+
+        Keeps a completed/failed job only while it is BOTH among the 500 most
+        recently created (a real ceiling on job_statuses()'s per-call cost,
+        the actual point of this function - a week of heavy same-day usage
+        must not silently escape it just because 90 days haven't passed yet)
+        AND younger than 90 days (so a quiet/abandoned project's old jobs
+        still get cleared out even while under the count ceiling). Removed on
+        either condition failing. pending/running jobs are never touched, and
+        a job with an unparsable created_at is left alone rather than guessed at.
+        """
+        marker_path = jobs_root / ".last_prune.json"
+        marker = _read_json(marker_path, {})
+        last_run = str(marker.get("last_run") or "") if isinstance(marker, dict) else ""
+        now = datetime.now(timezone.utc)
+        if last_run:
+            try:
+                parsed = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                if (now - parsed.astimezone(timezone.utc)).total_seconds() < _JOB_PRUNE_INTERVAL_SECONDS:
+                    return
+            except ValueError:
+                pass
+        if not _job_prune_lock.acquire(blocking=False):
+            return  # another thread/request is already pruning; skip, don't block.
+        try:
+            candidates: dict[str, dict[str, Any]] = {}
+            for folder in ("status", "completed", "failed"):
+                for path in (jobs_root / folder).glob("*.json"):
+                    payload = _cached_job_payload(path, "failed" if folder == "failed" else "completed")
+                    if payload is None:
+                        continue
+                    if str(payload.get("status") or "") not in {"completed", "failed"}:
+                        continue
+                    candidates.setdefault(str(payload["job_id"]), payload)
+
+            ordered = sorted(candidates.values(), key=lambda item: str(item.get("created_at") or ""), reverse=True)
+            cutoff = now - timedelta(days=_JOB_PRUNE_RETAIN_DAYS)
+            removed = 0
+            for index, item in enumerate(ordered):
+                within_count_ceiling = index < _JOB_PRUNE_RETAIN_COUNT
+                try:
+                    created = datetime.fromisoformat(str(item.get("created_at") or "").replace("Z", "+00:00"))
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=timezone.utc)
+                    within_retention_days = created.astimezone(timezone.utc) >= cutoff
+                except ValueError:
+                    continue  # unparsable timestamp: leave it, don't guess
+                if within_count_ceiling and within_retention_days:
+                    continue
+                job_id = str(item["job_id"])
+                for folder in ("status", "pending", "running", "completed", "failed"):
+                    (jobs_root / folder / f"{job_id}.json").unlink(missing_ok=True)
+                for suffix in (".worker.log", ".log", ".log.err"):
+                    (jobs_root / "logs" / f"{job_id}{suffix}").unlink(missing_ok=True)
+                removed += 1
+            _write_json_atomic(marker_path, {"last_run": now.isoformat(), "removed": removed})
+        finally:
+            _job_prune_lock.release()
+
     def job_statuses(
         limit: int = 20, *, action_ids: set[str] | None = None, job_type: str | None = None
     ) -> list[dict[str, Any]]:
+        _prune_old_job_files()
         # status/ is canonical. Cache parsed JSON by file signature so frequent UI
         # polling mostly performs cheap stat() calls instead of reparsing history.
         merged: dict[str, dict[str, Any]] = {}
