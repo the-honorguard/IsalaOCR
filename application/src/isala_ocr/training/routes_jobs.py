@@ -29,7 +29,7 @@ from typing import Any, Callable
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 
-from .projects import ProjectManager
+from .projects import DEFAULT_PROJECT_ID, ProjectManager
 
 
 def _read_log_text(path: Path) -> str:
@@ -64,6 +64,7 @@ def register_job_routes(
     *,
     jobs_root: Path,
     job_statuses: Callable[..., list[dict[str, Any]]],
+    cached_job_payload: Callable[..., dict[str, Any] | None],
     worker_state: Callable[[], dict[str, Any]],
     enqueue_job: Callable[..., dict[str, Any]],
     current_recognition_gate: Callable[[], dict[str, Any]],
@@ -81,6 +82,32 @@ def register_job_routes(
             jobs_root / "logs" / f"{job_id}.log.err",
         ]
 
+    def _lookup_job(job_id: str) -> dict[str, Any] | None:
+        """Look up one job by ID directly instead of scanning the whole queue.
+
+        /api/jobs/<job_id> and /api/jobs/<job_id>/log are what the activity
+        dock polls every ~2 seconds while any job is running; calling
+        job_statuses(1000) - a full glob-and-parse pass over every job the
+        queue has ever seen - just to find one job by ID meant every poll
+        cycle paid for the entire job history, twice. Mirrors job_statuses()'s
+        own precedence (status/ is canonical, then the legacy per-state
+        folders) and its active-project filter.
+        """
+        payload = cached_job_payload(jobs_root / "status" / f"{job_id}.json")
+        if payload is None:
+            for folder, fallback_status in (
+                ("pending", "pending"), ("running", "running"),
+                ("completed", "completed"), ("failed", "failed"),
+            ):
+                payload = cached_job_payload(jobs_root / folder / f"{job_id}.json", fallback_status)
+                if payload is not None:
+                    break
+        if payload is None:
+            return None
+        if str(payload.get("project_id") or DEFAULT_PROJECT_ID) != project_manager.active_project_id():
+            return None
+        return payload
+
     @app.get("/jobs/manage")
     def manage_jobs():
         status_filter=str(request.args.get("status", "all")).strip().lower()
@@ -96,7 +123,7 @@ def register_job_routes(
     @app.post("/jobs/<job_id>/delete")
     def delete_job(job_id: str):
         if not re_job_id(job_id): abort(404)
-        item=next((entry for entry in job_statuses(1000) if entry.get("job_id") == job_id), None)
+        item=_lookup_job(job_id)
         if item is None: abort(404)
         if str(item.get("status")) == "running":
             flash("Een actieve taak kan niet worden verwijderd. Wacht tot deze klaar is.", "error")
@@ -128,7 +155,7 @@ def register_job_routes(
     @app.post("/jobs/<job_id>/retry")
     def retry_job(job_id: str):
         if not re_job_id(job_id): abort(404)
-        old=next((entry for entry in job_statuses(1000) if entry.get("job_id") == job_id), None)
+        old=_lookup_job(job_id)
         if old is None: abort(404)
         if str(old.get("status")) == "running": abort(409)
         action_id=str(old.get("action_id") or "")
@@ -217,7 +244,7 @@ def register_job_routes(
     @app.get("/api/jobs/<job_id>")
     def job_status(job_id:str):
         if not re_job_id(job_id): abort(404)
-        match=next((item for item in job_statuses(1000) if item.get("job_id")==job_id),None)
+        match=_lookup_job(job_id)
         if match is None: abort(404)
         return jsonify(match)
 
@@ -227,7 +254,7 @@ def register_job_routes(
         stream=str(request.args.get("stream") or "overview").strip().lower()
         if stream not in {"overview","stdout","stderr","worker"}:
             abort(400)
-        match=next((item for item in job_statuses(1000) if item.get("job_id")==job_id),None)
+        match=_lookup_job(job_id)
         worker=worker_state()
         lifecycle=[]
         if match:

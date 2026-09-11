@@ -3856,6 +3856,7 @@ def create_web_app(
         app,
         jobs_root=jobs_root,
         job_statuses=job_statuses,
+        cached_job_payload=_cached_job_payload,
         worker_state=worker_state,
         enqueue_job=enqueue_job,
         current_recognition_gate=current_recognition_gate,
