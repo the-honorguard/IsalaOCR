@@ -5,6 +5,7 @@ pytest.importorskip("flask")
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'application'/'src'))
 from isala_ocr.training.db import TrainingDatabase
+from isala_ocr.training.projects import ProjectManager
 from isala_ocr.training.webui import create_web_app
 
 def test_smart_review_accepts_only_safe_dynamic_samples(tmp_path):
@@ -19,6 +20,12 @@ def test_smart_review_accepts_only_safe_dynamic_samples(tmp_path):
     profile=tmp_path/'profile.yaml'; profile.write_text('fields:\n- key: f\n  range: [0, 100]\n')
     config=tmp_path/'app.yaml'; config.write_text(f'profile: {profile.as_posix()}\n')
     app=create_web_app(workspace,models_root=tmp_path/'models',output_root=tmp_path/'output',project_root=project,config_path=config)
+    # create_web_app migrates a bare workspace into
+    # workspace/projects/<project-id>/samples.sqlite3 via ProjectManager, so the
+    # pre-migration `db` handle above no longer points at the file the app's
+    # routes read/write. Reopen it at the migrated path before asserting.
+    project_manager=ProjectManager(workspace)
+    db=TrainingDatabase(project_manager.active_workspace()/'samples.sqlite3')
     app.test_client().post('/review/smart-apply',data={'threshold':'0.98','qa_percent':'0'})
     assert db.get('s1')['status']=='accepted'
     assert db.get('s2')['status']=='pending'

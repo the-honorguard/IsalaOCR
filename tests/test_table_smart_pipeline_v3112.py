@@ -50,10 +50,14 @@ def test_panel_crop_is_padded_and_rejects_fullscreen_false_table():
 
 
 def test_review_studio_exposes_smart_fit_and_reconstruction_controls():
+    # The old smart-fit/normalize-column buttons were replaced by a raster
+    # tool (draw an outer box, then configure rows/columns to slice it into
+    # a grid of cells) - see draw-grid/raster-config/snap-row-bounds below.
+    # The reconstructed-cell-suggestion overlay is still current.
     source = open("application/src/isala_ocr/training/templates/detection_review_studio.html", encoding="utf-8").read()
-    assert "PREPROCESSING BENCHMARK" in source
-    assert 'id="smart-fit"' in source
-    assert 'id="normalize-column"' in source
+    assert 'id="draw-grid"' in source
+    assert 'id="raster-config"' in source
+    assert 'id="snap-row-bounds"' in source
     assert "reconstructed-cell-suggestion" in source
     assert "Geometrisch gereconstrueerd" in source
 

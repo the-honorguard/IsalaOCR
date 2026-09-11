@@ -31,7 +31,7 @@ def test_every_menu_action_gets_preflight_before_execution() -> None:
     assert "Check-only mode: the task was not executed" in menu
     assert "S. Systeemcontroles" in menu
     assert "M. Onderhoud / permissieherstel" in menu
-    assert '"4"  = @{ Name = "Cel-GT beoordelen"' in menu
+    assert '"4"  = @{ Name = "Tabelregio’s detecteren/beoordelen"' in menu
 
 
 def test_preflight_catalog_covers_detection_and_value_pipeline_actions() -> None:

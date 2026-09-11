@@ -63,7 +63,10 @@ def test_user_facing_templates_do_not_advertise_frontend_implementation_details(
 def test_sidebar_and_headers_keep_only_user_relevant_context():
     base = _text(TRAINING / "templates/base.html")
     assert "DETECTIE & CROPS" in base
-    assert "WAARDEN & OCR" in base
+    # The old single "WAARDEN & OCR" section was later split into more
+    # granular recognition/value sidebar sections.
+    assert "RECOGNITION PREPARATION" in base
+    assert "MODEL FACTORY · RECOGNITION" in base
     assert "header_counts" in base
     assert "header_counts is defined" in base
     assert "use_case_id" not in base

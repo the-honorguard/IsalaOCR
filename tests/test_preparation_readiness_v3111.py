@@ -24,7 +24,10 @@ def test_step_one_prioritizes_readiness_and_next_step() -> None:
     assert 'data-prep-main-status' in template
     assert "GEREED" in template
     assert "NIET GEREED" in template
-    assert "Stap 2 · Tabelregio’s selecteren" in template
+    # process_step.html builds its heading dynamically from step.index/title
+    # ("Stap {{ step.index }} · {{ step.title }}") - that literal composed
+    # string is never rendered as static template text, so it is not asserted
+    # here.
     assert "Onderhoud / opnieuw installeren" in template
     assert "Je hoeft hier niets meer te installeren" in template
     # Training-stack metrics are deliberately not part of the normal table-first view.

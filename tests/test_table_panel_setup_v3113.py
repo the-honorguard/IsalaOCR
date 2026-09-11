@@ -30,23 +30,30 @@ def test_panel_profile_is_project_relative_and_resolution_independent(tmp_path: 
 
 
 def test_manual_panel_pipeline_is_authoritative_in_config_and_ui():
+    # table_panel_setup.html (Step 2, table-first strategy) was rebuilt around
+    # generic "table_region" Ground Truth instead of named LV/RV panels with
+    # Paddle-snap assist. The old named-panel editor UI now only exists as a
+    # fallback for the legacy (non table-first) fusion strategy, gated in
+    # process_step.html.
     config = (ROOT / "application/config/app.yaml").read_text(encoding="utf-8")
     webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
     template = (ROOT / "application/src/isala_ocr/training/templates/table_panel_setup.html").read_text(encoding="utf-8")
     collector = (ROOT / "application/src/isala_ocr/training/collector.py").read_text(encoding="utf-8")
     assert "panel_mode: manual" in config
     assert '"key": "panel-setup","index":2' in webui
-    assert 'id="panel-draw"' in template
-    assert 'id="panel-fit"' in template
-    assert "if(inter<=0)return null" in template
-    assert "never jump to another non-overlapping table" in template
-    assert "Nog geen Paddle-suggestie overlapt dit zoekgebied" in template
+    assert "table_region" in template
+    assert "Links/rechts wordt pas ná modeltraining toegewezen" in template
+    assert 'id="draw-region"' in template
+    assert 'id="use-suggestions"' in template
+    assert 'id="save-regions"' in template
+    assert 'id="no-table"' in template
+    assert 'id="clear-regions"' in template
+    assert "/api/table-region-ground-truth" in template
     assert "panel_suggestions" in (ROOT / "application/src/isala_ocr/ocr/table_structure.py").read_text(encoding="utf-8")
-    assert 'id="panel-save"' in template
-    assert "detect_panels_with_benchmark" in collector
-    assert "bootstrap_suggestion" in collector
+    assert "panel_suggestions" in collector
+    assert "detect_with_benchmark" in collector
     dockerfile = (ROOT / "infrastructure/docker/Dockerfile.labeler").read_text(encoding="utf-8")
-    assert "training/table_panels.py" in dockerfile
+    assert "COPY application/src/isala_ocr/training /app/src/isala_ocr/training" in dockerfile
 
 
 def test_table_engine_benchmarks_each_manual_panel_independently(monkeypatch):
@@ -81,42 +88,73 @@ def test_table_engine_benchmarks_each_manual_panel_independently(monkeypatch):
 
 
 def test_panel_setup_api_persists_profile_and_marks_workflow_configured(tmp_path: Path):
+    # Step 2's UI (table_panel_setup.html) no longer reflects the legacy
+    # /api/table-panels named-panel profile at all: it is now a per-source
+    # table_region Ground Truth editor backed by
+    # /api/table-region-ground-truth (see table_region_ground_truth.py and
+    # routes_table_panel_config.py). This exercises that current save+render
+    # path instead of the retired panel-profile-progress text.
     import pytest
     pytest.importorskip("flask")
+    from isala_ocr.training.db import TrainingDatabase
     from isala_ocr.training.webui import create_web_app
 
     project = tmp_path / "project"
     project.mkdir(parents=True)
     (project / "VERSION").write_text("3.11.7", encoding="utf-8")
+    base = tmp_path / "workspace"
     app = create_web_app(
-        tmp_path / "workspace",
+        base,
         models_root=tmp_path / "models",
         output_root=tmp_path / "output",
         project_root=project,
         config_path=ROOT / "application/config/app.yaml",
     )
     client = app.test_client()
+
+    # enforce_primary_workflow_gate bounces a hand-typed GET to
+    # /process/panel-setup back to Stap 1 until "detection-models" and
+    # "input-selection" are ready - unrelated to what this test checks.
+    # Bypass that gate rather than reconstructing full Stap-1 readiness.
+    before_request_funcs = app.before_request_funcs.setdefault(None, [])
+    before_request_funcs[:] = [
+        fn for fn in before_request_funcs if fn.__name__ != "enforce_primary_workflow_gate"
+    ]
+
+    workspace = base / "projects" / "cmr_testcase_01"
+    db = TrainingDatabase(workspace / "samples.sqlite3")
+    source_id = "panel-setup-source"
+    db.replace_localization_detection({
+        "source_id": source_id,
+        "image_width": 1000,
+        "image_height": 600,
+        "render_path": f"source_renders/{source_id}.png",
+        "detector_version": "test",
+        "token_count": 0,
+    }, [])
+
     response = client.post(
-        "/api/table-panels",
+        "/api/table-region-ground-truth",
         json={
-            "reference_source_id": "example",
-            "reference_width": 1000,
-            "reference_height": 600,
-            "panels": [
-                {"name": "LV results", "x1": 0.02, "y1": 0.05, "x2": 0.32, "y2": 0.46},
-                {"name": "RV results", "x1": 0.02, "y1": 0.52, "x2": 0.32, "y2": 0.94},
+            "source_id": source_id,
+            "image_width": 1000,
+            "image_height": 600,
+            "regions": [
+                {"name": "table", "x1": 20, "y1": 30, "x2": 320, "y2": 276},
             ],
         },
     )
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["ok"] is True
-    assert len(payload["profile"]["panels"]) == 2
-    page = client.get("/process/panel-setup")
+    assert len(payload["source"]["regions"]) == 1
+    assert payload["source"]["review_completed"] is True
+
+    page = client.get(f"/process/panel-setup?source_id={source_id}")
     assert page.status_code == 200
     html = page.get_data(as_text=True)
-    assert "2 panel(en) ingesteld" in html
-    assert "Ga naar Stap 3" in html
+    assert "1 · klaar" in html
+    assert "table_region" in html
 
 
 def test_bootstrap_panel_suggestions_keep_second_table_from_nonwinning_variant():

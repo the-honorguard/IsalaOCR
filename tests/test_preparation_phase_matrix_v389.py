@@ -20,7 +20,10 @@ def test_preparation_page_exposes_separate_download_install_and_check_phases() -
         assert label in template
     assert "Download → install → check" in template
     assert "TABLE PIPELINE" in template
-    assert "Stap 2 · Tabelregio’s selecteren" in template
+    # process_step.html builds its heading dynamically from step.index/title
+    # ("Stap {{ step.index }} · {{ step.title }}") - that literal composed
+    # string is never rendered as static template text, so it is not asserted
+    # here.
     assert "PP-StructureV3" in template
 
 

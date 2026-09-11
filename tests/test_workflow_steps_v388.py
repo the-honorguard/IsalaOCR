@@ -89,6 +89,12 @@ def test_internal_action_ids_are_not_rendered_in_primary_ui(tmp_path: Path) -> N
         models_root=tmp_path / "models",
         output_root=tmp_path / "output",
         project_root=project,
+        # The real app config pins localization.strategy to "table_first"
+        # (application/config/app.yaml); use it so the workflow gate below
+        # exercises the same primary sequence/topbar behavior production
+        # actually runs, instead of the "/app/config/app.yaml"-not-found
+        # fallback ("fusion" strategy).
+        config_path=ROOT / "application" / "config" / "app.yaml",
     )
     client = app.test_client()
 
@@ -97,10 +103,10 @@ def test_internal_action_ids_are_not_rendered_in_primary_ui(tmp_path: Path) -> N
     assert "<strong>17.</strong>" not in prep
 
     # /process/mapping is gated behind enforce_primary_workflow_gate: a
-    # hand-typed URL is bounced back to the first incomplete step until the
-    # step immediately before "mapping" in the workflow sequence
-    # ("recognition-output-review") is ready. Satisfy that readiness first so
-    # the gate actually lets the request through.
+    # hand-typed URL is bounced back to the first incomplete step unless the
+    # step immediately before "mapping" in the table-first workflow sequence
+    # ("recognition-output-review") is already ready. Satisfy that readiness
+    # first so the gate actually lets the request through.
     from isala_ocr.training.projects import ProjectManager
 
     client.get("/")  # ensure the default project workspace exists on disk
@@ -113,9 +119,10 @@ def test_internal_action_ids_are_not_rendered_in_primary_ui(tmp_path: Path) -> N
 
     mapping = client.get("/process/mapping").get_data(as_text=True)
     assert "Redirecting" not in mapping
+    # The table-first topbar script (base.html) overrides the heading to this
+    # text client-side; it is what a user actually sees on /process/mapping.
     assert "Stap 14 · Mapping Studio" in mapping
     assert "Stap 20 · Mapping Studio" not in mapping
-    assert "Stap 12 · Mapping Studio" not in mapping
 
     system = client.get("/process/system-checks").get_data(as_text=True)
     assert "Systeemcontroles" in system

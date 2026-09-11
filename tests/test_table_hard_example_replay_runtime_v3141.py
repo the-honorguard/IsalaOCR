@@ -49,7 +49,10 @@ def test_replay_reuses_panel_record_without_creating_dataset_copies(tmp_path: Pa
     assert [Path(str(item["im_file"])).name for item in replayed].count("a.png") == 3
     assert [Path(str(item["im_file"])).name for item in replayed].count("b.png") == 1
     assert len({_scalar_image_id(item["im_id"]) for item in replayed}) == 4
-    assert replayed[2]["isala_hard_example_replay"] is True
+    # No isala_hard_example_replay marker key is added to clone records:
+    # PaddleDetection's batch collator indexes every sample in a batch with
+    # the keys taken from one sample, so replay-only metadata would crash
+    # mixed batches with a KeyError (see apply_replay_to_records docstring).
     assert replayed[2]["gt_bbox"] == records[0]["gt_bbox"]
     assert not list(dataset.glob("*hard*"))
 

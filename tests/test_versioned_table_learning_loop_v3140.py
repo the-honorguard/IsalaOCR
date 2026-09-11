@@ -12,6 +12,7 @@ from isala_ocr.training.table_cell_training import (
     table_cell_training_state,
 )
 from isala_ocr.training.table_model_comparison import (
+    _current_evaluation_view,
     capture_current_detection_run,
     current_detection_context,
     review_comparison_issue,
@@ -213,7 +214,7 @@ def test_completed_step7_model_errors_change_only_train_weighting(tmp_path: Path
     _seed_initial_training_gt(tmp_path)
     first = build_table_cell_dataset(tmp_path)
     run_id = "detect-reviewed-v1"
-    _write_json(tmp_path / "table_cell_comparisons" / "runs" / f"{run_id}.json", {
+    run = {
         "schema_version": 2,
         "run_id": run_id,
         "label": "model-v1 · Stap 3",
@@ -238,9 +239,16 @@ def test_completed_step7_model_errors_change_only_train_weighting(tmp_path: Path
             }],
             "tp": 0, "fp": 0, "fn": 1, "direct_correct": 0, "geometry_mismatch": 0, "merged": 0,
         }],
-    })
+    }
+    # The re-evaluation on load recomputes issue ids deterministically (see
+    # _issue_identifier); a hand-typed id like the legacy "fn-hard" above never
+    # matches, so compute the real, current issue_id the same way the app does
+    # before writing the matching review.
+    upgraded = _current_evaluation_view(run)
+    real_issue_id = upgraded["panels"][0]["issues"][0]["issue_id"]
+    _write_json(tmp_path / "table_cell_comparisons" / "runs" / f"{run_id}.json", run)
     _write_json(tmp_path / "table_cell_comparisons" / "reviews.json", {
-        run_id: {"fn-hard": {"decision": "model_error", "reviewed_at": "2026-08-14T13:05:00+00:00"}}
+        run_id: {real_issue_id: {"decision": "model_error", "reviewed_at": "2026-08-14T13:05:00+00:00"}}
     })
 
     preview = table_cell_dataset_preview(tmp_path)
@@ -250,14 +258,19 @@ def test_completed_step7_model_errors_change_only_train_weighting(tmp_path: Path
 
     second = build_table_cell_dataset(tmp_path)
     assert second["annotation_count"] == 1
+    # The hard-example replay policy (table_hard_negative_policy) now performs
+    # dynamic, in-memory weighted resampling at train time instead of writing
+    # physical duplicate PNG/COCO copies, so the panel is still flagged as a
+    # hard example but no extra images are baked into the dataset itself.
     assert second["hard_example_panel_count"] == 1
-    assert second["hard_example_image_count"] == 2  # x3 total => 2 extra TRAIN copies
-    assert second["training_annotation_count"] == 3
+    assert second["hard_example_image_count"] == 0
+    assert second["hard_example_replay_draw_count"] >= 1
+    assert second["training_annotation_count"] == 1
     train = json.loads((tmp_path / second["path"] / "annotations" / "instance_train.json").read_text(encoding="utf-8"))
     val = json.loads((tmp_path / second["path"] / "annotations" / "instance_val.json").read_text(encoding="utf-8"))
     test = json.loads((tmp_path / second["path"] / "annotations" / "instance_test.json").read_text(encoding="utf-8"))
-    assert len(train["images"]) == 3
-    assert len(train["annotations"]) == 3
+    assert len(train["images"]) == 1
+    assert len(train["annotations"]) == 1
     assert len(val["images"]) == 0
     assert len(test["images"]) == 0
 

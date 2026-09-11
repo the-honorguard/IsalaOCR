@@ -70,19 +70,29 @@ def test_clearing_panel_geometry_keeps_one_time_names(tmp_path: Path):
 
 
 def test_panel_setup_ui_has_one_time_names_and_post_snap_resize_handles():
+    # The one-time named-panel UI (LV/RV names + geometry) survives only as
+    # the legacy fallback in process_step.html, gated behind
+    # `localization_strategy != 'table_first'`. Its route moved out of
+    # webui.py into routes_table_panel_config.py. table_panel_setup.html
+    # itself was rebuilt around generic table_region GT (draw/resize/save a
+    # plain rectangle per table, no named panels, no Paddle-snap editor) - so
+    # the old panel-target/panel-resize-handle assertions no longer apply
+    # there and are checked against the actual current markup instead.
     prep = (ROOT / "application/src/isala_ocr/training/templates/process_step.html").read_text(encoding="utf-8")
     panel = (ROOT / "application/src/isala_ocr/training/templates/table_panel_setup.html").read_text(encoding="utf-8")
     webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
+    routes_table_panel_config = (
+        ROOT / "application/src/isala_ocr/training/routes_table_panel_config.py"
+    ).read_text(encoding="utf-8")
 
     assert 'id="panel-name-setup"' in prep
     assert 'id="panel-definition-save"' in prep
     assert 'CMR LV/RV standaardnamen' in prep
     assert '/api/table-panel-definitions' in prep
-    assert '@app.post("/api/table-panel-definitions")' in webui
+    assert '@app.post("/api/table-panel-definitions")' not in webui
+    assert '@app.post("/api/table-panel-definitions")' in routes_table_panel_config
 
-    assert 'id="panel-target"' in panel
-    assert 'panel-resize-handle' in panel
-    assert "['nw','n','ne','e','se','s','sw','w']" in panel
-    assert 'beginResize' in panel
-    assert 'Gebruik dit alleen als startpunt' in panel
-    assert 'De panelnamen uit Stap 1 blijven bewaard' in panel
+    assert 'id="draw-region"' in panel
+    assert 'class="resize' in panel
+    assert "table_region" in panel
+    assert 'id="save-regions"' in panel
