@@ -4317,67 +4317,6 @@ def create_web_app(
             for panel in panel_profile.get("panels") or []
             if str(panel.get("panel_id") or "")
         }
-
-    def workflow_navigation_access() -> dict[str, bool]:
-        """Return which primary workflow step may be opened next.
-
-        A step is navigable only when every preceding primary step is complete.
-        The current incomplete step remains open so the user can finish it.
-        Fallback, system and maintenance routes are intentionally excluded.
-        """
-        sequence = [
-            "detection-models", "input-selection", "panel-setup", "table-region-model",
-            "detect-candidates", "detection-review", "table-model", "table-compare", "table-quality",
-            "recognition-gt-studio", "recognition-dataset", "recognition-output-review",
-            "mapping", "apply-mapping", "value-review",
-        ] if localization_strategy() == "table_first" else [
-            step["key"] for step in PROCESS_STEPS
-            if step.get("group") in {"detection", "value"}
-            and step.get("index") is not None
-        ]
-        readiness = request_cached("workflow_readiness", lambda: process_snapshot().get("readiness", {}))
-        access: dict[str, bool] = {}
-        previous_complete = True
-        for key in sequence:
-            access[key] = previous_complete
-            previous_complete = bool(readiness.get(key))
-        return access
-
-    @app.before_request
-    def enforce_primary_workflow_gate():
-        """Prevent bypassing the sidebar gates through a hand-typed URL."""
-        if request.method != "GET":
-            return None
-        path_to_step = {
-            "/mapping": "mapping",
-            "/process/value-review": "value-review",
-            "/recognition-gt-review": "recognition-gt-studio",
-            "/recognition-scope": "recognition-gt-studio",
-        }
-        step_key = path_to_step.get(request.path)
-        if step_key is None and request.path.startswith("/mapping-labels"):
-            step_key = "mapping"
-        if step_key is None and request.path.startswith("/recognition-gt-"):
-            step_key = "recognition-gt-studio"
-        if step_key is None and request.path.startswith("/process/"):
-            candidate = request.path.removeprefix("/process/").strip("/")
-            if candidate in PROCESS_STEP_BY_KEY:
-                step_key = candidate
-        if not step_key:
-            return None
-        access = workflow_navigation_access()
-        if step_key not in access:
-            return None
-        if access.get(step_key):
-            return None
-        sequence = list(access)
-        target = next((key for key in sequence if access.get(key)), "detection-models")
-        flash("Deze stap is nog vergrendeld. Rond eerst de vorige stap af.", "warning")
-        if target == "recognition-gt-studio":
-            return redirect(url_for("recognition_gt_review_home"))
-        if target == "mapping":
-            return redirect(url_for("mapping_index"))
-        return redirect(url_for("process_step", step_key=target))
         geometry = database.list_detection_table_geometry(source_id)
         image_width = float(source.get("image_width") or panel_profile.get("reference_width") or 0)
         image_height = float(source.get("image_height") or panel_profile.get("reference_height") or 0)
@@ -4565,6 +4504,67 @@ def create_web_app(
             header_pending_label="te koppelen",
             header_accepted_label="gekoppeld",
         )
+
+    def workflow_navigation_access() -> dict[str, bool]:
+        """Return which primary workflow step may be opened next.
+
+        A step is navigable only when every preceding primary step is complete.
+        The current incomplete step remains open so the user can finish it.
+        Fallback, system and maintenance routes are intentionally excluded.
+        """
+        sequence = [
+            "detection-models", "input-selection", "panel-setup", "table-region-model",
+            "detect-candidates", "detection-review", "table-model", "table-compare", "table-quality",
+            "recognition-gt-studio", "recognition-dataset", "recognition-output-review",
+            "mapping", "apply-mapping", "value-review",
+        ] if localization_strategy() == "table_first" else [
+            step["key"] for step in PROCESS_STEPS
+            if step.get("group") in {"detection", "value"}
+            and step.get("index") is not None
+        ]
+        readiness = request_cached("workflow_readiness", lambda: process_snapshot().get("readiness", {}))
+        access: dict[str, bool] = {}
+        previous_complete = True
+        for key in sequence:
+            access[key] = previous_complete
+            previous_complete = bool(readiness.get(key))
+        return access
+
+    @app.before_request
+    def enforce_primary_workflow_gate():
+        """Prevent bypassing the sidebar gates through a hand-typed URL."""
+        if request.method != "GET":
+            return None
+        path_to_step = {
+            "/mapping": "mapping",
+            "/process/value-review": "value-review",
+            "/recognition-gt-review": "recognition-gt-studio",
+            "/recognition-scope": "recognition-gt-studio",
+        }
+        step_key = path_to_step.get(request.path)
+        if step_key is None and request.path.startswith("/mapping-labels"):
+            step_key = "mapping"
+        if step_key is None and request.path.startswith("/recognition-gt-"):
+            step_key = "recognition-gt-studio"
+        if step_key is None and request.path.startswith("/process/"):
+            candidate = request.path.removeprefix("/process/").strip("/")
+            if candidate in PROCESS_STEP_BY_KEY:
+                step_key = candidate
+        if not step_key:
+            return None
+        access = workflow_navigation_access()
+        if step_key not in access:
+            return None
+        if access.get(step_key):
+            return None
+        sequence = list(access)
+        target = next((key for key in sequence if access.get(key)), "detection-models")
+        flash("Deze stap is nog vergrendeld. Rond eerst de vorige stap af.", "warning")
+        if target == "recognition-gt-studio":
+            return redirect(url_for("recognition_gt_review_home"))
+        if target == "mapping":
+            return redirect(url_for("mapping_index"))
+        return redirect(url_for("process_step", step_key=target))
 
     def input_selection_path() -> Path:
         return selection_manifest_path(workspace_root())
