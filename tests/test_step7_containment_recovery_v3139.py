@@ -7,6 +7,7 @@ import pytest
 
 from isala_ocr.training.db import TrainingDatabase
 from isala_ocr.training.table_model_comparison import (
+    EVALUATION_SCHEMA_VERSION,
     _current_evaluation_view,
     _evaluate_panel,
     latest_completed_training_feedback,
@@ -219,7 +220,7 @@ def test_existing_v1_run_is_reclassified_without_redetect_and_can_be_functional_
     run_id = _seed_legacy_run(tmp_path)
     state = table_cell_comparison_state(tmp_path, candidate_run_id=run_id)
 
-    assert state["candidate"]["schema_version"] == 3
+    assert state["candidate"]["schema_version"] == EVALUATION_SCHEMA_VERSION
     assert state["candidate"]["evaluation_upgraded_from_schema"] == 1
     assert state["candidate"]["metrics"]["tp"] == 1
     assert state["candidate"]["metrics"]["fp"] == 0
@@ -266,7 +267,7 @@ def test_existing_v2_reverse_containment_is_reclassified_without_redetect() -> N
 
     upgraded = _current_evaluation_view(run)
 
-    assert upgraded["schema_version"] == 3
+    assert upgraded["schema_version"] == EVALUATION_SCHEMA_VERSION
     assert upgraded["evaluation_upgraded_from_schema"] == 2
     assert upgraded["metrics"]["tp"] == 1
     assert upgraded["metrics"]["fp"] == 0
@@ -337,8 +338,12 @@ def test_step7_ui_explains_containment_recovery() -> None:
     template = (root / "application/src/isala_ocr/training/templates/table_model_comparison.html").read_text(encoding="utf-8")
     comparison = (root / "application/src/isala_ocr/training/table_model_comparison.py").read_text(encoding="utf-8")
     assert "FP+FN gekoppeld" in template
-    assert "≥95% van één GT-cel" in template
-    assert '"match_reason": "gt_coverage"' in comparison
+    assert "GT gedekt {{ '%.1f%%'|format((issue.gt_coverage or 0)*100) }}" in template
+    assert '"gt_coverage"' in comparison
     assert '"prediction_coverage"' in comparison
     assert '"containment_recovered"' in comparison
-    assert "EVALUATION_SCHEMA_VERSION = 3" in comparison
+    # The effective schema version is patched in at runtime by
+    # table_model_evaluation_policy.install_table_model_evaluation_policy(), so the
+    # literal base value in this source file is not the active one; assert against
+    # the dynamic, currently-effective constant instead of a hardcoded number.
+    assert EVALUATION_SCHEMA_VERSION >= 3

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +34,11 @@ def test_table_cell_training_clears_inherited_eval_artifact_redirect_without_tar
 
 
 def test_table_cell_train_routes_inline_validation_artifacts_to_run_directory() -> None:
+    # command_train computes its evaluation-artifact directory as
+    # <output>/evaluation_artifacts (via an intermediate variable, not
+    # necessarily an inline expression) and routes it into the training
+    # run so PaddleDetection's eval artifacts land in the run directory.
     source = RUNNER.read_text(encoding="utf-8")
-    assert 'eval_artifact_dir=output / "evaluation_artifacts"' in source
+    assert re.search(r'artifact_dir\s*=\s*output\s*/\s*"evaluation_artifacts"', source)
+    assert re.search(r"run\(command,\s*log_path=output\s*/\s*\"paddlex_train\.log\",\s*eval_artifact_dir=artifact_dir\)", source)
     assert 'result["ISALA_PADDLEDET_EVAL_ARTIFACT_DIR"] = str(eval_artifact_dir)' in source

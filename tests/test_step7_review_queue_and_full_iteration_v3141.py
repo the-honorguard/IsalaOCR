@@ -22,7 +22,7 @@ def test_full_table_iteration_completes_gt_and_reruns_active_model():
     source = read("automation/powershell/run-table-cell-pipeline.ps1")
     gt_index = source.index("open GT-bronnen afronden")
     build_index = source.index("dataset bouwen")
-    train_index = source.index("GPU-training")
+    train_index = source.index("Alles laten draaien: {0}-training...")
     activate_index = source.index("model activeren")
     rerun_index = source.index("nieuw actief model uitvoeren")
     assert gt_index < build_index < train_index < activate_index < rerun_index
