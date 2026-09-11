@@ -35,6 +35,27 @@ def test_extra_detection_far_taller_than_panel_gt_is_suggested():
     assert suggestions["height_ratio_threshold"] == OBVIOUS_ERROR_HEIGHT_RATIO
 
 
+def test_geometry_mismatch_compared_to_its_own_matched_gt_not_panel_max():
+    # The panel also has a tall merged header cell (80px). A row prediction
+    # matched one-to-one to the short 20px row GT is 45px tall: only 0.56x
+    # the header's 80px, but 2.25x its own matched row. Comparing against
+    # the panel's tallest cell would hide this, so it must be judged against
+    # its own match instead — well past the ratio floor.
+    candidate = _candidate(
+        ground_truth=[{"box": [0, 0, 200, 80]}, {"box": [0, 90, 100, 110]}],
+        issues=[{
+            "issue_id": "row-vs-tall-header",
+            "type": "geometry",
+            "prediction_box": [0, 90, 100, 135],
+            "gt_boxes": [[0, 90, 100, 110]],
+        }],
+    )
+
+    suggestions = obvious_error_suggestions(candidate, {})
+
+    assert suggestions["issue_ids"] == ["row-vs-tall-header"]
+
+
 def test_moderately_oversized_geometry_mismatch_stays_for_review():
     # 1.5x the tallest GT cell is oversized but below the 2x floor, so a
     # human still decides instead of it being auto-suggested.

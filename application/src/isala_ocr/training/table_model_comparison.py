@@ -1281,16 +1281,22 @@ def functional_geometry_suggestions(candidate: dict[str, Any], run_reviews: dict
 # a prediction far taller than any GT cell the reviewer already accepted in
 # that same panel is an obvious model error, never a legitimate cell. Height
 # (not area) is the signal because column width legitimately varies a lot
-# between cells, while a cell's height rarely should. The reference is the
-# tallest GT box in the *same panel* rather than a dataset-wide value,
-# because typical cell height differs by table type; a global reference
+# between cells, while a cell's height rarely should. A "geometry" issue
+# already has its own one-to-one matched GT cell (from _geometry_quality),
+# so it is compared against that cell's own height, not the panel's tallest
+# cell — a panel that also contains a tall merged header row would otherwise
+# dilute the ratio for an ordinary data row far below the threshold, even
+# though the row's own match is obviously oversized. Only "fp" stray
+# detections, which have no matched cell to compare against, fall back to
+# the tallest GT box in the same panel rather than a dataset-wide value,
+# because typical cell height differs by table type and a global reference
 # would be too permissive for panels made of small cells. A user still
 # explicitly applies the list, same as the functional suggestions above.
 OBVIOUS_ERROR_HEIGHT_RATIO = 2.0
 
 
 def obvious_error_suggestions(candidate: dict[str, Any], run_reviews: dict[str, Any]) -> dict[str, Any]:
-    """Return conservative suggestions for predictions far taller than their panel's GT."""
+    """Return conservative suggestions for predictions far taller than their matched (or panel) GT."""
     suggestions: list[dict[str, Any]] = []
     for panel in candidate.get("panels") or []:
         if not isinstance(panel, dict):
@@ -1307,23 +1313,34 @@ def obvious_error_suggestions(candidate: dict[str, Any], run_reviews: dict[str, 
         if max_gt_height <= 0:
             continue
         for issue in panel.get("issues") or []:
-            if not isinstance(issue, dict) or str(issue.get("type") or "") not in {"fp", "geometry"}:
+            issue_type = str(issue.get("type") or "")
+            if not isinstance(issue, dict) or issue_type not in {"fp", "geometry"}:
                 continue
             if _review_for_issue(issue, run_reviews):
                 continue
             prediction_box = _box(issue.get("prediction_box"))
             if prediction_box is None:
                 continue
-            height_ratio = (prediction_box[3] - prediction_box[1]) / max_gt_height
+
+            reference_height = max_gt_height
+            gt_boxes = issue.get("gt_boxes") or []
+            if issue_type == "geometry" and isinstance(gt_boxes, list) and len(gt_boxes) == 1:
+                matched_gt_box = _box(gt_boxes[0])
+                if matched_gt_box is not None:
+                    matched_height = matched_gt_box[3] - matched_gt_box[1]
+                    if matched_height > 0:
+                        reference_height = matched_height
+
+            height_ratio = (prediction_box[3] - prediction_box[1]) / reference_height
             if height_ratio < OBVIOUS_ERROR_HEIGHT_RATIO:
                 continue
             suggestions.append({
                 "issue_id": str(issue.get("issue_id") or ""),
                 "source_id": str(panel.get("source_id") or ""),
                 "panel_name": str(panel.get("panel_name") or panel.get("panel_id") or ""),
-                "type": str(issue.get("type") or ""),
+                "type": issue_type,
                 "height_ratio": height_ratio,
-                "max_gt_height": max_gt_height,
+                "max_gt_height": reference_height,
             })
     suggestions.sort(key=lambda item: item["height_ratio"], reverse=True)
     return {
