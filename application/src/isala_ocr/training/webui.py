@@ -647,8 +647,8 @@ def create_web_app(
                     "strategy": "table_first", "ready": False, "state": "panel_detection_stale", "tone": "warning",
                     "title": "Voer de table-detectie opnieuw uit",
                     "reason": "Het panelprofiel is nieuwer dan de huidige cell-detectie.",
-                    "summary": "Voer Stap 4 opnieuw uit na een wijziging in Stap 2.",
-                    "next_step": "Voer Stap 4 · Tabelregio’s en cellen detecteren opnieuw uit.",
+                    "summary": "Voer Stap 5 opnieuw uit na een wijziging in Stap 3.",
+                    "next_step": "Voer Stap 5 · Tabelregio’s opnieuw detecteren en beoordelen uit.",
                     "sources": [], "totals": {}, "thresholds": table_first_thresholds(),
                 }
             try:
@@ -660,7 +660,7 @@ def create_web_app(
                     "title": "Table-first status kon niet worden berekend",
                     "reason": f"Diagnostiek: {reference}.",
                     "summary": f"Diagnostiek: {reference}.",
-                    "next_step": "Open Stap 5 en controleer of de panelgerichte tabelanalyse/reviewdata aanwezig is.",
+                    "next_step": "Open Stap 7 en controleer of de panelgerichte tabelanalyse/reviewdata aanwezig is.",
                     "sources": [], "totals": {}, "thresholds": table_first_thresholds(),
                 }
         return request_cached("current_table_first_quality", load)

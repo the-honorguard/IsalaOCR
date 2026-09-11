@@ -297,7 +297,7 @@ def _collect_localization_detections(
                 LOGGER.exception("PP-StructureV3 unavailable in table-first mode")
                 raise RuntimeError(
                     "Table-first localization requires PP-StructureV3. Open Stap 1 · Voorbereiding "
-                    "and install/check the inference OCR + table models before running Stap 2."
+                    "and install/check the inference OCR + table models before running Stap 5."
                 ) from exc
             LOGGER.exception("PP-StructureV3 unavailable; continuing with text geometry only")
             if not bool(table_settings.get("fail_open", True)):
