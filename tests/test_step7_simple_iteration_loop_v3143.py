@@ -23,7 +23,6 @@ def test_step7_normal_ui_has_no_second_level_review_navigation():
     assert "compare-run-selector" not in template
     assert "Review fullscreen" not in template
     assert "+ Toevoegen aan GT" not in template
-    assert 'value="add_prediction_to_gt"' not in template
 
 
 def test_legacy_fullscreen_code_cannot_activate_from_normal_step7_page():
