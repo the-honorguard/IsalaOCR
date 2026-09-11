@@ -4,6 +4,32 @@ from isala_ocr.training.table_model_comparison import (
 )
 
 
+def test_geometry_mismatch_flagged_by_excess_even_below_height_ratio_floor():
+    # A prediction can be obviously oversized sideways instead of vertically:
+    # same height as its matched 50px-wide row GT (height_ratio 1.0, nowhere
+    # near the height floor), but twice as wide, reaching into a neighbour
+    # column. gt_coverage is still 100% but 50% of the prediction's area
+    # sits outside the GT, well past what functional_geometry_suggestions
+    # would call harmless (45%) — the height-ratio check alone can never see
+    # this, since it only looks at height.
+    candidate = _candidate(
+        ground_truth=[{"box": [0, 0, 50, 20]}],
+        issues=[{
+            "issue_id": "wide-but-not-tall",
+            "type": "geometry",
+            "prediction_box": [0, 0, 100, 20],
+            "gt_boxes": [[0, 0, 50, 20]],
+        }],
+    )
+
+    suggestions = obvious_error_suggestions(candidate, {})
+
+    assert suggestions["issue_ids"] == ["wide-but-not-tall"]
+    issue = suggestions["issues"][0]
+    assert issue["height_ratio"] < OBVIOUS_ERROR_HEIGHT_RATIO
+    assert issue["oversized_by_excess"] is True
+
+
 def _candidate(ground_truth, issues):
     return {
         "panels": [{
@@ -35,15 +61,37 @@ def test_extra_detection_far_taller_than_panel_gt_is_suggested():
     assert suggestions["height_ratio_threshold"] == OBVIOUS_ERROR_HEIGHT_RATIO
 
 
+def test_geometry_mismatch_compared_to_its_own_matched_gt_not_panel_max():
+    # The panel also has a tall merged header cell (80px). A row prediction
+    # matched one-to-one to the short 20px row GT is 32px tall: only 0.4x
+    # the header's 80px, but 1.6x its own matched row. Comparing against
+    # the panel's tallest cell would hide this, so it must be judged against
+    # its own match instead — past the 1.5x ratio floor.
+    candidate = _candidate(
+        ground_truth=[{"box": [0, 0, 200, 80]}, {"box": [0, 90, 100, 110]}],
+        issues=[{
+            "issue_id": "row-vs-tall-header",
+            "type": "geometry",
+            "prediction_box": [0, 90, 100, 122],
+            "gt_boxes": [[0, 90, 100, 110]],
+        }],
+    )
+
+    suggestions = obvious_error_suggestions(candidate, {})
+
+    assert suggestions["issue_ids"] == ["row-vs-tall-header"]
+
+
 def test_moderately_oversized_geometry_mismatch_stays_for_review():
-    # 1.5x the tallest GT cell is oversized but below the 2x floor, so a
+    # 1.2x the matched GT cell's height (and ~17% excess area) is oversized
+    # but below both the 1.5x height floor and the 45% excess floor, so a
     # human still decides instead of it being auto-suggested.
     candidate = _candidate(
         ground_truth=[{"box": [0, 0, 100, 20]}],
         issues=[{
             "issue_id": "moderately-tall",
             "type": "geometry",
-            "prediction_box": [0, 0, 100, 30],
+            "prediction_box": [0, 0, 100, 24],
             "gt_boxes": [[0, 0, 100, 20]],
         }],
     )

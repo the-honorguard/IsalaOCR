@@ -88,7 +88,7 @@
     <div>
       <span class="eyebrow">OVERDUIDELIJKE MODELFOUTEN</span>
       <h3>{{ error_suggestions.issues|length }} kaders zijn waarschijnlijk fout (te groot t.o.v. GT)</h3>
-      <p class="muted">Alleen extra detecties, geometrie-afwijkingen en samengevoegde cellen die minstens {{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× zo hoog zijn als de hoogste GT-cel in datzelfde paneel. Bekijk eerst de voorbeelden hieronder voordat je in bulk toepast; niets wordt automatisch gemarkeerd.</p>
+      <p class="muted">Extra detecties, geometrie-afwijkingen en samengevoegde cellen die minstens {{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× zo hoog zijn als hun GT-cel, of geometrie-afwijkingen die de GT-cel al vrijwel volledig dekken (≥{{ '%.0f%%'|format(error_suggestions.gt_coverage_threshold * 100) }}) met meer dan {{ '%.0f%%'|format(error_suggestions.prediction_excess_threshold * 100) }} extra oppervlak. Bekijk eerst de voorbeelden hieronder voordat je in bulk toepast; niets wordt automatisch gemarkeerd.</p>
     </div>
     <form method="post" class="functional-suggestion-form">
       <input type="hidden" name="comparison_action" value="apply_obvious_error_suggestions">
@@ -99,7 +99,7 @@
       <button class="primary" type="submit">{{ error_suggestions.issues|length }} als modelfout markeren</button>
     </form>
   </div>
-  <small class="muted">Voorbeelden: {% for suggestion in error_suggestions.issues[:4] %}{{ suggestion.panel_name }} ({{ '%.1f'|format(suggestion.height_ratio) }}×){% if not loop.last %} · {% endif %}{% endfor %}</small>
+  <small class="muted">Voorbeelden: {% for suggestion in error_suggestions.issues[:4] %}{{ suggestion.panel_name }} ({% if suggestion.oversized_by_excess %}{{ '%.0f%%'|format(suggestion.prediction_excess * 100) }} extra{% else %}{{ '%.1f'|format(suggestion.height_ratio) }}×{% endif %}){% if not loop.last %} · {% endif %}{% endfor %}</small>
 </section>
 {% endif %}
 
@@ -180,7 +180,7 @@
               <div>
                 <span class="issue-dot issue-dot-{{ issue.type }}"></span><strong>{{ issue.label }}</strong>
                 {% if issue.type == 'geometry' and issue.functional_candidate %}<span class="pill comparison-functional-hint ok">waarschijnlijk bruikbaar</span>{% endif %}
-                {% if issue.issue_id in error_suggestion_ids %}<span class="pill comparison-functional-hint bad">≥{{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× te hoog</span>{% endif %}
+                {% if issue.issue_id in error_suggestion_ids %}{% set error_match = error_suggestions.issues|selectattr('issue_id', 'equalto', issue.issue_id)|first %}<span class="pill comparison-functional-hint bad">{% if error_match and error_match.oversized_by_excess %}≥{{ '%.0f%%'|format(error_suggestions.prediction_excess_threshold * 100) }} extra{% else %}≥{{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× te hoog{% endif %}</span>{% endif %}
                 {% if issue.containment_recovered %}<span class="pill comparison-containment-hint">FP+FN gekoppeld</span>{% endif %}
               </div>
               <small>{% if issue.iou %}IoU {{ '%.1f%%'|format(issue.iou*100) }} · {% endif %}{% if issue.type == 'geometry' %}GT gedekt {{ '%.1f%%'|format((issue.gt_coverage or 0)*100) }} · extra prediction {{ '%.1f%%'|format((issue.prediction_excess or 0)*100) }} · {% endif %}{% if issue.confidence %}confidence {{ '%.1f%%'|format(issue.confidence*100) }}{% endif %}</small>
