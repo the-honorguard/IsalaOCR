@@ -1292,17 +1292,24 @@ def functional_geometry_suggestions(candidate: dict[str, Any], run_reviews: dict
 # because typical cell height differs by table type and a global reference
 # would be too permissive for panels made of small cells. A user still
 # explicitly applies the list, same as the functional suggestions above.
-OBVIOUS_ERROR_HEIGHT_RATIO = 2.0
+# Real Step-7 review data showed obviously-wrong detections sitting at
+# ~1.9x their matched GT cell, so a 2x floor missed them; 1.5x is the new
+# floor, chosen to still leave a mildly oversized (but plausibly correct)
+# crop for manual review rather than auto-suggesting it.
+OBVIOUS_ERROR_HEIGHT_RATIO = 1.5
 
 # A "geometry" issue can also be obviously oversized without ever crossing
 # the height-ratio floor above: a box that already contains virtually the
 # whole GT cell (gt_coverage) but still carries far more excess area than
 # functional_geometry_suggestions would ever wave through as harmless is,
 # by construction, too large for that cell — whatever its exact height vs.
-# width split happens to be. This mirrors FUNCTIONAL_SUGGESTION_* below so
-# the two suggestion lists partition cleanly: <=45% excess can be offered as
-# "waarschijnlijk functioneel correct", >45% (with the GT still essentially
-# covered) is instead offered here as an obvious model error.
+# width split happens to be. This matters most when the excess comes from
+# extra width rather than height (a box reaching sideways into a neighbour
+# column), which the height-ratio check above can never see. This mirrors
+# FUNCTIONAL_SUGGESTION_* below so the two suggestion lists partition
+# cleanly: <=45% excess can be offered as "waarschijnlijk functioneel
+# correct", >45% (with the GT still essentially covered) is instead offered
+# here as an obvious model error.
 OBVIOUS_ERROR_GT_COVERAGE = 0.95
 OBVIOUS_ERROR_PREDICTION_EXCESS = FUNCTIONAL_SUGGESTION_PREDICTION_EXCESS
 
