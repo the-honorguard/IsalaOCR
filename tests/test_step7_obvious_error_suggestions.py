@@ -4,6 +4,30 @@ from isala_ocr.training.table_model_comparison import (
 )
 
 
+def test_geometry_mismatch_flagged_by_excess_even_below_height_ratio_floor():
+    # Real Step-7 case: the prediction fully covers a 20px row GT (gt_coverage
+    # 100%) but is only 38px tall — 1.9x its match, just under the 2x height
+    # floor. Its 47% excess area is nonetheless well past what
+    # functional_geometry_suggestions would ever call harmless (45%), and the
+    # GT is essentially fully covered, so this is still an obvious error.
+    candidate = _candidate(
+        ground_truth=[{"box": [0, 0, 100, 20]}],
+        issues=[{
+            "issue_id": "wide-but-not-tall-enough",
+            "type": "geometry",
+            "prediction_box": [0, -9, 100, 29],
+            "gt_boxes": [[0, 0, 100, 20]],
+        }],
+    )
+
+    suggestions = obvious_error_suggestions(candidate, {})
+
+    assert suggestions["issue_ids"] == ["wide-but-not-tall-enough"]
+    issue = suggestions["issues"][0]
+    assert issue["height_ratio"] < OBVIOUS_ERROR_HEIGHT_RATIO
+    assert issue["oversized_by_excess"] is True
+
+
 def _candidate(ground_truth, issues):
     return {
         "panels": [{
@@ -63,6 +87,24 @@ def test_moderately_oversized_geometry_mismatch_stays_for_review():
         ground_truth=[{"box": [0, 0, 100, 20]}],
         issues=[{
             "issue_id": "moderately-tall",
+            "type": "geometry",
+            "prediction_box": [0, 0, 100, 30],
+            "gt_boxes": [[0, 0, 100, 20]],
+        }],
+    )
+
+    suggestions = obvious_error_suggestions(candidate, {})
+
+    assert suggestions["issue_ids"] == []
+
+
+def test_geometry_mismatch_with_moderate_excess_stays_for_review():
+    # Same 1.5x height case as above, restated to confirm its ~33% excess
+    # also stays under the excess-based floor: neither signal should fire.
+    candidate = _candidate(
+        ground_truth=[{"box": [0, 0, 100, 20]}],
+        issues=[{
+            "issue_id": "moderate-excess",
             "type": "geometry",
             "prediction_box": [0, 0, 100, 30],
             "gt_boxes": [[0, 0, 100, 20]],

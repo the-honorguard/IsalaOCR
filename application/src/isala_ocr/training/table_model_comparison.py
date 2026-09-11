@@ -1294,9 +1294,21 @@ def functional_geometry_suggestions(candidate: dict[str, Any], run_reviews: dict
 # explicitly applies the list, same as the functional suggestions above.
 OBVIOUS_ERROR_HEIGHT_RATIO = 2.0
 
+# A "geometry" issue can also be obviously oversized without ever crossing
+# the height-ratio floor above: a box that already contains virtually the
+# whole GT cell (gt_coverage) but still carries far more excess area than
+# functional_geometry_suggestions would ever wave through as harmless is,
+# by construction, too large for that cell — whatever its exact height vs.
+# width split happens to be. This mirrors FUNCTIONAL_SUGGESTION_* below so
+# the two suggestion lists partition cleanly: <=45% excess can be offered as
+# "waarschijnlijk functioneel correct", >45% (with the GT still essentially
+# covered) is instead offered here as an obvious model error.
+OBVIOUS_ERROR_GT_COVERAGE = 0.95
+OBVIOUS_ERROR_PREDICTION_EXCESS = FUNCTIONAL_SUGGESTION_PREDICTION_EXCESS
+
 
 def obvious_error_suggestions(candidate: dict[str, Any], run_reviews: dict[str, Any]) -> dict[str, Any]:
-    """Return conservative suggestions for predictions far taller than their matched (or panel) GT."""
+    """Return conservative suggestions for predictions far taller/larger than their matched (or panel) GT."""
     suggestions: list[dict[str, Any]] = []
     for panel in candidate.get("panels") or []:
         if not isinstance(panel, dict):
@@ -1323,6 +1335,8 @@ def obvious_error_suggestions(candidate: dict[str, Any], run_reviews: dict[str, 
                 continue
 
             reference_height = max_gt_height
+            gt_coverage: float | None = None
+            prediction_excess: float | None = None
             gt_boxes = issue.get("gt_boxes") or []
             if issue_type == "geometry" and isinstance(gt_boxes, list) and len(gt_boxes) == 1:
                 matched_gt_box = _box(gt_boxes[0])
@@ -1330,9 +1344,18 @@ def obvious_error_suggestions(candidate: dict[str, Any], run_reviews: dict[str, 
                     matched_height = matched_gt_box[3] - matched_gt_box[1]
                     if matched_height > 0:
                         reference_height = matched_height
+                    quality = _geometry_quality(prediction_box, matched_gt_box)
+                    gt_coverage = float(quality.get("gt_coverage") or 0.0)
+                    prediction_excess = float(quality.get("prediction_excess") or 0.0)
 
             height_ratio = (prediction_box[3] - prediction_box[1]) / reference_height
-            if height_ratio < OBVIOUS_ERROR_HEIGHT_RATIO:
+            oversized_by_excess = (
+                gt_coverage is not None
+                and prediction_excess is not None
+                and gt_coverage >= OBVIOUS_ERROR_GT_COVERAGE
+                and prediction_excess > OBVIOUS_ERROR_PREDICTION_EXCESS
+            )
+            if height_ratio < OBVIOUS_ERROR_HEIGHT_RATIO and not oversized_by_excess:
                 continue
             suggestions.append({
                 "issue_id": str(issue.get("issue_id") or ""),
@@ -1341,12 +1364,17 @@ def obvious_error_suggestions(candidate: dict[str, Any], run_reviews: dict[str, 
                 "type": issue_type,
                 "height_ratio": height_ratio,
                 "max_gt_height": reference_height,
+                "gt_coverage": gt_coverage,
+                "prediction_excess": prediction_excess,
+                "oversized_by_excess": oversized_by_excess,
             })
     suggestions.sort(key=lambda item: item["height_ratio"], reverse=True)
     return {
         "issues": suggestions,
         "issue_ids": [item["issue_id"] for item in suggestions if item["issue_id"]],
         "height_ratio_threshold": OBVIOUS_ERROR_HEIGHT_RATIO,
+        "gt_coverage_threshold": OBVIOUS_ERROR_GT_COVERAGE,
+        "prediction_excess_threshold": OBVIOUS_ERROR_PREDICTION_EXCESS,
     }
 
 
