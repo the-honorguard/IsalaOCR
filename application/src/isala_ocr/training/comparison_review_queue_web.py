@@ -63,12 +63,30 @@ _GLOBAL_REVIEW_QUEUE_UI = r"""
     }
   }
 
+  function scheduleQueuePoll(active) {
+    clearTimeout(queuePollTimer);
+    // This widget is injected on every page, not just the review screen, so
+    // it kept polling every second globally even though the queue is empty
+    // (no pending/failed items) the overwhelming majority of the time - it
+    // only needs to be that responsive while a write is actually in flight.
+    // Mirrors the activity dock's own backoff (schedulePoll in app.js).
+    const delay = document.hidden ? 30000 : (active ? 1000 : 15000);
+    queuePollTimer = setTimeout(pollQueue, delay);
+  }
+
   async function pollQueue() {
+    let active = false;
     try {
       const response = await nativeFetch(`/api/comparison-review-queue?_=${Date.now()}`, {cache: 'no-store'});
-      if (!response.ok) return;
-      renderQueue(await response.json());
-    } catch (_) {}
+      if (response.ok) {
+        const payload = await response.json();
+        renderQueue(payload);
+        active = Number(payload?.pending_count || 0) > 0 || Number(payload?.failed_count || 0) > 0;
+      }
+    } catch (_) {
+    } finally {
+      scheduleQueuePoll(active);
+    }
   }
 
   retryButton?.addEventListener('click', async () => {
@@ -76,6 +94,7 @@ _GLOBAL_REVIEW_QUEUE_UI = r"""
     try {
       const response = await nativeFetch('/api/comparison-review-queue/retry', {method: 'POST', headers: {'Accept': 'application/json'}});
       if (response.ok) renderQueue(await response.json());
+      scheduleQueuePoll(true);
     } finally {
       retryButton.disabled = false;
     }
@@ -97,6 +116,9 @@ _GLOBAL_REVIEW_QUEUE_UI = r"""
         queued.then(response => {
           response.clone().json().then(payload => {
             if (payload?.queue) renderQueue(payload.queue);
+            // A poll backed off to the idle interval must not sit on a newly
+            // pending item for up to 15s; track its drain at full cadence.
+            scheduleQueuePoll(true);
           }).catch(() => {});
         }).catch(() => {});
         return queued;
@@ -196,8 +218,7 @@ _GLOBAL_REVIEW_QUEUE_UI = r"""
   }
 
   pollQueue();
-  queuePollTimer = setInterval(pollQueue, 1000);
-  window.addEventListener('pagehide', () => clearInterval(queuePollTimer));
+  window.addEventListener('pagehide', () => clearTimeout(queuePollTimer));
 })();
 </script>
 """
