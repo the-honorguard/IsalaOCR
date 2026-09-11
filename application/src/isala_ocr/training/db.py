@@ -2374,6 +2374,28 @@ class TrainingDatabase:
             ).fetchall()]
         return {"regions": regions, "cells": cells}
 
+    def list_detection_table_geometry_by_source(self) -> dict[str, dict[str, list[dict[str, Any]]]]:
+        """Bulk regions+cells for every source, without one query pair per source.
+
+        table_cell_training.py's _training_panels() used to call
+        list_detection_table_geometry(source_id) once per source as its
+        fallback path (a dedicated database.connect() per source); this
+        answers the same question for every source in one query pair.
+        """
+        with self.connect() as db:
+            region_rows = [dict(row) for row in db.execute(
+                "SELECT * FROM detection_table_regions ORDER BY source_id, y1, x1"
+            ).fetchall()]
+            cell_rows = [dict(row) for row in db.execute(
+                "SELECT * FROM detection_table_cells ORDER BY source_id, table_id, row_index, column_index, y1, x1"
+            ).fetchall()]
+        result: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        for row in region_rows:
+            result.setdefault(str(row["source_id"]), {"regions": [], "cells": []})["regions"].append(row)
+        for row in cell_rows:
+            result.setdefault(str(row["source_id"]), {"regions": [], "cells": []})["cells"].append(row)
+        return result
+
     def review_detection_candidate(
         self,
         *,
