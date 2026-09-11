@@ -638,8 +638,8 @@ def create_web_app(
                     "strategy": "table_first", "ready": False, "state": "panels_missing", "tone": "warning",
                     "title": "Stel eerst de table-panels in",
                     "reason": "De table-pipeline heeft nog geen door jou gekozen resultaatpanelen.",
-                    "summary": "Stel in Stap 2 de volledige tabelregio’s in voordat Stap 3 draait.",
-                    "next_step": "Open Stap 2 · Tabelregio’s selecteren.",
+                    "summary": "Stel in Stap 3 de volledige tabelregio’s in voordat Stap 4 draait.",
+                    "next_step": "Open Stap 3 · Tabelregio’s selecteren.",
                     "sources": [], "totals": {}, "thresholds": table_first_thresholds(),
                 }
             if panel_state.get("needs_rerun"):
