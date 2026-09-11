@@ -61,6 +61,21 @@ def register_detection_review_routes(
     table_review_counts: Callable[..., dict[str, int]],
     step4_review_counts: Callable[..., dict[str, int]],
 ) -> None:
+    def _gt_counts_from_gt_count(total: int) -> dict[str, int]:
+        """Same shape as ground_truth_counts(), derived from an already-loaded gt_count.
+
+        ground_truth_counts(workspace, source_id) reloads and re-parses the
+        whole canonical-GT JSON file to answer a question
+        list_ground_truth_sources() has already answered for every source in
+        one read. Looping it per source turned one file read into N.
+        """
+        return {
+            "source_count": 1,
+            "correct": total, "adjusted": 0, "rejected": 0, "relevant": total, "irrelevant": 0,
+            "added": 0, "candidate_total": total, "candidate_reviewed": total, "pending": 0,
+            "positive": total, "negative": 0, "ignored": 0, "persistent": total, "total_reviews": total,
+        }
+
     def detection_review_source_rows() -> list[dict[str, Any]]:
         sources = database.list_detection_sources()
         table_counts = database.detection_table_counts_by_source()
@@ -82,7 +97,7 @@ def register_detection_review_routes(
             gt_source = canonical_sources.get(source_id)
             geometry = table_counts.get(source_id, {"regions": 0, "cells": 0})
             is_canonical_gt = gt_source is not None
-            counts = ground_truth_counts(workspace_root(), source_id) if is_canonical_gt else candidate_counts.get(source_id, {})
+            counts = _gt_counts_from_gt_count(int(gt_source.get("gt_count") or 0)) if is_canonical_gt else candidate_counts.get(source_id, {})
             result.append({
                 **source,
                 "review_completed": bool(gt_source.get("review_completed", False)) if gt_source else bool(source.get("review_completed", False)),

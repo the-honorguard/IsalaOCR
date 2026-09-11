@@ -1463,6 +1463,18 @@ def create_web_app(
         }
 
     def process_snapshot() -> dict[str, Any]:
+        """Lean workflow snapshot for the overview page, memoized per request.
+
+        Building this touches dozens of database/filesystem lookups (profiled
+        at ~40 SQLite connections on its own), and both the home route and the
+        workflow-navigation gate used by every page's context processor need
+        it. Without request-scoped memoization it silently ran twice per
+        request; request_cached keeps it single-shot regardless of how many
+        call sites need it in the same request.
+        """
+        return request_cached("process_snapshot", _build_process_snapshot)
+
+    def _build_process_snapshot() -> dict[str, Any]:
         """Lean workflow snapshot for the overview page.
 
         Keep this deliberately limited to fields rendered by home.html/pipeline_state;
@@ -1505,6 +1517,13 @@ def create_web_app(
         loc_comparison = _read_json(workspace_root() / "localization_evaluations" / "latest_comparison.json", None)
         inference_component = next((item for item in prep.get("components", []) if item.get("key") == "inference"), {})
         preparation_ready = bool(inference_component.get("ready")) if localization_strategy() == "table_first" else bool(prep["ready"])
+        # Computed once and reused below: "detect-candidates" and
+        # "detection-review" both ask whether every source already has table
+        # geometry, which otherwise ran the same per-source database lookup twice.
+        all_sources_have_table_geometry = bool(detection_sources) and all(
+            bool(database.list_detection_table_geometry(str(source.get("source_id") or "")).get("regions"))
+            for source in detection_sources
+        )
         readiness = {
             "detection-models": preparation_ready,
             # A saved checkbox manifest alone is not enough: Step 2 needs the
@@ -1520,17 +1539,11 @@ def create_web_app(
             # Region GT is the input to Step 3; completion requires an
             # explicitly activated trained region model.
             "table-region-model": bool(_read_json(workspace_root() / "table_region_models" / "active.json", None)),
-            "detect-candidates": bool(detection_sources) and all(
-                bool(database.list_detection_table_geometry(str(source.get("source_id") or "")).get("regions"))
-                for source in detection_sources
-            ),
+            "detect-candidates": all_sources_have_table_geometry,
             "detection-review": (
                 canonical_table_gt_mode()
                 or bool(detection_reviews.get("candidate_total", 0) > 0)
-                or (bool(detection_sources) and all(
-                    bool(database.list_detection_table_geometry(str(source.get("source_id") or "")).get("regions"))
-                    for source in detection_sources
-                ))
+                or all_sources_have_table_geometry
             ),
             "table-quality": bool((table_model_state.get("active_model") or {}).get("model_id")),
             "table-model": bool((table_model_state.get("active_model") or {}).get("model_id")),
@@ -2512,6 +2525,9 @@ def create_web_app(
         _, active = registry_state()
         active_project = request_cached("active_project", project_manager.active)
         available_projects = request_cached("available_projects", project_manager.list_projects)
+        # navigation_pipeline_gate() is not free (table-first mode routes it
+        # through current_table_first_quality()); compute it once and reuse it
+        # below instead of calling it again for pipeline_gate_global.
         pipeline_gate = navigation_pipeline_gate()
         recognition_gate = current_recognition_gate()
         workflow_step_access = workflow_navigation_access()
@@ -2532,7 +2548,7 @@ def create_web_app(
             "active_model": active,
             "process_steps": PROCESS_STEPS,
             "detection_gate_global": (navigation_detection_gate() if localization_strategy() != "table_first" else {"ready": False, "state": "parked"}),
-            "pipeline_gate_global": navigation_pipeline_gate(),
+            "pipeline_gate_global": pipeline_gate,
             "recognition_gate_global": recognition_gate,
             "workflow_gates": workflow_gates,
             "workflow_step_access": workflow_step_access,
