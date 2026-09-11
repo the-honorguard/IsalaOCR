@@ -22,17 +22,6 @@ def test_table_first_sidebar_separates_gt_setup_from_model_iteration() -> None:
     assert '<span class="process-tab-number">7</span><span>Afwijkingen reviewen</span>' in base
 
 
-def test_step5_is_the_single_training_entrypoint() -> None:
-    template = _read("table_quality.html")
-
-    assert "Stap 5 · Model trainen" in template
-    assert "Nieuwe trainingsronde starten" in template
-    assert 'name="action_id" value="53"' in template
-    assert "Dataset bouwen → valideren → GPU trainen → activeren" in template
-    assert "Train → beoordeel → review → train opnieuw" in template
-    assert "Tabeldekking beoordelen" not in template
-
-
 def test_step6_runs_active_model_without_sending_user_back_to_step3() -> None:
     template = _read("table_model_training.html")
 

@@ -1,3 +1,0 @@
-Global:
-  character_dict_path: ppocr/utils/dict/ppocrv6_dict.txt
-  use_space_char: true

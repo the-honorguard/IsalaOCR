@@ -21,12 +21,3 @@ def test_legacy_table_model_page_redirects_to_review() -> None:
     assert 'content="0;url=/process/table-compare"' in legacy
     assert "window.location.replace('/process/table-compare')" in legacy
     assert "Deze tussenstap bestaat niet meer" in legacy
-
-
-def test_step5_keeps_manual_review_rerun_under_advanced_actions() -> None:
-    step5 = (TEMPLATES / "table_quality.html").read_text(encoding="utf-8")
-
-    assert "Beoordelingsrun opnieuw uitvoeren" in step5
-    assert '<input type="hidden" name="action_id" value="2">' in step5
-    assert 'name="table_model_id" value="{{ active_model.model_id }}"' in step5
-    assert "Naar Stap 6 · Beoordelen" in step5

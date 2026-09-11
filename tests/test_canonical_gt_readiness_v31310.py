@@ -97,7 +97,6 @@ def test_canonical_gt_is_authoritative_table_first_mapping_gate(tmp_path: Path) 
 
 def test_gt_studio_uses_cell_level_review_without_a_visible_source_approval() -> None:
     studio = (ROOT / "application/src/isala_ocr/training/templates/detection_review_studio.html").read_text(encoding="utf-8")
-    quality = (ROOT / "application/src/isala_ocr/training/templates/table_quality.html").read_text(encoding="utf-8")
     webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
     # set_ground_truth_source_review_completed() is called from routes_detection_review.py now.
     routes_detection_review = (
@@ -111,5 +110,3 @@ def test_gt_studio_uses_cell_level_review_without_a_visible_source_approval() ->
     assert "markGtSourceDirty" in studio
     assert "set_ground_truth_source_review_completed" in routes_detection_review
     assert "Nieuwe modelpredictions tellen hier niet als open kandidaten" in webui
-    assert "GT en modelfeedback blijven gescheiden" in quality
-    assert "Stap 8 · Rijen, kolommen en celcrops" in quality

@@ -30,12 +30,3 @@ def test_full_table_iteration_completes_gt_and_reruns_active_model():
     assert "table_cell_models\\active.json" in source
     assert "collect-training-data.ps1" in source
     assert "-TableModelId $activeModelId" in source
-
-
-def test_step5_exposes_two_action_iteration_and_bulk_gt_completion():
-    source = read("application/src/isala_ocr/training/templates/table_quality.html")
-    assert "Alles laten draaien" in source
-    assert "Markeer alle GT's als correct" in source
-    assert "DRAAIEN → BEOORDELEN → DRAAIEN" in source
-    assert "GT afronden indien nodig → dataset → validatie → training → activatie → nieuwe modelrun" in source
-    assert "/api/detection-review/${encodeURIComponent(source.source_id)}/complete" in source

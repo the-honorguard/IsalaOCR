@@ -3,23 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 
-RECOGNITION_STEP_KEYS = (
-    "recognition-scope",
-    "recognition-gt-studio",
-    "recognition-dataset",
-    "recognition-train",
-    "recognition-evaluate",
-    "recognition-models",
-    "recognition-output-review",
-)
-APPLICATION_STEP_KEYS = (
-    "mapping",
-    "apply-mapping",
-    "value-extract",
-    "value-review",
-)
-
-
 def install_recognition_model_factory_metadata(webui_module: Any) -> None:
     """Repair the workflow boundary without deleting legacy routes/jobs.
 

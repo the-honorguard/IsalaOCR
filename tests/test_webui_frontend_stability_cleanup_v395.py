@@ -51,7 +51,7 @@ def test_user_facing_templates_do_not_advertise_frontend_implementation_details(
     for name in (
         "react_localization_workbench.html",
         "react_localization_quality.html",
-        "react_localization_artifacts.html",
+        "management.html",
     ):
         template = _text(TRAINING / f"templates/{name}")
         upper = template.upper()
