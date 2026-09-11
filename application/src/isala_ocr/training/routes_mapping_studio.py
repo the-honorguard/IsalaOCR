@@ -4,7 +4,7 @@ Covers /mapping, /mapping-labels (both redirect to the studio),
 /mapping/<source_id>/relation-feedback and the studio itself,
 /mapping-labels/<source_id>. The older, no-longer-linked-from-nav
 ROI-first Mapping Studio (/mapping/<source_id> -> mapping_studio()) is
-a separate, much larger route left in webui.py for a later pass.
+a separate route, split out on its own into routes_roi_mapping_studio.py.
 
 ``database``, ``workspace_root`` and ``enqueue_job`` are reused by
 other route groups in webui.py and are passed in explicitly.
