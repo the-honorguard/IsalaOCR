@@ -1247,9 +1247,14 @@ def functional_geometry_suggestions(candidate: dict[str, Any], run_reviews: dict
             if prediction_box is None or gt_box is None:
                 continue
             quality = _geometry_quality(prediction_box, gt_box)
+            # Not `quality.get(...) or default`: 0.0 is a real value for a
+            # fully-contained prediction (exactly zero excess), and `or`
+            # treats it as falsy -- silently replacing the *best* possible
+            # excess value with the worst-case fallback, which excluded
+            # exactly the cleanest matches from ever being suggested.
             if (
-                float(quality.get("gt_coverage") or 0.0) < FUNCTIONAL_SUGGESTION_GT_COVERAGE
-                or float(quality.get("prediction_excess") or 1.0) > FUNCTIONAL_SUGGESTION_PREDICTION_EXCESS
+                float(quality["gt_coverage"]) < FUNCTIONAL_SUGGESTION_GT_COVERAGE
+                or float(quality["prediction_excess"]) > FUNCTIONAL_SUGGESTION_PREDICTION_EXCESS
             ):
                 continue
             reaches_other_cell = any(
@@ -1313,6 +1318,13 @@ OBVIOUS_ERROR_HEIGHT_RATIO = 1.5
 OBVIOUS_ERROR_GT_COVERAGE = 0.95
 OBVIOUS_ERROR_PREDICTION_EXCESS = FUNCTIONAL_SUGGESTION_PREDICTION_EXCESS
 
+# "merged" issues are also eligible for the height-ratio check (never the
+# excess-area one, which only applies to a "geometry" issue's own one-to-one
+# match): a prediction that spans multiple GT cells is by construction at
+# least as tall as any single one of them, so this is actually a *more*
+# certain error signal than a plain oversized fp/geometry box -- there is no
+# legitimate reading of a merge that isn't a model mistake.
+
 
 def obvious_error_suggestions(candidate: dict[str, Any], run_reviews: dict[str, Any]) -> dict[str, Any]:
     """Return conservative suggestions for predictions far taller/larger than their matched (or panel) GT."""
@@ -1333,7 +1345,7 @@ def obvious_error_suggestions(candidate: dict[str, Any], run_reviews: dict[str, 
             continue
         for issue in panel.get("issues") or []:
             issue_type = str(issue.get("type") or "")
-            if not isinstance(issue, dict) or issue_type not in {"fp", "geometry"}:
+            if not isinstance(issue, dict) or issue_type not in {"fp", "geometry", "merged"}:
                 continue
             if _review_for_issue(issue, run_reviews):
                 continue
@@ -1382,6 +1394,63 @@ def obvious_error_suggestions(candidate: dict[str, Any], run_reviews: dict[str, 
         "height_ratio_threshold": OBVIOUS_ERROR_HEIGHT_RATIO,
         "gt_coverage_threshold": OBVIOUS_ERROR_GT_COVERAGE,
         "prediction_excess_threshold": OBVIOUS_ERROR_PREDICTION_EXCESS,
+    }
+
+
+# A third, symmetric bucket: a prediction that sits entirely inside its GT
+# cell (zero excess area) but only covers a small fraction of it is an
+# obvious under-detection, the mirror image of obvious_error_suggestions'
+# oversized case. Unlike functional_geometry_suggestions this deliberately
+# does NOT exclude spatially-recovered fp+fn pairs -- zero prediction excess
+# is a hard geometric fact about the *matched pair itself*, independent of
+# whatever uncertainty went into deciding which fp and fn belong together,
+# so it stays a safe signal even for a recovered pair.
+INCOMPLETE_DETECTION_GT_COVERAGE_MAX = 0.50
+INCOMPLETE_DETECTION_PREDICTION_EXCESS_MAX = 0.02
+
+
+def incomplete_detection_suggestions(candidate: dict[str, Any], run_reviews: dict[str, Any]) -> dict[str, Any]:
+    """Return conservative suggestions for predictions that barely cover their GT cell."""
+    suggestions: list[dict[str, Any]] = []
+    for panel in candidate.get("panels") or []:
+        if not isinstance(panel, dict):
+            continue
+        for issue in panel.get("issues") or []:
+            if not isinstance(issue, dict) or str(issue.get("type") or "") != "geometry":
+                continue
+            if _review_for_issue(issue, run_reviews):
+                continue
+            prediction_box = _box(issue.get("prediction_box"))
+            gt_boxes = issue.get("gt_boxes") or []
+            gt_box = _box(gt_boxes[0]) if len(gt_boxes) == 1 else None
+            if prediction_box is None or gt_box is None:
+                continue
+            quality = _geometry_quality(prediction_box, gt_box)
+            # Not `quality.get(...) or default`: 0.0 is a real, common value
+            # here (a fully-contained prediction has exactly zero excess) and
+            # `or` treats it as falsy, silently replacing it with the
+            # fallback -- which would hide the exact clean-containment cases
+            # this bucket exists to catch.
+            gt_coverage = float(quality["gt_coverage"])
+            prediction_excess = float(quality["prediction_excess"])
+            if (
+                prediction_excess > INCOMPLETE_DETECTION_PREDICTION_EXCESS_MAX
+                or gt_coverage > INCOMPLETE_DETECTION_GT_COVERAGE_MAX
+            ):
+                continue
+            suggestions.append({
+                "issue_id": str(issue.get("issue_id") or ""),
+                "source_id": str(panel.get("source_id") or ""),
+                "panel_name": str(panel.get("panel_name") or panel.get("panel_id") or ""),
+                "gt_coverage": gt_coverage,
+                "prediction_excess": prediction_excess,
+            })
+    suggestions.sort(key=lambda item: item["gt_coverage"])
+    return {
+        "issues": suggestions,
+        "issue_ids": [item["issue_id"] for item in suggestions if item["issue_id"]],
+        "gt_coverage_threshold": INCOMPLETE_DETECTION_GT_COVERAGE_MAX,
+        "prediction_excess_threshold": INCOMPLETE_DETECTION_PREDICTION_EXCESS_MAX,
     }
 
 
@@ -1676,6 +1745,7 @@ def table_cell_comparison_state(
     reviews = reviews if isinstance(reviews, dict) else {}
     functional_suggestions = functional_geometry_suggestions(candidate, reviews)
     error_suggestions = obvious_error_suggestions(candidate, reviews)
+    incomplete_suggestions = incomplete_detection_suggestions(candidate, reviews)
     issue_panels = []
     total_issues = reviewed_issues = 0
     decision_counts: dict[str, int] = {}
@@ -1727,4 +1797,5 @@ def table_cell_comparison_state(
         "training_feedback": latest_completed_training_feedback(root),
         "functional_suggestions": functional_suggestions,
         "obvious_error_suggestions": error_suggestions,
+        "incomplete_detection_suggestions": incomplete_suggestions,
     }

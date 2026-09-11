@@ -119,9 +119,12 @@ def test_already_reviewed_issue_is_not_resuggested():
     assert suggestions["issue_ids"] == []
 
 
-def test_merged_cell_issues_are_never_flagged():
-    # A prediction spanning two real GT cells is legitimate merge territory,
-    # already classified separately upstream; it must not double up here.
+def test_merged_cell_issue_far_taller_than_panel_gt_is_also_suggested():
+    # "merged" is a description of the issue (it spans multiple GT cells),
+    # not a review decision -- the reviewer still has to click something for
+    # it, same as a plain oversized fp/geometry issue. A merge spanning two
+    # stacked GT cells is, by construction, at least as tall as either one of
+    # them, so it's an even more certain error signal than the plain case.
     candidate = _candidate(
         ground_truth=[{"box": [0, 0, 100, 20]}, {"box": [0, 30, 100, 50]}],
         issues=[{
@@ -134,4 +137,4 @@ def test_merged_cell_issues_are_never_flagged():
 
     suggestions = obvious_error_suggestions(candidate, {})
 
-    assert suggestions["issue_ids"] == []
+    assert suggestions["issue_ids"] == ["merged-span"]

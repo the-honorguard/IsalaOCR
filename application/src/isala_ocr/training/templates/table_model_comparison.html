@@ -88,7 +88,7 @@
     <div>
       <span class="eyebrow">OVERDUIDELIJKE MODELFOUTEN</span>
       <h3>{{ error_suggestions.issues|length }} kaders zijn waarschijnlijk fout (te groot t.o.v. GT)</h3>
-      <p class="muted">Extra detecties en geometrie-afwijkingen die minstens {{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× zo hoog zijn als hun GT-cel, of die de GT-cel al vrijwel volledig dekken (≥{{ '%.0f%%'|format(error_suggestions.gt_coverage_threshold * 100) }}) met meer dan {{ '%.0f%%'|format(error_suggestions.prediction_excess_threshold * 100) }} extra oppervlak. Bekijk eerst de voorbeelden hieronder voordat je in bulk toepast; niets wordt automatisch gemarkeerd.</p>
+      <p class="muted">Extra detecties, geometrie-afwijkingen en samengevoegde cellen die minstens {{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× zo hoog zijn als hun GT-cel, of geometrie-afwijkingen die de GT-cel al vrijwel volledig dekken (≥{{ '%.0f%%'|format(error_suggestions.gt_coverage_threshold * 100) }}) met meer dan {{ '%.0f%%'|format(error_suggestions.prediction_excess_threshold * 100) }} extra oppervlak. Bekijk eerst de voorbeelden hieronder voordat je in bulk toepast; niets wordt automatisch gemarkeerd.</p>
     </div>
     <form method="post" class="functional-suggestion-form">
       <input type="hidden" name="comparison_action" value="apply_obvious_error_suggestions">
@@ -100,6 +100,28 @@
     </form>
   </div>
   <small class="muted">Voorbeelden: {% for suggestion in error_suggestions.issues[:4] %}{{ suggestion.panel_name }} ({% if suggestion.oversized_by_excess %}{{ '%.0f%%'|format(suggestion.prediction_excess * 100) }} extra{% else %}{{ '%.1f'|format(suggestion.height_ratio) }}×{% endif %}){% if not loop.last %} · {% endif %}{% endfor %}</small>
+</section>
+{% endif %}
+
+{% set incomplete_suggestions = comparison.incomplete_detection_suggestions or {} %}
+{% if incomplete_suggestions.issues and comparison.review_writable %}
+<section class="card section-gap functional-suggestion-card">
+  <div class="toolbar">
+    <div>
+      <span class="eyebrow">ONVOLLEDIGE DETECTIES</span>
+      <h3>{{ incomplete_suggestions.issues|length }} kaders zijn waarschijnlijk onvolledig (te klein t.o.v. GT)</h3>
+      <p class="muted">Alleen geometrieën die volledig binnen hun GT-cel vallen (0% extra kader) maar hoogstens {{ '%.0f%%'|format(incomplete_suggestions.gt_coverage_threshold * 100) }} van de GT-cel dekken — ook als het om een gekoppelde FP+FN gaat. Bekijk eerst de voorbeelden hieronder voordat je in bulk toepast; niets wordt automatisch gemarkeerd.</p>
+    </div>
+    <form method="post" class="functional-suggestion-form">
+      <input type="hidden" name="comparison_action" value="apply_incomplete_detection_suggestions">
+      <input type="hidden" name="run_id" value="{{ cur.run_id }}">
+      <input type="hidden" name="reference_run_id" value="{{ ref.run_id }}">
+      <input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}">
+      {% for suggestion in incomplete_suggestions.issues %}<input type="hidden" name="issue_id" value="{{ suggestion.issue_id }}">{% endfor %}
+      <button class="primary" type="submit">{{ incomplete_suggestions.issues|length }} als modelfout markeren</button>
+    </form>
+  </div>
+  <small class="muted">Voorbeelden: {% for suggestion in incomplete_suggestions.issues[:4] %}{{ suggestion.panel_name }} ({{ '%.0f%%'|format(suggestion.gt_coverage * 100) }} gedekt){% if not loop.last %} · {% endif %}{% endfor %}</small>
 </section>
 {% endif %}
 
