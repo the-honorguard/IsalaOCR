@@ -12,6 +12,11 @@
     <div><small>Model gebruikt voor deze resultaten</small><strong>{{ detection.model_name or 'Nog niet beschikbaar' }}</strong><code>{{ detection.model_id or '—' }}</code></div>
     <div><small>Gebruikte GT-dataset</small><strong>{{ comparison.dataset.dataset_id if comparison.dataset else '—' }}</strong><code>{{ detection.detection_batch_id or 'Geen detectierun' }}</code></div>
   </div>
+  {% if active_model.model_id %}
+  <div class="actions rerun-active-model-action">
+    <form method="post" action="/jobs"><input type="hidden" name="action_id" value="2"><input type="hidden" name="table_model_id" value="active"><button type="submit" class="{{ 'primary' if detection.stale_against_active_model else 'ghost' }}"><strong>Actief model opnieuw draaien</strong><span>Nieuwe celdetectie met {{ active_model.model_name or active_model.model_id }}, zonder opnieuw te trainen.</span></button></form>
+  </div>
+  {% endif %}
 </section>
 
 {% if not comparison.ready %}
@@ -216,6 +221,6 @@
   });
 })();
 </script>
-<style>.model-provenance-card{border-color:var(--border-strong,#41556d)}.model-provenance-card .toolbar{align-items:center}.model-provenance-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.model-provenance-grid>div{display:grid;gap:4px;padding:12px;border:1px solid var(--border,#2b3b4d);border-radius:8px;background:rgba(255,255,255,.025)}.model-provenance-grid small{color:var(--muted,#9fb1c5)}.model-provenance-grid strong,.model-provenance-grid code{overflow-wrap:anywhere}.model-provenance-grid code{font-size:11px;color:var(--muted,#9fb1c5)}.pill.bad{color:#ff8a8a;border-color:#8d3d49}@media(max-width:800px){.model-provenance-grid{grid-template-columns:1fr}}</style>
+<style>.model-provenance-card{border-color:var(--border-strong,#41556d)}.model-provenance-card .toolbar{align-items:center}.model-provenance-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.model-provenance-grid>div{display:grid;gap:4px;padding:12px;border:1px solid var(--border,#2b3b4d);border-radius:8px;background:rgba(255,255,255,.025)}.model-provenance-grid small{color:var(--muted,#9fb1c5)}.model-provenance-grid strong,.model-provenance-grid code{overflow-wrap:anywhere}.model-provenance-grid code{font-size:11px;color:var(--muted,#9fb1c5)}.pill.bad{color:#ff8a8a;border-color:#8d3d49}@media(max-width:800px){.model-provenance-grid{grid-template-columns:1fr}}.rerun-active-model-action{margin-top:12px}.rerun-active-model-action button{display:grid;gap:3px;min-width:320px;text-align:left}.rerun-active-model-action button span{font-size:12px;font-weight:400;opacity:.85}@media(max-width:650px){.rerun-active-model-action button{min-width:0;width:100%}}</style>
 {% endblock %}
 
