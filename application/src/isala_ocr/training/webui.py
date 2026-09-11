@@ -230,7 +230,7 @@ PROCESS_STEPS = [
     {"key": "detect-candidates","index":4,"group":"detection","title":"Tabelregio’s detecteren en beoordelen","subtitle":"Draai alleen het actieve tabelregio-model. Beoordeel daarna de gevonden regio’s voordat er cellen worden gedetecteerd.","action_ids":["59"],"requirements":["Voorbereiding afgerond","Tabelregio-model getraind en geactiveerd","Bronnen in input"]},
     {"key": "detection-review","index":5,"group":"detection","title":"GT Studio","subtitle":"Beoordeel de celdetectie per bron en leg de canonieke cel-GT vast voor de celdetector.","action_ids":[],"requirements":["Tabelregio’s en cellen gedetecteerd","Bronrender","Per bron GT controleren en goedkeuren"]},
     {"key": "table-model","index":6,"group":"detection","title":"Celdetector trainen","subtitle":"Bouw uit de reviewcorrecties trainingsdata, train/activeer de celdetector en gebruik het nieuwe model in de volgende detectieronde.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde GT-review","Positieve functionele cellen","Dataset gebouwd en gevalideerd vóór training"]},
-    {"key": "table-compare","index":None,"group":"tables","title":"Detectorafwijkingen reviewen","subtitle":"Optionele technische vergelijking van een nieuwe detectorrun met de vaste Ground Truth.","action_ids":[],"requirements":["Canonieke Ground Truth uit Stap 5","Table-cell dataset uit Stap 6","Nieuwe detectierun uit Stap 4"]},
+    {"key": "table-compare","index":None,"group":"tables","title":"Detectorafwijkingen reviewen","subtitle":"Optionele technische vergelijking van een nieuwe detectorrun met de vaste Ground Truth.","action_ids":[],"requirements":["Canonieke Ground Truth uit Stap 7","Table-cell dataset uit Stap 8","Nieuwe detectierun uit Stap 8"]},
     {"key": "table-quality","index":8,"group":"tables","title":"Tabelstudio","subtitle":"Maak vanuit de getrainde celdetector het rij-kolomraster en bepaal welke bezette rastercellen naar Recognition gaan.","action_ids":[],"requirements":["Celdetector getraind en opnieuw gedraaid","Goedgekeurde celposities"]},
 
     {"key": "recognition-gt-studio","index":10,"group":"value","title":"Recognition GT Studio","subtitle":"Controleer de Recognition-tekst uit de bestaande cellen en keur de trainingsvoorbeelden goed.","action_ids":[],"requirements":["Tabelstudio afgerond","Recognition-samples beschikbaar"]},
@@ -590,23 +590,23 @@ def create_web_app(
             state = "no_ground_truth"
             title = "Canonieke Ground Truth ontbreekt"
             summary = "Er is nog geen bruikbare canonieke table-cell Ground Truth."
-            next_step = "Ga naar Stap 5 en leg de gewenste cellen vast."
+            next_step = "Ga naar Stap 7 en leg de gewenste cellen vast."
         elif open_sources:
             state = "canonical_gt_needs_review"
             title = "Ground Truth-controle nog niet afgerond"
             summary = (
                 f"{open_sources} van {source_count} bronafbeelding(en) moeten nog expliciet als GT-gecontroleerd worden gemarkeerd. "
-                "Nieuwe modelpredictions tellen hier niet als open kandidaten; die beoordeel je in Stap 7."
+                "Nieuwe modelpredictions tellen hier niet als open kandidaten; die beoordeel je in Stap 9."
             )
-            next_step = "Open Stap 5 · GT Studio, controleer de bron en kies GT goedkeuren."
+            next_step = "Open Stap 7 · GT Studio, controleer de bron en kies GT goedkeuren."
         else:
             state = "canonical_gt_ready"
             title = "Canonieke Ground Truth is volledig gecontroleerd"
             summary = (
                 f"Alle {source_count} bronafbeeldingen zijn als GT-gecontroleerd gemarkeerd; de canonieke GT bevat {gt_cells} cellen. "
-                "Een nieuwe Stap-4-run wijzigt deze status niet. Modelverschillen worden uitsluitend in Stap 7 beoordeeld."
+                "Een nieuwe Stap-8-run wijzigt deze status niet. Modelverschillen worden uitsluitend in Stap 9 beoordeeld."
             )
-            next_step = "Gebruik Stap 7 voor de actuele modelvergelijking of Stap 6 voor een volgende trainingsdataset."
+            next_step = "Gebruik Stap 9 voor de actuele modelvergelijking of Stap 8 voor een volgende trainingsdataset."
         return {
             "strategy": "table_first", "canonical_ground_truth": True,
             "ready": ready, "state": state, "tone": "success" if ready else "warning",
@@ -3154,7 +3154,7 @@ def create_web_app(
                         suffix = " (bestond al in GT)" if promoted.get("already_present") else ""
                         message = (
                             "Prediction toegevoegd aan de canonieke Ground Truth" + suffix +
-                            ". De huidige table-cell trainingsdataset is nu verouderd; bouw hem in Stap 5 opnieuw."
+                            ". De huidige table-cell trainingsdataset is nu verouderd; bouw hem in Stap 8 opnieuw."
                         )
                 else:
                     decision = str(request.form.get("decision") or "").strip().lower()

@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
-{% block title %}Stap 7 · Afwijkingen reviewen · IsalaOCR{% endblock %}
-{% block heading %}Stap 7 · Afwijkingen reviewen{% endblock %}
+{% block title %}Stap 9 · Afwijkingen reviewen · IsalaOCR{% endblock %}
+{% block heading %}Stap 9 · Afwijkingen reviewen{% endblock %}
 {% block subtitle %}Beoordeel alleen wat het actieve table-cell model anders doet dan de canonieke Ground Truth.{% endblock %}
 {% block content %}
 {% set active_model = comparison.active_model or {} %}
@@ -23,11 +23,11 @@
 <section class="card section-gap iteration-explainer">
   <span class="eyebrow">DE LOOP</span>
   <div class="iteration-loop">
-    <div class="iteration-step"><span>1</span><div><strong>Model draaien</strong><small>Stap 6 bouwt/train/activeert en maakt een nieuwe detectierun.</small></div></div>
+    <div class="iteration-step"><span>1</span><div><strong>Model draaien</strong><small>Stap 8 bouwt/train/activeert en maakt een nieuwe detectierun.</small></div></div>
     <div class="iteration-arrow">→</div>
     <div class="iteration-step active"><span>2</span><div><strong>Afwijkingen beoordelen</strong><small>Alleen verschillen met de canonieke GT komen hier terecht.</small></div></div>
     <div class="iteration-arrow">→</div>
-    <div class="iteration-step"><span>3</span><div><strong>Nog een ronde of door</strong><small>Terug naar Stap 6, of verder naar Recognition zodra de GT klaar is.</small></div></div>
+    <div class="iteration-step"><span>3</span><div><strong>Nog een ronde of door</strong><small>Terug naar Stap 8, of verder naar Recognition zodra de GT klaar is.</small></div></div>
   </div>
 </section>
 
@@ -183,7 +183,7 @@
 {% endif %}
 
 <section class="notice info section-gap iteration-boundary">
-  <strong>Wanneer ben je klaar?</strong> Niet wanneer het detector-model perfect is, maar wanneer de canonieke GT klopt. Stap 6 ↔ Stap 7 is een optionele verbeterlus voor toekomstige beelden; Recognition werkt vanaf de vastgelegde GT.
+  <strong>Wanneer ben je klaar?</strong> Niet wanneer het detector-model perfect is, maar wanneer de canonieke GT klopt. Stap 8 ↔ Stap 9 is een optionele verbeterlus voor toekomstige beelden; Recognition werkt vanaf de vastgelegde GT.
 </section>
 
 {% endif %}

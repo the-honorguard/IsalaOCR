@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Recognition-scope · IsalaOCR{% endblock %}
 {% block heading %}Recognition-scope{% endblock %}
-{% block subtitle %}Stap 9 · bepaal welke rijen en kolommen Recognition-samples leveren{% endblock %}
+{% block subtitle %}Stap 11 · bepaal welke rijen en kolommen Recognition-samples leveren{% endblock %}
 {% block content %}
 <section class="card recognition-scope-hero"><div class="eyebrow">MODEL FACTORY · RECOGNITION</div><h2>Welke tekst moet Recognition leren?</h2><p class="muted">Beoordeel iedere tabel afzonderlijk. De volledige dataset staat in één queue: rapport en tabel worden niet meer samengevoegd.</p></section>
 <section class="card section-gap"><div class="toolbar"><div><h3>Recognition-scope per tabelbeeld</h3><p class="muted">Selecteer per tabel de rijen en kolommen die in de Recognition-training komen.</p></div><span class="pill {{ 'ok' if recognition_scope.mode == 'selected' else '' }}">{{ recognition_scope_options|length }} tabelbeelden</span></div>

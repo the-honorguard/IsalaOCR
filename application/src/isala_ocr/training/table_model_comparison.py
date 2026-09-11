@@ -861,7 +861,7 @@ def capture_current_detection_run(workspace: str | Path) -> dict[str, Any] | Non
         key = f"{panel.get('source_id')}::{panel.get('panel_id')}"
         predictions_by_panel[key] = _machine_predictions_for_panel(diagnostics.get(str(panel.get("source_id") or ""), []), full_box)
 
-    label = f"{model_id} · Stap 3"
+    label = f"{model_id} · Stap 8"
     run = _evaluate_run(
         run_id=run_id,
         label=label,
@@ -1498,7 +1498,7 @@ def table_cell_comparison_state(
     if not dataset:
         return {
             "ready": False,
-            "reason": "Bouw eerst in Stap 6 een table-cell trainingsdataset uit de afgeronde Stap-4-ground-truth.",
+            "reason": "Bouw eerst in Stap 8 een table-cell trainingsdataset uit de afgeronde Stap-7-ground-truth.",
             "history": history,
         }
 
@@ -1511,8 +1511,8 @@ def table_cell_comparison_state(
             "ready": False,
             "detection_stale": True,
             "reason": (
-                f"Het actieve model is {active_model_id}, maar de laatste complete Stap-3-detectie is gemaakt met "
-                f"{detected_model_id or 'een ouder/generiek model'}. Voer Stap 3 opnieuw uit; oude reviewdata blijft alleen historie."
+                f"Het actieve model is {active_model_id}, maar de laatste complete Stap-8-detectie is gemaakt met "
+                f"{detected_model_id or 'een ouder/generiek model'}. Voer Stap 8 opnieuw uit; oude reviewdata blijft alleen historie."
             ),
             "dataset": dataset,
             "active_model": active,
@@ -1527,7 +1527,7 @@ def table_cell_comparison_state(
     if not detection_context.get("available") and migration_candidate is None:
         return {
             "ready": False,
-            "reason": "Er is nog geen complete Stap-3-detectierun voor de huidige bronnen. Voer Stap 3 opnieuw uit.",
+            "reason": "Er is nog geen complete Stap-8-detectierun voor de huidige bronnen. Voer Stap 8 opnieuw uit.",
             "dataset": dataset,
             "active_model": active,
             "detection_context": detection_context,
