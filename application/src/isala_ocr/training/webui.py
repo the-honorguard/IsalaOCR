@@ -68,7 +68,8 @@ from .table_cell_ground_truth import (
 from .table_region_ground_truth import list_table_regions, list_table_region_sources
 from .table_semantics import load_assignments as load_table_semantic_assignments, suggest_table_name
 from .table_model_comparison import (
-    add_comparison_fp_to_ground_truth, review_comparison_issue, table_cell_comparison_state,
+    add_comparison_fp_to_ground_truth, review_comparison_issue, review_comparison_issues_bulk,
+    table_cell_comparison_state,
 )
 from .recognition_ground_truth import (
     recognition_gt_counts, recognition_scope_preview, save_recognition_scope,
@@ -204,7 +205,7 @@ ACTION_DURATION_ESTIMATES = {
     "51": {"label": "± 1–4 uur", "detail": "CPU-alternatief; sterk hardware- en dataset-afhankelijk."},
     "52": {"label": "± 10–30 sec", "detail": "Bestaand getraind table-cell model activeren; er wordt niet opnieuw getraind."},
     "53": {"label": "± 10–30 min", "detail": "Dataset bouwen → valideren → trainen → activeren → nieuwe celdetectie."},
-    "54": {"label": "± 10–60 sec", "detail": "Volledige bronbeelden met Stap-2 tabelregio-GT naar COCO omzetten."},
+    "54": {"label": "± 10–60 sec", "detail": "Volledige bronbeelden met Stap-3 tabelregio-GT naar COCO omzetten."},
     "55": {"label": "± 5–20 min", "detail": "PicoDet-S tabelregio-detector trainen op GPU."},
     "56": {"label": "± 30–120 min", "detail": "PicoDet-S tabelregio-detector trainen op CPU."},
     "57": {"label": "± 10–30 sec", "detail": "Een bestaand tabelregio-model als voorste detectorlaag activeren."},
@@ -223,10 +224,10 @@ ACTION_DURATION_ESTIMATES = {
 }
 
 PROCESS_STEPS = [
-    {"key": "detection-models","index":1,"group":"detection","title":"Voorbereiding","subtitle":"Controleer of PP-StructureV3 en de inference/table-modelcache beschikbaar zijn.","action_ids":["14","19","30","35","42"],"requirements":["Docker Desktop actief","Inference OCR + tabelmodellen lokaal beschikbaar","Tabelregio’s en tabelnamen worden in Stap 2 gedefinieerd","Geen detector-training nodig voor de table-first proef"]},
+    {"key": "detection-models","index":1,"group":"detection","title":"Voorbereiding","subtitle":"Controleer of PP-StructureV3 en de inference/table-modelcache beschikbaar zijn.","action_ids":["14","19","30","35","42"],"requirements":["Docker Desktop actief","Inference OCR + tabelmodellen lokaal beschikbaar","Tabelregio’s en tabelnamen worden in Stap 3 gedefinieerd","Geen detector-training nodig voor de table-first proef"]},
     {"key": "input-selection","index":"1A","group":"input","title":"Inputselectie","subtitle":"Bepaal welke bronafbeeldingen onderdeel worden van deze verwerkingsronde.","action_ids":[],"requirements":["Voorbereiding afgerond","Bestanden in de projectmap input","Alle gewenste afbeeldingen expliciet geselecteerd"]},
     {"key": "panel-setup","index":2,"group":"detection","title":"Tabelregio’s selecteren","subtitle":"Beoordeel per lezing de volledige tabelregio’s in de fullscreen reviewer en sla ze op als Ground Truth.","action_ids":[],"requirements":["Minimaal één bronpreview","Per lezing alle volledige tabellen omkaderen","Tabeldefinities en tabelregio-GT opslaan"]},
-    {"key": "table-region-model","index":3,"group":"detection","title":"Tabelregio-model trainen","subtitle":"Train eerst een model dat volledige tabelregio’s automatisch leert vinden uit de GT van Stap 2.","action_ids":["54","55","56","57","60"],"requirements":["Tabelregio-GT opgeslagen in Stap 2","Dataset gebouwd en gevalideerd vóór training","Regio-model geactiveerd vóór de volgende detectie"]},
+    {"key": "table-region-model","index":3,"group":"detection","title":"Tabelregio-model trainen","subtitle":"Train eerst een model dat volledige tabelregio’s automatisch leert vinden uit de GT van Stap 3.","action_ids":["54","55","56","57","60"],"requirements":["Tabelregio-GT opgeslagen in Stap 3","Dataset gebouwd en gevalideerd vóór training","Regio-model geactiveerd vóór de volgende detectie"]},
     {"key": "detect-candidates","index":4,"group":"detection","title":"Tabelregio’s detecteren en beoordelen","subtitle":"Draai alleen het actieve tabelregio-model. Beoordeel daarna de gevonden regio’s voordat er cellen worden gedetecteerd.","action_ids":["59"],"requirements":["Voorbereiding afgerond","Tabelregio-model getraind en geactiveerd","Bronnen in input"]},
     {"key": "detection-review","index":5,"group":"detection","title":"GT Studio","subtitle":"Beoordeel de celdetectie per bron en leg de canonieke cel-GT vast voor de celdetector.","action_ids":[],"requirements":["Tabelregio’s en cellen gedetecteerd","Bronrender","Per bron GT controleren en goedkeuren"]},
     {"key": "table-model","index":6,"group":"detection","title":"Celdetector trainen","subtitle":"Bouw uit de reviewcorrecties trainingsdata, train/activeer de celdetector en gebruik het nieuwe model in de volgende detectieronde.","action_ids":["48","49","50","51","52","53"],"requirements":["Afgeronde GT-review","Positieve functionele cellen","Dataset gebouwd en gevalideerd vóór training"]},
@@ -2561,7 +2562,7 @@ def create_web_app(
                 else f"{len(list_table_region_sources(workspace_root()))} lezing(en) met GT · model nog niet actief"
             ),
             "table-compare": (
-                "nieuwe Stap-4-run klaar voor vergelijking" if active_table_model else "eerst een getraind tablecelmodel activeren en Stap 4 uitvoeren"
+                "nieuwe Stap-8-run klaar voor vergelijking" if active_table_model else "eerst een getraind tablecelmodel activeren en Stap 8 uitvoeren"
             ),
             "localization-dataset": (
                 (f"{loc_dataset.get('image_count', 0)} beelden · {loc_dataset.get('annotation_count', 0)} boxen · "
@@ -2991,7 +2992,7 @@ def create_web_app(
                         return redirect(url_for("process_step", step_key="input-selection"))
                     try:
                         result = prepare_source_renders("/input", workspace_root(), loaded_config)
-                        flash(f"{result['sources']} volledige bronpreview(s) voorbereid. Stap 2 voor tabelregio’s is nu beschikbaar.", "success")
+                        flash(f"{result['sources']} volledige bronpreview(s) voorbereid. Stap 3 voor tabelregio’s is nu beschikbaar.", "success")
                         return redirect(url_for("process_step", step_key="panel-setup"))
                     except Exception as exc:
                         _record_webui_error("source_render_prepare", exc)
@@ -3092,10 +3093,9 @@ def create_web_app(
                     elif not selected_ids:
                         flash("Er zijn geen geldige, nog open functionele suggesties om toe te passen.", "warning")
                     else:
-                        for suggested_issue_id in selected_ids:
-                            review_comparison_issue(workspace_root(), run_id, suggested_issue_id, "functional_ok")
+                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "functional_ok")
                         flash(
-                            f"{len(selected_ids)} veilige geometrieën als functioneel correct gemarkeerd. "
+                            f"{len(applied)} veilige geometrieën als functioneel correct gemarkeerd. "
                             "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
                             "success",
                         )
@@ -3124,10 +3124,9 @@ def create_web_app(
                     elif not selected_ids:
                         flash("Er zijn geen geldige, nog open foutsuggesties om toe te passen.", "warning")
                     else:
-                        for suggested_issue_id in selected_ids:
-                            review_comparison_issue(workspace_root(), run_id, suggested_issue_id, "model_error")
+                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "model_error")
                         flash(
-                            f"{len(selected_ids)} overduidelijk te grote detecties als modelfout gemarkeerd.",
+                            f"{len(applied)} overduidelijk te grote detecties als modelfout gemarkeerd.",
                             "success",
                         )
                     parameters = {}

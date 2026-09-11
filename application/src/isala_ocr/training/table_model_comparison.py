@@ -674,7 +674,7 @@ def build_step4_baseline(workspace: str | Path, dataset: dict[str, Any] | None =
 
     return _evaluate_run(
         run_id=BASELINE_RUN_ID,
-        label="Model 0 · eerste Stap-3-run",
+        label="Model 0 · eerste Stap-8-run",
         model_id="generic-ppstructure",
         model_name="Generieke PP-Structure wireless table-cell detector",
         dataset_id=str(dataset.get("dataset_id") or ""),
@@ -1381,7 +1381,7 @@ def review_comparison_issue(workspace: str | Path, run_id: str, issue_id: str, d
         raise KeyError(run_id)
     current = capture_current_detection_run(root)
     if current is not None and str(current.get("run_id") or "") != run_id:
-        raise ValueError("Historische detectieruns zijn alleen-lezen; beoordeel uitsluitend de nieuwste Stap-3-run")
+        raise ValueError("Historische detectieruns zijn alleen-lezen; beoordeel uitsluitend de nieuwste Stap-8-run")
     selected_panel: dict[str, Any] | None = None
     selected_issue: dict[str, Any] | None = None
     for panel in run.get("panels") or []:
@@ -1416,6 +1416,66 @@ def review_comparison_issue(workspace: str | Path, run_id: str, issue_id: str, d
     return dict(run_reviews.get(issue_id) or {})
 
 
+def review_comparison_issues_bulk(
+    workspace: str | Path, run_id: str, issue_ids: list[str], decision: str
+) -> list[str]:
+    """Apply one review decision to many issues in a single reviews.json write.
+
+    Mirrors review_comparison_issue's validation, but looks the run up once
+    and reads/writes reviews.json once instead of once per issue. The bulk
+    suggestion actions (apply_functional_suggestions, apply_obvious_error_suggestions)
+    can select dozens of issues on a noisy run, and calling review_comparison_issue
+    in a loop made that scale roughly quadratically on exactly the runs where
+    it matters most, with no atomicity across the loop if a later call failed.
+    """
+    root = resolve_project_workspace(workspace)
+    allowed = {"model_error", "functional_ok", "gt_check", "gt_added", "deferred", "clear"}
+    if decision not in allowed:
+        raise ValueError("Onbekende vervolg-reviewbeslissing")
+    runs = {str(item.get("run_id")): item for item in list_comparison_runs(root)}
+    run = runs.get(run_id)
+    if not run or run_id == BASELINE_RUN_ID:
+        raise KeyError(run_id)
+    current = capture_current_detection_run(root)
+    if current is not None and str(current.get("run_id") or "") != run_id:
+        raise ValueError("Historische detectieruns zijn alleen-lezen; beoordeel uitsluitend de nieuwste Stap-8-run")
+
+    issues_by_id: dict[str, dict[str, Any]] = {}
+    for panel in run.get("panels") or []:
+        if not isinstance(panel, dict):
+            continue
+        for issue in panel.get("issues") or []:
+            candidate_id = str((issue or {}).get("issue_id") or "")
+            if candidate_id:
+                issues_by_id[candidate_id] = issue
+
+    payload = comparison_reviews(root)
+    run_reviews = payload.setdefault(run_id, {})
+    gt_check_source_ids: set[str] = set()
+    applied: list[str] = []
+    for issue_id in issue_ids:
+        issue = issues_by_id.get(issue_id)
+        if issue is None:
+            continue
+        if decision == "functional_ok" and str(issue.get("type") or "") != "geometry":
+            continue
+        if decision == "gt_check":
+            source_id = str(issue.get("source_id") or "").strip()
+            if source_id:
+                gt_check_source_ids.add(source_id)
+        if decision == "clear":
+            run_reviews.pop(issue_id, None)
+        else:
+            run_reviews[issue_id] = {"decision": decision, "reviewed_at": utc_now()}
+        applied.append(issue_id)
+    if not applied:
+        return applied
+    _write_json(_reviews_path(root), payload)
+    for source_id in gt_check_source_ids:
+        set_ground_truth_source_review_completed(root, source_id, False)
+    return applied
+
+
 def add_comparison_fp_to_ground_truth(workspace: str | Path, run_id: str, issue_id: str) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
     runs = {str(item.get("run_id")): item for item in list_comparison_runs(root)}
@@ -1424,7 +1484,7 @@ def add_comparison_fp_to_ground_truth(workspace: str | Path, run_id: str, issue_
         raise KeyError(run_id)
     current = capture_current_detection_run(root)
     if current is not None and str(current.get("run_id") or "") != str(run_id or ""):
-        raise ValueError("Historische detectieruns zijn alleen-lezen; Ground Truth-promotie is alleen toegestaan vanuit de nieuwste Stap-3-run")
+        raise ValueError("Historische detectieruns zijn alleen-lezen; Ground Truth-promotie is alleen toegestaan vanuit de nieuwste Stap-8-run")
 
     selected_panel: dict[str, Any] | None = None
     selected_issue: dict[str, Any] | None = None
@@ -1539,7 +1599,7 @@ def table_cell_comparison_state(
     if len(runs) < 2 or not current_run:
         return {
             "ready": False,
-            "reason": "Er is wel Ground Truth, maar nog geen nieuwe Stap-3-detectierun om ermee te vergelijken.",
+            "reason": "Er is wel Ground Truth, maar nog geen nieuwe Stap-8-detectierun om ermee te vergelijken.",
             "dataset": dataset,
             "runs": runs,
             "history": history,
