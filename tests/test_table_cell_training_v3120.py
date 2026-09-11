@@ -82,7 +82,7 @@ def test_table_cell_model_registration_activation_and_runtime_wiring(tmp_path: P
     table_structure = (ROOT / "application/src/isala_ocr/ocr/table_structure.py").read_text(encoding="utf-8")
     collector = (ROOT / "application/src/isala_ocr/training/collector.py").read_text(encoding="utf-8")
     assert '"wireless_table_cells_detection_model_dir": "wireless_cells_model_dir"' in table_structure
-    assert 'result["wireless_cells_model_dir"] = str(active["inference_path"])' in collector
+    assert 'result["wireless_cells_model_dir"] = str(selected["inference_path"])' in collector
 
 
 def test_table_cell_training_actions_and_ui_are_in_primary_workflow() -> None:
@@ -93,7 +93,7 @@ def test_table_cell_training_actions_and_ui_are_in_primary_workflow() -> None:
     assert '"48" = @{ Name = "Build reviewed table-cell training dataset"' in preflight
     assert '"50" = @{ Name = "Fine-tune wireless table-cell detector on GPU"' in preflight
     assert '"key": "table-model","index":6,"group":"detection"' in webui
-    assert "Review → dataset" in template
+    assert "Dataset bouwen → valideren → trainen → activeren → nieuwe celdetectie" in template
     assert "RT-DETR-L_wireless_table_cell_det" in runner
     assert "table_cells_detection" in runner
 

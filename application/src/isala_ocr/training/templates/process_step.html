@@ -54,13 +54,13 @@
       {% elif not input_selection.selected %}
       <a class="button primary" href="/process/input-selection"><strong>Geen input geselecteerd</strong><span>Open Inputselectie en vink bestanden aan</span></a>
       {% elif detection_sources %}
-      <form method="post" action="/jobs" class="table-detection-form"><input type="hidden" name="action_id" value="59"><button class="primary"><strong>Tabelregio’s detecteren</strong><span>{{ detection_sources|length }} bron(nen) · full-image detectie · alleen regio’s, daarna beoordelen in Stap 2</span></button></form><a class="button" href="/process/panel-setup">Gedetecteerde regio’s beoordelen</a>
+      <form method="post" action="/jobs" class="table-detection-form"><input type="hidden" name="action_id" value="59"><button class="primary"><strong>Tabelregio’s detecteren</strong><span>{{ detection_sources|length }} bron(nen) · full-image detectie · alleen regio’s, daarna beoordelen in Stap 3</span></button></form><a class="button" href="/process/panel-setup">Gedetecteerde regio’s beoordelen</a>
       {% else %}
-      <button class="primary" disabled title="Niet beschikbaar: er is nog geen bronrender. Open Stap 2 en maak eerst een voorbeeldscan."><strong>Tabelregio’s en cellen detecteren</strong><span>Niet beschikbaar · bronrender ontbreekt</span></button>
+      <button class="primary" disabled title="Niet beschikbaar: er is nog geen bronrender. Open Stap 3 en maak eerst een voorbeeldscan."><strong>Tabelregio’s en cellen detecteren</strong><span>Niet beschikbaar · bronrender ontbreekt</span></button>
       {% endif %}
     </div>
     {% elif step.key == 'detection-review' %}
-      {% if not detection_sources %}<div class="actions"><button class="primary" disabled title="Niet beschikbaar: voer eerst Stap 4 uit.">Celdetectie niet beschikbaar</button></div>{% elif not detection_reviews.candidate_total %}<form method="post" action="/jobs"><input type="hidden" name="action_id" value="2"><button class="primary"><strong>Celdetectie starten</strong><span>Alleen binnen de beoordeelde tabelregio’s</span></button></form><p class="muted">Beoordeel eerst de gedetecteerde regio’s via Stap 2. Daarna start je hier de celdetectie.</p>{% else %}<p class="muted">Open GT Studio via de linkerzijbalk.</p>{% endif %}
+      {% if not detection_sources %}<div class="actions"><button class="primary" disabled title="Niet beschikbaar: voer eerst Stap 4 uit.">Celdetectie niet beschikbaar</button></div>{% elif not detection_reviews.candidate_total %}<form method="post" action="/jobs"><input type="hidden" name="action_id" value="2"><button class="primary"><strong>Celdetectie starten</strong><span>Alleen binnen de beoordeelde tabelregio’s</span></button></form><p class="muted">Beoordeel eerst de gedetecteerde regio’s via Stap 3. Daarna start je hier de celdetectie.</p>{% else %}<p class="muted">Open GT Studio via de linkerzijbalk.</p>{% endif %}
     {% elif step.key == 'localization-dataset' %}
     <div class="process-actions localization-flow-actions">
       <form method="post" action="/jobs"><input type="hidden" name="action_id" value="5"><button class="primary" {% if localization_preview.totals.ready_sources == 0 %}disabled{% endif %}><strong>1 · Dataset bouwen</strong><span>{{ localization_preview.totals.ready_sources }} afgeronde afbeeldingen meenemen</span></button></form>

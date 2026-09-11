@@ -53,31 +53,43 @@ def test_model_factory_order_places_recognition_before_application_processing():
     metadata = METADATA.read_text(encoding="utf-8")
     menu = MENU.read_text(encoding="utf-8")
 
-    assert '"recognition-gt"' in metadata
-    assert '"recognition-review"' in metadata
-    assert '"recognition-dataset": (9' in metadata
-    assert '"recognition-train": (11' in metadata
-    assert '"recognition-models": (13' in metadata
+    # "recognition-gt"/"recognition-review" were later merged: recognition_model_factory.py
+    # now installs "recognition-scope" (index 8) and a combined "recognition-gt-studio"
+    # (index 9, GT + review in one page). recognition-dataset moved to index 10, and
+    # the legacy train/evaluate/models routes were folded into the combined
+    # "Recognition Model Factory" page, so they carry index=None.
+    assert '"recognition-scope"' in metadata
+    assert '"recognition-gt-studio"' in metadata
+    assert '"index": 8' in metadata
+    assert '"index": 9' in metadata
+    assert '"recognition-dataset": (10' in metadata
+    assert '"recognition-train": (None' in metadata
+    assert '"recognition-evaluate": (None' in metadata
+    assert '"recognition-models": (None' in metadata
 
     recognition = base.index("MODEL FACTORY · RECOGNITION")
     bundle = base.index("EINDPRODUCT · MODEL BUNDLE")
     application = base.index("FASE 2 · APPLICATION PROCESSING · OPTIONEEL")
     assert recognition < bundle < application
 
-    assert '"7"  = @{ Name = "Recognition-GT maken"' in menu
-    assert '"13" = @{ Name = "Recognition-model activeren"' in menu
-    assert '"12" = @{ Name = "Application Mapping Studio"' in menu
-    assert menu.index('"13" = @{ Name = "Recognition-model activeren"') < menu.index('"12" = @{ Name = "Application Mapping Studio"')
+    assert '"10" = @{ Name = "Recognition GT Studio"; Url = "http://127.0.0.1:8088/recognition-gt-review" }' in menu
+    assert '"13" = @{ Name = "Application Mapping Studio"; ActionId = "20" }' in menu
+    assert menu.index('"10" = @{ Name = "Recognition GT Studio"') < menu.index('"13" = @{ Name = "Application Mapping Studio"')
 
 
 def test_existing_application_mapping_is_preserved_as_optional_phase_two():
     base = BASE.read_text(encoding="utf-8")
     architecture = ARCH.read_text(encoding="utf-8")
 
-    assert "Application Mapping Studio" in base
-    assert "A{{ loop.index }}" in base
-    assert "Existing Mapping Studio work is deliberately preserved" in architecture
-    assert "Historical `mapped_generic` samples" in architecture
+    # base.html's own Mapping Studio step now just carries "Mapping Studio"
+    # (menu.ps1 still calls its Application-phase entry "Application Mapping
+    # Studio"); the static "A{{ loop.index }}" badge was replaced by the
+    # per-step "application_number" Jinja expression.
+    assert "Mapping Studio" in base
+    assert "{% set application_number = " in base
+    assert "are retained. Existing mapping" in architecture
+    assert "data is not migrated or deleted by the Model Factory split." in architecture
+    assert "Historical Mapping jobs/routes remain available as optional" in architecture
 
 
 def test_recognition_model_factory_version():

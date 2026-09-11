@@ -307,8 +307,8 @@ def test_step7_workflow_and_ui_are_explicitly_separate_from_step4() -> None:
     webui = (root / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
     template = (root / "application/src/isala_ocr/training/templates/table_model_comparison.html").read_text(encoding="utf-8")
     collector = (root / "application/src/isala_ocr/training/collector.py").read_text(encoding="utf-8")
-    assert '"key": "table-compare","index":7,"group":"detection"' in webui
-    assert '"key": "mapping","index":8,"group":"value"' in webui
-    assert "bevroren Stap-4 Ground Truth" in template
-    assert "alleen verschillen" in template
+    assert '"key": "table-compare","index":None,"group":"tables"' in webui
+    assert '"key": "mapping","index":13,"group":"value"' in webui
+    assert "canonieke Ground Truth" in template
+    assert "Alleen verschillen" in template
     assert "capture_current_detection_run" in collector

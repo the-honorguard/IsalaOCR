@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "application" / "src"))
 
 from isala_ocr.training.db import TrainingDatabase
+from isala_ocr.training.projects import ProjectManager
 from isala_ocr.training.webui import create_web_app
 
 
@@ -32,7 +33,7 @@ def sample(sample_id: str, field_key: str, raw_ocr: str) -> dict:
         "roi_y1": 2,
         "roi_x2": 50,
         "roi_y2": 20,
-        "extraction_method": "dynamic_token_box",
+        "extraction_method": "mapped_generic",
         "locator_confidence": 0.95,
         "locator_label_text": field_key,
         "locator_version": "test",
@@ -55,7 +56,13 @@ def make_app(tmp_path: Path):
         output_root=tmp_path / "output",
         project_root=project,
     )
-    return app, database
+    # create_web_app migrates a bare workspace into
+    # workspace/projects/<project-id>/samples.sqlite3 via ProjectManager, so the
+    # pre-migration `database` handle above no longer points at the file the
+    # app's routes read/write. Reopen it at the migrated path.
+    project_manager = ProjectManager(workspace)
+    migrated_database = TrainingDatabase(project_manager.active_workspace() / "samples.sqlite3")
+    return app, migrated_database
 
 
 def test_roi_page_contains_no_ocr_value_content(tmp_path: Path) -> None:
@@ -74,11 +81,15 @@ def test_value_pages_show_only_roi_approved_samples(tmp_path: Path) -> None:
     app, _ = make_app(tmp_path)
     client = app.test_client()
 
-    overview = client.get("/review").get_data(as_text=True)
-    assert "dicom-1" in overview
-    assert "Beschikbare waarden" in overview
+    # /review is now a bare redirect into the unified process-step page for the
+    # value-review step; it no longer renders a document overview itself.
+    overview = client.get("/review")
+    assert overview.status_code == 302
+    assert overview.headers["Location"] == "/process/value-review"
 
-    document = client.get("/review/document/dicom-1").get_data(as_text=True)
+    # The legacy per-document review page still works, but only when explicitly
+    # requested with ?legacy=1 - otherwise it also redirects to /process/value-review.
+    document = client.get("/review/document/dicom-1?legacy=1").get_data(as_text=True)
     assert "VISIBLE_APPROVED" in document
     assert "Field approved" in document
     assert "HIDDEN_PENDING" not in document
@@ -170,6 +181,6 @@ def test_deferred_roi_has_its_own_filter_and_is_not_in_value_review(tmp_path: Pa
     assert "Later beoordelen" in roi_text
     assert "dicom-1" in roi_text
 
-    value_text = client.get("/review/document/dicom-1").get_data(as_text=True)
+    value_text = client.get("/review/document/dicom-1?legacy=1").get_data(as_text=True)
     assert "HIDDEN_PENDING" not in value_text
 

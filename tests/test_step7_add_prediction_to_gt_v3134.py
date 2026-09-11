@@ -109,12 +109,16 @@ def test_only_fp_predictions_can_use_direct_add_to_gt(tmp_path: Path) -> None:
         add_comparison_fp_to_ground_truth(tmp_path, state["candidate"]["run_id"], "not-an-issue")
 
 
-def test_direct_add_backend_is_retained_but_not_exposed_in_normal_iteration_ui() -> None:
+def test_direct_add_button_is_scoped_to_fp_issues_in_the_iteration_ui() -> None:
     root = Path(__file__).resolve().parents[1]
     template = (root / "application/src/isala_ocr/training/templates/table_model_comparison.html").read_text(encoding="utf-8")
     webui = (root / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
     assert "+ Toevoegen aan GT" not in template
-    assert 'value="add_prediction_to_gt"' not in template
+    # The direct "Toevoegen als GT" button is deliberately shown in the normal
+    # iteration UI, but only for fp issues -- other issue types keep the
+    # disabled action-slot.
+    assert "{% if issue.type == 'fp' %}" in template
+    assert 'value="add_prediction_to_gt"' in template
     assert "add_comparison_fp_to_ground_truth" in webui
     assert "trainingsdataset is nu verouderd" in webui
     assert "GT aanpassen" in template

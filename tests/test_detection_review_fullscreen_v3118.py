@@ -9,7 +9,7 @@ def test_reviewer_has_fullscreen_and_bidirectional_source_navigation() -> None:
     text = TEMPLATE.read_text(encoding="utf-8")
     assert 'id="review-focus-toggle"' in text
     assert 'id="prev-source"' in text
-    assert 'id="next-source"' in text
+    assert 'id="next-source-top"' in text
     assert "function setReviewFocusMode" in text
     assert "function adjacentSource" in text
     assert "toggleReviewFocus()" in text

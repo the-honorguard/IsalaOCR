@@ -23,13 +23,22 @@ VERSION = ROOT / "project/VERSION"
 def test_sidebar_separates_model_factory_from_optional_application_processing():
     base = BASE.read_text(encoding="utf-8")
 
-    assert "MODEL FACTORY · DATA & GROUND TRUTH" in base
-    assert "MODEL FACTORY · DETECTOR · 5 → 6 → 5" in base
+    # The old single "MODEL FACTORY · DATA & GROUND TRUTH" and
+    # "MODEL FACTORY · DETECTOR · 5 → 6 → 5" sections have since been split
+    # into the granular table-first sidebar sections below.
+    assert "VOORBEREIDING" in base
+    assert "TABELREGIO" in base
+    assert "CELLEN" in base
+    assert "TABELDEFINITIE" in base
     assert "MODEL FACTORY · RECOGNITION" in base
     assert "EINDPRODUCT · MODEL BUNDLE" in base
     assert "FASE 2 · APPLICATION PROCESSING · OPTIONEEL" in base
-    assert '<span class="process-tab-number">A{{ loop.index }}</span>' in base
-    assert "Fase 2 · Application Mapping Studio" in base
+    # The old static "A{{ loop.index }}" badge is gone: application-step
+    # numbers are now computed per step key via the `application_number`
+    # Jinja expression (14/15/16 for table-first, 12/13/14 otherwise).
+    assert "{% set application_number = " in base
+    assert '<span class="process-tab-number">{{ application_number }}</span>' in base
+    assert "Mapping Studio" in base
 
     recognition = base.index("MODEL FACTORY · RECOGNITION")
     model_bundle = base.index("EINDPRODUCT · MODEL BUNDLE")

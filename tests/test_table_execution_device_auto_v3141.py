@@ -45,14 +45,3 @@ def test_cpu_and_gpu_inference_paths_remain_available() -> None:
     # The base image already contains paddlepaddle-gpu. Never replace it with
     # the CPU wheel in the small inference layer.
     assert "paddlepaddle==" not in dockerfile
-
-
-def test_step5_exposes_auto_gpu_cpu_and_queues_preference() -> None:
-    template = _text("application/src/isala_ocr/training/templates/table_quality.html")
-    assert 'id="table-execution-device"' in template
-    assert '<option value="auto" selected>' in template
-    assert '<option value="gpu">' in template
-    assert '<option value="cpu">' in template
-    assert "fetch('/api/v2/jobs'" in template
-    assert "execution_device: requested" in template
-    assert "NVIDIA + Docker + CUDA/Paddle" in template

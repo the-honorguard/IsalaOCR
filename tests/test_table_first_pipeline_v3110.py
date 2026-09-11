@@ -6,6 +6,7 @@ import yaml
 
 from isala_ocr.training.db import TrainingDatabase
 from isala_ocr.training.table_quality import table_first_quality
+from isala_ocr.training.webui import PROCESS_STEPS
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,20 +63,27 @@ def test_default_config_uses_table_first_without_field_detector_fusion() -> None
 def test_table_first_workflow_parks_the_old_detector() -> None:
     webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
     assert '"key": "panel-setup","index":2,"group":"detection"' in webui
-    assert '"key": "table-quality","index":5,"group":"detection"' in webui
+    assert '"key": "table-quality","index":8,"group":"tables"' in webui
     assert '"key": "table-model","index":6,"group":"detection"' in webui
-    assert '"key": "table-compare","index":7,"group":"detection"' in webui
-    assert '"key": "mapping","index":8,"group":"value"' in webui
+    assert '"key": "table-compare","index":None,"group":"tables"' in webui
+    assert '"key": "mapping","index":13,"group":"value"' in webui
     assert '"key": "localization-dataset","index":None,"group":"fallback"' in webui
     assert '"key": "localization-evaluate","index":None,"group":"fallback"' in webui
 
+    table_quality_step = next(step for step in PROCESS_STEPS if step["key"] == "table-quality")
+    assert table_quality_step["title"] == "Tabelstudio"
+    table_compare_step = next(step for step in PROCESS_STEPS if step["key"] == "table-compare")
+    assert "optione" in table_compare_step["subtitle"].lower()
+
     base = (ROOT / "application/src/isala_ocr/training/templates/base.html").read_text(encoding="utf-8")
-    assert "TABLE DETECTIE & CROPS" in base
+    assert "MODEL FACTORY · DETECTIE & CROPS" in base
     assert "GEPARKEERD · BOX DETECTOR" in base
-    assert "pipeline_gate_global.gate_label" in base
+
+    process_step = (ROOT / "application/src/isala_ocr/training/templates/process_step.html").read_text(encoding="utf-8")
+    assert "detection_gate.gate_label" in process_step
 
     dockerfile = (ROOT / "infrastructure/docker/Dockerfile.labeler").read_text(encoding="utf-8")
-    assert "training/table_quality.py" in dockerfile
+    assert "COPY application/src/isala_ocr/training /app/src/isala_ocr/training" in dockerfile
 
 
 def test_table_quality_passes_when_ppstructure_supplies_all_desired_cells(tmp_path: Path) -> None:
@@ -127,10 +135,14 @@ def test_table_quality_exposes_manual_fallback_need_instead_of_calling_it_succes
 
 
 def test_mapping_runtime_checks_table_quality_in_table_first_mode() -> None:
+    # Mapping preparation still computes the table-first quality gate, but it
+    # no longer raises to block early preparation: mapping may prepare an
+    # early semantic preview before the Pipeline-A gate is satisfied.
     collector = (ROOT / "application/src/isala_ocr/training/collector.py").read_text(encoding="utf-8")
     assert 'if strategy == "table_first":' in collector
     assert "table_first_quality(" in collector
-    assert "TABLE-FIRST CHECK is closed" in collector
+    assert "TABLE-FIRST CHECK is closed" not in collector
+    assert "Mapping may prepare an early semantic preview" in collector
 
 
 def test_table_quality_ignores_manual_boxes_from_an_older_detector_pass(tmp_path: Path) -> None:

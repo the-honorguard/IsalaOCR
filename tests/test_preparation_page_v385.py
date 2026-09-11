@@ -39,7 +39,8 @@ def test_page_one_centralizes_all_preparation_actions(tmp_path: Path) -> None:
     assert "Onderhoud / opnieuw installeren" in html
     assert 'value="14"' in html
     assert "Inference OCR + tabelmodellen" in html
-    assert "Input controleren" in html
+    # "Input controleren" moved out of the preparation page into the separate
+    # "Inputselectie" step; it is no longer part of this page's content.
 
 
 def test_page_one_shows_green_checks_when_expected_artifacts_exist(tmp_path: Path) -> None:

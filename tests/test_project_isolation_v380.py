@@ -105,11 +105,11 @@ def test_incomplete_source_is_excluded_until_image_is_finished(tmp_path: Path) -
 
 def test_project_selector_and_worker_project_pin_are_present() -> None:
     base = (ROOT / "application/src/isala_ocr/training/templates/base.html").read_text(encoding="utf-8")
-    projects = (ROOT / "application/src/isala_ocr/training/templates/projects.html").read_text(encoding="utf-8")
+    management = (ROOT / "application/src/isala_ocr/training/templates/management.html").read_text(encoding="utf-8")
     worker = (ROOT / "automation/powershell/webui-worker.ps1").read_text(encoding="utf-8")
     compose = (ROOT / "infrastructure/docker/compose.yaml").read_text(encoding="utf-8")
     assert 'id="project-switch-select"' in base
-    assert "Nieuw project" in projects and "Dupliceer" in projects
+    assert "Nieuw project" in management and "Dupliceer" in management
     assert 'set "ISALA_PROJECT_ID={0}"' in worker
     assert "ISALA_PROJECT_ID: ${ISALA_PROJECT_ID:-}" in compose
 

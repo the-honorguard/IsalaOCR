@@ -100,7 +100,7 @@ def test_artifact_page_and_quality_client_support_react16_runtime() -> None:
     root = Path(__file__).resolve().parents[1]
     quality = (root / "frontend/src/localization-quality.ts").read_text(encoding="utf-8")
     artifacts = (root / "frontend/src/localization-artifacts.ts").read_text(encoding="utf-8")
-    template = (root / "application/src/isala_ocr/training/templates/react_localization_artifacts.html").read_text(encoding="utf-8")
+    template = (root / "application/src/isala_ocr/training/templates/management.html").read_text(encoding="utf-8")
     assert "ReactDOM.createRoot" not in quality
     assert "React.Fragment" not in quality
     assert "ReactDOM.render(element, qualityMount)" in quality
