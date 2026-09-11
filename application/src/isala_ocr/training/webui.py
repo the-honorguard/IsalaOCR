@@ -310,7 +310,13 @@ def create_web_app(
     use_case_ids = {str(item.get("use_case_id")) for item in use_case_templates}
 
     def workspace_root() -> Path:
-        return project_manager.active_workspace()
+        # Called from nearly everywhere (directly, and via safe_workspace_file())
+        # - profiled at ~300 calls on a single detection-review page render
+        # with a few hundred sources. The active project cannot change within
+        # one request, so memoize it the same way as the other per-request
+        # gate/state helpers instead of re-walking project_manager's
+        # catalog/active-pointer resolution on every single call.
+        return request_cached("workspace_root", project_manager.active_workspace)
 
     class ActiveProjectDatabase:
         """Lazy per-project database proxy.
@@ -693,7 +699,16 @@ def create_web_app(
         }
 
     def canonical_table_gt_mode() -> bool:
-        return localization_strategy() == "table_first" and ensure_table_cell_ground_truth(workspace_root()) is not None
+        # ensure_table_cell_ground_truth() reads and parses the whole canonical
+        # GT file from disk on every call, and this predicate is checked
+        # several times per request (e.g. 4x in a single /process/<step_key>
+        # render). Memoize it like the other per-request gate checks.
+        if localization_strategy() != "table_first":
+            return False
+        return request_cached(
+            "canonical_table_gt_mode",
+            lambda: ensure_table_cell_ground_truth(workspace_root()) is not None,
+        )
 
     def step4_review_counts(source_id: str | None = None) -> dict[str, int]:
         if canonical_table_gt_mode():
@@ -1463,6 +1478,18 @@ def create_web_app(
         }
 
     def process_snapshot() -> dict[str, Any]:
+        """Lean workflow snapshot for the overview page, memoized per request.
+
+        Building this touches dozens of database/filesystem lookups (profiled
+        at ~40 SQLite connections on its own), and both the home route and the
+        workflow-navigation gate used by every page's context processor need
+        it. Without request-scoped memoization it silently ran twice per
+        request; request_cached keeps it single-shot regardless of how many
+        call sites need it in the same request.
+        """
+        return request_cached("process_snapshot", _build_process_snapshot)
+
+    def _build_process_snapshot() -> dict[str, Any]:
         """Lean workflow snapshot for the overview page.
 
         Keep this deliberately limited to fields rendered by home.html/pipeline_state;
@@ -1505,6 +1532,18 @@ def create_web_app(
         loc_comparison = _read_json(workspace_root() / "localization_evaluations" / "latest_comparison.json", None)
         inference_component = next((item for item in prep.get("components", []) if item.get("key") == "inference"), {})
         preparation_ready = bool(inference_component.get("ready")) if localization_strategy() == "table_first" else bool(prep["ready"])
+        # Computed once and reused below: "detect-candidates" and
+        # "detection-review" both ask whether every source already has table
+        # geometry. This used to call list_detection_table_geometry() - a
+        # dedicated database.connect() per source - once per source (profiled
+        # at ~65% of this snapshot's cost with a few dozen sources);
+        # detection_table_counts_by_source() answers the same question for
+        # every source in a single pair of GROUP BY queries.
+        table_geometry_counts_by_source = database.detection_table_counts_by_source()
+        all_sources_have_table_geometry = bool(detection_sources) and all(
+            table_geometry_counts_by_source.get(str(source.get("source_id") or ""), {}).get("regions", 0) > 0
+            for source in detection_sources
+        )
         readiness = {
             "detection-models": preparation_ready,
             # A saved checkbox manifest alone is not enough: Step 2 needs the
@@ -1520,17 +1559,11 @@ def create_web_app(
             # Region GT is the input to Step 3; completion requires an
             # explicitly activated trained region model.
             "table-region-model": bool(_read_json(workspace_root() / "table_region_models" / "active.json", None)),
-            "detect-candidates": bool(detection_sources) and all(
-                bool(database.list_detection_table_geometry(str(source.get("source_id") or "")).get("regions"))
-                for source in detection_sources
-            ),
+            "detect-candidates": all_sources_have_table_geometry,
             "detection-review": (
                 canonical_table_gt_mode()
                 or bool(detection_reviews.get("candidate_total", 0) > 0)
-                or (bool(detection_sources) and all(
-                    bool(database.list_detection_table_geometry(str(source.get("source_id") or "")).get("regions"))
-                    for source in detection_sources
-                ))
+                or all_sources_have_table_geometry
             ),
             "table-quality": bool((table_model_state.get("active_model") or {}).get("model_id")),
             "table-model": bool((table_model_state.get("active_model") or {}).get("model_id")),
@@ -1886,14 +1919,23 @@ def create_web_app(
             raise ValueError(f"Unsafe artifact path outside workspace: {target}") from exc
         return target
 
+    def _localization_datasets_cached() -> list[dict[str, Any]]:
+        return request_cached("list_localization_datasets", database.list_localization_datasets)
+
+    def _localization_models_cached() -> list[dict[str, Any]]:
+        return request_cached("list_localization_models", database.list_localization_models)
+
+    def _localization_evaluations_cached() -> list[dict[str, Any]]:
+        return request_cached("list_localization_evaluations", database.list_localization_evaluations)
+
     def localization_artifact_selection() -> dict[str, Any]:
         root = workspace_root()
         stored = _read_json(_localization_selection_path(), {})
         if not isinstance(stored, dict):
             stored = {}
-        datasets = database.list_localization_datasets()
-        models_list = database.list_localization_models()
-        evaluations = database.list_localization_evaluations()
+        datasets = _localization_datasets_cached()
+        models_list = _localization_models_cached()
+        evaluations = _localization_evaluations_cached()
         current_dataset_id = ""
         pointer = root / "localization_datasets" / "latest.txt"
         try:
@@ -1930,9 +1972,9 @@ def create_web_app(
 
     def save_localization_artifact_selection(payload: dict[str, Any]) -> dict[str, Any]:
         current = localization_artifact_selection()
-        datasets = {str(item.get("dataset_id") or ""): item for item in database.list_localization_datasets()}
-        models_list = {str(item.get("model_id") or ""): item for item in database.list_localization_models()}
-        evaluations = {str(item.get("evaluation_id") or ""): item for item in database.list_localization_evaluations()}
+        datasets = {str(item.get("dataset_id") or ""): item for item in _localization_datasets_cached()}
+        models_list = {str(item.get("model_id") or ""): item for item in _localization_models_cached()}
+        evaluations = {str(item.get("evaluation_id") or ""): item for item in _localization_evaluations_cached()}
         result = {
             "evaluation_dataset_id": str(payload.get("evaluation_dataset_id", current.get("evaluation_dataset_id") or "") or ""),
             "evaluation_model_id": str(payload.get("evaluation_model_id", current.get("evaluation_model_id") or "") or ""),
@@ -1964,7 +2006,7 @@ def create_web_app(
 
     def select_localization_work_dataset(dataset_id: str) -> dict[str, Any]:
         dataset_id = str(dataset_id or "").strip()
-        datasets = {str(item.get("dataset_id") or ""): item for item in database.list_localization_datasets()}
+        datasets = {str(item.get("dataset_id") or ""): item for item in _localization_datasets_cached()}
         if dataset_id not in datasets:
             raise ValueError("Onbekende localization-dataset")
         root = workspace_root() / "localization_datasets"
@@ -2006,11 +2048,11 @@ def create_web_app(
         root = workspace_root()
         selection = localization_artifact_selection()
         current_dataset_id = str(selection.get("current_dataset_id") or "")
-        models_list = database.list_localization_models()
-        evaluations = database.list_localization_evaluations()
+        models_list = _localization_models_cached()
+        evaluations = _localization_evaluations_cached()
         model_by_id = {str(item.get("model_id") or ""): item for item in models_list}
         dataset_rows: list[dict[str, Any]] = []
-        for item in database.list_localization_datasets():
+        for item in _localization_datasets_cached():
             dataset_id = str(item.get("dataset_id") or "")
             path = root / str(item.get("path") or f"localization_datasets/{dataset_id}")
             validation = _read_json(path / "validation.json", {}) if path.is_dir() else {}
@@ -2512,6 +2554,9 @@ def create_web_app(
         _, active = registry_state()
         active_project = request_cached("active_project", project_manager.active)
         available_projects = request_cached("available_projects", project_manager.list_projects)
+        # navigation_pipeline_gate() is not free (table-first mode routes it
+        # through current_table_first_quality()); compute it once and reuse it
+        # below instead of calling it again for pipeline_gate_global.
         pipeline_gate = navigation_pipeline_gate()
         recognition_gate = current_recognition_gate()
         workflow_step_access = workflow_navigation_access()
@@ -2532,7 +2577,7 @@ def create_web_app(
             "active_model": active,
             "process_steps": PROCESS_STEPS,
             "detection_gate_global": (navigation_detection_gate() if localization_strategy() != "table_first" else {"ready": False, "state": "parked"}),
-            "pipeline_gate_global": navigation_pipeline_gate(),
+            "pipeline_gate_global": pipeline_gate,
             "recognition_gate_global": recognition_gate,
             "workflow_gates": workflow_gates,
             "workflow_step_access": workflow_step_access,
@@ -2615,15 +2660,23 @@ def create_web_app(
             selected_source_id = str(selected.get("source_id") or "")
 
         region_ground_truth = list_table_regions(workspace_root(), selected_source_id) if selected_source_id else []
-        table_review_sources = []
-        for source_item in sources:
-            source_key = str(source_item.get("source_id") or "")
-            saved_regions = list_table_regions(workspace_root(), source_key) if source_key else []
-            table_review_sources.append({
-                "source_id": source_key,
-                "region_count": len(saved_regions),
-                "review_completed": bool(saved_regions),
-            })
+        # list_table_regions() re-reads and re-parses the whole
+        # table_region_ground_truth.json file AND reloads the panel profile
+        # once per region, just to answer region_count/review_completed here.
+        # list_table_region_sources() already returns exactly those two fields
+        # for every source in a single read of that file.
+        region_gt_by_source = {
+            str(item.get("source_id") or ""): item
+            for item in list_table_region_sources(workspace_root())
+        }
+        table_review_sources = [
+            {
+                "source_id": str(source_item.get("source_id") or ""),
+                "region_count": int(region_gt_by_source.get(str(source_item.get("source_id") or ""), {}).get("region_count", 0)),
+                "review_completed": bool(region_gt_by_source.get(str(source_item.get("source_id") or ""), {}).get("review_completed", False)),
+            }
+            for source_item in sources
+        ]
 
         suggestions: list[dict[str, Any]] = []
         detection_info: dict[str, Any] = {}
@@ -3481,10 +3534,13 @@ def create_web_app(
             source_id = str((source or {}).get("source_id") or "")
             geometry = database.list_detection_table_geometry(source_id) if source_id else {"regions": [], "cells": []}
             context = _table_panel_review_context(source_id)
+            # One bulk query pair instead of a database.list_detection_table_geometry()
+            # (two full-table SELECTs) per source, just to count regions.
+            region_counts_by_source = database.detection_table_counts_by_source()
             review_sources = []
             for item in sources:
                 item_source_id = str(item.get("source_id") or "")
-                item["region_count"] = len(database.list_detection_table_geometry(item_source_id).get("regions", [])) if item_source_id else 0
+                item["region_count"] = region_counts_by_source.get(item_source_id, {}).get("regions", 0)
                 review_sources.append(item)
             return render_template(
                 "table_region_review.html", step=step, sources=review_sources, source=source,

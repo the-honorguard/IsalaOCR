@@ -45,7 +45,25 @@ class TrainingDatabase:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._initializing = False
+        # (st_dev, st_ino) of the database file the last time we confirmed its
+        # schema was current. connect() is the hottest method in this class
+        # (called on every database access), so re-running the full
+        # _schema_is_current() check - a second sqlite3 connection plus a
+        # PRAGMA round-trip - on every single call was measurable overhead for
+        # no benefit in the overwhelmingly common case where the file hasn't
+        # changed since we last checked it. A cheap stat() is enough to notice
+        # the file being replaced (project reset) and fall back to the real check.
+        self._schema_confirmed_identity: tuple[int, int] | None = None
         self.initialize()
+
+    def _file_identity(self) -> tuple[int, int] | None:
+        try:
+            stat = self.path.stat()
+        except OSError:
+            return None
+        if stat.st_size == 0:
+            return None
+        return (stat.st_dev, stat.st_ino)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -53,8 +71,14 @@ class TrainingDatabase:
         # WebUI process is still running. Recreate the schema before opening a
         # new connection instead of allowing every request to fail with
         # "no such table".
-        if not self._initializing and not self._schema_is_current():
-            self.initialize()
+        if not self._initializing:
+            identity = self._file_identity()
+            if identity is None or identity != self._schema_confirmed_identity:
+                if self._schema_is_current():
+                    self._schema_confirmed_identity = identity
+                else:
+                    self.initialize()
+                    self._schema_confirmed_identity = self._file_identity()
         connection = sqlite3.connect(self.path, timeout=30)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys=ON")

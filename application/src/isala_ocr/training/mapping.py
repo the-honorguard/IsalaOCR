@@ -232,30 +232,46 @@ def suggest_mappings(
     existing = database.list_mappings(source_id)
     confirmed_fields = {item["field_key"] for item in existing if item["status"] == "confirmed"}
     confirmed_relations = {item["relation_id"] for item in existing if item["status"] == "confirmed" and item["relation_id"]}
+
+    # Everything below is per-relation, not per-(field, relation): checking it
+    # inside the `for field in fields` loop repeated the same
+    # get_detected_block() + Pipeline-A geometry lookup (each its own database
+    # round-trip) once per field for every relation, an O(fields x relations)
+    # cost for a property that never depends on which field is being scored.
+    # Pre-fetch each source's annotations/candidates once and reuse them
+    # across every relation instead of re-querying per relation too.
+    source_annotations = database.list_detection_annotations(source_id, active_only=True) if source_width > 0 and source_height > 0 else []
+    source_candidates = database.list_detection_candidates(source_id) if source_width > 0 and source_height > 0 else []
+    eligible_relations: list[dict[str, Any]] = []
+    for relation in relations:
+        if relation["relation_id"] in confirmed_relations:
+            continue
+        if str(relation.get("status") or "proposed") == "rejected":
+            continue
+        feedback = feedback_by_relation.get(str(relation["relation_id"]))
+        if feedback is None or feedback["hard_reject"]:
+            continue
+        if int(relation.get("rank") or 1) != 1:
+            continue
+        value_block = database.get_detected_block(str(relation.get("value_block_id") or ""))
+        if value_block is None or source_width <= 0 or source_height <= 0:
+            continue
+        semantic_box = _block_box(value_block).clamp(source_width, source_height)
+        if _pipeline_a_geometry_match(
+            database, source_id, semantic_box, source_width, source_height,
+            annotations=source_annotations, candidates=source_candidates,
+        ) is None:
+            continue
+        if not str(relation.get("label_text") or ""):
+            continue
+        eligible_relations.append(relation)
+
     suggestions: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
     for field in fields:
         if field["field_key"] in confirmed_fields:
             continue
-        for relation in relations:
-            if relation["relation_id"] in confirmed_relations:
-                continue
-            if str(relation.get("status") or "proposed") == "rejected":
-                continue
-            feedback = feedback_by_relation.get(str(relation["relation_id"]))
-            if feedback is None or feedback["hard_reject"]:
-                continue
-            if int(relation.get("rank") or 1) != 1:
-                continue
-            value_block = database.get_detected_block(str(relation.get("value_block_id") or ""))
-            if value_block is None or source_width <= 0 or source_height <= 0:
-                continue
-            semantic_box = _block_box(value_block).clamp(source_width, source_height)
-            if _pipeline_a_geometry_match(
-                database, source_id, semantic_box, source_width, source_height
-            ) is None:
-                continue
-            if not str(relation.get("label_text") or ""):
-                continue
+        for relation in eligible_relations:
+            feedback = feedback_by_relation[str(relation["relation_id"])]
             score, evidence = schema_candidate_score(
                 field,
                 relation,
