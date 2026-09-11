@@ -72,6 +72,7 @@ def test_table_first_structure_review_rule_is_explicit() -> None:
 
 
 def test_manual_update_api_exists() -> None:
-    source = WEBUI.read_text(encoding="utf-8")
+    # This route now lives in routes_detection_review.py (split out of webui.py).
+    source = WEBUI.parent.joinpath("routes_detection_review.py").read_text(encoding="utf-8")
     assert '@app.patch("/api/detection-review/<source_id>/manual/<annotation_id>")' in source
     assert "database.update_manual_detection_annotation" in source

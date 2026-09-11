@@ -8,7 +8,8 @@ WEBUI = ROOT / "application/src/isala_ocr/training/webui.py"
 
 def test_initial_review_source_index_hides_completed_sources_by_default_with_restore_toggle():
     template = INDEX.read_text(encoding="utf-8")
-    webui = WEBUI.read_text(encoding="utf-8")
+    # detection_review_index() now lives in routes_detection_review.py (split out of webui.py).
+    webui = (ROOT / "application/src/isala_ocr/training/routes_detection_review.py").read_text(encoding="utf-8")
     assert 'id="toggle-completed-sources"' in template
     assert 'data-review-completed="{{ 1 if source.review_completed else 0 }}"' in template
     assert "review-source-complete initial-review-completed hidden" in template

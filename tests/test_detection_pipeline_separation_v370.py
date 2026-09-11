@@ -251,7 +251,8 @@ def test_detection_review_studio_supports_geometry_editing_and_table_overlays() 
     template = (ROOT / "application/src/isala_ocr/training/templates/detection_review_studio.html").read_text(encoding="utf-8")
     for text in ("Field candidates", "Table regions", "Table cells"):
         assert text in template
-    webui = (ROOT / "application/src/isala_ocr/training/webui.py").read_text(encoding="utf-8")
+    # These reason labels now live in routes_detection_review.py (split out of webui.py).
+    webui = (ROOT / "application/src/isala_ocr/training/routes_detection_review.py").read_text(encoding="utf-8")
     for text in ("Te klein", "Te groot", "Meerdere velden/cellen samengevoegd", "Eén veld opgesplitst", "Tabel/cel fout"):
         assert text in webui
     assert 'id="dock-reject-reason"' in template
