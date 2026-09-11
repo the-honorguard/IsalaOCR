@@ -1277,6 +1277,62 @@ def functional_geometry_suggestions(candidate: dict[str, Any], run_reviews: dict
     }
 
 
+# Mirrors functional_geometry_suggestions but flags the opposite extreme:
+# a prediction far taller than any GT cell the reviewer already accepted in
+# that same panel is an obvious model error, never a legitimate cell. Height
+# (not area) is the signal because column width legitimately varies a lot
+# between cells, while a cell's height rarely should. The reference is the
+# tallest GT box in the *same panel* rather than a dataset-wide value,
+# because typical cell height differs by table type; a global reference
+# would be too permissive for panels made of small cells. A user still
+# explicitly applies the list, same as the functional suggestions above.
+OBVIOUS_ERROR_HEIGHT_RATIO = 2.0
+
+
+def obvious_error_suggestions(candidate: dict[str, Any], run_reviews: dict[str, Any]) -> dict[str, Any]:
+    """Return conservative suggestions for predictions far taller than their panel's GT."""
+    suggestions: list[dict[str, Any]] = []
+    for panel in candidate.get("panels") or []:
+        if not isinstance(panel, dict):
+            continue
+        truth = panel.get("ground_truth") or []
+        gt_heights = [
+            gt_box[3] - gt_box[1]
+            for gt in truth
+            if isinstance(gt, dict) and (gt_box := _box(gt.get("box"))) is not None
+        ]
+        if not gt_heights:
+            continue
+        max_gt_height = max(gt_heights)
+        if max_gt_height <= 0:
+            continue
+        for issue in panel.get("issues") or []:
+            if not isinstance(issue, dict) or str(issue.get("type") or "") not in {"fp", "geometry"}:
+                continue
+            if _review_for_issue(issue, run_reviews):
+                continue
+            prediction_box = _box(issue.get("prediction_box"))
+            if prediction_box is None:
+                continue
+            height_ratio = (prediction_box[3] - prediction_box[1]) / max_gt_height
+            if height_ratio < OBVIOUS_ERROR_HEIGHT_RATIO:
+                continue
+            suggestions.append({
+                "issue_id": str(issue.get("issue_id") or ""),
+                "source_id": str(panel.get("source_id") or ""),
+                "panel_name": str(panel.get("panel_name") or panel.get("panel_id") or ""),
+                "type": str(issue.get("type") or ""),
+                "height_ratio": height_ratio,
+                "max_gt_height": max_gt_height,
+            })
+    suggestions.sort(key=lambda item: item["height_ratio"], reverse=True)
+    return {
+        "issues": suggestions,
+        "issue_ids": [item["issue_id"] for item in suggestions if item["issue_id"]],
+        "height_ratio_threshold": OBVIOUS_ERROR_HEIGHT_RATIO,
+    }
+
+
 def training_report_for_run(workspace: str | Path, run: dict[str, Any]) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
     reviews = comparison_reviews(root)
@@ -1507,6 +1563,7 @@ def table_cell_comparison_state(
     reviews = comparison_reviews(root).get(str(candidate.get("run_id")), {})
     reviews = reviews if isinstance(reviews, dict) else {}
     functional_suggestions = functional_geometry_suggestions(candidate, reviews)
+    error_suggestions = obvious_error_suggestions(candidate, reviews)
     issue_panels = []
     total_issues = reviewed_issues = 0
     decision_counts: dict[str, int] = {}
@@ -1557,4 +1614,5 @@ def table_cell_comparison_state(
         "gt_worklist": _gt_worklist_for_run(candidate, comparison_reviews(root)),
         "training_feedback": latest_completed_training_feedback(root),
         "functional_suggestions": functional_suggestions,
+        "obvious_error_suggestions": error_suggestions,
     }

@@ -76,6 +76,28 @@
 </section>
 {% endif %}
 
+{% set error_suggestions = comparison.obvious_error_suggestions or {} %}
+{% if error_suggestions.issues and comparison.review_writable %}
+<section class="card section-gap functional-suggestion-card">
+  <div class="toolbar">
+    <div>
+      <span class="eyebrow">OVERDUIDELIJKE MODELFOUTEN</span>
+      <h3>{{ error_suggestions.issues|length }} kaders zijn waarschijnlijk fout (te groot t.o.v. GT)</h3>
+      <p class="muted">Alleen extra detecties en geometrie-afwijkingen die minstens {{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× zo hoog zijn als de hoogste GT-cel in datzelfde paneel. Bekijk eerst de voorbeelden hieronder voordat je in bulk toepast; niets wordt automatisch gemarkeerd.</p>
+    </div>
+    <form method="post" class="functional-suggestion-form">
+      <input type="hidden" name="comparison_action" value="apply_obvious_error_suggestions">
+      <input type="hidden" name="run_id" value="{{ cur.run_id }}">
+      <input type="hidden" name="reference_run_id" value="{{ ref.run_id }}">
+      <input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}">
+      {% for suggestion in error_suggestions.issues %}<input type="hidden" name="issue_id" value="{{ suggestion.issue_id }}">{% endfor %}
+      <button class="primary" type="submit">{{ error_suggestions.issues|length }} als modelfout markeren</button>
+    </form>
+  </div>
+  <small class="muted">Voorbeelden: {% for suggestion in error_suggestions.issues[:4] %}{{ suggestion.panel_name }} ({{ '%.1f'|format(suggestion.height_ratio) }}×){% if not loop.last %} · {% endif %}{% endfor %}</small>
+</section>
+{% endif %}
+
 <section class="card section-gap decision-guide">
   <div class="toolbar"><div><span class="eyebrow">PER AFWIJKING ÉÉN KEUZE</span><h3>Wat moet ik aanklikken?</h3></div></div>
   <div class="decision-guide-grid">
@@ -123,6 +145,7 @@
           {% endfor %}
         </div>
         <div class="comparison-issue-list">
+          {% set error_suggestion_ids = error_suggestions.issue_ids or [] %}
           {% for issue in panel.issues %}
           {% set decision = issue.review.decision or '' %}
           <div class="comparison-issue-row" data-issue-id="{{ issue.issue_id }}" data-issue-type="{{ issue.type }}" data-issue-open="{{ '1' if not decision or decision == 'deferred' else '0' }}" data-issue-decision="{{ decision }}" {% if decision and decision != 'deferred' %}data-optimistic-hidden="1" style="display:none"{% endif %}>
@@ -130,6 +153,7 @@
               <div>
                 <span class="issue-dot issue-dot-{{ issue.type }}"></span><strong>{{ issue.label }}</strong>
                 {% if issue.type == 'geometry' and issue.functional_candidate %}<span class="pill comparison-functional-hint ok">waarschijnlijk bruikbaar</span>{% endif %}
+                {% if issue.issue_id in error_suggestion_ids %}<span class="pill comparison-functional-hint bad">≥{{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× te hoog</span>{% endif %}
                 {% if issue.containment_recovered %}<span class="pill comparison-containment-hint">FP+FN gekoppeld</span>{% endif %}
               </div>
               <small>{% if issue.iou %}IoU {{ '%.1f%%'|format(issue.iou*100) }} · {% endif %}{% if issue.type == 'geometry' %}GT gedekt {{ '%.1f%%'|format((issue.gt_coverage or 0)*100) }} · extra prediction {{ '%.1f%%'|format((issue.prediction_excess or 0)*100) }} · {% endif %}{% if issue.confidence %}confidence {{ '%.1f%%'|format(issue.confidence*100) }}{% endif %}</small>

@@ -3062,7 +3062,12 @@ def create_web_app(
                 return redirect(url_for("process_step", step_key=step_key, source_id=request.form.get("source_id", "")))
             if step_key == "table-compare":
                 action = str(request.form.get("comparison_action") or "").strip().lower()
-                if action not in {"review_issue", "add_prediction_to_gt", "apply_functional_suggestions"}:
+                if action not in {
+                    "review_issue",
+                    "add_prediction_to_gt",
+                    "apply_functional_suggestions",
+                    "apply_obvious_error_suggestions",
+                }:
                     abort(400)
                 run_id = str(request.form.get("run_id") or "").strip()[:180]
                 issue_id = str(request.form.get("issue_id") or "").strip()[:80]
@@ -3092,6 +3097,37 @@ def create_web_app(
                         flash(
                             f"{len(selected_ids)} veilige geometrieën als functioneel correct gemarkeerd. "
                             "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
+                            "success",
+                        )
+                    parameters = {}
+                    if reference:
+                        parameters["reference"] = reference
+                    if candidate:
+                        parameters["candidate"] = candidate
+                    return redirect(url_for("process_step", step_key=step_key, **parameters))
+                if action == "apply_obvious_error_suggestions":
+                    state = table_cell_comparison_state(
+                        workspace_root(),
+                        reference_run_id=reference or None,
+                        candidate_run_id=candidate or run_id or None,
+                    )
+                    active_run = str((state.get("candidate") or {}).get("run_id") or "")
+                    allowed_ids = set((state.get("obvious_error_suggestions") or {}).get("issue_ids") or [])
+                    requested_ids = {
+                        str(value).strip()[:80]
+                        for value in request.form.getlist("issue_id")
+                        if str(value).strip()
+                    }
+                    selected_ids = sorted(allowed_ids.intersection(requested_ids))
+                    if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
+                        flash("De foutsuggesties horen bij de nieuwste, schrijfbare detectierun.", "error")
+                    elif not selected_ids:
+                        flash("Er zijn geen geldige, nog open foutsuggesties om toe te passen.", "warning")
+                    else:
+                        for suggested_issue_id in selected_ids:
+                            review_comparison_issue(workspace_root(), run_id, suggested_issue_id, "model_error")
+                        flash(
+                            f"{len(selected_ids)} overduidelijk te grote detecties als modelfout gemarkeerd.",
                             "success",
                         )
                     parameters = {}
