@@ -1519,9 +1519,14 @@ def create_web_app(
         preparation_ready = bool(inference_component.get("ready")) if localization_strategy() == "table_first" else bool(prep["ready"])
         # Computed once and reused below: "detect-candidates" and
         # "detection-review" both ask whether every source already has table
-        # geometry, which otherwise ran the same per-source database lookup twice.
+        # geometry. This used to call list_detection_table_geometry() - a
+        # dedicated database.connect() per source - once per source (profiled
+        # at ~65% of this snapshot's cost with a few dozen sources);
+        # detection_table_counts_by_source() answers the same question for
+        # every source in a single pair of GROUP BY queries.
+        table_geometry_counts_by_source = database.detection_table_counts_by_source()
         all_sources_have_table_geometry = bool(detection_sources) and all(
-            bool(database.list_detection_table_geometry(str(source.get("source_id") or "")).get("regions"))
+            table_geometry_counts_by_source.get(str(source.get("source_id") or ""), {}).get("regions", 0) > 0
             for source in detection_sources
         )
         readiness = {
