@@ -200,12 +200,14 @@ def _training_panels(
     result: dict[str, list[dict[str, Any]]] = {}
     canonical_sources = (canonical or {}).get("sources") if isinstance(canonical, dict) else {}
     legacy_profile = load_panel_profile(root)
+    # One bulk query pair instead of a database.list_detection_table_geometry()
+    # (two full-table SELECTs) per source, for the fallback path below.
+    geometry_by_source = db.list_detection_table_geometry_by_source()
     for source in sources:
         source_id = str(source.get("source_id") or "")
         regions = list_table_regions(root, source_id)
         if not regions:
-            geometry = db.list_detection_table_geometry(source_id)
-            regions = geometry.get("regions") or []
+            regions = geometry_by_source.get(source_id, {}).get("regions") or []
         panels: list[dict[str, Any]] = []
         for region in regions:
             try:

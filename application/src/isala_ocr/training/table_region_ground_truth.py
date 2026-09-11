@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +11,28 @@ from .projects import resolve_project_workspace
 
 
 FILENAME = "table_region_ground_truth.json"
+
+# Same rationale/convention as table_cell_ground_truth.py's cache:
+# list_table_regions() (used per-source in loops, e.g.
+# table_cell_training.py's _training_panels()) reloaded and re-parsed this
+# whole file on every call. Cached by file signature.
+#
+# Reads get the cached object directly, not a copy - a deep copy on every
+# read cost more than the disk read + JSON parse it replaced when called
+# once per source in a loop (measured against table_cell_ground_truth.py's
+# identical cache). Every read-only caller here only builds new dicts/lists
+# from what it reads; save_table_regions()/clear_table_regions() below are
+# the only callers that mutate in place, and each makes its own copy first.
+_ground_truth_cache: dict[str, tuple[tuple[int, int] | None, dict[str, Any]]] = {}
+_ground_truth_cache_lock = threading.Lock()
+
+
+def _file_signature(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
 
 
 def _path(workspace: str | Path) -> Path:
@@ -31,16 +55,30 @@ def _write(path: Path, payload: dict[str, Any]) -> None:
 
 
 def load_table_region_ground_truth(workspace: str | Path) -> dict[str, Any]:
-    payload = _read(_path(workspace))
+    path = _path(workspace)
+    signature = _file_signature(path)
+    key = str(path)
+    with _ground_truth_cache_lock:
+        cached = _ground_truth_cache.get(key)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
+
+    payload = _read(path)
     sources = payload.get("sources")
     if not isinstance(sources, dict):
         sources = {}
-    return {
+    result = {
         "schema_version": 1,
         "type": "table_region_ground_truth",
         "sources": sources,
         "updated_at": str(payload.get("updated_at") or ""),
     }
+
+    with _ground_truth_cache_lock:
+        _ground_truth_cache[key] = (signature, result)
+        if len(_ground_truth_cache) > 8:
+            _ground_truth_cache.pop(next(iter(_ground_truth_cache)))
+    return result
 
 
 def list_table_region_sources(workspace: str | Path) -> list[dict[str, Any]]:
@@ -146,7 +184,10 @@ def list_table_regions(workspace: str | Path, source_id: str) -> list[dict[str, 
 def clear_table_regions(workspace: str | Path, source_id: str) -> bool:
     """Remove the accepted table-region GT for one source before a fresh run."""
     root = resolve_project_workspace(workspace)
-    payload = load_table_region_ground_truth(root)
+    # load_table_region_ground_truth() returns the cached object directly
+    # (see the cache's docstring comment) - copy before mutating so this
+    # never corrupts the cache for a concurrent reader.
+    payload = copy.deepcopy(load_table_region_ground_truth(root))
     sources = payload.setdefault("sources", {})
     removed = str(source_id) in sources
     sources.pop(str(source_id), None)
@@ -196,7 +237,10 @@ def save_table_regions(
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat()
     root = resolve_project_workspace(workspace)
-    payload = load_table_region_ground_truth(root)
+    # load_table_region_ground_truth() returns the cached object directly
+    # (see the cache's docstring comment) - copy before mutating so this
+    # never corrupts the cache for a concurrent reader.
+    payload = copy.deepcopy(load_table_region_ground_truth(root))
     sources = payload.setdefault("sources", {})
     previous = sources.get(str(source_id)) if isinstance(sources.get(str(source_id)), dict) else {}
     sources[str(source_id)] = {
