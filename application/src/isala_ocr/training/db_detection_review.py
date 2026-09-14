@@ -739,3 +739,65 @@ class DetectionReviewMixin:
             "review_rows": [dict(row) for row in review_rows],
             "added_rows": [dict(row) for row in added_rows],
         }
+
+    def detection_reviews_before_baseline(
+        self, reviewed_at_max: str | None, reviewed_at_min: str | None
+    ) -> list[dict[str, Any]]:
+        """Non-'added' detection reviews, optionally bounded by ``reviewed_at``.
+
+        Split out of ``table_model_comparison.py``'s ``build_step4_baseline()``
+        (CODE_REVIEW_v3.16.0.md, sectie Hoog). Reconstructs the historic
+        PP-Structure baseline as it stood at dataset-build time: reviews after
+        the dataset snapshot (``reviewed_at_max``) or before the current panel
+        profile took effect (``reviewed_at_min``) are excluded.
+        """
+        sql = """
+            SELECT source_id,review_status,original_x1,original_y1,original_x2,original_y2,reviewed_at
+            FROM detection_reviews
+            WHERE review_status<>'added'
+        """
+        params: list[Any] = []
+        if reviewed_at_max:
+            sql += " AND reviewed_at<=?"
+            params.append(reviewed_at_max)
+        if reviewed_at_min:
+            sql += " AND reviewed_at>=?"
+            params.append(reviewed_at_min)
+        sql += " ORDER BY reviewed_at,source_id"
+        with self.connect() as db:
+            rows = db.execute(sql, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def current_table_annotations(self, source_id: str) -> list[dict[str, Any]]:
+        """Positive GT belonging to the current table-first detection pass.
+
+        Split out of ``table_cell_training.py``'s ``_current_table_annotations()``
+        (CODE_REVIEW_v3.16.0.md, sectie Hoog). Historic PicoDet/manual geometry
+        may intentionally remain in SQLite. Candidate-backed annotations are
+        therefore accepted only when the current candidate is a table-cell;
+        candidate-less additions count only when they were created after the
+        current source detection timestamp. This mirrors the table-first
+        quality calculation (``table_first_quality_rows()`` above).
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT a.*, s.render_path, s.image_width, s.image_height, s.detected_at,
+                       c.source_kind, r.notes, r.reason_code
+                FROM detection_annotations a
+                JOIN detection_sources s ON s.source_id=a.source_id
+                LEFT JOIN detection_candidates c
+                  ON c.source_id=a.source_id AND c.candidate_id=a.candidate_id
+                LEFT JOIN detection_reviews r ON r.review_id=a.review_id
+                WHERE a.source_id=?
+                  AND a.active=1
+                  AND a.training_role='positive'
+                  AND (
+                        (a.candidate_id<>'' AND c.source_kind LIKE '%table_cell%')
+                     OR (a.candidate_id='' AND a.provenance='added' AND a.created_at>=s.detected_at)
+                  )
+                ORDER BY a.y1,a.x1
+                """,
+                (source_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]

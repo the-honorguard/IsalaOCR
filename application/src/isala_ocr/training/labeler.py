@@ -52,29 +52,7 @@ def create_label_app(workspace: str | Path) -> Flask:
 
     def value_counts() -> dict[str, int]:
         """Count only samples that are eligible for value review."""
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT status, COUNT(*) AS amount
-                FROM samples
-                WHERE roi_review_status='correct'
-                GROUP BY status
-                """
-            ).fetchall()
-        counts = {
-            "pending": 0,
-            "accepted": 0,
-            "no_value": 0,
-            "unreadable": 0,
-            "excluded": 0,
-        }
-        for row in rows:
-            status = str(row["status"])
-            if status in counts:
-                counts[status] = int(row["amount"])
-        counts["total"] = sum(counts.values())
-        counts["reviewed"] = counts["total"] - counts["pending"]
-        return counts
+        return database.roi_correct_status_counts()
 
     def query_samples(
         filters: dict[str, str | None],

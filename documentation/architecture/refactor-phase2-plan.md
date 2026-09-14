@@ -96,14 +96,33 @@ inventarisatie/uitvoering start.
       processed_source_ids)`. `processed_source_ids=None` behoudt de
       originele `source_id is None or ...`-kortsluitsemantiek (alle bronnen
       i.p.v. alleen de zojuist verwerkte).
-- [ ] `dataset.py:124`
-- [ ] `labeler.py:56`
-- [ ] `table_cell_training.py:92`
-- [ ] `table_model_comparison.py:655`
+- [x] `dataset.py:124` (`build_dataset`) — verplaatst naar
+      `SamplesMixin.accepted_exact_label_samples(extraction_method)` (volle
+      rijen, i.t.t. de eerdere `accepted_exact_label_rows()` met 4 kolommen
+      voor de format-reviewpagina). **Let op:** twee literal-source-string-
+      tests (`test_recognition_model_factory_flow_v3160.py`,
+      `test_recognition_open_sources_excluded_v3261.py`) controleerden de
+      exacte SQL-tekst in `dataset.py` zelf; aangepast om die tekst in
+      `db_samples.py` te controleren (zelfde patroon als eerder toegepast op
+      `test_mapping_canonical_gt_v3142.py` in fase 1) — geen gedragswijziging,
+      de query verhuisde alleen van bestand.
+- [x] `labeler.py:56` (`value_counts`) — verplaatst naar
+      `SamplesMixin.roi_correct_status_counts()` (geen
+      `extraction_method='mapped_generic'`-filter, i.t.t.
+      `mapped_value_review_status_counts()`: de standalone labeler telt over
+      alle extractiemethoden).
+- [x] `table_cell_training.py:92` (`_current_table_annotations`) —
+      verplaatst naar `DetectionReviewMixin.current_table_annotations(source_id)`.
+- [x] `table_model_comparison.py:655` (`build_step4_baseline`) — verplaatst
+      naar `DetectionReviewMixin.detection_reviews_before_baseline(
+      reviewed_at_max, reviewed_at_min)`.
+
+Hiermee zijn alle geïnventariseerde raw-SQL-plekken buiten `db.py`
+afgehandeld; item 1 is afgerond.
 
 ## Status per item
 
-- [ ] 1. Raw-SQL-plekken (zie inventaris hierboven — deels afgerond)
+- [x] 1. Raw-SQL-plekken (zie inventaris hierboven)
 - [ ] 2. Geometrie/IoU-module
 - [ ] 3. FieldSpec.whitelist-onderzoek
 - [ ] 4. `_similarity`-functies

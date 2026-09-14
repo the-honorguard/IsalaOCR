@@ -532,6 +532,38 @@ class SamplesMixin:
             local[str(row["roi_review_status"])] = int(row["amount"])
         return counts_by_source
 
+    def roi_correct_status_counts(self) -> dict[str, int]:
+        """Value-review-eligible sample counts by status (ROI already correct).
+
+        Split out of ``labeler.py``'s ``value_counts()`` (CODE_REVIEW_v3.16.0.md,
+        sectie Hoog). Unlike ``mapped_value_review_status_counts()``, this has
+        no ``extraction_method='mapped_generic'`` filter -- the standalone
+        labeler tool counts across every extraction method.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT status, COUNT(*) AS amount
+                FROM samples
+                WHERE roi_review_status='correct'
+                GROUP BY status
+                """
+            ).fetchall()
+        counts = {
+            "pending": 0,
+            "accepted": 0,
+            "no_value": 0,
+            "unreadable": 0,
+            "excluded": 0,
+        }
+        for row in rows:
+            status = str(row["status"])
+            if status in counts:
+                counts[status] = int(row["amount"])
+        counts["total"] = sum(counts.values())
+        counts["reviewed"] = counts["total"] - counts["pending"]
+        return counts
+
     def mapped_value_review_status_counts(self) -> dict[str, int]:
         """Value-review status counts for the currently mapped application output.
 
@@ -642,6 +674,27 @@ class SamplesMixin:
                 SELECT sample_id, source_id, raw_ocr, exact_label
                 FROM samples
                 WHERE extraction_method=? AND status='accepted' AND exact_label IS NOT NULL
+                ORDER BY source_id, sample_id
+                """,
+                (extraction_method,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def accepted_exact_label_samples(self, extraction_method: str) -> list[dict[str, Any]]:
+        """Full rows of accepted, labelled samples for one extraction method.
+
+        Split out of ``dataset.py``'s ``build_dataset()`` (CODE_REVIEW_v3.16.0.md,
+        sectie Hoog). Unlike ``accepted_exact_label_rows()`` (4 columns, for
+        the format-review page), this returns every column -- the recognition
+        training-dataset builder needs the full sample row.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT * FROM samples
+                WHERE extraction_method=?
+                  AND status='accepted'
+                  AND exact_label IS NOT NULL
                 ORDER BY source_id, sample_id
                 """,
                 (extraction_method,),

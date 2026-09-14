@@ -27,11 +27,18 @@ def test_recognition_gt_is_built_directly_from_canonical_geometry_without_mappin
 
 def test_recognition_dataset_accepts_only_reviewed_neutral_gt_not_application_mapping():
     text = DATASET.read_text(encoding="utf-8")
+    # The actual samples-query (extraction_method=?/status='accepted'/
+    # exact_label IS NOT NULL) lives in db_samples.py's
+    # accepted_exact_label_samples() since the raw-SQL-cleanup in
+    # documentation/architecture/refactor-phase2-plan.md; dataset.py just
+    # calls it with RECOGNITION_GT_METHOD.
+    samples_db = (ROOT / "application/src/isala_ocr/training/db_samples.py").read_text(encoding="utf-8")
 
     assert "RECOGNITION_GT_METHOD" in text
-    assert "WHERE extraction_method=?" in text
-    assert "AND status='accepted'" in text
-    assert "AND exact_label IS NOT NULL" in text
+    assert "accepted_exact_label_samples" in text
+    assert "WHERE extraction_method=?" in samples_db
+    assert "AND status='accepted'" in samples_db
+    assert "AND exact_label IS NOT NULL" in samples_db
     assert "canonical_table_cell_recognition_gt" in text
     assert "db.accepted()" not in text
     assert "mapped_generic" not in text
