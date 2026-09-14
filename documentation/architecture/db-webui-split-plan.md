@@ -97,8 +97,64 @@ testsuite draaien, dan pas committen/pushen.
 
 ## webui.py dispatcher-opsplitsing (na de db.py-stappen)
 
-- [ ] 10. Inventariseer de exacte `step_key ==`-takken in `/process/<step_key>`
+- [x] 10. Inventariseer de exacte `step_key ==`-takken in `/process/<step_key>`
        (webui.py) en hun benodigde closures per tak.
+
+**Inventaris `process_step()` (webui.py, huidige regels ~2958-3815):**
+
+De functie heeft geen uniforme structuur; het is een opeenvolging van vroege
+returns, een apart POST-blok, en daarna een GET-renderblok, met aan het eind
+één gedeelde `render_template("process_step.html", ...)`-fallback.
+
+*Vroege returns/redirects (2960-2976):*
+- `legacy_step_aliases`-redirect (localization-validate/-train/-compare → nieuwe keys)
+- `value-extract` GET → redirect naar `apply-mapping`
+- `detection-review` GET → redirect naar `detection_review_index`
+
+*Zelfstandige branch (2977-3024):* `input-selection` (GET+POST, inputbestanden
+selecteren, optioneel bronpreview starten) — retourneert altijd zelf, gebruikt
+`input_selection_state`, `input_selection_path`, `selection_payload`,
+`prepare_source_renders`, `_record_webui_error`.
+
+*Gedeelde queryparam-validatie (3025-3033):* `header_status`/`source_id`/
+`sample_id`/`extraction_method` — wordt alleen echt gebruikt door de
+POST-afhandeling van `header-normalization` (zie hieronder); geen GET-render
+voor die stap is in deze functie gevonden (mogelijk legacy/dood pad, nader te
+onderzoeken bij extractie).
+
+*POST-only blok (`if request.method == "POST":`, 3034-3373), één return/redirect per tak:*
+- `table-quality` (3035-3067): tabelrollen/-rijen opslaan + recognition-scope opslaan
+- `table-compare` (3068-3257): comparison-review-acties (issue beoordelen, functionele/model-fout-suggesties toepassen)
+- `localization-dataset` (3258-3294): dataset-split opslaan (auto of handmatig)
+- impliciete `header-normalization`-fallback (3295-3373): rijheader-reviews opslaan, optioneel normalisatiemodel trainen + redetect-job starten; alle andere step_keys krijgen hier `abort(405)`
+
+*GET-renderblok (3375-3805), één `return render_template(...)` per tak:*
+- `panel-setup` (3375-3400): tabelpanelen-overzicht
+- `table-region-model` (3402-3424): tabelregio-trainingsstatus
+- `table-quality` (3426-3614): grote inline rij/kolom-clusteringlogica (`indexed_cells`, `axis_groups`, `table_record` als geneste helperfuncties) + twee losse templates afhankelijk van `?view=geometry`
+- `table-model` (3616-3659): table-cell-trainingsstatus/gereedheid
+- `table-compare` (3661-3678): vergelijkingsresultaten tussen modelruns
+- `localization-dataset` (3680-3681): rendert enkel de React-workbench-template
+- `{localization-evaluate, localization-register, detection-report}` (3683-3684): rendert enkel de React-quality-template
+- `detect-candidates` + `table_first`-strategie (3689-3718): tabelregio-review-oppervlak (apart van Panel Setup, expliciet om verwarring met regio-GT te voorkomen)
+- `artifacts` (3720-3721): hergebruikt `render_management(active_tab="models")`
+- generieke staat-opbouw + `elif`-keten (3730-3805) die alleen `state`/`header_counts` vult vóór de gedeelde template-call:
+  `detection-models`, `{detect-candidates, detection-review}` (met geneste table_first-tak), `redetect`, `mapping`, `{apply-mapping, value-extract}`, `value-review`, `recognition-*` (prefix-match), fallback `step.get("group") == "value"`
+- gedeelde afsluitende `render_template("process_step.html", ...)` (3806-3815) met per-stap ternaire label-expressies
+
+**Consequentie voor stap 11+:** dit is geen simpele "elke tak is een losse,
+onafhankelijke functie"-extractie — de POST- en GET-kant van dezelfde
+`step_key` (bijv. `table-quality`, `table-compare`, `localization-dataset`)
+staan ver uit elkaar en horen inhoudelijk bij elkaar; de grote inline
+helperfuncties in de `table-quality`-GET-tak (`indexed_cells`, `axis_groups`,
+`table_record`) sluiten over lokale variabelen (`profile`, `semantic_assignments`,
+`studio_source_id`) die niet zomaar los te trekken zijn zonder ook die mee te
+verplaatsen. Aanpak: per `step_key` (niet per losse `if`-tak) een
+`_process_step_<key>(...)`-functie maken die zowel de POST- als de
+GET-afhandeling voor die stap bevat, met de benodigde closures/`database`/
+`workspace_root` etc. als parameters; de hoofdfunctie wordt dan een korte
+lookup-dispatch (`handler = _STEP_HANDLERS.get(step_key)`) in plaats van een
+lange `if`/`elif`-keten.
 - [ ] 11+. Eén tak per stap omzetten naar een losse, benoemde functie
        (`_process_step_<key>(...)`) met expliciete parameters, aangeroepen
        vanuit de (dan veel kortere) dispatcher. Geen gedragswijziging.
