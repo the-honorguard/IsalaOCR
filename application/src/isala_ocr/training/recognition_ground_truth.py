@@ -300,25 +300,7 @@ def _crop_hash(path: Path) -> str:
 
 
 def recognition_gt_counts(database: TrainingDatabase) -> dict[str, int]:
-    with database.connect() as db:
-        row = db.execute(
-            """
-            SELECT
-                COUNT(*) AS total,
-                SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
-                SUM(CASE WHEN status='accepted' THEN 1 ELSE 0 END) AS accepted,
-                SUM(CASE WHEN status IN ('unreadable','excluded','no_value') THEN 1 ELSE 0 END) AS excluded
-            FROM samples
-            WHERE extraction_method=?
-            """,
-            (EXTRACTION_METHOD,),
-        ).fetchone()
-    return {
-        "total": int(row["total"] or 0),
-        "pending": int(row["pending"] or 0),
-        "accepted": int(row["accepted"] or 0),
-        "excluded": int(row["excluded"] or 0),
-    }
+    return database.samples_status_counts(EXTRACTION_METHOD)
 
 
 def materialize_recognition_ground_truth(
@@ -434,17 +416,7 @@ def materialize_recognition_ground_truth(
             updated += int(not was_created)
         source_count += 1
 
-    with database.connect() as db:
-        rows = db.execute(
-            "SELECT sample_id FROM samples WHERE extraction_method=?",
-            (EXTRACTION_METHOD,),
-        ).fetchall()
-        stale_ids = [str(row["sample_id"]) for row in rows if str(row["sample_id"]) not in expected_ids]
-        for sample_id in stale_ids:
-            db.execute(
-                "UPDATE samples SET extraction_method=?, roi_review_status='deferred', updated_at=datetime('now') WHERE sample_id=?",
-                (STALE_EXTRACTION_METHOD, sample_id),
-            )
+    stale_ids = database.mark_stale_samples(EXTRACTION_METHOD, expected_ids, STALE_EXTRACTION_METHOD)
 
     return {
         "source_count": source_count,

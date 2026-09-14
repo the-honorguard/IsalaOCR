@@ -686,6 +686,57 @@ class SamplesMixin:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def samples_status_counts(self, extraction_method: str) -> dict[str, int]:
+        """total/pending/accepted/excluded counts for one extraction method.
+
+        Split out of ``recognition_ground_truth.py``'s ``recognition_gt_counts()``
+        (CODE_REVIEW_v3.16.0.md, sectie Hoog).
+        """
+        with self.connect() as db:
+            row = db.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+                    SUM(CASE WHEN status='accepted' THEN 1 ELSE 0 END) AS accepted,
+                    SUM(CASE WHEN status IN ('unreadable','excluded','no_value') THEN 1 ELSE 0 END) AS excluded
+                FROM samples
+                WHERE extraction_method=?
+                """,
+                (extraction_method,),
+            ).fetchone()
+        return {
+            "total": int(row["total"] or 0),
+            "pending": int(row["pending"] or 0),
+            "accepted": int(row["accepted"] or 0),
+            "excluded": int(row["excluded"] or 0),
+        }
+
+    def mark_stale_samples(
+        self, extraction_method: str, keep_sample_ids: set[str], stale_extraction_method: str
+    ) -> list[str]:
+        """Demote samples of ``extraction_method`` not in ``keep_sample_ids`` to stale.
+
+        Split out of ``recognition_ground_truth.py``'s
+        ``materialize_recognition_ground_truth()``, which rebuilds Recognition
+        GT samples from canonical table-cell geometry and needs to mark any
+        previously-materialized sample that geometry no longer produced.
+        Read and update happen in the same ``self.connect()`` transaction, as
+        before.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT sample_id FROM samples WHERE extraction_method=?",
+                (extraction_method,),
+            ).fetchall()
+            stale_ids = [str(row["sample_id"]) for row in rows if str(row["sample_id"]) not in keep_sample_ids]
+            for sample_id in stale_ids:
+                db.execute(
+                    "UPDATE samples SET extraction_method=?, roi_review_status='deferred', updated_at=datetime('now') WHERE sample_id=?",
+                    (stale_extraction_method, sample_id),
+                )
+        return stale_ids
+
     def samples_by_method(self, extraction_method: str, status: str | None = None) -> list[dict[str, Any]]:
         """All samples for one extraction method, optionally filtered by status.
 

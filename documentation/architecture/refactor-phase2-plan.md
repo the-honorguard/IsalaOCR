@@ -80,7 +80,12 @@ inventarisatie/uitvoering start.
       `samples_by_method(extraction_method, status)`. `sort`/`status`
       blijven server-side gevalideerde parameters (geen directe
       request-string-interpolatie in de SQL).
-- [ ] `recognition_ground_truth.py:304,438,444`
+- [x] `recognition_ground_truth.py:304,438,444` — verplaatst naar
+      `SamplesMixin`: `samples_status_counts(extraction_method)` (voor
+      `recognition_gt_counts`) en `mark_stale_samples(extraction_method,
+      keep_sample_ids, stale_extraction_method)` (voor de read+update-combo
+      in `materialize_recognition_ground_truth`, die nu net als voorheen in
+      één transactie gebeurt).
 - [ ] `routes_roi_review.py:35`
 - [ ] `routes_value_review.py:133`
 - [ ] `mapping.py:1004,1017`
