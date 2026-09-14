@@ -1,12 +1,12 @@
 ﻿**********************
 Windows PowerShell transcript start
-Start time: 20260910142042
+Start time: 20260911155919
 Username: PCJulian\Julian
 RunAs User: PCJulian\Julian
 Configuration Name: 
 Machine: PCJULIAN (Microsoft Windows NT 10.0.26200.0)
 Host Application: powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\Users\Jbeuk\Documents\GitHub\IsalaOCR\automation\powershell\launcher.ps1 action 53
-Process ID: 21136
+Process ID: 3956
 PSVersion: 5.1.26100.9444
 PSEdition: Desktop
 PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9444
@@ -32,7 +32,8 @@ Uitvoermodus: GPU Â· NVIDIA GeForce RTX 3070
 Alles laten draaien: GPU-training...
 Pre-training numeric/geometry sanity check...
 
-Starting from the official RT-DETR-L base model (clean start).
+Continuing from active custom model table-RTDETR-L-table-run-20260910T142157-RTDETR-L (table-run-20260910T142157-RTDETR-L).
+Continuation learning rate: 3E-05; epochs: 40
 Fine-tuning RT-DETR-L wireless table-cell detector on reviewed cell geometry + Step-7 hard examples...
 
 Evaluating the new detector on the fixed validation split...
@@ -40,13 +41,13 @@ Evaluating the new detector on the fixed validation split...
 
 Registering trained table-cell model (activation stays explicit)...
 
-Table-cell model trained and registered: table-RTDETR-L-table-run-20260910T142157-RTDETR-L
+Table-cell model trained and registered: table-RTDETR-L-table-run-20260911T160040-RTDETR-L
 Next: review validation metrics, activate the model, then rerun Step 3 to measure whether direct Paddle coverage improves.
 Alles laten draaien: model activeren...
 Activating table-cell detector: latest
 
 Active table-cell model updated.
-Alles laten draaien: nieuw actief model uitvoeren op GPU (table-RTDETR-L-table-run-20260910T142157-RTDETR-L)...
+Alles laten draaien: nieuw actief model uitvoeren op GPU (table-RTDETR-L-table-run-20260911T160040-RTDETR-L)...
 Table inference backend: GPU (GPU gekozen: Docker/CUDA/Paddle is bruikbaar)
 Safe housekeeping: no stale transient artifacts found.
 Host input path: C:\Users\Jbeuk\Documents\GitHub\IsalaOCR\input
@@ -63,5 +64,5 @@ Alles afgerond. Training: GPU; inference: GPU. Open Stap 6 om alleen de afwijkin
 Voor diagnose/push: diagnostics/step5/latest.txt + diagnostics/step5/latest.json
 **********************
 Windows PowerShell transcript end
-End time: 20260910143359
+End time: 20260911161253
 **********************
