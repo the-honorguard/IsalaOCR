@@ -48,7 +48,6 @@ else:
     FLASK_AVAILABLE = True
     sys.path.insert(0, str(ROOT / "application" / "src"))
     from isala_ocr.training.webui import PROCESS_STEPS, create_web_app
-    from isala_ocr.training.recognition_ground_truth_web import install_recognition_ground_truth_review
 
 
 def make_app(tmp_path: Path):
@@ -56,6 +55,9 @@ def make_app(tmp_path: Path):
     project = tmp_path / "project"
     project.mkdir(parents=True)
     (project / "VERSION").write_text("3.5.14", encoding="utf-8")
+    # create_web_app() wires up recognition-GT review (and every other
+    # post-hoc installer) itself now; it no longer needs a manual
+    # install_recognition_ground_truth_review() call after the fact.
     app = create_web_app(
         workspace,
         models_root=tmp_path / "models",
@@ -63,7 +65,6 @@ def make_app(tmp_path: Path):
         project_root=project,
         config_path=ROOT / "application" / "config" / "app.yaml",
     )
-    install_recognition_ground_truth_review(app, workspace)
     return app, workspace
 
 

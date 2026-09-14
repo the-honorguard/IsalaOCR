@@ -105,7 +105,6 @@ def score_format(value: str, confidence: float, profile: dict[str, Any]) -> tupl
         return 0, "Nog te weinig format-GT"
     signatures = profile.get("signatures") if isinstance(profile.get("signatures"), dict) else {}
     families = profile.get("families") if isinstance(profile.get("families"), dict) else {}
-    canonical_signatures = profile.get("canonical_signatures") if isinstance(profile.get("canonical_signatures"), dict) else {}
     signature = _signature(value)
     family = _family(value)
     score = 0

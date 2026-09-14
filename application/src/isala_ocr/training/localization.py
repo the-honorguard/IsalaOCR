@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -13,7 +11,9 @@ import numpy as np
 from ..models import Box, OCRToken
 from ..ocr.table_structure import TableRegion
 
-from .detection_gate import greedy_detection_metrics, intersection_over_union, passes_detection_gate
+# passes_detection_gate is not called in this module; it is re-exported here
+# because callers import it from .localization rather than .detection_gate.
+from .detection_gate import intersection_over_union, passes_detection_gate
 from .projects import resolve_project_workspace
 LOCALIZATION_CANDIDATE_VERSION = "field-localization-fusion-v1"
 VALID_DETECTION_REVIEW_STATUSES = {"correct", "adjusted", "rejected", "added"}

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Iterable
 
 import cv2
 import numpy as np

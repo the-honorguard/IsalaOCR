@@ -113,7 +113,7 @@ def suggest_mappings_fast(
                 context_score=_context_score,
                 feedback_multiplier=float(feedback["multiplier"]),
             )
-            if not evidence.get("exact_alias"):
+            if not evidence.get("exact_alias") or score < minimum_score:
                 continue
             group = str(field.get("group_name") or "")
             context = str(relation.get("context_text") or "")
