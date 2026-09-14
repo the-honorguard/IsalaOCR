@@ -12,7 +12,6 @@ import numpy as np
 from ..config import AppConfig
 from ..geometry import scale_box
 from ..image_io import load_input
-from ..models import Box
 from ..study_info import extract_study_info
 from ..ocr.table_structure import PPStructureTableEngine, TABLE_ENGINE_VERSION, TableRegion
 from ..ocr.base import OCREngine
@@ -579,6 +578,10 @@ def collect_mapping_detections(
         gate = database.detection_gate()
         # Mapping may be prepared before the global detection gate; ROI checks
         # remain enforced per relation in the Mapping Studio.
+    LOGGER.debug(
+        "Mapping preparation observed the %s gate before an early semantic preview: %s",
+        strategy, gate,
+    )
     return _collect_mapping_detections(input_path, workspace, config, locator_engine, recognition_engine)
 
 

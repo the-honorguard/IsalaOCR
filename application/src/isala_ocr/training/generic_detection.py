@@ -810,7 +810,8 @@ def integrate_table_regions(
                 continue
             # Prefer the closest textual cell to the first value; this lets a
             # title/header cell coexist at the left edge without becoming the row label.
-            first_value_col = min(value.column_index for value in values)
+            # label_candidates is already filtered to columns left of every value,
+            # so the highest column_index is the one closest to the first value.
             label = max(label_candidates, key=lambda block: block.column_index)
             ranked_values = sorted((value for value in values if value.column_index > label.column_index), key=lambda block: block.column_index)
             for rank, value in enumerate(ranked_values, start=1):

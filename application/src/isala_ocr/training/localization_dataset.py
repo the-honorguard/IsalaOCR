@@ -1452,7 +1452,6 @@ def diagnose_prediction_file(
     production_threshold = float(production.get("threshold")) if production else None
     train_at_diagnostic = row_at(train_rows, diagnostic_threshold)
     validation_at_diagnostic = row_at(validation_rows, diagnostic_threshold)
-    test_at_diagnostic = row_at(test_rows, diagnostic_threshold)
     test_at_production = row_at(test_rows, production_threshold)
 
     # Build a frozen-dataset error breakdown on validation at the chosen diagnostic
@@ -1473,7 +1472,6 @@ def diagnose_prediction_file(
     train_best_f1 = float((train_best or {}).get("f1") or 0.0)
     train_metrics = row_metrics(train_at_diagnostic)
     val_metrics = row_metrics(validation_at_diagnostic)
-    test_metrics = row_metrics(test_at_diagnostic)
     causes = dict(((validation_details or {}).get("summary") or {}).get("cause_counts") or {})
     val_summary = dict((validation_details or {}).get("summary") or {})
     total_fp = int(val_summary.get("false_positives") or val_metrics.get("false_positives") or 0)

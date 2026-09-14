@@ -226,7 +226,6 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
                     "exact_label": label,
                 }
             )
-        canonical = profile.get("canonical_signatures") if isinstance(profile.get("canonical_signatures"), dict) else {}
         formats = []
         for (family, signature), examples in sorted(grouped.items()):
             formats.append(
