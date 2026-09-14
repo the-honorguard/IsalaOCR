@@ -29,7 +29,11 @@
 <section class="card">
   <div class="region-review-actions">
     <div>
-      <button type="button" id="detection-lab-run-all" class="primary">Alle 3 aanpakken draaien</button>
+      <button type="button" id="detection-lab-run-all" class="primary">Alle 4 aanpakken draaien</button>
+      <button type="button" id="detection-lab-run-all-sources" class="ghost">Alle afbeeldingen draaien</button>
+      <button type="button" id="detection-lab-previous" class="ghost">← Vorige</button>
+      <button type="button" id="detection-lab-next" class="ghost">Volgende →</button>
+      <span id="detection-lab-source-position" class="muted"></span>
     </div>
   </div>
   <div id="detection-lab-message" class="inline-status"></div>
@@ -51,8 +55,17 @@
     <p class="muted">Zoekt lichte contrastverschillen tussen rijen binnen het tabelpaneel en zet daar een lijntje overheen vóór de detectie.</p>
     <div class="detection-lab-result" data-slot="result"><span class="muted">Nog niet gedraaid.</span></div>
   </section>
+  <section class="card detection-lab-column" data-approach="current_default">
+    <h3>Probeer 4 · Huidige standaarddetectie</h3>
+    <p class="muted">De detectie zoals die nu in de normale pipeline draait, zonder extra ingreep vanuit dit lab.</p>
+    <div class="detection-lab-result" data-slot="result"><span class="muted">Nog niet gedraaid.</span></div>
+  </section>
 </div>
 {% endif %}
+<div class="detection-lab-lightbox" id="detection-lab-lightbox" hidden>
+  <button type="button" class="detection-lab-lightbox-close" aria-label="Grote afbeelding sluiten">×</button>
+  <img alt="Grote detectie-lab preview">
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -64,15 +77,38 @@
 .detection-lab-result dt{opacity:0.7;}
 .detection-lab-result dd{margin:0;font-weight:600;}
 @media(max-width:900px){.detection-lab-grid{grid-template-columns:1fr;}}
+.detection-lab-result img{cursor:zoom-in;}
+.detection-lab-lightbox{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px;background:rgba(0,0,0,.88);cursor:zoom-out;}
+.detection-lab-lightbox[hidden]{display:none;}
+.detection-lab-lightbox img{max-width:calc(100vw - 48px);max-height:calc(100vh - 48px);width:auto;height:auto;object-fit:contain;cursor:default;border:1px solid #64748b;border-radius:6px;box-shadow:0 12px 48px rgba(0,0,0,.6);}
+.detection-lab-lightbox-close{position:absolute;top:12px;right:18px;width:42px;height:42px;border:0;border-radius:50%;background:#253446;color:#fff;font-size:30px;line-height:1;cursor:pointer;}
 </style>
 <script>
 (() => {
-  const sourceId = {{ selected_source_id|tojson }};
+  let sourceId = {{ selected_source_id|tojson }};
+  const sourceIds = {{ sources|map(attribute='source_id')|list|tojson }};
   const grid = document.getElementById('detection-lab-grid');
   const message = document.getElementById('detection-lab-message');
   const runAllButton = document.getElementById('detection-lab-run-all');
+  const runAllSourcesButton = document.getElementById('detection-lab-run-all-sources');
+  const previousButton = document.getElementById('detection-lab-previous');
+  const nextButton = document.getElementById('detection-lab-next');
+  const sourcePosition = document.getElementById('detection-lab-source-position');
+  let currentIndex = Math.max(0, sourceIds.indexOf(sourceId));
+  const lightbox = document.getElementById('detection-lab-lightbox');
+  const lightboxImage = lightbox?.querySelector('img');
+  const closeLightbox = () => { if (lightbox) lightbox.hidden = true; };
+  grid?.addEventListener('click', (event) => {
+    const image = event.target.closest('.detection-lab-result img');
+    if (!image || !lightbox || !lightboxImage) return;
+    lightboxImage.src = image.src;
+    lightboxImage.alt = image.alt;
+    lightbox.hidden = false;
+  });
+  lightbox?.addEventListener('click', (event) => { if (event.target === lightbox || event.target.closest('.detection-lab-lightbox-close')) closeLightbox(); });
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeLightbox(); });
   if (!grid || !runAllButton) return;
-  const APPROACHES = ['forced_benchmark', 'region_variant_trial', 'contrast_lines'];
+  const APPROACHES = ['forced_benchmark', 'region_variant_trial', 'contrast_lines', 'current_default'];
   const POLL_MS = 2000;
   const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const resetColumns = () => {
@@ -85,7 +121,9 @@
     const column = grid.querySelector(`.detection-lab-column[data-approach="${approach}"] [data-slot="result"]`);
     if (!column) return;
     if (!entry) {
-      column.innerHTML = '<span class="muted">Geen resultaat voor deze aanpak.</span>';
+      column.innerHTML = approach === 'current_default'
+        ? '<span class="muted">Nog niet uitgevoerd met de huidige 4-aanpakkenversie. Draai opnieuw.</span>'
+        : '<span class="muted">Geen resultaat voor deze aanpak.</span>';
       return;
     }
     if (!entry.ok) {
@@ -102,6 +140,7 @@
         <dt>Rijen</dt><dd>${m.row_count ?? '-'}</dd>
         <dt>Rijregelmaat</dt><dd>${m.row_regularity ?? '-'}</dd>
         <dt>Kolomuitlijning</dt><dd>${m.column_alignment ?? '-'}</dd>
+        <dt>Kolombreedte-consistentie</dt><dd>${m.column_width_consistency ?? '-'}</dd>
         <dt>Overlap-penalty</dt><dd>${m.overlap_penalty ?? '-'}</dd>
       </dl>`;
   };
@@ -162,6 +201,16 @@
       }
     }
   };
+  const showSource = async (index) => {
+    currentIndex = Math.max(0, Math.min(index, sourceIds.length - 1));
+    sourceId = sourceIds[currentIndex];
+    sourcePosition.textContent = `${currentIndex + 1} / ${sourceIds.length}`;
+    previousButton.disabled = currentIndex === 0;
+    nextButton.disabled = currentIndex === sourceIds.length - 1;
+    history.replaceState(null, '', `/detection-lab?source_id=${encodeURIComponent(sourceId)}`);
+    APPROACHES.forEach((approach) => renderResult(approach, null));
+    await loadSavedResults();
+  };
   runAllButton.addEventListener('click', async () => {
     runAllButton.disabled = true;
     resetColumns();
@@ -190,7 +239,30 @@
       runAllButton.disabled = false;
     }
   });
-  loadSavedResults();
+  previousButton.addEventListener('click', () => showSource(currentIndex - 1));
+  nextButton.addEventListener('click', () => showSource(currentIndex + 1));
+  runAllSourcesButton.addEventListener('click', async () => {
+    runAllSourcesButton.disabled = true;
+    runAllButton.disabled = true;
+    try {
+      for (let index = 0; index < sourceIds.length; index += 1) {
+        await showSource(index);
+        message.textContent = `Afbeelding ${index + 1}/${sourceIds.length}: taak inplannen...`;
+        const jobId = await startJob();
+        await waitForJob(jobId);
+        const results = await fetchResults();
+        APPROACHES.forEach((approach) => renderResult(approach, results[approach]));
+      }
+        message.textContent = `Alle 4 aanpakken uitgevoerd voor ${sourceIds.length} afbeeldingen.`;
+    } catch (error) {
+      message.textContent = `Bulkverwerking gestopt: ${error.message}`;
+      message.className = 'inline-status error';
+    } finally {
+      runAllSourcesButton.disabled = false;
+      runAllButton.disabled = false;
+    }
+  });
+  showSource(currentIndex);
 })();
 </script>
 {% endblock %}

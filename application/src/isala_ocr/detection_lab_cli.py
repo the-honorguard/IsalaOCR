@@ -41,11 +41,12 @@ LOGGER = logging.getLogger(__name__)
 _SOURCE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}")
 # Keep this tuple, and the labels below, in sync with training/routes_detection_lab.py
 # and templates/detection_lab.html - all three list the same three approaches.
-_APPROACHES = ("forced_benchmark", "region_variant_trial", "contrast_lines")
+_APPROACHES = ("forced_benchmark", "region_variant_trial", "contrast_lines", "current_default")
 _APPROACH_LABELS = {
     "forced_benchmark": "Probeer 1 · Volledige benchmark (regio-model genegeerd)",
     "region_variant_trial": "Probeer 2 · Regio-model + variant-trial per regio",
     "contrast_lines": "Probeer 3 · Contrastlijnen tussen rijen",
+    "current_default": "Probeer 4 · Huidige standaarddetectie",
 }
 
 
@@ -101,10 +102,24 @@ def _run(args: argparse.Namespace) -> int:
                 regions, diagnostics = engine.detect_with_forced_full_benchmark(image, source_id=source_id)
             elif approach == "region_variant_trial":
                 regions, diagnostics = engine.detect_with_trained_regions_benchmark(image, source_id=source_id)
-            else:
+            elif approach == "contrast_lines":
                 regions, diagnostics = engine.detect_with_contrast_lines(image, source_id=source_id)
+            else:
+                regions, diagnostics = engine.detect_with_benchmark(image, source_id=source_id)
             metrics = score_table_structure(regions)
             overlay = draw_cell_overlay(image, regions)
+            if approach == "contrast_lines":
+                # Keep the separator evidence visible in the comparison image;
+                # otherwise the result only shows the downstream cell boxes and
+                # the reviewer cannot tell where Probeer 3 intervened.
+                scan_boxes = diagnostics.get("scan_boxes") or [diagnostics.get("panel_box")]
+                for y in diagnostics.get("line_positions", []):
+                    for scan_box in scan_boxes:
+                        if not scan_box:
+                            continue
+                        x1, y1, x2, y2 = [int(value) for value in scan_box]
+                        if y1 < int(y) < y2:
+                            cv2.line(overlay, (x1, int(y)), (x2, int(y)), (255, 0, 255), 2, cv2.LINE_AA)
             filename = f"{source_id}-{approach}-{run_token}.png"
             if not cv2.imwrite(str(out_dir / filename), overlay):
                 raise RuntimeError("Overlay kon niet worden opgeslagen")

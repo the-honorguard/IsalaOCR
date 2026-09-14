@@ -13,7 +13,7 @@ Assert-IsalaRuntimePrepared | Out-Null
 if (-not $SourceId) { throw "Detectie-lab vereist een bron-ID." }
 Write-Host "Detectie-lab: drie celdetectie-aanpakken vergelijken voor bron $SourceId..."
 $args = @(
-    "compose","--profile","training","run","--rm","--pull","never",
+    "compose","--profile","training","run","--rm","--build","--pull","never",
     "--entrypoint","python",
     "training-collector",
     "-m","isala_ocr.detection_lab_cli",
