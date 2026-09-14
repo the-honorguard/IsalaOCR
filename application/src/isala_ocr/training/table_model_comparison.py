@@ -1454,6 +1454,106 @@ def incomplete_detection_suggestions(candidate: dict[str, Any], run_reviews: dic
     }
 
 
+# A fourth bucket, distinct from the three above: whenever two or more still-open
+# FP predictions uniquely row-align with the same still-open FN's GT cell, the
+# model produced multiple boxes for content that belongs in one cell. Unlike a
+# geometry mismatch this has no "functioneel correct" or "GT aanpassen" reading --
+# whatever the exact boxes look like, the model didn't detect that cell as one
+# correct prediction, so it is always a model mistake. The clean, unambiguous
+# instances of this pattern are already silently merged into one geometry issue
+# by recover_split_prediction_fn_groups (table_model_evaluation_policy.py); this
+# bucket reuses the same "unique in both directions" row-alignment test (and the
+# same group-size cap) to surface the messier leftovers that pass alignment but
+# fail that pass's stricter mutual-overlap/coverage safety gates -- so a reviewer
+# can clear the whole group with one click instead of "Model fout" per box.
+def split_group_suggestions(candidate: dict[str, Any], run_reviews: dict[str, Any]) -> dict[str, Any]:
+    """Return groups of still-open FN+FP issues that share one GT cell (a "split" detection)."""
+    from .table_model_evaluation_policy import (
+        SPATIAL_RECOVERY_MIN_VERTICAL_OVERLAP,
+        SPLIT_RECOVERY_MAX_GROUP_SIZE,
+    )
+
+    groups: list[dict[str, Any]] = []
+    for panel in candidate.get("panels") or []:
+        if not isinstance(panel, dict):
+            continue
+        issues = [item for item in (panel.get("issues") or []) if isinstance(item, dict)]
+        open_fn = [
+            item for item in issues
+            if str(item.get("type") or "") == "fn" and not _review_for_issue(item, run_reviews)
+        ]
+        open_fp = [
+            item for item in issues
+            if str(item.get("type") or "") == "fp" and not _review_for_issue(item, run_reviews)
+        ]
+        if not open_fn or len(open_fp) < 2:
+            continue
+
+        fn_boxes: dict[str, tuple[dict[str, Any], tuple[float, ...]]] = {}
+        for fn in open_fn:
+            fn_id = str(fn.get("issue_id") or "")
+            gt_boxes = fn.get("gt_boxes") or []
+            box = _box(gt_boxes[0]) if isinstance(gt_boxes, list) and len(gt_boxes) == 1 else None
+            if fn_id and box is not None:
+                fn_boxes[fn_id] = (fn, box)
+
+        fp_boxes: dict[str, tuple[dict[str, Any], tuple[float, ...]]] = {}
+        for fp in open_fp:
+            fp_id = str(fp.get("issue_id") or "")
+            box = _box(fp.get("prediction_box"))
+            if fp_id and box is not None:
+                fp_boxes[fp_id] = (fp, box)
+        if not fn_boxes or len(fp_boxes) < 2:
+            continue
+
+        # Same per-FP gate as recover_split_prediction_fn_groups: strong row
+        # overlap plus some horizontal relation to the FN's cell.
+        candidates_per_fn: dict[str, list[str]] = {}
+        for fn_id, (_fn_issue, gt_box) in fn_boxes.items():
+            matches = []
+            for fp_id, (_fp_issue, pred_box) in fp_boxes.items():
+                vertical = _axis_overlap_fraction_of_smaller(pred_box, gt_box, axis="y")
+                if vertical < SPATIAL_RECOVERY_MIN_VERTICAL_OVERLAP:
+                    continue
+                horizontal = _axis_overlap_fraction_of_smaller(pred_box, gt_box, axis="x")
+                if horizontal <= 0:
+                    continue
+                matches.append(fp_id)
+            if 2 <= len(matches) <= SPLIT_RECOVERY_MAX_GROUP_SIZE:
+                candidates_per_fn[fn_id] = matches
+
+        if not candidates_per_fn:
+            continue
+
+        # An FP that row-aligns with more than one FN makes every group it
+        # appears in ambiguous -- skip rather than guess which FN it belongs to.
+        fp_to_fns: dict[str, set[str]] = {}
+        for fn_id, fp_ids in candidates_per_fn.items():
+            for fp_id in fp_ids:
+                fp_to_fns.setdefault(fp_id, set()).add(fn_id)
+
+        for fn_id, fp_ids in candidates_per_fn.items():
+            if any(len(fp_to_fns.get(fp_id, ())) != 1 for fp_id in fp_ids):
+                continue
+            groups.append({
+                "issue_id": fn_id,
+                "fp_issue_ids": sorted(fp_ids),
+                "issue_ids": [fn_id, *sorted(fp_ids)],
+                "source_id": str(panel.get("source_id") or ""),
+                "panel_name": str(panel.get("panel_name") or panel.get("panel_id") or ""),
+                "group_size": len(fp_ids) + 1,
+            })
+
+    groups.sort(key=lambda item: item["group_size"], reverse=True)
+    flat_ids: list[str] = []
+    for group in groups:
+        flat_ids.extend(group["issue_ids"])
+    return {
+        "issues": groups,
+        "issue_ids": flat_ids,
+    }
+
+
 def training_report_for_run(workspace: str | Path, run: dict[str, Any]) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
     reviews = comparison_reviews(root)
@@ -1746,6 +1846,7 @@ def table_cell_comparison_state(
     functional_suggestions = functional_geometry_suggestions(candidate, reviews)
     error_suggestions = obvious_error_suggestions(candidate, reviews)
     incomplete_suggestions = incomplete_detection_suggestions(candidate, reviews)
+    split_suggestions = split_group_suggestions(candidate, reviews)
     issue_panels = []
     total_issues = reviewed_issues = 0
     decision_counts: dict[str, int] = {}
@@ -1803,5 +1904,6 @@ def table_cell_comparison_state(
         "functional_suggestions": functional_suggestions,
         "obvious_error_suggestions": error_suggestions,
         "incomplete_detection_suggestions": incomplete_suggestions,
+        "split_group_suggestions": split_suggestions,
         "open_geometry_issue_ids": open_geometry_issue_ids,
     }
