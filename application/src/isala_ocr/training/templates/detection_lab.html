@@ -185,7 +185,7 @@
     }
     return data.job_id;
   };
-  const waitForJob = async (jobId) => {
+  const waitForJob = async (jobId, onTick) => {
     while (true) {
       const response = await fetch(`/api/jobs/${jobId}`, {headers: {'Accept': 'application/json'}});
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -198,6 +198,7 @@
         const logText = logResponse && logResponse.ok ? await logResponse.text() : '';
         throw new Error(logText.trim() ? logText.trim().split('\n').slice(-5).join(' · ') : `Taak ${status}`);
       }
+      if (onTick) await onTick(job);
       await sleep(POLL_MS);
     }
   };
@@ -209,14 +210,15 @@
     }
     return data.results || {};
   };
-  const loadSavedResults = async () => {
+  const loadSavedResults = async (quiet = false) => {
     try {
       const results = await fetchResults();
       APPROACHES.forEach((approach) => renderResult(approach, results[approach]));
-      if (Object.keys(results).length) message.textContent = 'Opgeslagen resultaten geladen.';
+      if (!quiet && Object.keys(results).length) message.textContent = 'Opgeslagen resultaten geladen.';
     } catch (error) {
-      // A missing results file is the normal state before the first run.
-      if (!String(error.message || '').includes('404')) {
+      // A missing results file is the normal state before the first run
+      // (and, during a running batch, before this source's turn comes up).
+      if (!quiet && !String(error.message || '').includes('404')) {
         message.textContent = `Opgeslagen resultaten konden niet worden geladen: ${error.message}`;
         message.className = 'inline-status error';
       }
@@ -274,7 +276,15 @@
       // running server-side even if this tab is closed or reloaded partway
       // through - see detection_lab_cli.py._run for why that matters.
       const jobId = await startJob(sourceIds.join(','));
-      const job = await waitForJob(jobId);
+      // Each source writes its own results.json as soon as it finishes, well
+      // before the whole batch job completes. Refresh whichever source is
+      // currently on screen on every poll tick (quiet: a source not reached
+      // yet is the expected 404 state, not worth flashing a message over)
+      // instead of only ever showing results once the entire batch is done -
+      // that way already-finished images become visible while the rest of
+      // the batch keeps running, and browsing to one mid-batch (Vorige/
+      // Volgende still work) picks up its result the moment it lands.
+      const job = await waitForJob(jobId, () => loadSavedResults(true));
       // The job prints a final {"succeeded": [...], "failed": [...]} summary
       // line; pull it from the log for a real per-source count instead of
       // just "the job as a whole finished".
