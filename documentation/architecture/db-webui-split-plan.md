@@ -47,7 +47,7 @@ imports.
       `invalidate_mapped_samples`, `replace_generic_detection`,
       `list_detection_sources`, `get_detection_source`, `list_detected_blocks`,
       `get_detected_block`, `get_detected_relation`
-- [ ] 4. `training/db_relation_feedback.py` — `_relation_snapshot_in_connection`,
+- [x] 4. `training/db_relation_feedback.py` — `_relation_snapshot_in_connection`,
       `_record_relation_feedback_in_connection`, `record_relation_feedback`,
       `clear_relation_feedback`, `list_relation_feedback`,
       `relation_feedback_stats`, `feedback_for_relations`,
