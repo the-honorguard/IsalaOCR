@@ -183,11 +183,24 @@
   Rond deze bewust af in GT Studio. Ze worden niet als modelmisser gebruikt zolang de GT zelf ter discussie staat.
   <div style="display:grid;gap:6px;margin-top:10px">
     {% for item in comparison.gt_worklist %}
-    <div style="border-top:1px solid var(--line);padding-top:7px">
-      <a href="/detection-review/{{ item.source_id }}?from_step7=1&issue_id={{ item.issue_id }}">
-        {{ item.panel_name or item.source_id }}{% if item.label %} — {{ item.label }}{% endif %}
-      </a>
-      <span class="pill warn">{{ item.type or 'gt_check' }}</span>
+    <div style="border-top:1px solid var(--line);padding-top:7px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div>
+        <a href="/detection-review/{{ item.source_id }}?from_step7=1&issue_id={{ item.issue_id }}">
+          {{ item.panel_name or item.source_id }}{% if item.label %} — {{ item.label }}{% endif %}
+        </a>
+        <span class="pill warn">{{ item.type or 'gt_check' }}</span>
+      </div>
+      {% if comparison.review_writable %}
+      <form method="post" style="margin:0">
+        <input type="hidden" name="comparison_action" value="review_issue">
+        <input type="hidden" name="run_id" value="{{ item.run_id }}">
+        <input type="hidden" name="issue_id" value="{{ item.issue_id }}">
+        <input type="hidden" name="decision" value="clear">
+        <input type="hidden" name="reference_run_id" value="{{ ref.run_id }}">
+        <input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}">
+        <button type="submit" class="ghost" title="Haalt dit punt van de lijst. De onderliggende afwijking komt hierdoor terug als open te beoordelen afwijking hieronder — er wordt niet geverifieerd of de GT daadwerkelijk gecorrigeerd is.">Van lijst afvoeren</button>
+      </form>
+      {% endif %}
     </div>
     {% endfor %}
   </div>
