@@ -40,7 +40,7 @@ imports.
       `review`, `review_header`, `header_review_counts`, `list_header_samples`,
       `header_training_rows`, `review_roi`, `list_samples`, `accepted`,
       `counts`, `mapped_sample_counts`
-- [ ] 2. `training/db_field_definitions.py` — `fields`, `_safe_field_key`,
+- [x] 2. `training/db_field_definitions.py` — `fields`, `_safe_field_key`,
       `seed_field_definitions`, `upsert_field_definition`, `set_field_active`,
       `get_field_definition`, `list_field_definitions`
 - [ ] 3. `training/db_generic_detection.py` — `_invalidate_mapped_samples_in_connection`,
