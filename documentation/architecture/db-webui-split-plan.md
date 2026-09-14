@@ -201,13 +201,19 @@ lange `if`/`elif`-keten.
        `if request.method == "POST":`-tak in `process_step()` is nu een kale
        4-weg dispatch van één regel per tak. `process_step()`: 615 → 352
        regels.
-- [ ] 11e. Laatste en grootste resterende tak: de `table-quality` GET-tak
+- [x] 11e. Laatste en grootste resterende tak: de `table-quality` GET-tak
        (~190 regels, met geneste `indexed_cells`/`axis_groups`/
-       `table_record`-helperfuncties die closen over locals als `profile`,
-       `semantic_assignments`, `studio_source_id`) verplaatsen naar
-       `_process_step_table_quality_get(step)` volgens hetzelfde patroon. Dit
-       is bewust als laatste stap bewaard: de geneste helpers maken deze tak
-       complexer om foutloos te knippen dan de andere.
+       `table_record`-helperfuncties) verplaatst naar
+       `_process_step_table_quality_get(step)` volgens hetzelfde patroon,
+       inclusief de drie geneste helperfuncties zelf (die blijven closen over
+       de locals van deze nieuwe functie: `profile`, `semantic_assignments`,
+       `studio_source_id`, precies zoals ze eerder closeden over die van
+       `process_step()`). `process_step()` zelf: 352 → ~165 regels (van
+       oorspronkelijk ~980).
+
+       Met stap 11e is de volledige `elif`/`if`-keten van de dispatcher
+       omgezet in een-regel-aanroepen naar losse, benoemde functies; stap 12
+       is hiermee afgerond.
 - [ ] Laatste stap: evalueren of (een deel van) deze functies alsnog naar een
        eigen module kunnen verhuizen zonder circulaire import met de
        `routes_*.py`-bestanden die ze nu al aanroepen (daarvoor moeten hun

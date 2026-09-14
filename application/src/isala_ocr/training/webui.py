@@ -3084,6 +3084,206 @@ def create_web_app(
             header_total_label="regio’s", header_pending_label="lezingen open", header_accepted_label="opgeslagen",
         )
 
+    def _process_step_table_quality_get(step):
+        """Handle the ``table-quality`` GET render (table studio + geometry view).
+
+        Extracted from the ``process_step()`` dispatcher (see
+        ``documentation/architecture/db-webui-split-plan.md``) - still a
+        closure over create_web_app()'s locals, not yet moved to its own
+        module. Last and largest remaining branch (step 11e): keeps its
+        nested ``indexed_cells``/``axis_groups``/``table_record`` helpers,
+        which close over this function's own locals (``profile``,
+        ``semantic_assignments``, ``studio_source_id``).
+        """
+        quality = current_table_first_quality()
+        preview = recognition_scope_preview(workspace_root())
+        semantic_assignments = load_table_semantic_assignments(workspace_root())
+        # The persisted table raster is authoritative here. Do not rebuild
+        # rows and columns by clustering canonical GT cells.
+        studio_source_id = str(preview.get("source_id") or "")
+        geometry = database.list_detection_table_geometry(studio_source_id) if studio_source_id else {"regions": [], "cells": []}
+        profile = load_panel_profile(workspace_root())
+        reference_width = float(profile.get("reference_width") or 0)
+        reference_height = float(profile.get("reference_height") or 0)
+        named_tables: dict[str, dict[str, Any]] = {}
+        for region in geometry.get("regions", []):
+            center_x = (float(region.get("x1") or 0) + float(region.get("x2") or 0)) / 2
+            center_y = (float(region.get("y1") or 0) + float(region.get("y2") or 0)) / 2
+            for panel in profile.get("panels") or []:
+                if (
+                    float(panel.get("x1") or 0) * reference_width <= center_x <= float(panel.get("x2") or 0) * reference_width
+                    and float(panel.get("y1") or 0) * reference_height <= center_y <= float(panel.get("y2") or 0) * reference_height
+                ):
+                    named_tables[str(region.get("table_id") or "")] = panel
+                    break
+        table_groups: dict[str, list[dict[str, Any]]] = {}
+        for cell in geometry.get("cells", []):
+            raw_table_id = str(cell.get("table_id") or "")
+            panel = named_tables.get(raw_table_id) or {}
+            table_id = str(panel.get("panel_id") or raw_table_id or "__default__")
+            table_groups.setdefault(table_id, []).append({
+                **cell, "panel_id": table_id,
+                "panel_name": str(panel.get("name") or table_id),
+            })
+
+        def indexed_cells(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            """Use persisted row/column indices; infer only for legacy records.
+
+            Older canonical GT records store exact boxes but predate the
+            optional row_index/column_index fields. Tabelstudio needs
+            stable visual grouping, so infer the indices from box centers
+            without changing the canonical GT file.
+            """
+            usable = [dict(cell) for cell in cells]
+            if all("row_index" in item and "column_index" in item for item in usable):
+                return usable
+            heights = [
+                max(1, int(item.get("y2") or 0) - int(item.get("y1") or 0))
+                for item in usable
+            ]
+            widths = [
+                max(1, int(item.get("x2") or 0) - int(item.get("x1") or 0))
+                for item in usable
+            ]
+            row_tolerance = max(6.0, (sum(heights) / max(1, len(heights))) * 0.75)
+            column_tolerance = max(8.0, (sum(heights) / max(1, len(heights))) * 1.5)
+
+            def cluster(items: list[dict[str, Any]], center_key: str, tolerance: float) -> list[list[dict[str, Any]]]:
+                groups: list[list[dict[str, Any]]] = []
+                for item in sorted(items, key=lambda value: float(value[center_key])):
+                    center = float(item[center_key])
+                    if not groups:
+                        groups.append([item])
+                        continue
+                    previous_center = sum(float(value[center_key]) for value in groups[-1]) / len(groups[-1])
+                    if center - previous_center <= tolerance:
+                        groups[-1].append(item)
+                    else:
+                        groups.append([item])
+                return groups
+
+            for item in usable:
+                item["_center_y"] = (int(item.get("y1") or 0) + int(item.get("y2") or 0)) / 2
+                item["_center_x"] = (int(item.get("x1") or 0) + int(item.get("x2") or 0)) / 2
+            rows = cluster(usable, "_center_y", row_tolerance)
+            columns = cluster(usable, "_center_x", column_tolerance)
+            for row_index, row in enumerate(rows):
+                for item in row:
+                    item["row_index"] = row_index
+            for column_index, column in enumerate(columns):
+                for item in column:
+                    item["column_index"] = column_index
+            for item in usable:
+                item.pop("_center_y", None)
+                item.pop("_center_x", None)
+            return usable
+
+        def axis_groups(cells: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+            groups: dict[int, list[dict[str, Any]]] = {}
+            for cell in cells:
+                groups.setdefault(int(cell.get(key, -1)), []).append(cell)
+            result = [
+                {"index": index, "cells": sorted(items, key=lambda item: int(item.get("column_index" if key == "row_index" else "row_index", -1))),
+                 "x1": min(int(item.get("x1") or 0) for item in items), "y1": min(int(item.get("y1") or 0) for item in items),
+                 "x2": max(int(item.get("x2") or 0) for item in items), "y2": max(int(item.get("y2") or 0) for item in items)}
+                for index, items in sorted(groups.items()) if index >= 0
+            ]
+            if key == "column_index":
+                # Adjacent raster columns share one boundary. Detection
+                # boxes can overlap by a few pixels; never expose that
+                # overlap as a semantic column boundary in the Studio.
+                for left, right in zip(result, result[1:]):
+                    left_center = (left["x1"] + left["x2"]) / 2
+                    right_center = (right["x1"] + right["x2"]) / 2
+                    boundary = round((left_center + right_center) / 2)
+                    boundary = max(left["x1"] + 1, min(boundary, right["x2"] - 1))
+                    left["x2"] = boundary
+                    right["x1"] = boundary
+            return result
+        def table_record(table_id: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
+            cells = indexed_cells(cells)
+            padding = 16
+            fallback_name = str(cells[0].get("table_name") or cells[0].get("panel_name") or ("Tabel zonder profiel" if table_id == "__default__" else table_id))
+            relations = database.list_detected_relations(studio_source_id)
+            ocr_parts = []
+            bounds = (min(int(item.get("x1") or 0) for item in cells), min(int(item.get("y1") or 0) for item in cells), max(int(item.get("x2") or 0) for item in cells), max(int(item.get("y2") or 0) for item in cells))
+            for relation in relations:
+                cx = (int(relation.get("label_x1") or 0) + int(relation.get("label_x2") or 0)) / 2
+                cy = (int(relation.get("label_y1") or 0) + int(relation.get("label_y2") or 0)) / 2
+                if bounds[0] <= cx <= bounds[2] and bounds[1] <= cy <= bounds[3]:
+                    for key in ("context_text", "label_text", "header_text", "column_header"):
+                        value = str(relation.get(key) or "").strip()
+                        if value and value not in ocr_parts:
+                            ocr_parts.append(value)
+            saved = semantic_assignments.get(table_id) or {}
+            suggested_name, suggestion_source = suggest_table_name(
+                " | ".join(ocr_parts),
+                [str(item.get("name") or "") for item in profile.get("panels") or [] if str(item.get("name") or "").strip()],
+                fallback_name,
+            )
+            return {"table_id": table_id, "table_name": str(saved.get("table_name") or suggested_name), "table_name_source": str(saved.get("source") or suggestion_source), "ocr_header_text": " | ".join(ocr_parts), "cells": cells, "rows": axis_groups(cells, "row_index"), "columns": axis_groups(cells, "column_index"), "crop": {"x1": max(0, bounds[0] - padding), "y1": max(0, bounds[1] - padding), "x2": bounds[2] + padding, "y2": bounds[3] + padding}}
+        studio = {
+            "source_id": str(preview.get("source_id") or ""),
+            "tables": [table_record(table_id, cells) for table_id, cells in sorted(table_groups.items())],
+        }
+        if str(request.args.get("view") or "").strip().lower() == "geometry":
+            return render_template(
+                "table_structure.html",
+                step=step, table_quality=quality, studio=studio,
+                header_counts={
+                    "total": int((quality.get("totals") or {}).get("desired_total", 0)),
+                    "pending": int((quality.get("totals") or {}).get("pending", 0)),
+                    "accepted": int((quality.get("totals") or {}).get("detected_desired", 0)),
+                },
+                header_total_label="doelcellen", header_pending_label="te reviewen",
+                header_accepted_label="direct gevonden",
+            )
+        roles = table_studio_roles(workspace_root())
+        configured_rows = table_studio_rows(workspace_root())
+        studio_tables = [
+            {
+                **table,
+                "rows": [
+                    {
+                        **row,
+                        "active": (
+                            table["table_id"] not in configured_rows
+                            or int(row["index"]) in configured_rows.get(table["table_id"], [])
+                        ),
+                    }
+                    for row in table["rows"]
+                ],
+                "columns": [
+                    {
+                        **column,
+                        "role": roles.get(table["table_id"], {}).get(str(column["index"]), ""),
+                    }
+                    for column in table["columns"]
+                ],
+            }
+            for table in studio["tables"]
+            if table["table_id"] != "__default__"
+        ]
+        return render_template(
+            "table_studio.html",
+            step=step, table_quality=quality, studio=studio,
+            studio_tables=studio_tables,
+            table_roles=roles,
+            table_rows=configured_rows,
+            role_options=[
+                ("", "Niet ingesteld"),
+                ("label", "Label"), ("value", "Waarde"),
+                ("unit", "Eenheid"), ("header", "Koptekst"), ("skip", "Overslaan"),
+            ],
+            header_counts={
+                "total": len(studio_tables),
+                "pending": sum(1 for table in studio_tables for column in table["columns"] if not column["role"]),
+                "accepted": sum(1 for table in studio_tables for column in table["columns"] if column["role"]),
+            },
+            header_total_label="tabellen", header_pending_label="kolommen open",
+            header_accepted_label="rollen gekozen",
+        )
+
     def _process_step_table_region_model(step):
         region_sources = list_table_region_sources(workspace_root())
         dataset = None
@@ -3692,194 +3892,7 @@ def create_web_app(
             return _process_step_table_region_model(step)
 
         if step_key == "table-quality":
-            quality = current_table_first_quality()
-            preview = recognition_scope_preview(workspace_root())
-            semantic_assignments = load_table_semantic_assignments(workspace_root())
-            # The persisted table raster is authoritative here. Do not rebuild
-            # rows and columns by clustering canonical GT cells.
-            studio_source_id = str(preview.get("source_id") or "")
-            geometry = database.list_detection_table_geometry(studio_source_id) if studio_source_id else {"regions": [], "cells": []}
-            profile = load_panel_profile(workspace_root())
-            reference_width = float(profile.get("reference_width") or 0)
-            reference_height = float(profile.get("reference_height") or 0)
-            named_tables: dict[str, dict[str, Any]] = {}
-            for region in geometry.get("regions", []):
-                center_x = (float(region.get("x1") or 0) + float(region.get("x2") or 0)) / 2
-                center_y = (float(region.get("y1") or 0) + float(region.get("y2") or 0)) / 2
-                for panel in profile.get("panels") or []:
-                    if (
-                        float(panel.get("x1") or 0) * reference_width <= center_x <= float(panel.get("x2") or 0) * reference_width
-                        and float(panel.get("y1") or 0) * reference_height <= center_y <= float(panel.get("y2") or 0) * reference_height
-                    ):
-                        named_tables[str(region.get("table_id") or "")] = panel
-                        break
-            table_groups: dict[str, list[dict[str, Any]]] = {}
-            for cell in geometry.get("cells", []):
-                raw_table_id = str(cell.get("table_id") or "")
-                panel = named_tables.get(raw_table_id) or {}
-                table_id = str(panel.get("panel_id") or raw_table_id or "__default__")
-                table_groups.setdefault(table_id, []).append({
-                    **cell, "panel_id": table_id,
-                    "panel_name": str(panel.get("name") or table_id),
-                })
-
-            def indexed_cells(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
-                """Use persisted row/column indices; infer only for legacy records.
-
-                Older canonical GT records store exact boxes but predate the
-                optional row_index/column_index fields. Tabelstudio needs
-                stable visual grouping, so infer the indices from box centers
-                without changing the canonical GT file.
-                """
-                usable = [dict(cell) for cell in cells]
-                if all("row_index" in item and "column_index" in item for item in usable):
-                    return usable
-                heights = [
-                    max(1, int(item.get("y2") or 0) - int(item.get("y1") or 0))
-                    for item in usable
-                ]
-                widths = [
-                    max(1, int(item.get("x2") or 0) - int(item.get("x1") or 0))
-                    for item in usable
-                ]
-                row_tolerance = max(6.0, (sum(heights) / max(1, len(heights))) * 0.75)
-                column_tolerance = max(8.0, (sum(heights) / max(1, len(heights))) * 1.5)
-
-                def cluster(items: list[dict[str, Any]], center_key: str, tolerance: float) -> list[list[dict[str, Any]]]:
-                    groups: list[list[dict[str, Any]]] = []
-                    for item in sorted(items, key=lambda value: float(value[center_key])):
-                        center = float(item[center_key])
-                        if not groups:
-                            groups.append([item])
-                            continue
-                        previous_center = sum(float(value[center_key]) for value in groups[-1]) / len(groups[-1])
-                        if center - previous_center <= tolerance:
-                            groups[-1].append(item)
-                        else:
-                            groups.append([item])
-                    return groups
-
-                for item in usable:
-                    item["_center_y"] = (int(item.get("y1") or 0) + int(item.get("y2") or 0)) / 2
-                    item["_center_x"] = (int(item.get("x1") or 0) + int(item.get("x2") or 0)) / 2
-                rows = cluster(usable, "_center_y", row_tolerance)
-                columns = cluster(usable, "_center_x", column_tolerance)
-                for row_index, row in enumerate(rows):
-                    for item in row:
-                        item["row_index"] = row_index
-                for column_index, column in enumerate(columns):
-                    for item in column:
-                        item["column_index"] = column_index
-                for item in usable:
-                    item.pop("_center_y", None)
-                    item.pop("_center_x", None)
-                return usable
-
-            def axis_groups(cells: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
-                groups: dict[int, list[dict[str, Any]]] = {}
-                for cell in cells:
-                    groups.setdefault(int(cell.get(key, -1)), []).append(cell)
-                result = [
-                    {"index": index, "cells": sorted(items, key=lambda item: int(item.get("column_index" if key == "row_index" else "row_index", -1))),
-                     "x1": min(int(item.get("x1") or 0) for item in items), "y1": min(int(item.get("y1") or 0) for item in items),
-                     "x2": max(int(item.get("x2") or 0) for item in items), "y2": max(int(item.get("y2") or 0) for item in items)}
-                    for index, items in sorted(groups.items()) if index >= 0
-                ]
-                if key == "column_index":
-                    # Adjacent raster columns share one boundary. Detection
-                    # boxes can overlap by a few pixels; never expose that
-                    # overlap as a semantic column boundary in the Studio.
-                    for left, right in zip(result, result[1:]):
-                        left_center = (left["x1"] + left["x2"]) / 2
-                        right_center = (right["x1"] + right["x2"]) / 2
-                        boundary = round((left_center + right_center) / 2)
-                        boundary = max(left["x1"] + 1, min(boundary, right["x2"] - 1))
-                        left["x2"] = boundary
-                        right["x1"] = boundary
-                return result
-            def table_record(table_id: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
-                cells = indexed_cells(cells)
-                padding = 16
-                fallback_name = str(cells[0].get("table_name") or cells[0].get("panel_name") or ("Tabel zonder profiel" if table_id == "__default__" else table_id))
-                relations = database.list_detected_relations(studio_source_id)
-                ocr_parts = []
-                bounds = (min(int(item.get("x1") or 0) for item in cells), min(int(item.get("y1") or 0) for item in cells), max(int(item.get("x2") or 0) for item in cells), max(int(item.get("y2") or 0) for item in cells))
-                for relation in relations:
-                    cx = (int(relation.get("label_x1") or 0) + int(relation.get("label_x2") or 0)) / 2
-                    cy = (int(relation.get("label_y1") or 0) + int(relation.get("label_y2") or 0)) / 2
-                    if bounds[0] <= cx <= bounds[2] and bounds[1] <= cy <= bounds[3]:
-                        for key in ("context_text", "label_text", "header_text", "column_header"):
-                            value = str(relation.get(key) or "").strip()
-                            if value and value not in ocr_parts:
-                                ocr_parts.append(value)
-                saved = semantic_assignments.get(table_id) or {}
-                suggested_name, suggestion_source = suggest_table_name(
-                    " | ".join(ocr_parts),
-                    [str(item.get("name") or "") for item in profile.get("panels") or [] if str(item.get("name") or "").strip()],
-                    fallback_name,
-                )
-                return {"table_id": table_id, "table_name": str(saved.get("table_name") or suggested_name), "table_name_source": str(saved.get("source") or suggestion_source), "ocr_header_text": " | ".join(ocr_parts), "cells": cells, "rows": axis_groups(cells, "row_index"), "columns": axis_groups(cells, "column_index"), "crop": {"x1": max(0, bounds[0] - padding), "y1": max(0, bounds[1] - padding), "x2": bounds[2] + padding, "y2": bounds[3] + padding}}
-            studio = {
-                "source_id": str(preview.get("source_id") or ""),
-                "tables": [table_record(table_id, cells) for table_id, cells in sorted(table_groups.items())],
-            }
-            if str(request.args.get("view") or "").strip().lower() == "geometry":
-                return render_template(
-                    "table_structure.html",
-                    step=step, table_quality=quality, studio=studio,
-                    header_counts={
-                        "total": int((quality.get("totals") or {}).get("desired_total", 0)),
-                        "pending": int((quality.get("totals") or {}).get("pending", 0)),
-                        "accepted": int((quality.get("totals") or {}).get("detected_desired", 0)),
-                    },
-                    header_total_label="doelcellen", header_pending_label="te reviewen",
-                    header_accepted_label="direct gevonden",
-                )
-            roles = table_studio_roles(workspace_root())
-            configured_rows = table_studio_rows(workspace_root())
-            studio_tables = [
-                {
-                    **table,
-                    "rows": [
-                        {
-                            **row,
-                            "active": (
-                                table["table_id"] not in configured_rows
-                                or int(row["index"]) in configured_rows.get(table["table_id"], [])
-                            ),
-                        }
-                        for row in table["rows"]
-                    ],
-                    "columns": [
-                        {
-                            **column,
-                            "role": roles.get(table["table_id"], {}).get(str(column["index"]), ""),
-                        }
-                        for column in table["columns"]
-                    ],
-                }
-                for table in studio["tables"]
-                if table["table_id"] != "__default__"
-            ]
-            return render_template(
-                "table_studio.html",
-                step=step, table_quality=quality, studio=studio,
-                studio_tables=studio_tables,
-                table_roles=roles,
-                table_rows=configured_rows,
-                role_options=[
-                    ("", "Niet ingesteld"),
-                    ("label", "Label"), ("value", "Waarde"),
-                    ("unit", "Eenheid"), ("header", "Koptekst"), ("skip", "Overslaan"),
-                ],
-                header_counts={
-                    "total": len(studio_tables),
-                    "pending": sum(1 for table in studio_tables for column in table["columns"] if not column["role"]),
-                    "accepted": sum(1 for table in studio_tables for column in table["columns"] if column["role"]),
-                },
-                header_total_label="tabellen", header_pending_label="kolommen open",
-                header_accepted_label="rollen gekozen",
-            )
+            return _process_step_table_quality_get(step)
 
         if step_key == "table-model":
             return _process_step_table_model(step)
