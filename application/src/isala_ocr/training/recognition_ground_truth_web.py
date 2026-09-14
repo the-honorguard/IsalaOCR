@@ -226,6 +226,7 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
                     "exact_label": label,
                 }
             )
+        canonical = profile.get("canonical_signatures") if isinstance(profile.get("canonical_signatures"), dict) else {}
         formats = []
         for (family, signature), examples in sorted(grouped.items()):
             formats.append(
@@ -233,7 +234,11 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
                     "family": family,
                     "signature": signature,
                     "count": len(examples),
-                    "allowed": True,
+                    # The canonical signature per family is the most common one seen
+                    # in approved GT (build_profile()). Every signature here already
+                    # passed review, so "not allowed" only means "a less common
+                    # variant of this family's usual format", not rejected/invalid.
+                    "allowed": canonical.get(family) == signature,
                     "examples": examples,
                 }
             )
