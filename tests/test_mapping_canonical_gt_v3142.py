@@ -69,7 +69,11 @@ def test_canonical_gt_mapping_reconstructs_rows_text_and_table_relations(tmp_pat
 
 
 def test_mapping_action_uses_canonical_gt_runner_without_table_model_inference() -> None:
-    runner = (ROOT / "application/src/isala_ocr/training/mapping_ground_truth.py").read_text(encoding="utf-8")
+    # mapping_gt_cli.py calls the fast collector (mapping_ground_truth_fast.py),
+    # not mapping_ground_truth.py directly - that module now only supplies the
+    # shared canonical_table_regions()/mark_canonical_geometry() helpers, so the
+    # runner-content assertions below check the module that actually runs.
+    runner = (ROOT / "application/src/isala_ocr/training/mapping_ground_truth_fast.py").read_text(encoding="utf-8")
     cli = (ROOT / "application/src/isala_ocr/mapping_gt_cli.py").read_text(encoding="utf-8")
     action = (ROOT / "automation/powershell/prepare-mapping-data.ps1").read_text(encoding="utf-8")
 

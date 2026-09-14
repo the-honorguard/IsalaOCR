@@ -1455,7 +1455,10 @@ class TrainingDatabase:
                 ORDER BY s.detected_at DESC, s.source_id
                 """
             ).fetchall()
-        return [dict(row) for row in rows]
+        sources = [dict(row) for row in rows]
+        for index, source in enumerate(sources, start=1):
+            source["display_name"] = f"Afbeelding {index}"
+        return sources
 
     def get_detection_source(self, source_id: str) -> dict[str, Any] | None:
         with self.connect() as db:

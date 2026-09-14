@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 from flask import Flask, abort, redirect, render_template, request, send_file
 
 from .projects import resolve_project_workspace
-from .db import MISSING_MARKERS, TrainingDatabase, VALID_OCR_CONTENT_FILTERS
+from .db import TrainingDatabase, VALID_OCR_CONTENT_FILTERS
 
 
 def _optional_confidence(value: str | None) -> float | None:

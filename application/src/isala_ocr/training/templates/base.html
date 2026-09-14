@@ -54,7 +54,6 @@
       <span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}<small class="lock-mark">🔒</small></span></span>
       {% endif %}
     {% endfor %}
-
     <div class="nav-section nav-pipeline-a">CELLEN</div>
     {% for nav in [('detection-review','7','GT Studio','/detection-review'),('table-model','8','Celdetector trainen','/process/table-model'),('table-compare','9','Celdetector reviewen','/process/table-compare')] %}
       {% set cell_active = request.path == nav[3] or (nav[0] == 'detection-review' and request.path.startswith('/detection-review')) %}
@@ -64,6 +63,9 @@
       <span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">{{ nav[1] }}</span><span>{{ nav[2] }}<small class="lock-mark">🔒</small></span></span>
       {% endif %}
     {% endfor %}
+    <a href="/detection-lab" class="process-tab fallback-tab {% if request.path == '/detection-lab' %}active{% endif %}" title="Tijdelijk: vergelijk drie aanpakken tegen cellen die blijven samenvoegen. Geen vaste stap.">
+      <span class="process-tab-number">🧪</span><span>Detectie-lab (tijdelijk)</span>
+    </a>
 
     <div class="nav-section nav-pipeline-a">TABELDEFINITIE</div>
     {% if workflow_step_access.get('table-quality', False) %}<a href="/process/table-quality" class="process-tab {% if request.path == '/process/table-quality' %}active{% endif %}"><span class="process-tab-number">10</span><span>Tabelstudio</span></a>{% else %}<span class="process-tab blocked" title="Eerst de vorige stap afronden."><span class="process-tab-number">10</span><span>Tabelstudio<small class="lock-mark">🔒</small></span></span>{% endif %}

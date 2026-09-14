@@ -220,17 +220,6 @@ def _dataset_id(annotations: list[dict[str, Any]], source_ids: set[str], source_
     return f"loc-{stamp}-{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:8]}"
 
 
-def _context_patch_box(box: Box, *, image_width: int, image_height: int) -> Box:
-    """Return a compact training window around one explicitly reviewed region."""
-    pad_x = max(24, int(round(box.width * 1.25)))
-    pad_y = max(18, int(round(box.height * 2.0)))
-    return Box(
-        max(0, box.x1 - pad_x), max(0, box.y1 - pad_y),
-        min(image_width, box.x2 + pad_x), min(image_height, box.y2 + pad_y),
-    )
-
-
-
 def localization_dataset_preview(workspace: str | Path) -> dict[str, Any]:
     """Return the exact source/ROI selection that a localization build will use.
 
@@ -1463,7 +1452,6 @@ def diagnose_prediction_file(
     production_threshold = float(production.get("threshold")) if production else None
     train_at_diagnostic = row_at(train_rows, diagnostic_threshold)
     validation_at_diagnostic = row_at(validation_rows, diagnostic_threshold)
-    test_at_diagnostic = row_at(test_rows, diagnostic_threshold)
     test_at_production = row_at(test_rows, production_threshold)
 
     # Build a frozen-dataset error breakdown on validation at the chosen diagnostic
@@ -1484,7 +1472,6 @@ def diagnose_prediction_file(
     train_best_f1 = float((train_best or {}).get("f1") or 0.0)
     train_metrics = row_metrics(train_at_diagnostic)
     val_metrics = row_metrics(validation_at_diagnostic)
-    test_metrics = row_metrics(test_at_diagnostic)
     causes = dict(((validation_details or {}).get("summary") or {}).get("cause_counts") or {})
     val_summary = dict((validation_details or {}).get("summary") or {})
     total_fp = int(val_summary.get("false_positives") or val_metrics.get("false_positives") or 0)

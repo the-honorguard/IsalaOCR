@@ -39,8 +39,13 @@ from .table_quality import table_first_quality
 from .table_panels import load_panel_profile
 from .table_cell_training import active_table_cell_model, table_cell_training_state
 from .source_preview import prepare_source_renders
+from .comparison_review_queue_web import install_comparison_review_queue
+from .job_cancellation import install_job_cancellation
+from .recognition_ground_truth_web import install_recognition_ground_truth_review
+from .stale_job_reconciliation import install_stale_job_reconciliation
 from .legacy_routes import register_legacy_routes
 from .routes_detection_candidate import register_detection_candidate_routes
+from .routes_detection_lab import register_detection_lab_routes
 from .routes_detection_review import register_detection_review_routes
 from .routes_home import register_home_routes
 from .routes_jobs import register_job_routes
@@ -131,6 +136,7 @@ ACTIONS = {
     "21": "Nieuwe raster/celkaders toepassen op de bevestigde mappings",
     "22": "Waarden uit het nieuwe raster uitlezen",
     "58": "Nieuw raster toepassen en waarden uitlezen",
+    "62": "Detectie-lab: 6 celdetectie-aanpakken vergelijken",
     "24": "Recognition-dataset bouwen en valideren",
     "25": "Recognition-dataset valideren",
     "26": "Recognition-model trainen",
@@ -163,6 +169,7 @@ ACTION_DURATION_ESTIMATES = {
     "10": {"label": "± 1–5 min", "detail": "Baseline en getraind model vergelijken."},
     "11": {"label": "± 10–30 sec", "detail": "Model kopiëren, registreren en activeren."},
     "12": {"label": "± 2–10 min", "detail": "Afhankelijk van aantal bronnen."},
+    "62": {"label": "± 2–8 min", "detail": "Draait alle 6 Detectie-lab-aanpakken voor één bron."},
     "13": {"label": "± 5–30 sec", "detail": "Rapportage over bestaande evaluatieresultaten."},
     "14": {"label": "± 10–30 min", "detail": "Eerste keer; met gevulde caches meestal veel sneller."},
     "15": {"label": "± 5–20 min", "detail": "CPU detector/PicoDet stack installeren of bouwen."},
@@ -3066,9 +3073,7 @@ def create_web_app(
                     "review_issue",
                     "add_prediction_to_gt",
                     "apply_functional_suggestions",
-                    "apply_obvious_error_suggestions",
-                    "apply_incomplete_detection_suggestions",
-                    "apply_split_group_model_error",
+                    "apply_model_error_suggestions",
                     "apply_all_open_geometry_functional_ok",
                 }:
                     abort(400)
@@ -3107,14 +3112,24 @@ def create_web_app(
                     if candidate:
                         parameters["candidate"] = candidate
                     return redirect(url_for("process_step", step_key=step_key, **parameters))
-                if action == "apply_obvious_error_suggestions":
+                if action == "apply_model_error_suggestions":
+                    # Merges what used to be three separate bulk actions (overduidelijke
+                    # modelfouten, onvolledige detecties, gesplitste detecties) into one:
+                    # all three are, by construction, always a model mistake -- never a
+                    # "functioneel correct" or "GT aanpassen" call -- so there is no reason
+                    # to make a reviewer click three buttons for the same decision. The
+                    # allowed-id set already comes pre-deduplicated from
+                    # table_cell_comparison_state, and functional_suggestions/
+                    # open_geometry_issue_ids there explicitly exclude these same ids, so
+                    # applying this action can never contradict a "functioneel correct"
+                    # bulk action on the same issue.
                     state = table_cell_comparison_state(
                         workspace_root(),
                         reference_run_id=reference or None,
                         candidate_run_id=candidate or run_id or None,
                     )
                     active_run = str((state.get("candidate") or {}).get("run_id") or "")
-                    allowed_ids = set((state.get("obvious_error_suggestions") or {}).get("issue_ids") or [])
+                    allowed_ids = set((state.get("model_error_suggestions") or {}).get("issue_ids") or [])
                     requested_ids = {
                         str(value).strip()[:80]
                         for value in request.form.getlist("issue_id")
@@ -3128,73 +3143,8 @@ def create_web_app(
                     else:
                         applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "model_error")
                         flash(
-                            f"{len(applied)} overduidelijk te grote detecties als modelfout gemarkeerd.",
-                            "success",
-                        )
-                    parameters = {}
-                    if reference:
-                        parameters["reference"] = reference
-                    if candidate:
-                        parameters["candidate"] = candidate
-                    return redirect(url_for("process_step", step_key=step_key, **parameters))
-                if action == "apply_incomplete_detection_suggestions":
-                    state = table_cell_comparison_state(
-                        workspace_root(),
-                        reference_run_id=reference or None,
-                        candidate_run_id=candidate or run_id or None,
-                    )
-                    active_run = str((state.get("candidate") or {}).get("run_id") or "")
-                    allowed_ids = set((state.get("incomplete_detection_suggestions") or {}).get("issue_ids") or [])
-                    requested_ids = {
-                        str(value).strip()[:80]
-                        for value in request.form.getlist("issue_id")
-                        if str(value).strip()
-                    }
-                    selected_ids = sorted(allowed_ids.intersection(requested_ids))
-                    if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
-                        flash("De foutsuggesties horen bij de nieuwste, schrijfbare detectierun.", "error")
-                    elif not selected_ids:
-                        flash("Er zijn geen geldige, nog open foutsuggesties om toe te passen.", "warning")
-                    else:
-                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "model_error")
-                        flash(
-                            f"{len(applied)} onvolledige detecties als modelfout gemarkeerd.",
-                            "success",
-                        )
-                    parameters = {}
-                    if reference:
-                        parameters["reference"] = reference
-                    if candidate:
-                        parameters["candidate"] = candidate
-                    return redirect(url_for("process_step", step_key=step_key, **parameters))
-                if action == "apply_split_group_model_error":
-                    # A GT cell that the model detected as two or more separate
-                    # boxes is always a model mistake -- there is no "functioneel
-                    # correct" or "GT aanpassen" reading of it, whatever the exact
-                    # geometry looks like. This bulk-applies the same "model_error"
-                    # decision the per-issue "Model fout" button writes, just for
-                    # every issue in a split group at once.
-                    state = table_cell_comparison_state(
-                        workspace_root(),
-                        reference_run_id=reference or None,
-                        candidate_run_id=candidate or run_id or None,
-                    )
-                    active_run = str((state.get("candidate") or {}).get("run_id") or "")
-                    allowed_ids = set((state.get("split_group_suggestions") or {}).get("issue_ids") or [])
-                    requested_ids = {
-                        str(value).strip()[:80]
-                        for value in request.form.getlist("issue_id")
-                        if str(value).strip()
-                    }
-                    selected_ids = sorted(allowed_ids.intersection(requested_ids))
-                    if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
-                        flash("De gesplitste-detectiegroepen horen bij de nieuwste, schrijfbare detectierun.", "error")
-                    elif not selected_ids:
-                        flash("Er zijn geen geldige, nog open gesplitste-detectiegroepen om toe te passen.", "warning")
-                    else:
-                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "model_error")
-                        flash(
-                            f"{len(applied)} issues uit gesplitste-detectiegroepen als modelfout gemarkeerd.",
+                            f"{len(applied)} kaders (overduidelijke modelfouten, onvolledige detecties en "
+                            "gesplitste detecties) als modelfout gemarkeerd.",
                             "success",
                         )
                     parameters = {}
@@ -3882,6 +3832,18 @@ def create_web_app(
         record_webui_error=_record_webui_error,
     )
 
+    # TEMPORARY: detection-lab (cell-merging regression investigation). Remove
+    # this call, routes_detection_lab.py, detection_lab.html and the sidebar
+    # link in base.html once the regression is understood.
+    register_detection_lab_routes(
+        app,
+        workspace_root=workspace_root,
+        safe_workspace_file=safe_workspace_file,
+        database=database,
+        loaded_config=loaded_config,
+        record_webui_error=_record_webui_error,
+    )
+
     register_detection_review_routes(
         app,
         database=database,
@@ -4119,5 +4081,17 @@ def create_web_app(
         enqueue_job=enqueue_job,
         utcnow=_utcnow,
     )
+
+    # These attach their own routes/hooks on top of the ones registered above.
+    # They live in separate modules (each independently useful, e.g. in a
+    # narrower test) but must always be wired into every app this function
+    # builds - previously only webui_server.py's main() did this, so any other
+    # caller (a test, a future embedding) silently got an app missing
+    # recognition-GT review, the comparison review queue, job cancellation and
+    # stale-job reconciliation.
+    install_recognition_ground_truth_review(app, workspace)
+    install_comparison_review_queue(app, workspace)
+    install_job_cancellation(app, workspace)
+    install_stale_job_reconciliation(app, workspace)
 
     return app

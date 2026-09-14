@@ -13,7 +13,7 @@
     <form method="get" action="/process/detect-candidates">
       {% if panel_mode %}<input type="hidden" name="view" value="panels">{% endif %}
       <label>Lezing<select name="source_id" onchange="this.form.submit()">
-        {% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id == source_id %}selected{% endif %}>{{ item.source_id }}</option>{% endfor %}
+        {% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id == source_id %}selected{% endif %}>{{ item.display_name|default('Afbeelding') }}</option>{% endfor %}
       </select></label>
     </form>
   </div>
@@ -68,7 +68,7 @@
       <div class="toolbar"><div><span class="eyebrow">RESULTAAT</span><h3>{{ regions|length }} nieuwe regio’s</h3></div><span class="pill">{{ ground_truth_regions|length }} oude GT</span></div>
       <label class="region-gt-toggle"><input type="checkbox" id="show-gt"> Oude regio-GT tonen</label>
       {% if detection_info %}<details open><summary>Meer info over detectie</summary><dl class="region-review-info"><dt>Run</dt><dd class="mono">{{ detection_info.batch_id or 'onbekend' }}</dd><dt>Gestart</dt><dd>{{ detection_info.started_at or 'onbekend' }}</dd><dt>Regiomodel</dt><dd class="mono">{{ detection_info.region_model or 'onbekend' }}</dd><dt>Modus</dt><dd>{{ detection_info.detection_mode or 'onbekend' }}</dd><dt>Engine</dt><dd>{{ detection_info.engine or 'onbekend' }} · {{ detection_info.device or 'onbekend' }}</dd></dl></details>{% endif %}
-      <div class="region-source-list"><strong>Bronnen</strong>{% for item in sources %}<a class="region-source-row{% if item.source_id == source_id %} active{% endif %}" href="/process/detect-candidates?source_id={{ item.source_id|urlencode }}">{{ item.source_id }}<span>{{ item.region_count or 0 }} regio’s</span></a>{% endfor %}</div>
+      <div class="region-source-list"><strong>Bronnen</strong>{% for item in sources %}<a class="region-source-row{% if item.source_id == source_id %} active{% endif %}" href="/process/detect-candidates?source_id={{ item.source_id|urlencode }}">{{ item.display_name|default('Afbeelding') }}<span>{{ item.region_count or 0 }} regio’s</span></a>{% endfor %}</div>
     {% endif %}
   </aside>
 </div>

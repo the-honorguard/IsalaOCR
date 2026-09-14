@@ -210,18 +210,23 @@ def register_job_routes(
         if action_id in {"24", "25", "26", "27", "28"} and not current_recognition_gate().get("ready"):
             abort(423, description="Recognition is locked until approved Recognition-GT samples are available")
         options={}
-        if action_id == "2":
+        if action_id in {"2", "62"}:
             table_model_id = str(request.form.get("table_model_id") or "").strip()
             if table_model_id and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", table_model_id):
                 abort(400)
             if table_model_id:
                 options["table_model_id"] = table_model_id
-        if action_id in {"2", "20", "21", "22"}:
+        if action_id in {"2", "20", "21", "22", "62"}:
             source_id=str(request.form.get("source_id","")).strip()
             if source_id:
                 if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", source_id):
                     abort(400)
                 options["source_id"]=source_id
+            elif action_id == "62":
+                # Unlike the source-scoped mapping actions above, Detectie-lab
+                # has no "all sources" mode: it always compares approaches on
+                # exactly one already-rendered source.
+                abort(400)
         if action_id == "26":
             device=str(request.form.get("device","gpu")).strip().lower()
             if device not in {"cpu","gpu"}:
@@ -234,9 +239,14 @@ def register_job_routes(
             options["start_from"] = start_from
         payload = enqueue_job(action_id, options)
         job_id = str(payload["job_id"])
-        flash(f"Taak gestart: {actions[action_id]}","success")
+        # Only flash for the traditional form-submit-then-redirect flow. A
+        # JSON/XHR caller (Detectie-lab polls /jobs repeatedly, once per
+        # approach/source, without ever navigating) would otherwise pile up
+        # one "Taak gestart" flash message per call in the session, all
+        # dumped at once the next time a full page renders.
         if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accept_mimetypes.best == "application/json":
             return jsonify(payload), 202
+        flash(f"Taak gestart: {actions[action_id]}","success")
         destination=request.referrer or url_for("process_step",step_key="detect-candidates")
         separator="&" if "?" in destination else "?"
         return redirect(f"{destination}{separator}job_id={job_id}")
