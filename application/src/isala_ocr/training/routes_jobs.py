@@ -216,12 +216,17 @@ def register_job_routes(
                 abort(400)
             if table_model_id:
                 options["table_model_id"] = table_model_id
-        if action_id in {"2", "20", "21", "22"}:
+        if action_id in {"2", "20", "21", "22", "62"}:
             source_id=str(request.form.get("source_id","")).strip()
             if source_id:
                 if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", source_id):
                     abort(400)
                 options["source_id"]=source_id
+            elif action_id == "62":
+                # Unlike the source-scoped mapping actions above, Detectie-lab
+                # has no "all sources" mode: it always compares approaches on
+                # exactly one already-rendered source.
+                abort(400)
         if action_id == "26":
             device=str(request.form.get("device","gpu")).strip().lower()
             if device not in {"cpu","gpu"}:

@@ -79,6 +79,11 @@ function Get-IsalaActionCatalog {
         "21" = @{ Name = "Apply current raster/cell mappings"; Script = "apply-mappings.ps1"; Profile = "mapping-apply" }
         "22" = @{ Name = "Read values from current raster/cells"; Script = "read-mapped-values.ps1"; Profile = "value-read" }
         "58" = @{ Name = "Apply mappings and read current raster/cell values"; Script = "run-mapped-values.ps1"; Profile = "mapping-apply" }
+        # TEMPORARY: Detectie-lab cell-merging regression investigation. Remove
+        # this entry, detection-lab-compare.ps1, isala_ocr.detection_lab_cli,
+        # routes_detection_lab.py and the sidebar link in base.html together
+        # once the regression is understood.
+        "62" = @{ Name = "Detectie-lab: 3 celdetectie-aanpakken vergelijken"; Script = "detection-lab-compare.ps1"; Profile = "detection-lab" }
         "24" = @{ Name = "Build and validate recognition dataset"; Script = "build-training-dataset.ps1"; Profile = "dataset-build" }
         "25" = @{ Name = "Validate recognition dataset"; Script = "check-training-dataset.ps1"; Profile = "dataset-check" }
         "26" = @{ Name = "Train recognition model"; Script = "train-recognition-model.ps1"; Profile = "recognition-train"; Arguments = @{ Device = "gpu" } }
@@ -490,6 +495,14 @@ function Add-IsalaActionChecks {
             $status = if (Test-Path -LiteralPath $manifest -PathType Leaf) { "PASS" } else { "FAIL" }
             [void]$Results.Add((New-IsalaCheckResult -Scope $scope -Name "Inference model cache" -Status $status -Message $manifest -Remediation "Open Stap 1 · Voorbereiding and install Inference OCR + tabelmodellen, or choose Alles voorbereiden."))
         }
+        "detection-lab" {
+            # Runs against an already-rendered source, not raw project input,
+            # so this deliberately skips the "collect" profile's input-file
+            # check and only verifies the same inference/table model cache.
+            $manifest = Join-Path $ProjectRoot "models\paddlex\isala_ocr_model_manifest.json"
+            $status = if (Test-Path -LiteralPath $manifest -PathType Leaf) { "PASS" } else { "FAIL" }
+            [void]$Results.Add((New-IsalaCheckResult -Scope $scope -Name "Inference model cache" -Status $status -Message $manifest -Remediation "Open Stap 1 · Voorbereiding and install Inference OCR + tabelmodellen, or choose Alles voorbereiden."))
+        }
         "table-cell-build" {
             $database = Join-Path $ProjectWorkspace "samples.sqlite3"
             $ready = Test-Path -LiteralPath $database -PathType Leaf
@@ -845,7 +858,7 @@ function Invoke-IsalaPreflight {
                 [void]$results.Add((New-IsalaCheckResult -Scope "Taakcontrole" -Name "Preflight implementation" -Status "FAIL" `
                     -Message $_.Exception.Message -Remediation "Install the latest complete release; the checker itself failed before the task was executed."))
             }
-        if ($ActionId -in @("1","2","3","5","6","7","8","11","12","14","15","16","17","18","20","21","22","24","25","26","27","28","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","54","55","56","57","58","60")) {
+        if ($ActionId -in @("1","2","3","5","6","7","8","11","12","14","15","16","17","18","20","21","22","24","25","26","27","28","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50","51","52","54","55","56","57","58","60","62")) {
                 try {
                     [void]$results.Add((Invoke-IsalaContainerPermissionCheck))
                 }

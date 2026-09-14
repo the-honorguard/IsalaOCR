@@ -71,13 +71,28 @@
   const runAllButton = document.getElementById('detection-lab-run-all');
   if (!grid || !runAllButton) return;
   const APPROACHES = ['forced_benchmark', 'region_variant_trial', 'contrast_lines'];
+  const POLL_MS = 2000;
   const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  const renderResult = (approach, data) => {
+  const resetColumns = () => {
+    APPROACHES.forEach((approach) => {
+      const column = grid.querySelector(`.detection-lab-column[data-approach="${approach}"] [data-slot="result"]`);
+      if (column) column.innerHTML = '<span class="muted">Bezig...</span>';
+    });
+  };
+  const renderResult = (approach, entry) => {
     const column = grid.querySelector(`.detection-lab-column[data-approach="${approach}"] [data-slot="result"]`);
     if (!column) return;
-    const m = data.metrics || {};
+    if (!entry) {
+      column.innerHTML = '<span class="muted">Geen resultaat voor deze aanpak.</span>';
+      return;
+    }
+    if (!entry.ok) {
+      column.innerHTML = `<span class="muted">Mislukt: ${escapeHtml(entry.error || 'onbekende fout')}</span>`;
+      return;
+    }
+    const m = entry.metrics || {};
     column.innerHTML = `
-      <img src="${data.image_url}" alt="Resultaat ${escapeHtml(approach)}">
+      <img src="${entry.image_url}" alt="Resultaat ${escapeHtml(approach)}">
       <dl>
         <dt>Score</dt><dd>${m.score ?? '-'}</dd>
         <dt>Tabellen</dt><dd>${m.table_count ?? '-'}</dd>
@@ -88,48 +103,77 @@
         <dt>Overlap-penalty</dt><dd>${m.overlap_penalty ?? '-'}</dd>
       </dl>`;
   };
-  const renderError = (approach, error) => {
-    const column = grid.querySelector(`.detection-lab-column[data-approach="${approach}"] [data-slot="result"]`);
-    if (!column) return;
-    column.innerHTML = `<span class="muted">Mislukt: ${escapeHtml(error.message)}</span>`;
-  };
-  const runApproach = async (approach) => {
-    const response = await fetch('/api/detection-lab/run', {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  // The labeler container that serves this page deliberately does not
+  // install PaddleOCR/PaddlePaddle, so the actual detection work cannot run
+  // here in-process. Instead it goes through the existing job queue (action
+  // "62"), the same worker that runs every other pipeline step, so it
+  // executes inside the training-collector container that does have the
+  // PaddleOCR/PaddleX stack.
+  const startJob = async () => {
+    const body = new URLSearchParams({action_id: '62', source_id: sourceId});
+    const response = await fetch('/jobs', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({source_id: sourceId, approach}),
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+      body,
     });
-    const data = await response.json();
-    if (!response.ok || data.error) {
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.job_id) {
       throw new Error(data.error || `HTTP ${response.status}`);
     }
-    return data;
+    return data.job_id;
+  };
+  const waitForJob = async (jobId) => {
+    while (true) {
+      const response = await fetch(`/api/jobs/${jobId}`, {headers: {'Accept': 'application/json'}});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const job = await response.json();
+      const status = String(job.status || '');
+      message.textContent = `Taak ${jobId}: ${job.progress_label || status}...`;
+      if (status === 'completed') return job;
+      if (status === 'failed' || status === 'cancelled') {
+        const logResponse = await fetch(`/api/jobs/${jobId}/log`).catch(() => null);
+        const logText = logResponse && logResponse.ok ? await logResponse.text() : '';
+        throw new Error(logText.trim() ? logText.trim().split('\n').slice(-5).join(' · ') : `Taak ${status}`);
+      }
+      await sleep(POLL_MS);
+    }
+  };
+  const fetchResults = async () => {
+    const response = await fetch(`/api/detection-lab/results/${encodeURIComponent(sourceId)}`, {headers: {'Accept': 'application/json'}});
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    return data.results || {};
   };
   runAllButton.addEventListener('click', async () => {
     runAllButton.disabled = true;
-    message.textContent = 'Bezig met alle 3 aanpakken...';
+    resetColumns();
+    message.textContent = 'Taak inplannen...';
     message.className = 'inline-status';
-    // Run in parallel and let each column report its own outcome, so one
-    // approach failing (e.g. a missing model) doesn't block the other two
-    // from showing their result side by side.
-    const results = await Promise.allSettled(APPROACHES.map((approach) => runApproach(approach)));
-    let failed = 0;
-    results.forEach((result, index) => {
-      const approach = APPROACHES[index];
-      if (result.status === 'fulfilled') {
-        renderResult(approach, result.value);
+    try {
+      const jobId = await startJob();
+      await waitForJob(jobId);
+      const results = await fetchResults();
+      let failed = 0;
+      APPROACHES.forEach((approach) => {
+        const entry = results[approach];
+        if (!entry || !entry.ok) failed += 1;
+        renderResult(approach, entry);
+      });
+      if (failed === 0) {
+        message.textContent = 'Alle 3 aanpakken klaar.';
       } else {
-        failed += 1;
-        renderError(approach, result.reason);
+        message.textContent = `${APPROACHES.length - failed}/${APPROACHES.length} aanpakken klaar, ${failed} mislukt.`;
+        message.className = 'inline-status error';
       }
-    });
-    if (failed === 0) {
-      message.textContent = 'Alle 3 aanpakken klaar.';
-    } else {
-      message.textContent = `${APPROACHES.length - failed}/${APPROACHES.length} aanpakken klaar, ${failed} mislukt.`;
+    } catch (error) {
+      message.textContent = `Mislukt: ${error.message}`;
       message.className = 'inline-status error';
+    } finally {
+      runAllButton.disabled = false;
     }
-    runAllButton.disabled = false;
   });
 })();
 </script>

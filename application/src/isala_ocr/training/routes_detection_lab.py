@@ -18,33 +18,33 @@ resulting cell overlays + geometry scores next to each other:
   3. "Probeer 3": detect faint row-to-row contrast steps and draw a
      reinforcing line at each one before a single detection pass.
 
-This module, its template and its sidebar link are intentionally scoped as a
-throwaway experiment - remove all three once the regression is understood
-and one approach has been folded into the real pipeline.
+The ``labeler`` container this module runs in deliberately does not install
+PaddleOCR/PaddlePaddle (see ``infrastructure/docker/Dockerfile.labeler``), so
+the actual detection work cannot run in-process here. Instead this module
+only renders the page, enqueues job action "62" (via the existing job queue -
+see ``create_job`` in ``routes_jobs.py``, and ``detection_lab_cli.py`` /
+``webui-worker.ps1`` for where the job actually runs), and serves the
+overlay images + results JSON that job writes into the shared workspace.
+
+This module, its template, its CLI counterpart (``isala_ocr.detection_lab_cli``)
+and its sidebar link are intentionally scoped as a throwaway experiment -
+remove all of it once the regression is understood and one approach has been
+folded into the real pipeline.
 """
 
 from __future__ import annotations
 
+import json
 import re
-import time
 from pathlib import Path
 from typing import Any, Callable
 
-import cv2
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
-from ..config import AppConfig
-from ..ocr.table_structure import PPStructureTableEngine, score_table_structure
 from .collector import _table_settings_with_active_region_model
 
 _SOURCE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}")
 _FILENAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\.png")
-_APPROACHES = {"forced_benchmark", "region_variant_trial", "contrast_lines"}
-_APPROACH_LABELS = {
-    "forced_benchmark": "Probeer 1 · Volledige benchmark (regio-model genegeerd)",
-    "region_variant_trial": "Probeer 2 · Regio-model + variant-trial per regio",
-    "contrast_lines": "Probeer 3 · Contrastlijnen tussen rijen",
-}
 
 
 def register_detection_lab_routes(
@@ -53,7 +53,7 @@ def register_detection_lab_routes(
     workspace_root: Callable[[], Path],
     safe_workspace_file: Callable[[str | Path], Path],
     database: Any,
-    loaded_config: AppConfig | None,
+    loaded_config: Any,
     record_webui_error: Callable[..., str],
 ) -> None:
     def _table_settings() -> dict[str, Any]:
@@ -63,16 +63,6 @@ def register_detection_lab_routes(
             loaded_config.raw.get("training", {}).get("collection", {}).get("table_structure", {}) or {}
         )
         return _table_settings_with_active_region_model(workspace_root(), raw)
-
-    def _draw_cell_overlay(image, regions):
-        canvas = image.copy()
-        for region in regions:
-            box = region.box
-            cv2.rectangle(canvas, (box.x1, box.y1), (box.x2, box.y2), (0, 140, 255), 2)
-            for cell in region.cells:
-                cbox = cell.box
-                cv2.rectangle(canvas, (cbox.x1, cbox.y1), (cbox.x2, cbox.y2), (0, 220, 0), 1)
-        return canvas
 
     @app.get("/detection-lab")
     def detection_lab_page():
@@ -85,50 +75,32 @@ def register_detection_lab_routes(
             selected_source_id=request.args.get("source_id") or (sources[0]["source_id"] if sources else ""),
         )
 
-    @app.post("/api/detection-lab/run")
-    def detection_lab_run():
-        payload = request.get_json(silent=True) or {}
-        source_id = str(payload.get("source_id") or "").strip()
-        approach = str(payload.get("approach") or "").strip()
-        if approach not in _APPROACHES:
-            return jsonify({"error": "Onbekende aanpak"}), 400
+    @app.get("/api/detection-lab/results/<source_id>")
+    def detection_lab_results(source_id: str):
         if not _SOURCE_ID_RE.fullmatch(source_id):
-            return jsonify({"error": "Ongeldig source_id"}), 400
-        render_path = safe_workspace_file(Path("source_renders") / f"{source_id}.png")
-        if not render_path.is_file():
-            return jsonify({"error": "Geen bronrender gevonden; draai eerst Stap 4/5 voor deze bron."}), 404
-        image = cv2.imread(str(render_path))
-        if image is None:
-            return jsonify({"error": "Bronrender kon niet worden gelezen"}), 500
-        if loaded_config is None:
-            return jsonify({"error": "De actieve configuratie ontbreekt"}), 409
+            abort(404)
+        results_path = safe_workspace_file(Path("detection_lab") / f"{source_id}-results.json")
+        if not results_path.is_file():
+            return jsonify({"ok": False, "error": "Nog geen resultaten voor deze bron."}), 404
         try:
-            engine = PPStructureTableEngine(loaded_config.ocr, _table_settings())
-            engine.warmup()
-            if approach == "forced_benchmark":
-                regions, diagnostics = engine.detect_with_forced_full_benchmark(image, source_id=source_id)
-            elif approach == "region_variant_trial":
-                regions, diagnostics = engine.detect_with_trained_regions_benchmark(image, source_id=source_id)
-            else:
-                regions, diagnostics = engine.detect_with_contrast_lines(image, source_id=source_id)
-        except Exception as exc:
-            record_webui_error("detection_lab_run", exc)
-            return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
-        metrics = score_table_structure(regions)
-        overlay = _draw_cell_overlay(image, regions)
-        out_dir = workspace_root() / "detection_lab"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{source_id}-{approach}-{int(time.time() * 1000)}.png"
-        out_path = out_dir / filename
-        if not cv2.imwrite(str(out_path), overlay):
-            return jsonify({"error": "Overlay kon niet worden opgeslagen"}), 500
+            payload = json.loads(results_path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError) as exc:
+            record_webui_error("detection_lab_results", exc)
+            return jsonify({"ok": False, "error": "Resultatenbestand kon niet worden gelezen."}), 500
+        results = payload.get("results") if isinstance(payload, dict) else None
+        if not isinstance(results, dict):
+            return jsonify({"ok": False, "error": "Ongeldig resultatenbestand."}), 500
+        for entry in results.values():
+            if not isinstance(entry, dict):
+                continue
+            image_file = str(entry.get("image_file") or "").strip()
+            if image_file and _FILENAME_RE.fullmatch(image_file):
+                entry["image_url"] = f"/detection-lab-image/{image_file}"
         return jsonify({
             "ok": True,
-            "approach": approach,
-            "label": _APPROACH_LABELS.get(approach, approach),
-            "image_url": f"/detection-lab-image/{filename}",
-            "metrics": metrics,
-            "diagnostics": {key: value for key, value in diagnostics.items() if key not in ("runs", "regions")},
+            "source_id": str(payload.get("source_id") or source_id),
+            "generated_at": payload.get("generated_at"),
+            "results": results,
         })
 
     @app.get("/detection-lab-image/<path:filename>")

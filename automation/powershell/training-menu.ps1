@@ -230,7 +230,7 @@ if ($RunAction) {
             $extra.TableModelId = $ActionValue
         }
     }
-    elseif ($RunAction -in @("20","21","22") -and $ActionValue) {
+    elseif ($RunAction -in @("20","21","22","62") -and $ActionValue) {
         $extra.SourceId = $ActionValue
     }
     elseif ($RunAction -eq "60" -and $ActionValue) {

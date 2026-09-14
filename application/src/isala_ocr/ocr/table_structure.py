@@ -669,6 +669,24 @@ def score_table_structure(regions: Sequence[TableRegion]) -> dict[str, float | i
     }
 
 
+def draw_cell_overlay(image: np.ndarray, regions: Sequence[Any]) -> np.ndarray:
+    """Draw table-region and cell boxes on a copy of ``image`` for visual review.
+
+    Shared between the Detectie-lab CLI runner and anything else that needs to
+    render the same overlay, so the drawing logic (colors, line widths) stays
+    in one place instead of being duplicated per caller.
+    """
+    import cv2
+
+    canvas = image.copy()
+    for region in regions:
+        box = region.box
+        cv2.rectangle(canvas, (box.x1, box.y1), (box.x2, box.y2), (0, 140, 255), 2)
+        for cell in region.cells:
+            cbox = cell.box
+            cv2.rectangle(canvas, (cbox.x1, cbox.y1), (cbox.x2, cbox.y2), (0, 220, 0), 1)
+    return canvas
+
 
 class PPStructureTableEngine:
     """Lazy PP-StructureV3 wrapper used only for table/layout geometry."""
