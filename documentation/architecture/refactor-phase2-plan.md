@@ -40,9 +40,34 @@ na — zie validatieprotocol onderaan).
 Elk item hierboven wordt hieronder met `[ ]`/`[x]` bijgehouden zodra de
 inventarisatie/uitvoering start.
 
+## Inventaris item 1 (raw-SQL-plekken, huidige regelnummers)
+
+- [x] `projects.py:401-451` (`_rewrite_duplicated_project_paths`) — het
+      risicovolste geval (eigen `sqlite3.connect()`, silent
+      `except sqlite3.OperationalError: pass`). Opgelost via nieuwe
+      `TrainingDatabase.rewrite_localization_paths()` in `db_localization.py`
+      (`LocalizationMixin`). De twee `sqlite3.connect()`-aanroepen op
+      `projects.py:401-402` (bestandsniveau-backup via SQLite's eigen
+      backup-API bij het dupliceren van een project) blijven bewust
+      ongewijzigd: die werken op een ander project se databasebestand, niet
+      op de actieve `TrainingDatabase`-instantie, en horen niet bij "raw SQL
+      tegen dezelfde tabellen".
+- [ ] `table_quality.py:74-110` (`table_first_quality`, 4 queries in 1
+      `db.connect()`-blok)
+- [ ] `webui.py:918,939,969,1042,1068,1089` (6 plekken)
+- [ ] `recognition_ground_truth_web.py:29,53,74,101,161,207` (6 plekken)
+- [ ] `recognition_ground_truth.py:304,438,444`
+- [ ] `routes_roi_review.py:35`
+- [ ] `routes_value_review.py:133`
+- [ ] `mapping.py:1004,1017`
+- [ ] `dataset.py:124`
+- [ ] `labeler.py:56`
+- [ ] `table_cell_training.py:92`
+- [ ] `table_model_comparison.py:655`
+
 ## Status per item
 
-- [ ] 1. Raw-SQL-plekken
+- [ ] 1. Raw-SQL-plekken (zie inventaris hierboven — deels afgerond)
 - [ ] 2. Geometrie/IoU-module
 - [ ] 3. FieldSpec.whitelist-onderzoek
 - [ ] 4. `_similarity`-functies

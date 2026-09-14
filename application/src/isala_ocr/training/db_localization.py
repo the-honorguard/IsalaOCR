@@ -7,6 +7,7 @@ as a mixin, following the same pattern as ``db_samples.py``.
 from __future__ import annotations
 
 import json
+import sqlite3
 from typing import Any
 
 from .db_constants import utc_now
@@ -157,3 +158,25 @@ class LocalizationMixin:
             current=db.execute("SELECT value FROM metadata WHERE key='active_localization_model_id'").fetchone()
             if current is not None and str(current["value"] or "") == str(model_id):
                 db.execute("DELETE FROM metadata WHERE key='active_localization_model_id'")
+
+    def rewrite_localization_paths(self, old_prefix: str, new_prefix: str) -> None:
+        """Rewrite a stored path prefix in localization_models/-evaluations.
+
+        Used by ``projects.duplicate()``/``rename()`` to update the paths a
+        duplicated or renamed project's own localization models/evaluations
+        point at. Previously this table/column knowledge was duplicated in
+        ``projects.py`` via a bare ``sqlite3.connect()`` on the project's
+        database file, with a silent ``except sqlite3.OperationalError: pass``
+        per table -- meaning a schema change here could silently break that
+        rewrite with no test or error to catch it. Centralizing it here means
+        a schema change is felt in one place.
+        """
+        with self.connect() as db:
+            for table, column in (("localization_models", "path"), ("localization_evaluations", "predictions_path")):
+                try:
+                    db.execute(
+                        f"UPDATE {table} SET {column}=REPLACE({column}, ?, ?) WHERE {column} LIKE ?",
+                        (old_prefix, new_prefix, old_prefix + "%"),
+                    )
+                except sqlite3.OperationalError:
+                    pass

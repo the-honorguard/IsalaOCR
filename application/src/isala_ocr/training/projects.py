@@ -12,6 +12,7 @@ from typing import Any
 
 import yaml
 
+from .db import TrainingDatabase
 from .json_store import read_json, write_json_atomic
 
 PROJECT_CATALOG_VERSION = 1
@@ -436,19 +437,11 @@ class ProjectManager:
         new = f"/training/workspace/projects/{target_id}"
         database = project_dir / "samples.sqlite3"
         if database.is_file():
-            connection = sqlite3.connect(database)
-            try:
-                for table, column in (("localization_models", "path"), ("localization_evaluations", "predictions_path")):
-                    try:
-                        connection.execute(
-                            f"UPDATE {table} SET {column}=REPLACE({column}, ?, ?) WHERE {column} LIKE ?",
-                            (old, new, old + "%"),
-                        )
-                    except sqlite3.OperationalError:
-                        pass
-                connection.commit()
-            finally:
-                connection.close()
+            # Goes through TrainingDatabase (and its LocalizationMixin) instead of a
+            # bare sqlite3.connect() so the table/column knowledge lives in one place
+            # and a future schema change here is felt immediately (see
+            # documentation/architecture/refactor-phase2-plan.md, item 1).
+            TrainingDatabase(database).rewrite_localization_paths(old, new)
         for file in project_dir.rglob("*"):
             if not file.is_file() or file.name == "samples.sqlite3" or file.suffix.lower() not in {".json", ".txt", ".yaml", ".yml"}:
                 continue
