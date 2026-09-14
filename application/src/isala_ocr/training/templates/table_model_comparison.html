@@ -180,7 +180,17 @@
 {% if comparison.gt_worklist and not comparison.history_mode %}
 <section class="notice warning section-gap">
   <strong>{{ comparison.gt_worklist|length }} GT-aanpassing{% if comparison.gt_worklist|length != 1 %}en{% endif %} gemarkeerd.</strong>
-  Rond deze bewust af in Ground Truth-beheer. Ze worden niet als modelmisser gebruikt zolang de GT zelf ter discussie staat.
+  Rond deze bewust af in GT Studio. Ze worden niet als modelmisser gebruikt zolang de GT zelf ter discussie staat.
+  <div style="display:grid;gap:6px;margin-top:10px">
+    {% for item in comparison.gt_worklist %}
+    <div style="border-top:1px solid var(--line);padding-top:7px">
+      <a href="/detection-review/{{ item.source_id }}?from_step7=1&issue_id={{ item.issue_id }}">
+        {{ item.panel_name or item.source_id }}{% if item.label %} — {{ item.label }}{% endif %}
+      </a>
+      <span class="pill warn">{{ item.type or 'gt_check' }}</span>
+    </div>
+    {% endfor %}
+  </div>
 </section>
 {% endif %}
 

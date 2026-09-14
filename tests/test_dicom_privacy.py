@@ -8,6 +8,31 @@ pydicom = pytest.importorskip("pydicom")
 from isala_ocr.dicom import _ybr_rct_to_rgb, decode_dicom
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_gitignore_blocks_medical_sources_and_patient_derived_outputs() -> None:
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8-sig")
+
+    for pattern in (
+        "*.dcm",
+        "*.dicom",
+        "*.ima",
+        "*.nii",
+        "*.nii.gz",
+        "*.nrrd",
+        "*.mha",
+        "*.mhd",
+        "source_renders/",
+        "detected_blocks/",
+        "header_crops/",
+        "mapped_crops/",
+        "localization_datasets/",
+        "table_cell_datasets/",
+    ):
+        assert pattern in gitignore
+
+
 def test_ybr_rct_inverse_is_reversible_for_known_rgb_values() -> None:
     rgb = np.array([[[10, 20, 30], [240, 120, 40]]], dtype=np.int64)
     y = np.floor_divide(rgb[..., 0] + 2 * rgb[..., 1] + rgb[..., 2], 4)

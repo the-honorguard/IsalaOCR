@@ -76,11 +76,27 @@ output/
 outputs/
 artifacts/
 crops/
+source_renders/
+detected_blocks/
+header_crops/
+mapped_crops/
+localization_datasets/
+table_cell_datasets/
 predictions/
 cache/
 .cache/
 tmp/
 temp/
+
+# Medical source data - never commit patient-derived inputs
+*.dcm
+*.dicom
+*.ima
+*.nii
+*.nii.gz
+*.nrrd
+*.mha
+*.mhd
 
 # Local databases
 *.sqlite
