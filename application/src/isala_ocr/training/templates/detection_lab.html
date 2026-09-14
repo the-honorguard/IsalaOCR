@@ -26,7 +26,10 @@
       <select name="table_model_id" onchange="this.form.submit()">
         <option value="active" {% if selected_table_model_id == 'active' %}selected{% endif %}>Actief model</option>
         <option value="baseline" {% if selected_table_model_id == 'baseline' %}selected{% endif %}>Generieke baseline</option>
-        {% for model in table_cell_models %}<option value="{{ model.model_id }}" {% if model.model_id == selected_table_model_id %}selected{% endif %}>{{ model.model_name or model.model_id }}{% if model.registered_at %} · {{ model.registered_at[:10] }}{% endif %}</option>{% endfor %}
+        {# model_name is the shared architecture name (e.g. RT-DETR-L_wireless_table_cell_det) and is
+           identical for every registered checkpoint, so it cannot distinguish entries on its own; lead
+           with the (unique, run-id-based) model_id and append the registration date for readability. #}
+        {% for model in table_cell_models %}<option value="{{ model.model_id }}" {% if model.model_id == selected_table_model_id %}selected{% endif %}>{{ model.model_id }}{% if model.created_at %} · {{ model.created_at[:10] }}{% endif %}{% if model.active %} (actief){% endif %}</option>{% endfor %}
       </select>
     </label>
   </form>
