@@ -60,13 +60,24 @@
 </div>
 
 {% set functional_suggestions = comparison.functional_suggestions or {} %}
+{% set error_suggestions = comparison.obvious_error_suggestions or {} %}
+{% set incomplete_suggestions = comparison.incomplete_detection_suggestions or {} %}
+{% set split_suggestions = comparison.split_group_suggestions or {} %}
+{% set model_error_suggestions = comparison.model_error_suggestions or {} %}
+{#
+  Deze drie knoppen dekken samen alle open geometrie-afwijkingen af, maar
+  overlappen elkaar nooit: table_cell_comparison_state() haalt alles wat
+  hieronder als "modelfout" wordt voorgesteld al vooraf uit de twee
+  "functioneel correct"-suggestielijsten, dus dezelfde afwijking kan hier
+  nooit tegelijk als modelfout én als functioneel correct worden aangeboden.
+#}
 {% if functional_suggestions.issues and comparison.review_writable %}
 <section class="card section-gap functional-suggestion-card">
   <div class="toolbar">
     <div>
       <span class="eyebrow">VEILIGE VOORSELECTIE</span>
       <h3>{{ functional_suggestions.issues|length }} kaders zijn waarschijnlijk functioneel correct</h3>
-      <p class="muted">Alleen geometrieën met minstens {{ '%.0f%%'|format(functional_suggestions.gt_coverage * 100) }} GT-dekking, maximaal {{ '%.0f%%'|format(functional_suggestions.prediction_excess * 100) }} extra kader en zonder naburige cel in beeld. Extra detecties, gemiste cellen en samengevoegde cellen blijven open.</p>
+      <p class="muted">Alleen geometrieën met minstens {{ '%.0f%%'|format(functional_suggestions.gt_coverage * 100) }} GT-dekking, maximaal {{ '%.0f%%'|format(functional_suggestions.prediction_excess * 100) }} extra kader en zonder naburige cel in beeld — en nooit een kader dat hieronder al als modelfout wordt voorgesteld. Extra detecties, gemiste cellen en samengevoegde cellen blijven open.</p>
     </div>
     <form method="post" class="functional-suggestion-form">
       <input type="hidden" name="comparison_action" value="apply_functional_suggestions">
@@ -86,9 +97,9 @@
 <section class="card section-gap functional-suggestion-card">
   <div class="toolbar">
     <div>
-      <span class="eyebrow">ALLES IN ÉÉN KEER</span>
+      <span class="eyebrow">ALLES OVERIG FUNCTIONEEL CORRECT</span>
       <h3>{{ open_geometry_ids|length }} open geometrie-afwijking{{ 'en' if open_geometry_ids|length != 1 }} in totaal</h3>
-      <p class="muted">Dit past geen drempel toe zoals de veilige voorselectie hierboven: elke nog openstaande geometrie-afwijking op deze run wordt in één keer op "Functioneel correct" gezet, inclusief de voorbeelden verderop met lagere GT-dekking. Gebruik dit alleen wanneer je die afwijkingen al hebt gezien en vertrouwt.</p>
+      <p class="muted">Dit past geen drempel toe zoals de veilige voorselectie hierboven: elke nog openstaande geometrie-afwijking op deze run wordt in één keer op "Functioneel correct" gezet, inclusief de voorbeelden verderop met lagere GT-dekking — behalve de kaders die hieronder al als modelfout worden voorgesteld. Gebruik dit alleen wanneer je die afwijkingen al hebt gezien en vertrouwt.</p>
     </div>
     <form method="post" class="functional-suggestion-form">
       <input type="hidden" name="comparison_action" value="apply_all_open_geometry_functional_ok">
@@ -102,69 +113,30 @@
 </section>
 {% endif %}
 
-{% set error_suggestions = comparison.obvious_error_suggestions or {} %}
-{% if error_suggestions.issues and comparison.review_writable %}
+{% if model_error_suggestions.issue_ids and comparison.review_writable %}
 <section class="card section-gap functional-suggestion-card">
   <div class="toolbar">
     <div>
-      <span class="eyebrow">OVERDUIDELIJKE MODELFOUTEN</span>
-      <h3>{{ error_suggestions.issues|length }} kaders zijn waarschijnlijk fout (te groot t.o.v. GT)</h3>
-      <p class="muted">Extra detecties, geometrie-afwijkingen en samengevoegde cellen die minstens {{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× zo hoog zijn als hun GT-cel, of geometrie-afwijkingen die de GT-cel al vrijwel volledig dekken (≥{{ '%.0f%%'|format(error_suggestions.gt_coverage_threshold * 100) }}) met meer dan {{ '%.0f%%'|format(error_suggestions.prediction_excess_threshold * 100) }} extra oppervlak. Bekijk eerst de voorbeelden hieronder voordat je in bulk toepast; niets wordt automatisch gemarkeerd.</p>
+      <span class="eyebrow">MODELFOUT</span>
+      <h3>{{ model_error_suggestions.issue_ids|length }} kaders zijn waarschijnlijk een modelfout</h3>
+      <p class="muted">
+        Combineert drie signalen die nooit "functioneel correct" of "GT aanpassen" kunnen zijn:
+        <strong>{{ error_suggestions.issues|length }}</strong> overduidelijk te grote detecties (≥{{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× zo hoog als hun GT-cel, of ≥{{ '%.0f%%'|format(error_suggestions.gt_coverage_threshold * 100) }} gedekt met meer dan {{ '%.0f%%'|format(error_suggestions.prediction_excess_threshold * 100) }} extra oppervlak),
+        <strong>{{ incomplete_suggestions.issues|length }}</strong> onvolledige detecties (volledig binnen de GT-cel, maar hoogstens {{ '%.0f%%'|format(incomplete_suggestions.gt_coverage_threshold * 100) }} gedekt),
+        en <strong>{{ split_suggestions.issues|length }}</strong> GT-cel{{ 'len' if split_suggestions.issues|length != 1 }} die 2+ losse detecties kreeg ({{ split_suggestions.issue_ids|length }} kaders).
+        Bekijk eerst de voorbeelden hieronder voordat je in bulk toepast; niets wordt automatisch gemarkeerd.
+      </p>
     </div>
     <form method="post" class="functional-suggestion-form">
-      <input type="hidden" name="comparison_action" value="apply_obvious_error_suggestions">
+      <input type="hidden" name="comparison_action" value="apply_model_error_suggestions">
       <input type="hidden" name="run_id" value="{{ cur.run_id }}">
       <input type="hidden" name="reference_run_id" value="{{ ref.run_id }}">
       <input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}">
-      {% for suggestion in error_suggestions.issues %}<input type="hidden" name="issue_id" value="{{ suggestion.issue_id }}">{% endfor %}
-      <button class="primary" type="submit">{{ error_suggestions.issues|length }} als modelfout markeren</button>
+      {% for issue_id in model_error_suggestions.issue_ids %}<input type="hidden" name="issue_id" value="{{ issue_id }}">{% endfor %}
+      <button class="primary" type="submit">{{ model_error_suggestions.issue_ids|length }} als modelfout markeren</button>
     </form>
   </div>
-  <small class="muted">Voorbeelden: {% for suggestion in error_suggestions.issues[:4] %}{{ suggestion.panel_name }} ({% if suggestion.oversized_by_excess %}{{ '%.0f%%'|format(suggestion.prediction_excess * 100) }} extra{% else %}{{ '%.1f'|format(suggestion.height_ratio) }}×{% endif %}){% if not loop.last %} · {% endif %}{% endfor %}</small>
-</section>
-{% endif %}
-
-{% set incomplete_suggestions = comparison.incomplete_detection_suggestions or {} %}
-{% if incomplete_suggestions.issues and comparison.review_writable %}
-<section class="card section-gap functional-suggestion-card">
-  <div class="toolbar">
-    <div>
-      <span class="eyebrow">ONVOLLEDIGE DETECTIES</span>
-      <h3>{{ incomplete_suggestions.issues|length }} kaders zijn waarschijnlijk onvolledig (te klein t.o.v. GT)</h3>
-      <p class="muted">Alleen geometrieën die volledig binnen hun GT-cel vallen (0% extra kader) maar hoogstens {{ '%.0f%%'|format(incomplete_suggestions.gt_coverage_threshold * 100) }} van de GT-cel dekken — ook als het om een gekoppelde FP+FN gaat. Bekijk eerst de voorbeelden hieronder voordat je in bulk toepast; niets wordt automatisch gemarkeerd.</p>
-    </div>
-    <form method="post" class="functional-suggestion-form">
-      <input type="hidden" name="comparison_action" value="apply_incomplete_detection_suggestions">
-      <input type="hidden" name="run_id" value="{{ cur.run_id }}">
-      <input type="hidden" name="reference_run_id" value="{{ ref.run_id }}">
-      <input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}">
-      {% for suggestion in incomplete_suggestions.issues %}<input type="hidden" name="issue_id" value="{{ suggestion.issue_id }}">{% endfor %}
-      <button class="primary" type="submit">{{ incomplete_suggestions.issues|length }} als modelfout markeren</button>
-    </form>
-  </div>
-  <small class="muted">Voorbeelden: {% for suggestion in incomplete_suggestions.issues[:4] %}{{ suggestion.panel_name }} ({{ '%.0f%%'|format(suggestion.gt_coverage * 100) }} gedekt){% if not loop.last %} · {% endif %}{% endfor %}</small>
-</section>
-{% endif %}
-
-{% set split_suggestions = comparison.split_group_suggestions or {} %}
-{% if split_suggestions.issues and comparison.review_writable %}
-<section class="card section-gap functional-suggestion-card">
-  <div class="toolbar">
-    <div>
-      <span class="eyebrow">GESPLITSTE DETECTIES</span>
-      <h3>{{ split_suggestions.issues|length }} GT-cel{{ 'len' if split_suggestions.issues|length != 1 }} kregen 2+ losse detecties</h3>
-      <p class="muted">Het model tekende meerdere kaders voor inhoud die in één GT-cel hoort. Dat is altijd een modelfout: functioneel correct of GT aanpassen is hier nooit van toepassing. Bekijk eerst de voorbeelden hieronder voordat je in bulk toepast; niets wordt automatisch gemarkeerd.</p>
-    </div>
-    <form method="post" class="functional-suggestion-form">
-      <input type="hidden" name="comparison_action" value="apply_split_group_model_error">
-      <input type="hidden" name="run_id" value="{{ cur.run_id }}">
-      <input type="hidden" name="reference_run_id" value="{{ ref.run_id }}">
-      <input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}">
-      {% for group in split_suggestions.issues %}{% for gid in group.issue_ids %}<input type="hidden" name="issue_id" value="{{ gid }}">{% endfor %}{% endfor %}
-      <button class="primary" type="submit">{{ split_suggestions.issue_ids|length }} als modelfout markeren</button>
-    </form>
-  </div>
-  <small class="muted">Voorbeelden: {% for group in split_suggestions.issues[:4] %}{{ group.panel_name }} ({{ group.group_size }} kaders){% if not loop.last %} · {% endif %}{% endfor %}</small>
+  <small class="muted">Voorbeelden: {% for suggestion in error_suggestions.issues[:2] %}{{ suggestion.panel_name }} ({% if suggestion.oversized_by_excess %}{{ '%.0f%%'|format(suggestion.prediction_excess * 100) }} extra{% else %}{{ '%.1f'|format(suggestion.height_ratio) }}×{% endif %}){% if not loop.last %} · {% endif %}{% endfor %}{% if error_suggestions.issues and (incomplete_suggestions.issues or split_suggestions.issues) %} · {% endif %}{% for suggestion in incomplete_suggestions.issues[:2] %}{{ suggestion.panel_name }} ({{ '%.0f%%'|format(suggestion.gt_coverage * 100) }} gedekt){% if not loop.last %} · {% endif %}{% endfor %}{% if incomplete_suggestions.issues and split_suggestions.issues %} · {% endif %}{% for group in split_suggestions.issues[:2] %}{{ group.panel_name }} ({{ group.group_size }} kaders){% if not loop.last %} · {% endif %}{% endfor %}</small>
 </section>
 {% endif %}
 
@@ -248,9 +220,9 @@
               <div>
                 <span class="issue-dot issue-dot-{{ issue.type }}"></span><strong>{{ issue.label }}</strong>
                 {% if issue.type == 'geometry' and issue.functional_candidate %}<span class="pill comparison-functional-hint ok">waarschijnlijk bruikbaar</span>{% endif %}
-                {% if issue.issue_id in error_suggestion_ids %}{% set error_match = error_suggestions.issues|selectattr('issue_id', 'equalto', issue.issue_id)|first %}<span class="pill comparison-functional-hint bad" title="Zou door 'Overduidelijke modelfouten' automatisch als modelfout gemarkeerd worden.">Auto: {% if error_match and error_match.oversized_by_excess %}≥{{ '%.0f%%'|format(error_suggestions.prediction_excess_threshold * 100) }} extra{% else %}≥{{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× te hoog{% endif %}</span>{% endif %}
-                {% if issue.issue_id in incomplete_suggestion_ids %}<span class="pill comparison-functional-hint bad" title="Zou door 'Onvolledige detecties' automatisch als modelfout gemarkeerd worden.">Auto: ≤{{ '%.0f%%'|format(incomplete_suggestions.gt_coverage_threshold * 100) }} gedekt</span>{% endif %}
-                {% if issue.issue_id in split_suggestion_ids %}<span class="pill comparison-functional-hint bad" title="Zou door 'Gesplitste detecties' automatisch als modelfout gemarkeerd worden.">Auto: gesplitste detectie</span>{% endif %}
+                {% if issue.issue_id in error_suggestion_ids %}{% set error_match = error_suggestions.issues|selectattr('issue_id', 'equalto', issue.issue_id)|first %}<span class="pill comparison-functional-hint bad" title="Zou door 'Modelfout' automatisch als modelfout gemarkeerd worden (overduidelijk te grote detectie).">Auto: {% if error_match and error_match.oversized_by_excess %}≥{{ '%.0f%%'|format(error_suggestions.prediction_excess_threshold * 100) }} extra{% else %}≥{{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× te hoog{% endif %}</span>{% endif %}
+                {% if issue.issue_id in incomplete_suggestion_ids %}<span class="pill comparison-functional-hint bad" title="Zou door 'Modelfout' automatisch als modelfout gemarkeerd worden (onvolledige detectie).">Auto: ≤{{ '%.0f%%'|format(incomplete_suggestions.gt_coverage_threshold * 100) }} gedekt</span>{% endif %}
+                {% if issue.issue_id in split_suggestion_ids %}<span class="pill comparison-functional-hint bad" title="Zou door 'Modelfout' automatisch als modelfout gemarkeerd worden (gesplitste detectie).">Auto: gesplitste detectie</span>{% endif %}
                 {% if issue.containment_recovered or issue.spatial_recovered %}<span class="pill comparison-containment-hint">FP+FN gekoppeld</span>{% endif %}
               </div>
               <small>{% if issue.iou %}IoU {{ '%.1f%%'|format(issue.iou*100) }} · {% endif %}{% if issue.type == 'geometry' %}GT gedekt {{ '%.1f%%'|format((issue.gt_coverage or 0)*100) }} · extra prediction {{ '%.1f%%'|format((issue.prediction_excess or 0)*100) }} · {% endif %}{% if issue.confidence %}confidence {{ '%.1f%%'|format(issue.confidence*100) }}{% endif %}</small>

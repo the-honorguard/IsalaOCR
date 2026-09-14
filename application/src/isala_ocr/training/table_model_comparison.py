@@ -1644,7 +1644,7 @@ def review_comparison_issues_bulk(
 
     Mirrors review_comparison_issue's validation, but looks the run up once
     and reads/writes reviews.json once instead of once per issue. The bulk
-    suggestion actions (apply_functional_suggestions, apply_obvious_error_suggestions)
+    suggestion actions (apply_functional_suggestions, apply_model_error_suggestions)
     can select dozens of issues on a noisy run, and calling review_comparison_issue
     in a loop made that scale roughly quadratically on exactly the runs where
     it matters most, with no atomicity across the loop if a later call failed.
@@ -1843,10 +1843,44 @@ def table_cell_comparison_state(
 
     reviews = comparison_reviews(root).get(str(candidate.get("run_id")), {})
     reviews = reviews if isinstance(reviews, dict) else {}
-    functional_suggestions = functional_geometry_suggestions(candidate, reviews)
     error_suggestions = obvious_error_suggestions(candidate, reviews)
     incomplete_suggestions = incomplete_detection_suggestions(candidate, reviews)
     split_suggestions = split_group_suggestions(candidate, reviews)
+    # A "functioneel correct" bucket and a "model fout" bucket must never both
+    # claim the same issue -- a reviewer's bulk click should never contradict
+    # itself. The three model-error buckets above are the more specific,
+    # unambiguous signal (an obviously oversized/undersized box, or a split
+    # detection group: none of those has a legitimate "functioneel correct"
+    # reading), so they take priority: anything they already flag is removed
+    # from both functional-correct buckets below. The raw geometry math alone
+    # can't guarantee that split -- e.g. a box 1.5x its matched GT cell's
+    # height can still land at <=45% area excess and >=85% GT coverage,
+    # satisfying functional_geometry_suggestions and obvious_error_suggestions
+    # (via the height-ratio path) at the same time -- so this dedup has to
+    # happen here, once, rather than relying on the individual thresholds to
+    # stay mutually exclusive.
+    model_error_suggestion_ids = (
+        set(error_suggestions["issue_ids"])
+        | set(incomplete_suggestions["issue_ids"])
+        | set(split_suggestions["issue_ids"])
+    )
+    model_error_suggestions = {
+        "issue_ids": sorted(model_error_suggestion_ids),
+        "obvious_error_count": len(error_suggestions["issue_ids"]),
+        "incomplete_count": len(incomplete_suggestions["issue_ids"]),
+        "split_group_count": len(split_suggestions["issues"]),
+        "split_issue_count": len(split_suggestions["issue_ids"]),
+    }
+    functional_suggestions_raw = functional_geometry_suggestions(candidate, reviews)
+    functional_issues = [
+        item for item in functional_suggestions_raw["issues"]
+        if item["issue_id"] not in model_error_suggestion_ids
+    ]
+    functional_suggestions = {
+        **functional_suggestions_raw,
+        "issues": functional_issues,
+        "issue_ids": [item["issue_id"] for item in functional_issues if item["issue_id"]],
+    }
     issue_panels = []
     total_issues = reviewed_issues = 0
     decision_counts: dict[str, int] = {}
@@ -1872,7 +1906,7 @@ def table_cell_comparison_state(
                 decision_counts[decision] = decision_counts.get(decision, 0) + 1
             elif str(issue.get("type") or "") == "geometry":
                 issue_id = str(issue.get("issue_id") or "")
-                if issue_id:
+                if issue_id and issue_id not in model_error_suggestion_ids:
                     open_geometry_issue_ids.append(issue_id)
         if issues:
             issue_panels.append({**panel, "issues": issues})
@@ -1905,5 +1939,6 @@ def table_cell_comparison_state(
         "obvious_error_suggestions": error_suggestions,
         "incomplete_detection_suggestions": incomplete_suggestions,
         "split_group_suggestions": split_suggestions,
+        "model_error_suggestions": model_error_suggestions,
         "open_geometry_issue_ids": open_geometry_issue_ids,
     }

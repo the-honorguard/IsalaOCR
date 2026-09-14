@@ -244,6 +244,44 @@ def test_step9_open_geometry_issue_ids_allow_bulk_approval_below_safe_threshold(
     assert reviewed["open_geometry_issue_ids"] == []
 
 
+def test_step9_bulk_suggestions_never_overlap_between_functional_and_model_error(tmp_path: Path) -> None:
+    # The GT cell is a 10x10 box at (10,10)-(20,20). Make the matching
+    # prediction 10 wide (same as GT) but 15 tall (10,8)-(20,23): fully
+    # containing the GT (gt_coverage 1.0) with only 33% prediction excess --
+    # comfortably inside functional_geometry_suggestions' safe thresholds
+    # (>=85% coverage, <=45% excess) -- while its height is exactly 1.5x the
+    # GT cell's own height, which independently crosses
+    # obvious_error_suggestions' height-ratio floor. Before the dedup this
+    # single issue would have been offered by both the "veilige voorselectie"
+    # bucket (functional_ok) and the "modelfout" bucket (model_error) at the
+    # same time; the model-error signal must win so a reviewer never sees one
+    # deviation suggested both ways.
+    dataset_id = _seed_dataset(tmp_path)
+    _seed_baseline_and_current(tmp_path, dataset_id)
+    detections = json.loads((tmp_path / "localization_detections" / "source-a.json").read_text(encoding="utf-8"))
+    detections["candidates"][0].update({"x1": 10, "y1": 8, "x2": 20, "y2": 23})
+    _write_json(tmp_path / "localization_detections" / "source-a.json", detections)
+
+    state = table_cell_comparison_state(tmp_path)
+    geometry = next(
+        issue
+        for panel in state["issue_panels"]
+        for issue in panel["issues"]
+        if issue["type"] == "geometry"
+    )
+    assert geometry["gt_coverage"] == pytest.approx(1.0)
+    assert geometry["prediction_excess"] == pytest.approx(1 / 3)
+
+    functional_ids = set(state["functional_suggestions"]["issue_ids"])
+    model_error_ids = set(state["model_error_suggestions"]["issue_ids"])
+    open_geometry_ids = set(state["open_geometry_issue_ids"])
+
+    assert not (functional_ids & model_error_ids), "an issue must never be suggested both ways"
+    assert geometry["issue_id"] in model_error_ids
+    assert geometry["issue_id"] not in functional_ids
+    assert geometry["issue_id"] not in open_geometry_ids
+
+
 def test_step7_functional_ok_is_restricted_to_geometry_issues(tmp_path: Path) -> None:
     dataset_id = _seed_dataset(tmp_path)
     _seed_baseline_and_current(tmp_path, dataset_id)
