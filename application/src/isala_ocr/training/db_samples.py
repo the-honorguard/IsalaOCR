@@ -458,3 +458,124 @@ class SamplesMixin:
             "recognized": int(row["recognized"] or 0),
             "roi_correct": int(row["roi_correct"] or 0),
         }
+
+    def source_summary_rows(self) -> list[dict[str, Any]]:
+        """Per-source sample aggregates for the source overview page.
+
+        Split out of ``webui.py``'s ``source_rows()`` (CODE_REVIEW_v3.16.0.md,
+        sectie Hoog) -- that closure now only adds the ``render_exists`` flag,
+        which needs ``workspace_root()`` and stays in webui.py.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT source_id, MIN(profile) profile, COUNT(*) sample_count,
+                       SUM(CASE WHEN extraction_method LIKE 'dynamic_%' THEN 1 ELSE 0 END) dynamic_count,
+                       SUM(CASE WHEN extraction_method IN ('fixed_fallback','fixed_roi') THEN 1 ELSE 0 END) fallback_count,
+                       AVG(locator_confidence) average_locator_confidence,
+                       AVG(raw_confidence) average_confidence,
+                       MIN(raw_confidence) minimum_confidence,
+                       MAX(updated_at) updated_at
+                FROM samples GROUP BY source_id ORDER BY updated_at DESC, source_id
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def samples_for_source(self, source_id: str) -> list[dict[str, Any]]:
+        """All samples for one source, in ROI reading order.
+
+        Split out of ``webui.py``'s ``source_samples()``.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT * FROM samples WHERE source_id=? ORDER BY roi_y1, roi_x1, field_key",
+                (source_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def roi_review_status_counts(self) -> dict[str, int]:
+        """ROI-review status counts, excluding stale generic-mapping remnants.
+
+        Split out of ``webui.py``'s ``roi_review_counts()``.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT roi_review_status, COUNT(*) AS amount FROM samples WHERE extraction_method<>'mapped_generic_stale' GROUP BY roi_review_status"
+            ).fetchall()
+        counts = {"pending": 0, "correct": 0, "incorrect": 0, "deferred": 0}
+        for row in rows:
+            counts[str(row["roi_review_status"])] = int(row["amount"])
+        counts["total"] = sum(counts.values())
+        return counts
+
+    def mapped_value_review_status_counts(self) -> dict[str, int]:
+        """Value-review status counts for the currently mapped application output.
+
+        Split out of ``webui.py``'s ``value_review_counts()``.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT status, COUNT(*) AS amount
+                FROM samples
+                WHERE extraction_method='mapped_generic'
+                  AND roi_review_status='correct'
+                  AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
+                GROUP BY status
+                """
+            ).fetchall()
+        counts = {
+            "pending": 0, "accepted": 0, "no_value": 0,
+            "unreadable": 0, "excluded": 0,
+        }
+        for row in rows:
+            status = str(row["status"])
+            if status in counts:
+                counts[status] = int(row["amount"])
+        counts["total"] = sum(counts.values())
+        counts["reviewed"] = counts["total"] - counts["pending"]
+        counts["problems"] = counts["unreadable"] + counts["excluded"]
+        return counts
+
+    def mapped_value_review_source_rows(self) -> list[dict[str, Any]]:
+        """Group only current mapped samples for the value-review step, by source.
+
+        Split out of ``webui.py``'s ``value_source_rows()``.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT source_id, COUNT(*) sample_count,
+                       SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) pending,
+                       SUM(CASE WHEN status='accepted' THEN 1 ELSE 0 END) accepted,
+                       SUM(CASE WHEN status='no_value' THEN 1 ELSE 0 END) no_value,
+                       SUM(CASE WHEN status IN ('unreadable','excluded') THEN 1 ELSE 0 END) problems,
+                       AVG(raw_confidence) average_confidence,
+                       MAX(updated_at) updated_at
+                FROM samples
+                WHERE extraction_method='mapped_generic'
+                  AND roi_review_status='correct'
+                  AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
+                GROUP BY source_id
+                ORDER BY updated_at DESC, source_id
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mapped_value_review_source_samples(self, source_id: str) -> list[dict[str, Any]]:
+        """Mapped, ROI-correct samples for one source, for the value-review step.
+
+        Split out of ``webui.py``'s ``value_source_samples()``.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT * FROM samples
+                WHERE source_id=? AND extraction_method='mapped_generic'
+                  AND roi_review_status='correct'
+                  AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
+                ORDER BY roi_y1, roi_x1, field_key
+                """,
+                (source_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]

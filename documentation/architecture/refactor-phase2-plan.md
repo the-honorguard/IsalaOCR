@@ -60,7 +60,16 @@ inventarisatie/uitvoering start.
       van `sqlite3.Row`, maar met dezelfde `row["kolom"]`-toegang, dus geen
       wijziging nodig in de consumerende aggregatielogica in
       `table_quality.py`).
-- [ ] `webui.py:918,939,969,1042,1068,1089` (6 plekken)
+- [x] `webui.py:918,939,969,1042,1068,1089` (6 plekken, allemaal op
+      `samples`) — verplaatst naar `SamplesMixin` (`db_samples.py`):
+      `source_summary_rows()`, `samples_for_source(source_id)`,
+      `roi_review_status_counts()`, `mapped_value_review_status_counts()`,
+      `mapped_value_review_source_rows()`,
+      `mapped_value_review_source_samples(source_id)`. De webui.py-closures
+      (`source_rows`, `source_samples`, `roi_review_counts`,
+      `value_review_counts`, `value_source_rows`, `value_source_samples`)
+      zijn nu dunne aanroepen; `source_rows()` behield alleen de
+      `render_exists`-berekening (die `workspace_root()` nodig heeft).
 - [ ] `recognition_ground_truth_web.py:29,53,74,101,161,207` (6 plekken)
 - [ ] `recognition_ground_truth.py:304,438,444`
 - [ ] `routes_roi_review.py:35`

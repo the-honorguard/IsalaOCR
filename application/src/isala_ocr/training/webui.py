@@ -914,33 +914,13 @@ def create_web_app(
             return image
 
     def source_rows() -> list[dict[str, Any]]:
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT source_id, MIN(profile) profile, COUNT(*) sample_count,
-                       SUM(CASE WHEN extraction_method LIKE 'dynamic_%' THEN 1 ELSE 0 END) dynamic_count,
-                       SUM(CASE WHEN extraction_method IN ('fixed_fallback','fixed_roi') THEN 1 ELSE 0 END) fallback_count,
-                       AVG(locator_confidence) average_locator_confidence,
-                       AVG(raw_confidence) average_confidence,
-                       MIN(raw_confidence) minimum_confidence,
-                       MAX(updated_at) updated_at
-                FROM samples GROUP BY source_id ORDER BY updated_at DESC, source_id
-                """
-            ).fetchall()
-        result=[]
-        for row in rows:
-            item=dict(row)
+        result = database.source_summary_rows()
+        for item in result:
             item["render_exists"]=(workspace_root()/"source_renders"/f"{item['source_id']}.png").is_file()
-            result.append(item)
         return result
 
     def source_samples(source_id: str) -> list[dict[str, Any]]:
-        with database.connect() as db:
-            rows=db.execute(
-                "SELECT * FROM samples WHERE source_id=? ORDER BY roi_y1, roi_x1, field_key",
-                (source_id,),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        return database.samples_for_source(source_id)
 
     def source_study_info(source_id: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
         diagnostics = _read_json(workspace_root() / "collection_diagnostics" / f"{source_id}.json", {})
@@ -965,15 +945,7 @@ def create_web_app(
         return info, rows
 
     def roi_review_counts() -> dict[str, int]:
-        with database.connect() as db:
-            rows = db.execute(
-                "SELECT roi_review_status, COUNT(*) AS amount FROM samples WHERE extraction_method<>'mapped_generic_stale' GROUP BY roi_review_status"
-            ).fetchall()
-        counts = {"pending": 0, "correct": 0, "incorrect": 0, "deferred": 0}
-        for row in rows:
-            counts[str(row["roi_review_status"])] = int(row["amount"])
-        counts["total"] = sum(counts.values())
-        return counts
+        return database.roi_review_status_counts()
 
     def header_review_counts() -> dict[str, int]:
         counts = database.header_review_counts()
@@ -1038,65 +1010,14 @@ def create_web_app(
 
     def value_review_counts() -> dict[str, int]:
         """Return value-review counts for the current mapped application output."""
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT status, COUNT(*) AS amount
-                FROM samples
-                WHERE extraction_method='mapped_generic'
-                  AND roi_review_status='correct'
-                  AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
-                GROUP BY status
-                """
-            ).fetchall()
-        counts = {
-            "pending": 0, "accepted": 0, "no_value": 0,
-            "unreadable": 0, "excluded": 0,
-        }
-        for row in rows:
-            status = str(row["status"])
-            if status in counts:
-                counts[status] = int(row["amount"])
-        counts["total"] = sum(counts.values())
-        counts["reviewed"] = counts["total"] - counts["pending"]
-        counts["problems"] = counts["unreadable"] + counts["excluded"]
-        return counts
+        return database.mapped_value_review_status_counts()
 
     def value_source_rows() -> list[dict[str, Any]]:
         """Group only current mapped samples for the value-review step."""
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT source_id, COUNT(*) sample_count,
-                       SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) pending,
-                       SUM(CASE WHEN status='accepted' THEN 1 ELSE 0 END) accepted,
-                       SUM(CASE WHEN status='no_value' THEN 1 ELSE 0 END) no_value,
-                       SUM(CASE WHEN status IN ('unreadable','excluded') THEN 1 ELSE 0 END) problems,
-                       AVG(raw_confidence) average_confidence,
-                       MAX(updated_at) updated_at
-                FROM samples
-                WHERE extraction_method='mapped_generic'
-                  AND roi_review_status='correct'
-                  AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
-                GROUP BY source_id
-                ORDER BY updated_at DESC, source_id
-                """
-            ).fetchall()
-        return [dict(row) for row in rows]
+        return database.mapped_value_review_source_rows()
 
     def value_source_samples(source_id: str) -> list[dict[str, Any]]:
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT * FROM samples
-                WHERE source_id=? AND extraction_method='mapped_generic'
-                  AND roi_review_status='correct'
-                  AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
-                ORDER BY roi_y1, roi_x1, field_key
-                """,
-                (source_id,),
-            ).fetchall()
-        return [dict(row) for row in rows]
+        return database.mapped_value_review_source_samples(source_id)
 
     def latest_dataset() -> str | None:
         pointer=workspace_root()/"datasets"/"latest.txt"
