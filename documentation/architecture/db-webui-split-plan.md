@@ -186,12 +186,28 @@ lange `if`/`elif`-keten.
        bewust inline: elk is al maar 1-2 regels, een aparte functie zou daar
        alleen ceremonie toevoegen zonder de dispatcher echt te verkleinen.
        `process_step()`: 746 → 615 regels.
-- [ ] 11d+. Resterende, grotere takken (`table-quality` POST+GET
-       (grootste/complexte tak, met geneste `indexed_cells`/`axis_groups`/
-       `table_record`-helpers), `table-compare` POST, `localization-dataset`
-       POST, impliciete `header-normalization`-POST) één voor één
-       verplaatsen naar `_process_step_<key>(...)`-functies volgens hetzelfde
-       patroon.
+- [x] 11d. De vier resterende POST-takken verplaatst naar losse geneste
+       functies: `table-quality` POST → `_process_step_table_quality_post(step_key)`,
+       `table-compare` POST (5 sub-acties: review_issue, add_prediction_to_gt,
+       apply_functional_suggestions, apply_model_error_suggestions,
+       apply_all_open_geometry_functional_ok) → `_process_step_table_compare_post(step_key)`,
+       `localization-dataset` POST → `_process_step_localization_dataset_post(step_key)`,
+       impliciete `header-normalization`-POST-fallback →
+       `_process_step_header_normalization_post(step_key, header_status_filter,
+       header_source_filter, header_sample_filter, header_method_filter)` (deze
+       laatste kreeg de vier filter-locals expliciet als parameter, omdat die
+       -- anders dan `header_profile` -- lokaal in `process_step()` berekend
+       worden en dus geen closure-var van `create_web_app()` zijn). De
+       `if request.method == "POST":`-tak in `process_step()` is nu een kale
+       4-weg dispatch van één regel per tak. `process_step()`: 615 → 352
+       regels.
+- [ ] 11e. Laatste en grootste resterende tak: de `table-quality` GET-tak
+       (~190 regels, met geneste `indexed_cells`/`axis_groups`/
+       `table_record`-helperfuncties die closen over locals als `profile`,
+       `semantic_assignments`, `studio_source_id`) verplaatsen naar
+       `_process_step_table_quality_get(step)` volgens hetzelfde patroon. Dit
+       is bewust als laatste stap bewaard: de geneste helpers maken deze tak
+       complexer om foutloos te knippen dan de andere.
 - [ ] Laatste stap: evalueren of (een deel van) deze functies alsnog naar een
        eigen module kunnen verhuizen zonder circulaire import met de
        `routes_*.py`-bestanden die ze nu al aanroepen (daarvoor moeten hun

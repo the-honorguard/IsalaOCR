@@ -3261,6 +3261,384 @@ def create_web_app(
             header_accepted_label="geselecteerd",
         )
 
+    def _process_step_table_quality_post(step_key: str):
+        """Handle the ``table-quality`` POST action.
+
+        Extracted from the ``process_step()`` dispatcher (see
+        ``documentation/architecture/db-webui-split-plan.md``) - still a
+        closure over create_web_app()'s locals, not yet moved to its own
+        module.
+        """
+        roles = dict(table_studio_roles(workspace_root()))
+        rows = dict(table_studio_rows(workspace_root()))
+        table_ids = {str(value) for value in request.form.getlist("table_definition") if str(value)}
+        for table_id in table_ids:
+            roles[table_id] = {}
+            rows[table_id] = []
+        for value in request.form.getlist("table_role"):
+            table_id, separator, remainder = str(value).partition("|")
+            column, separator2, role = remainder.partition("|")
+            if not separator or not separator2 or not column.isdigit():
+                continue
+            if role in {"label", "value", "unit", "header", "skip"}:
+                roles.setdefault(table_id, {})[column] = role
+        for value in request.form.getlist("table_row"):
+            table_id, separator, row = str(value).partition("|")
+            if separator and row.isdigit():
+                rows.setdefault(table_id, []).append(int(row))
+        save_table_studio_roles(workspace_root(), roles, rows=rows)
+        recognition_tables = {
+            table_id: {
+                "rows": rows.get(table_id, []),
+                "columns": sorted(
+                    int(column) for column, role in table_roles.items()
+                    if role in {"label", "value", "unit", "header"}
+                ),
+            }
+            for table_id, table_roles in roles.items()
+        }
+        save_recognition_scope(workspace_root(), recognition_tables)
+        included = sum(len(item["rows"]) * len(item["columns"]) for item in recognition_tables.values())
+        flash(f"Tabeldefinitie en Recognition-scope opgeslagen ({included} rasterposities geselecteerd).", "success")
+        return redirect(url_for("process_step", step_key=step_key, source_id=request.form.get("source_id", "")))
+
+    def _process_step_table_compare_post(step_key: str):
+        """Handle the ``table-compare`` POST action (five comparison actions).
+
+        Extracted from the ``process_step()`` dispatcher (see
+        ``documentation/architecture/db-webui-split-plan.md``) - still a
+        closure over create_web_app()'s locals, not yet moved to its own
+        module.
+        """
+        action = str(request.form.get("comparison_action") or "").strip().lower()
+        if action not in {
+            "review_issue",
+            "add_prediction_to_gt",
+            "apply_functional_suggestions",
+            "apply_model_error_suggestions",
+            "apply_all_open_geometry_functional_ok",
+        }:
+            abort(400)
+        run_id = str(request.form.get("run_id") or "").strip()[:180]
+        issue_id = str(request.form.get("issue_id") or "").strip()[:80]
+        reference = str(request.form.get("reference_run_id") or "").strip()
+        candidate = str(request.form.get("candidate_run_id") or "").strip()
+        if action == "apply_functional_suggestions":
+            state = table_cell_comparison_state(
+                workspace_root(),
+                reference_run_id=reference or None,
+                candidate_run_id=candidate or run_id or None,
+            )
+            active_run = str((state.get("candidate") or {}).get("run_id") or "")
+            allowed_ids = set((state.get("functional_suggestions") or {}).get("issue_ids") or [])
+            requested_ids = {
+                str(value).strip()[:80]
+                for value in request.form.getlist("issue_id")
+                if str(value).strip()
+            }
+            selected_ids = sorted(allowed_ids.intersection(requested_ids))
+            if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
+                flash("De veilige suggesties horen bij de nieuwste, schrijfbare detectierun.", "error")
+            elif not selected_ids:
+                flash("Er zijn geen geldige, nog open functionele suggesties om toe te passen.", "warning")
+            else:
+                applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "functional_ok")
+                flash(
+                    f"{len(applied)} veilige geometrieën als functioneel correct gemarkeerd. "
+                    "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
+                    "success",
+                )
+            parameters = {}
+            if reference:
+                parameters["reference"] = reference
+            if candidate:
+                parameters["candidate"] = candidate
+            return redirect(url_for("process_step", step_key=step_key, **parameters))
+        if action == "apply_model_error_suggestions":
+            # Merges what used to be three separate bulk actions (overduidelijke
+            # modelfouten, onvolledige detecties, gesplitste detecties) into one:
+            # all three are, by construction, always a model mistake -- never a
+            # "functioneel correct" or "GT aanpassen" call -- so there is no reason
+            # to make a reviewer click three buttons for the same decision. The
+            # allowed-id set already comes pre-deduplicated from
+            # table_cell_comparison_state, and functional_suggestions/
+            # open_geometry_issue_ids there explicitly exclude these same ids, so
+            # applying this action can never contradict a "functioneel correct"
+            # bulk action on the same issue.
+            state = table_cell_comparison_state(
+                workspace_root(),
+                reference_run_id=reference or None,
+                candidate_run_id=candidate or run_id or None,
+            )
+            active_run = str((state.get("candidate") or {}).get("run_id") or "")
+            allowed_ids = set((state.get("model_error_suggestions") or {}).get("issue_ids") or [])
+            requested_ids = {
+                str(value).strip()[:80]
+                for value in request.form.getlist("issue_id")
+                if str(value).strip()
+            }
+            selected_ids = sorted(allowed_ids.intersection(requested_ids))
+            if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
+                flash("De foutsuggesties horen bij de nieuwste, schrijfbare detectierun.", "error")
+            elif not selected_ids:
+                flash("Er zijn geen geldige, nog open foutsuggesties om toe te passen.", "warning")
+            else:
+                applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "model_error")
+                flash(
+                    f"{len(applied)} kaders (overduidelijke modelfouten, onvolledige detecties en "
+                    "gesplitste detecties) als modelfout gemarkeerd.",
+                    "success",
+                )
+            parameters = {}
+            if reference:
+                parameters["reference"] = reference
+            if candidate:
+                parameters["candidate"] = candidate
+            return redirect(url_for("process_step", step_key=step_key, **parameters))
+        if action == "apply_all_open_geometry_functional_ok":
+            # Unlike apply_functional_suggestions above, this is not limited to the
+            # conservative gt_coverage/prediction_excess thresholds: a reviewer who has
+            # seen enough geometry afwijkingen to trust the button can approve every
+            # still-open one on this run in a single click, same "functional_ok" decision
+            # as the per-issue button.
+            state = table_cell_comparison_state(
+                workspace_root(),
+                reference_run_id=reference or None,
+                candidate_run_id=candidate or run_id or None,
+            )
+            active_run = str((state.get("candidate") or {}).get("run_id") or "")
+            allowed_ids = set(state.get("open_geometry_issue_ids") or [])
+            requested_ids = {
+                str(value).strip()[:80]
+                for value in request.form.getlist("issue_id")
+                if str(value).strip()
+            }
+            selected_ids = sorted(allowed_ids.intersection(requested_ids))
+            if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
+                flash("Dit geldt alleen voor de nieuwste, schrijfbare detectierun.", "error")
+            elif not selected_ids:
+                flash("Er zijn geen open geometrie-afwijkingen meer om zo te markeren.", "warning")
+            else:
+                applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "functional_ok")
+                flash(
+                    f"{len(applied)} open geometrie-afwijkingen als functioneel correct gemarkeerd. "
+                    "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
+                    "success",
+                )
+            parameters = {}
+            if reference:
+                parameters["reference"] = reference
+            if candidate:
+                parameters["candidate"] = candidate
+            return redirect(url_for("process_step", step_key=step_key, **parameters))
+        wants_json = (
+            request.headers.get("X-Requested-With") == "XMLHttpRequest"
+            or request.accept_mimetypes.best == "application/json"
+        )
+        effective_decision = ""
+        promoted: dict[str, Any] | None = None
+        error_message = ""
+        message = ""
+        if action == "add_prediction_to_gt":
+            try:
+                promoted = add_comparison_fp_to_ground_truth(workspace_root(), run_id, issue_id)
+            except (KeyError, ValueError, FileNotFoundError) as exc:
+                error_message = f"Prediction kon niet aan de Ground Truth worden toegevoegd: {exc}"
+            else:
+                effective_decision = "gt_added"
+                suffix = " (bestond al in GT)" if promoted.get("already_present") else ""
+                message = (
+                    "Prediction toegevoegd aan de canonieke Ground Truth" + suffix +
+                    ". De huidige table-cell trainingsdataset is nu verouderd; bouw hem in Stap 8 opnieuw."
+                )
+        else:
+            decision = str(request.form.get("decision") or "").strip().lower()
+            try:
+                review_comparison_issue(workspace_root(), run_id, issue_id, decision)
+            except (KeyError, ValueError) as exc:
+                error_message = f"Vervolg-review kon niet worden opgeslagen: {exc}"
+            else:
+                effective_decision = "" if decision == "clear" else decision
+                labels = {
+                    "model_error": "Modelmisser bevestigd",
+                    "functional_ok": "Geometrie functioneel correct bevonden",
+                    "gt_check": "Gemarkeerd voor Ground Truth-controle",
+                    "gt_added": "Prediction toegevoegd aan Ground Truth",
+                    "deferred": "Beoordeling uitgesteld",
+                    "clear": "Beoordeling gewist",
+                }
+                message = labels.get(decision, "Vervolg-review opgeslagen")
+
+        if wants_json:
+            if error_message:
+                return jsonify({"ok": False, "error": error_message}), 409
+            state = table_cell_comparison_state(
+                workspace_root(),
+                reference_run_id=reference or None,
+                candidate_run_id=candidate or run_id or None,
+            )
+            return jsonify({
+                "ok": True,
+                "message": message,
+                "decision": effective_decision,
+                "already_present": bool((promoted or {}).get("already_present")),
+                "counts": {
+                    "open_issue_count": int(state.get("open_issue_count") or 0),
+                    "reviewed_issue_count": int(state.get("reviewed_issue_count") or 0),
+                    "issue_count": int(state.get("issue_count") or 0),
+                },
+            })
+
+        if error_message:
+            flash(error_message, "error")
+        else:
+            flash(message, "success")
+        parameters = {}
+        if reference:
+            parameters["reference"] = reference
+        if candidate:
+            parameters["candidate"] = candidate
+        return redirect(url_for("process_step", step_key=step_key, **parameters))
+
+    def _process_step_localization_dataset_post(step_key: str):
+        """Handle the ``localization-dataset`` POST action.
+
+        Extracted from the ``process_step()`` dispatcher (see
+        ``documentation/architecture/db-webui-split-plan.md``) - still a
+        closure over create_web_app()'s locals, not yet moved to its own
+        module.
+        """
+        split_action = str(request.form.get("split_action") or "save").strip().lower()
+        try:
+            if split_action == "auto":
+                plan = save_localization_split_config(workspace_root(), mode="auto", overrides={})
+                flash(
+                    f"Veilige automatische split toegepast: {plan['counts']['train']} train / "
+                    f"{plan['counts']['val']} val / {plan['counts']['test']} test.",
+                    "success",
+                )
+            elif split_action == "save":
+                targets = {
+                    "train": int(request.form.get("split_train") or 0),
+                    "val": int(request.form.get("split_val") or 0),
+                    "test": int(request.form.get("split_test") or 0),
+                }
+                source_ids = request.form.getlist("split_source_id")
+                choices = request.form.getlist("split_choice")
+                overrides = {
+                    str(source_id): str(choice)
+                    for source_id, choice in zip(source_ids, choices)
+                    if str(choice) in {"train", "val", "test"}
+                }
+                plan = save_localization_split_config(
+                    workspace_root(), mode="counts", targets=targets, overrides=overrides
+                )
+                flash(
+                    f"Dataset-split opgeslagen: {plan['counts']['train']} train / "
+                    f"{plan['counts']['val']} val / {plan['counts']['test']} test. "
+                    "Bouw de localization-dataset opnieuw om deze verdeling vast te leggen.",
+                    "success",
+                )
+            else:
+                abort(400)
+        except (TypeError, ValueError) as exc:
+            flash(f"Dataset-split kon niet worden opgeslagen: {exc}", "error")
+        return redirect(url_for("process_step", step_key=step_key))
+
+    def _process_step_header_normalization_post(
+        step_key: str,
+        header_status_filter: str,
+        header_source_filter: str,
+        header_sample_filter: str,
+        header_method_filter: str,
+    ):
+        """Handle the ``header-normalization`` POST action (the implicit fallback).
+
+        Extracted from the ``process_step()`` dispatcher (see
+        ``documentation/architecture/db-webui-split-plan.md``) - still a
+        closure over create_web_app()'s locals, not yet moved to its own
+        module.
+        """
+        if step_key != "header-normalization":
+            abort(405)
+        if header_profile is None:
+            flash("Het actieve profiel kon niet worden geladen; normalisatietraining is niet beschikbaar.", "error")
+            return redirect(url_for("process_step", step_key=step_key))
+
+        action = str(request.form.get("header_action", "save")).strip().lower()
+        sample_ids = request.form.getlist("header_sample_id")
+        saved = 0
+        rejected = 0
+        for sample_id in sample_ids:
+            current = database.get(sample_id)
+            if current is None:
+                continue
+            selected = str(request.form.get(f"header_status_{sample_id}", "accepted")).strip().lower()
+            if action == "accept_visible":
+                selected = "accepted"
+            target = str(
+                request.form.get(
+                    f"header_target_{sample_id}",
+                    current.get("header_target_field_key") or current.get("field_key") or "",
+                )
+            ).strip()
+            exact = str(request.form.get(f"header_exact_{sample_id}", ""))
+            notes = str(request.form.get(f"header_notes_{sample_id}", ""))
+            try:
+                database.review_header(sample_id, selected, target, exact, notes)
+                saved += 1
+                rejected += int(selected == "rejected")
+            except ValueError as exc:
+                flash(f"Rijheader {sample_id} kon niet worden opgeslagen: {exc}", "error")
+
+        trained_payload: dict[str, Any] | None = None
+        if action in {"train", "train_redetect"}:
+            trained_payload = build_header_normalization_model(
+                database.header_training_rows(), header_profile, header_model_path()
+            )
+            if trained_payload.get("included_example_count", 0) > 0:
+                flash(
+                    f"Normalisatiemodel opgebouwd met {trained_payload.get('included_example_count', 0)} "
+                    f"beoordeelde voorbeelden en {trained_payload.get('learned_alias_count', 0)} geleerde aliassen.",
+                    "success",
+                )
+            else:
+                flash(
+                    "Het model is opgeslagen, maar bevat nog geen bruikbare bevestigde rijheaders.",
+                    "warning",
+                )
+            if trained_payload.get("conflicts"):
+                flash(
+                    f"{len(trained_payload['conflicts'])} dubbelzinnige alias(sen) zijn uit veiligheid niet geactiveerd.",
+                    "warning",
+                )
+
+        queued_job: dict[str, Any] | None = None
+        if action == "train_redetect":
+            queued_job = enqueue_job("2")
+            flash(
+                "Nieuwe normalisatie is actief. DICOM-detectie is opnieuw in de wachtrij geplaatst.",
+                "success",
+            )
+        elif action in {"save", "accept_visible"}:
+            flash(
+                f"{saved} rijheaderbeoordeling(en) opgeslagen"
+                + (f"; {rejected} uitgesloten" if rejected else "")
+                + ".",
+                "success",
+            )
+
+        parameters = {"header_status": header_status_filter}
+        if header_source_filter:
+            parameters["source_id"] = header_source_filter
+        if header_sample_filter:
+            parameters["sample_id"] = header_sample_filter
+        if header_method_filter != "all":
+            parameters["extraction_method"] = header_method_filter
+        if queued_job:
+            parameters["job_id"] = str(queued_job["job_id"])
+        return redirect(url_for("process_step", step_key=step_key, **parameters))
+
     @app.route("/process/<step_key>", methods=["GET", "POST"])
     def process_step(step_key: str):
         legacy_step_aliases = {
@@ -3294,344 +3672,18 @@ def create_web_app(
 
         if request.method == "POST":
             if step_key == "table-quality":
-                roles = dict(table_studio_roles(workspace_root()))
-                rows = dict(table_studio_rows(workspace_root()))
-                table_ids = {str(value) for value in request.form.getlist("table_definition") if str(value)}
-                for table_id in table_ids:
-                    roles[table_id] = {}
-                    rows[table_id] = []
-                for value in request.form.getlist("table_role"):
-                    table_id, separator, remainder = str(value).partition("|")
-                    column, separator2, role = remainder.partition("|")
-                    if not separator or not separator2 or not column.isdigit():
-                        continue
-                    if role in {"label", "value", "unit", "header", "skip"}:
-                        roles.setdefault(table_id, {})[column] = role
-                for value in request.form.getlist("table_row"):
-                    table_id, separator, row = str(value).partition("|")
-                    if separator and row.isdigit():
-                        rows.setdefault(table_id, []).append(int(row))
-                save_table_studio_roles(workspace_root(), roles, rows=rows)
-                recognition_tables = {
-                    table_id: {
-                        "rows": rows.get(table_id, []),
-                        "columns": sorted(
-                            int(column) for column, role in table_roles.items()
-                            if role in {"label", "value", "unit", "header"}
-                        ),
-                    }
-                    for table_id, table_roles in roles.items()
-                }
-                save_recognition_scope(workspace_root(), recognition_tables)
-                included = sum(len(item["rows"]) * len(item["columns"]) for item in recognition_tables.values())
-                flash(f"Tabeldefinitie en Recognition-scope opgeslagen ({included} rasterposities geselecteerd).", "success")
-                return redirect(url_for("process_step", step_key=step_key, source_id=request.form.get("source_id", "")))
+                return _process_step_table_quality_post(step_key)
             if step_key == "table-compare":
-                action = str(request.form.get("comparison_action") or "").strip().lower()
-                if action not in {
-                    "review_issue",
-                    "add_prediction_to_gt",
-                    "apply_functional_suggestions",
-                    "apply_model_error_suggestions",
-                    "apply_all_open_geometry_functional_ok",
-                }:
-                    abort(400)
-                run_id = str(request.form.get("run_id") or "").strip()[:180]
-                issue_id = str(request.form.get("issue_id") or "").strip()[:80]
-                reference = str(request.form.get("reference_run_id") or "").strip()
-                candidate = str(request.form.get("candidate_run_id") or "").strip()
-                if action == "apply_functional_suggestions":
-                    state = table_cell_comparison_state(
-                        workspace_root(),
-                        reference_run_id=reference or None,
-                        candidate_run_id=candidate or run_id or None,
-                    )
-                    active_run = str((state.get("candidate") or {}).get("run_id") or "")
-                    allowed_ids = set((state.get("functional_suggestions") or {}).get("issue_ids") or [])
-                    requested_ids = {
-                        str(value).strip()[:80]
-                        for value in request.form.getlist("issue_id")
-                        if str(value).strip()
-                    }
-                    selected_ids = sorted(allowed_ids.intersection(requested_ids))
-                    if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
-                        flash("De veilige suggesties horen bij de nieuwste, schrijfbare detectierun.", "error")
-                    elif not selected_ids:
-                        flash("Er zijn geen geldige, nog open functionele suggesties om toe te passen.", "warning")
-                    else:
-                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "functional_ok")
-                        flash(
-                            f"{len(applied)} veilige geometrieën als functioneel correct gemarkeerd. "
-                            "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
-                            "success",
-                        )
-                    parameters = {}
-                    if reference:
-                        parameters["reference"] = reference
-                    if candidate:
-                        parameters["candidate"] = candidate
-                    return redirect(url_for("process_step", step_key=step_key, **parameters))
-                if action == "apply_model_error_suggestions":
-                    # Merges what used to be three separate bulk actions (overduidelijke
-                    # modelfouten, onvolledige detecties, gesplitste detecties) into one:
-                    # all three are, by construction, always a model mistake -- never a
-                    # "functioneel correct" or "GT aanpassen" call -- so there is no reason
-                    # to make a reviewer click three buttons for the same decision. The
-                    # allowed-id set already comes pre-deduplicated from
-                    # table_cell_comparison_state, and functional_suggestions/
-                    # open_geometry_issue_ids there explicitly exclude these same ids, so
-                    # applying this action can never contradict a "functioneel correct"
-                    # bulk action on the same issue.
-                    state = table_cell_comparison_state(
-                        workspace_root(),
-                        reference_run_id=reference or None,
-                        candidate_run_id=candidate or run_id or None,
-                    )
-                    active_run = str((state.get("candidate") or {}).get("run_id") or "")
-                    allowed_ids = set((state.get("model_error_suggestions") or {}).get("issue_ids") or [])
-                    requested_ids = {
-                        str(value).strip()[:80]
-                        for value in request.form.getlist("issue_id")
-                        if str(value).strip()
-                    }
-                    selected_ids = sorted(allowed_ids.intersection(requested_ids))
-                    if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
-                        flash("De foutsuggesties horen bij de nieuwste, schrijfbare detectierun.", "error")
-                    elif not selected_ids:
-                        flash("Er zijn geen geldige, nog open foutsuggesties om toe te passen.", "warning")
-                    else:
-                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "model_error")
-                        flash(
-                            f"{len(applied)} kaders (overduidelijke modelfouten, onvolledige detecties en "
-                            "gesplitste detecties) als modelfout gemarkeerd.",
-                            "success",
-                        )
-                    parameters = {}
-                    if reference:
-                        parameters["reference"] = reference
-                    if candidate:
-                        parameters["candidate"] = candidate
-                    return redirect(url_for("process_step", step_key=step_key, **parameters))
-                if action == "apply_all_open_geometry_functional_ok":
-                    # Unlike apply_functional_suggestions above, this is not limited to the
-                    # conservative gt_coverage/prediction_excess thresholds: a reviewer who has
-                    # seen enough geometry afwijkingen to trust the button can approve every
-                    # still-open one on this run in a single click, same "functional_ok" decision
-                    # as the per-issue button.
-                    state = table_cell_comparison_state(
-                        workspace_root(),
-                        reference_run_id=reference or None,
-                        candidate_run_id=candidate or run_id or None,
-                    )
-                    active_run = str((state.get("candidate") or {}).get("run_id") or "")
-                    allowed_ids = set(state.get("open_geometry_issue_ids") or [])
-                    requested_ids = {
-                        str(value).strip()[:80]
-                        for value in request.form.getlist("issue_id")
-                        if str(value).strip()
-                    }
-                    selected_ids = sorted(allowed_ids.intersection(requested_ids))
-                    if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
-                        flash("Dit geldt alleen voor de nieuwste, schrijfbare detectierun.", "error")
-                    elif not selected_ids:
-                        flash("Er zijn geen open geometrie-afwijkingen meer om zo te markeren.", "warning")
-                    else:
-                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "functional_ok")
-                        flash(
-                            f"{len(applied)} open geometrie-afwijkingen als functioneel correct gemarkeerd. "
-                            "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
-                            "success",
-                        )
-                    parameters = {}
-                    if reference:
-                        parameters["reference"] = reference
-                    if candidate:
-                        parameters["candidate"] = candidate
-                    return redirect(url_for("process_step", step_key=step_key, **parameters))
-                wants_json = (
-                    request.headers.get("X-Requested-With") == "XMLHttpRequest"
-                    or request.accept_mimetypes.best == "application/json"
-                )
-                effective_decision = ""
-                promoted: dict[str, Any] | None = None
-                error_message = ""
-                message = ""
-                if action == "add_prediction_to_gt":
-                    try:
-                        promoted = add_comparison_fp_to_ground_truth(workspace_root(), run_id, issue_id)
-                    except (KeyError, ValueError, FileNotFoundError) as exc:
-                        error_message = f"Prediction kon niet aan de Ground Truth worden toegevoegd: {exc}"
-                    else:
-                        effective_decision = "gt_added"
-                        suffix = " (bestond al in GT)" if promoted.get("already_present") else ""
-                        message = (
-                            "Prediction toegevoegd aan de canonieke Ground Truth" + suffix +
-                            ". De huidige table-cell trainingsdataset is nu verouderd; bouw hem in Stap 8 opnieuw."
-                        )
-                else:
-                    decision = str(request.form.get("decision") or "").strip().lower()
-                    try:
-                        review_comparison_issue(workspace_root(), run_id, issue_id, decision)
-                    except (KeyError, ValueError) as exc:
-                        error_message = f"Vervolg-review kon niet worden opgeslagen: {exc}"
-                    else:
-                        effective_decision = "" if decision == "clear" else decision
-                        labels = {
-                            "model_error": "Modelmisser bevestigd",
-                            "functional_ok": "Geometrie functioneel correct bevonden",
-                            "gt_check": "Gemarkeerd voor Ground Truth-controle",
-                            "gt_added": "Prediction toegevoegd aan Ground Truth",
-                            "deferred": "Beoordeling uitgesteld",
-                            "clear": "Beoordeling gewist",
-                        }
-                        message = labels.get(decision, "Vervolg-review opgeslagen")
-
-                if wants_json:
-                    if error_message:
-                        return jsonify({"ok": False, "error": error_message}), 409
-                    state = table_cell_comparison_state(
-                        workspace_root(),
-                        reference_run_id=reference or None,
-                        candidate_run_id=candidate or run_id or None,
-                    )
-                    return jsonify({
-                        "ok": True,
-                        "message": message,
-                        "decision": effective_decision,
-                        "already_present": bool((promoted or {}).get("already_present")),
-                        "counts": {
-                            "open_issue_count": int(state.get("open_issue_count") or 0),
-                            "reviewed_issue_count": int(state.get("reviewed_issue_count") or 0),
-                            "issue_count": int(state.get("issue_count") or 0),
-                        },
-                    })
-
-                if error_message:
-                    flash(error_message, "error")
-                else:
-                    flash(message, "success")
-                parameters = {}
-                if reference:
-                    parameters["reference"] = reference
-                if candidate:
-                    parameters["candidate"] = candidate
-                return redirect(url_for("process_step", step_key=step_key, **parameters))
+                return _process_step_table_compare_post(step_key)
             if step_key == "localization-dataset":
-                split_action = str(request.form.get("split_action") or "save").strip().lower()
-                try:
-                    if split_action == "auto":
-                        plan = save_localization_split_config(workspace_root(), mode="auto", overrides={})
-                        flash(
-                            f"Veilige automatische split toegepast: {plan['counts']['train']} train / "
-                            f"{plan['counts']['val']} val / {plan['counts']['test']} test.",
-                            "success",
-                        )
-                    elif split_action == "save":
-                        targets = {
-                            "train": int(request.form.get("split_train") or 0),
-                            "val": int(request.form.get("split_val") or 0),
-                            "test": int(request.form.get("split_test") or 0),
-                        }
-                        source_ids = request.form.getlist("split_source_id")
-                        choices = request.form.getlist("split_choice")
-                        overrides = {
-                            str(source_id): str(choice)
-                            for source_id, choice in zip(source_ids, choices)
-                            if str(choice) in {"train", "val", "test"}
-                        }
-                        plan = save_localization_split_config(
-                            workspace_root(), mode="counts", targets=targets, overrides=overrides
-                        )
-                        flash(
-                            f"Dataset-split opgeslagen: {plan['counts']['train']} train / "
-                            f"{plan['counts']['val']} val / {plan['counts']['test']} test. "
-                            "Bouw de localization-dataset opnieuw om deze verdeling vast te leggen.",
-                            "success",
-                        )
-                    else:
-                        abort(400)
-                except (TypeError, ValueError) as exc:
-                    flash(f"Dataset-split kon niet worden opgeslagen: {exc}", "error")
-                return redirect(url_for("process_step", step_key=step_key))
-            if step_key != "header-normalization":
-                abort(405)
-            if header_profile is None:
-                flash("Het actieve profiel kon niet worden geladen; normalisatietraining is niet beschikbaar.", "error")
-                return redirect(url_for("process_step", step_key=step_key))
-
-            action = str(request.form.get("header_action", "save")).strip().lower()
-            sample_ids = request.form.getlist("header_sample_id")
-            saved = 0
-            rejected = 0
-            for sample_id in sample_ids:
-                current = database.get(sample_id)
-                if current is None:
-                    continue
-                selected = str(request.form.get(f"header_status_{sample_id}", "accepted")).strip().lower()
-                if action == "accept_visible":
-                    selected = "accepted"
-                target = str(
-                    request.form.get(
-                        f"header_target_{sample_id}",
-                        current.get("header_target_field_key") or current.get("field_key") or "",
-                    )
-                ).strip()
-                exact = str(request.form.get(f"header_exact_{sample_id}", ""))
-                notes = str(request.form.get(f"header_notes_{sample_id}", ""))
-                try:
-                    database.review_header(sample_id, selected, target, exact, notes)
-                    saved += 1
-                    rejected += int(selected == "rejected")
-                except ValueError as exc:
-                    flash(f"Rijheader {sample_id} kon niet worden opgeslagen: {exc}", "error")
-
-            trained_payload: dict[str, Any] | None = None
-            if action in {"train", "train_redetect"}:
-                trained_payload = build_header_normalization_model(
-                    database.header_training_rows(), header_profile, header_model_path()
-                )
-                if trained_payload.get("included_example_count", 0) > 0:
-                    flash(
-                        f"Normalisatiemodel opgebouwd met {trained_payload.get('included_example_count', 0)} "
-                        f"beoordeelde voorbeelden en {trained_payload.get('learned_alias_count', 0)} geleerde aliassen.",
-                        "success",
-                    )
-                else:
-                    flash(
-                        "Het model is opgeslagen, maar bevat nog geen bruikbare bevestigde rijheaders.",
-                        "warning",
-                    )
-                if trained_payload.get("conflicts"):
-                    flash(
-                        f"{len(trained_payload['conflicts'])} dubbelzinnige alias(sen) zijn uit veiligheid niet geactiveerd.",
-                        "warning",
-                    )
-
-            queued_job: dict[str, Any] | None = None
-            if action == "train_redetect":
-                queued_job = enqueue_job("2")
-                flash(
-                    "Nieuwe normalisatie is actief. DICOM-detectie is opnieuw in de wachtrij geplaatst.",
-                    "success",
-                )
-            elif action in {"save", "accept_visible"}:
-                flash(
-                    f"{saved} rijheaderbeoordeling(en) opgeslagen"
-                    + (f"; {rejected} uitgesloten" if rejected else "")
-                    + ".",
-                    "success",
-                )
-
-            parameters = {"header_status": header_status_filter}
-            if header_source_filter:
-                parameters["source_id"] = header_source_filter
-            if header_sample_filter:
-                parameters["sample_id"] = header_sample_filter
-            if header_method_filter != "all":
-                parameters["extraction_method"] = header_method_filter
-            if queued_job:
-                parameters["job_id"] = str(queued_job["job_id"])
-            return redirect(url_for("process_step", step_key=step_key, **parameters))
+                return _process_step_localization_dataset_post(step_key)
+            return _process_step_header_normalization_post(
+                step_key,
+                header_status_filter,
+                header_source_filter,
+                header_sample_filter,
+                header_method_filter,
+            )
 
         if step_key == "panel-setup":
             return _process_step_panel_setup(step)
