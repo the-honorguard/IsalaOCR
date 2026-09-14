@@ -57,7 +57,7 @@ imports.
       `get_mapping`, `list_mappings`, `delete_mapping`, `clear_suggested_mappings`,
       `clear_all_mappings`, `save_mapping_profile`, `get_mapping_profile`,
       `list_mapping_profiles`, `update_sample_recognition`
-- [ ] 6. `training/db_detection_review.py` — `replace_localization_detection`,
+- [x] 6. `training/db_detection_review.py` — `replace_localization_detection`,
       `list_detection_candidates`, `get_detection_candidate`,
       `list_detection_table_geometry`, `list_detection_table_geometry_by_source`,
       `review_detection_candidate`, `add_detection_annotation`,
