@@ -220,17 +220,6 @@ def _dataset_id(annotations: list[dict[str, Any]], source_ids: set[str], source_
     return f"loc-{stamp}-{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:8]}"
 
 
-def _context_patch_box(box: Box, *, image_width: int, image_height: int) -> Box:
-    """Return a compact training window around one explicitly reviewed region."""
-    pad_x = max(24, int(round(box.width * 1.25)))
-    pad_y = max(18, int(round(box.height * 2.0)))
-    return Box(
-        max(0, box.x1 - pad_x), max(0, box.y1 - pad_y),
-        min(image_width, box.x2 + pad_x), min(image_height, box.y2 + pad_y),
-    )
-
-
-
 def localization_dataset_preview(workspace: str | Path) -> dict[str, Any]:
     """Return the exact source/ROI selection that a localization build will use.
 

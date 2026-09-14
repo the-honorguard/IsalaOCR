@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -26,7 +25,9 @@ class PaddleEngine(OCREngine):
         if self._load_error is not None:
             raise RuntimeError("PaddleOCR initialization previously failed in this process") from self._load_error
 
-        model_root = prepare_paddlex_runtime(self.settings)
+        # Only the side effects matter here (env vars / cache dir creation);
+        # the resolved model root itself is read from self.settings below.
+        prepare_paddlex_runtime(self.settings)
         try:
             import paddleocr
             from paddleocr import PaddleOCR

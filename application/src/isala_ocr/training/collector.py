@@ -17,7 +17,7 @@ from ..study_info import extract_study_info
 from ..ocr.table_structure import PPStructureTableEngine, TABLE_ENGINE_VERSION, TableRegion
 from ..ocr.base import OCREngine
 from .projects import resolve_project_workspace
-from .input_selection import input_files, selected_input_files
+from .input_selection import selected_input_files
 from .db import TrainingDatabase, utc_now
 from .dynamic_locator import LOCATOR_VERSION, LocatedField, locate_fields
 from .header_normalization import load_header_aliases
@@ -124,10 +124,6 @@ def _table_settings_with_active_region_model(root: Path, settings: dict) -> dict
     result["table_region_model_id"] = str(payload.get("model_id") or "")
     LOGGER.info("Using active full-page table-region model: %s", payload.get("model_id"))
     return result
-
-
-def _files(path: Path) -> list[Path]:
-    return input_files(path)
 
 
 def _selected_files(path: Path, workspace: Path) -> list[Path]:
