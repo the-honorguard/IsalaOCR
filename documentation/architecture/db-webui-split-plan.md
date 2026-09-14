@@ -29,7 +29,7 @@ imports.
 
 ## db.py mixin-opsplitsing (volgorde van uitvoering)
 
-- [ ] 0. `training/db_constants.py` — verplaats `SCHEMA_VERSION`, alle `VALID_*`-sets,
+- [x] 0. `training/db_constants.py` — verplaats `SCHEMA_VERSION`, alle `VALID_*`-sets,
       `MISSING_MARKERS`, `utc_now()` en `validate_exact_label()` hierheen.
       `db.py` blijft ze re-exporteren (`from .db_constants import *` of expliciet)
       zodat alle bestaande `from .db import utc_now` / `from isala_ocr.training.db
