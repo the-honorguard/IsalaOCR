@@ -52,7 +52,7 @@ imports.
       `clear_relation_feedback`, `list_relation_feedback`,
       `relation_feedback_stats`, `feedback_for_relations`,
       `list_detected_relations`, `update_relation_contexts`
-- [ ] 5. `training/db_mappings.py` — `mapping_counts`, `_mapping_component_in_source`,
+- [x] 5. `training/db_mappings.py` — `mapping_counts`, `_mapping_component_in_source`,
       `_upsert_mapping_in_connection`, `upsert_mapping`, `sync_relation_mappings`,
       `get_mapping`, `list_mappings`, `delete_mapping`, `clear_suggested_mappings`,
       `clear_all_mappings`, `save_mapping_profile`, `get_mapping_profile`,
