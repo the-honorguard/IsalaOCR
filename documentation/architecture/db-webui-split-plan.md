@@ -74,11 +74,21 @@ imports.
       `delete_localization_dataset_record`, `delete_localization_evaluation`,
       `delete_localization_model`
 - [x] 8. `training/db_detection_gate.py` — `set_detection_gate`, `detection_gate`
-- [ ] 9. `db.py` blijft: `__init__`, `_file_identity`, `connect`, `_column_names`,
+- [x] 9. `db.py` blijft: `__init__`, `_file_identity`, `connect`, `_column_names`,
       `_ensure_columns`, `_ensure_review_history_columns`,
       `_ensure_detection_columns`, `_backup_before_migration`,
       `_schema_is_current`, `initialize`, plus de `class TrainingDatabase(
       SamplesMixin, FieldDefinitionsMixin, ...)`-samenstelling
+
+**db.py-opsplitsing afgerond en geverifieerd (2026-09-14):** `db.py` ging van
+3076 naar 656 regels (schema/connectie-kern + de acht mixin-imports en de
+`TrainingDatabase`-klassesamenstelling). Methode-voor-methode vergelijking
+tussen de oorspronkelijke `TrainingDatabase` (commit `bcb2f1d`) en de huidige
+klasse via introspectie (`dir(TrainingDatabase)`) bevestigt: exact dezelfde
+90 methoden, niets kwijtgeraakt of per ongeluk gedupliceerd.
+`python -m pyflakes application/src/isala_ocr` is schoon op de bewuste
+`db_constants`-re-exports en de eerdere `passes_detection_gate`-re-export na;
+volledige testsuite exact op de 6 bekende, onafhankelijke faalpunten.
 
 Elke stap: methoden 1-op-1 verplaatsen (geen herschrijving van logica),
 benodigde module-level constanten/helpers (bijv. `VALID_STATUSES`, `utc_now`,
