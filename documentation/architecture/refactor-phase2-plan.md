@@ -90,7 +90,12 @@ inventarisatie/uitvoering start.
       `SamplesMixin.roi_review_status_counts_by_source()`.
 - [x] `routes_value_review.py:133` (`duplicates_apply`, self-join op
       `samples`) — verplaatst naar `SamplesMixin.duplicate_pending_matches()`.
-- [ ] `mapping.py:1004,1017`
+- [x] `mapping.py:1004,1017` (`materialize_confirmed_mappings`, stale-
+      `mapped_generic`-detectie/-update) — verplaatst naar
+      `SamplesMixin.mark_stale_mapped_generic_samples(keep_sample_ids,
+      processed_source_ids)`. `processed_source_ids=None` behoudt de
+      originele `source_id is None or ...`-kortsluitsemantiek (alle bronnen
+      i.p.v. alleen de zojuist verwerkte).
 - [ ] `dataset.py:124`
 - [ ] `labeler.py:56`
 - [ ] `table_cell_training.py:92`

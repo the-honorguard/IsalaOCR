@@ -1000,31 +1000,10 @@ def materialize_confirmed_mappings(
     # Keep them as historical records, but move them out of the active method.
     stale_samples = 0
     if failed == 0:
-        with database.connect() as db:
-            rows = db.execute(
-                "SELECT sample_id, source_id FROM samples WHERE extraction_method='mapped_generic'"
-            ).fetchall()
-            processed_sources = set(output_sources)
-            stale_ids = [
-                str(row["sample_id"])
-                for row in rows
-                if (
-                    str(row["sample_id"]) not in current_sample_ids
-                    and (source_id is None or str(row["source_id"]) in processed_sources)
-                )
-            ]
-            if stale_ids:
-                db.executemany(
-                    """
-                    UPDATE samples
-                    SET extraction_method='mapped_generic_stale',
-                        roi_review_status='deferred',
-                        updated_at=datetime('now')
-                    WHERE sample_id=? AND extraction_method='mapped_generic'
-                    """,
-                    [(sample_id,) for sample_id in stale_ids],
-                )
-                stale_samples = len(stale_ids)
+        processed_sources = set(output_sources) if source_id is not None else None
+        stale_samples = len(
+            database.mark_stale_mapped_generic_samples(current_sample_ids, processed_sources)
+        )
 
     manifest = {
         "created_at": utc_now(),

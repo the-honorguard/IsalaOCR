@@ -760,6 +760,44 @@ class SamplesMixin:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def mark_stale_mapped_generic_samples(
+        self, keep_sample_ids: set[str], processed_source_ids: set[str] | None
+    ) -> list[str]:
+        """Demote no-longer-current 'mapped_generic' samples to 'mapped_generic_stale'.
+
+        Split out of ``mapping.py``'s ``materialize_confirmed_mappings()``
+        (CODE_REVIEW_v3.16.0.md, sectie Hoog). A new table/raster mapping pass
+        is authoritative; older ``mapped_generic`` rows for a source that was
+        just (re)processed must move out of the active method so they stop
+        showing up in the ROI-review queue. ``processed_source_ids=None``
+        means "every source, not just a specific one" (mirrors the caller's
+        own ``source_id is None`` scope check).
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT sample_id, source_id FROM samples WHERE extraction_method='mapped_generic'"
+            ).fetchall()
+            stale_ids = [
+                str(row["sample_id"])
+                for row in rows
+                if (
+                    str(row["sample_id"]) not in keep_sample_ids
+                    and (processed_source_ids is None or str(row["source_id"]) in processed_source_ids)
+                )
+            ]
+            if stale_ids:
+                db.executemany(
+                    """
+                    UPDATE samples
+                    SET extraction_method='mapped_generic_stale',
+                        roi_review_status='deferred',
+                        updated_at=datetime('now')
+                    WHERE sample_id=? AND extraction_method='mapped_generic'
+                    """,
+                    [(sample_id,) for sample_id in stale_ids],
+                )
+        return stale_ids
+
     def mark_stale_samples(
         self, extraction_method: str, keep_sample_ids: set[str], stale_extraction_method: str
     ) -> list[str]:
