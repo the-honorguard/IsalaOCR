@@ -239,6 +239,8 @@
         </div>
         <div class="comparison-issue-list">
           {% set error_suggestion_ids = error_suggestions.issue_ids or [] %}
+          {% set incomplete_suggestion_ids = incomplete_suggestions.issue_ids or [] %}
+          {% set split_suggestion_ids = split_suggestions.issue_ids or [] %}
           {% for issue in panel.issues %}
           {% set decision = issue.review.decision or '' %}
           <div class="comparison-issue-row" data-issue-id="{{ issue.issue_id }}" data-issue-type="{{ issue.type }}" data-issue-open="{{ '1' if not decision or decision == 'deferred' else '0' }}" data-issue-decision="{{ decision }}" {% if decision and decision != 'deferred' %}data-optimistic-hidden="1" style="display:none"{% endif %}>
@@ -246,7 +248,9 @@
               <div>
                 <span class="issue-dot issue-dot-{{ issue.type }}"></span><strong>{{ issue.label }}</strong>
                 {% if issue.type == 'geometry' and issue.functional_candidate %}<span class="pill comparison-functional-hint ok">waarschijnlijk bruikbaar</span>{% endif %}
-                {% if issue.issue_id in error_suggestion_ids %}{% set error_match = error_suggestions.issues|selectattr('issue_id', 'equalto', issue.issue_id)|first %}<span class="pill comparison-functional-hint bad">{% if error_match and error_match.oversized_by_excess %}≥{{ '%.0f%%'|format(error_suggestions.prediction_excess_threshold * 100) }} extra{% else %}≥{{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× te hoog{% endif %}</span>{% endif %}
+                {% if issue.issue_id in error_suggestion_ids %}{% set error_match = error_suggestions.issues|selectattr('issue_id', 'equalto', issue.issue_id)|first %}<span class="pill comparison-functional-hint bad" title="Zou door 'Overduidelijke modelfouten' automatisch als modelfout gemarkeerd worden.">Auto: {% if error_match and error_match.oversized_by_excess %}≥{{ '%.0f%%'|format(error_suggestions.prediction_excess_threshold * 100) }} extra{% else %}≥{{ '%.1f'|format(error_suggestions.height_ratio_threshold) }}× te hoog{% endif %}</span>{% endif %}
+                {% if issue.issue_id in incomplete_suggestion_ids %}<span class="pill comparison-functional-hint bad" title="Zou door 'Onvolledige detecties' automatisch als modelfout gemarkeerd worden.">Auto: ≤{{ '%.0f%%'|format(incomplete_suggestions.gt_coverage_threshold * 100) }} gedekt</span>{% endif %}
+                {% if issue.issue_id in split_suggestion_ids %}<span class="pill comparison-functional-hint bad" title="Zou door 'Gesplitste detecties' automatisch als modelfout gemarkeerd worden.">Auto: gesplitste detectie</span>{% endif %}
                 {% if issue.containment_recovered or issue.spatial_recovered %}<span class="pill comparison-containment-hint">FP+FN gekoppeld</span>{% endif %}
               </div>
               <small>{% if issue.iou %}IoU {{ '%.1f%%'|format(issue.iou*100) }} · {% endif %}{% if issue.type == 'geometry' %}GT gedekt {{ '%.1f%%'|format((issue.gt_coverage or 0)*100) }} · extra prediction {{ '%.1f%%'|format((issue.prediction_excess or 0)*100) }} · {% endif %}{% if issue.confidence %}confidence {{ '%.1f%%'|format(issue.confidence*100) }}{% endif %}</small>
