@@ -70,7 +70,16 @@ inventarisatie/uitvoering start.
       `value_review_counts`, `value_source_rows`, `value_source_samples`)
       zijn nu dunne aanroepen; `source_rows()` behield alleen de
       `render_exists`-berekening (die `workspace_root()` nodig heeft).
-- [ ] `recognition_ground_truth_web.py:29,53,74,101,161,207` (6 plekken)
+- [x] `recognition_ground_truth_web.py:29,53,74,101,161,207` (6 plekken,
+      allemaal op `samples` gefilterd op `extraction_method`) — verplaatst
+      naar `SamplesMixin`: `accepted_exact_labels(extraction_method)`,
+      `has_accepted_exact_label(extraction_method)`,
+      `accepted_exact_label_rows(extraction_method)`,
+      `samples_source_counts(extraction_method, status, sort)`,
+      `samples_for_source_and_method(source_id, extraction_method)`,
+      `samples_by_method(extraction_method, status)`. `sort`/`status`
+      blijven server-side gevalideerde parameters (geen directe
+      request-string-interpolatie in de SQL).
 - [ ] `recognition_ground_truth.py:304,438,444`
 - [ ] `routes_roi_review.py:35`
 - [ ] `routes_value_review.py:133`

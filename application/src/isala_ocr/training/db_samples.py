@@ -579,3 +579,130 @@ class SamplesMixin:
                 (source_id,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def accepted_exact_labels(self, extraction_method: str) -> list[str]:
+        """Exact labels of accepted samples for one extraction method.
+
+        Split out of ``recognition_ground_truth_web.py``'s
+        ``_rebuild_format_profile()`` (CODE_REVIEW_v3.16.0.md, sectie Hoog).
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT exact_label FROM samples WHERE extraction_method=? AND status='accepted' AND exact_label IS NOT NULL",
+                (extraction_method,),
+            ).fetchall()
+        return [str(row["exact_label"] or "") for row in rows]
+
+    def has_accepted_exact_label(self, extraction_method: str) -> bool:
+        """Whether at least one accepted, labelled sample exists for a method.
+
+        Split out of ``recognition_ground_truth_web.py``'s
+        ``format_profile_for_review()``.
+        """
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT 1 FROM samples WHERE extraction_method=? AND status='accepted' AND exact_label IS NOT NULL LIMIT 1",
+                (extraction_method,),
+            ).fetchone()
+        return row is not None
+
+    def accepted_exact_label_rows(self, extraction_method: str) -> list[dict[str, Any]]:
+        """sample_id/source_id/raw_ocr/exact_label for accepted, labelled samples.
+
+        Split out of ``recognition_ground_truth_web.py``'s
+        ``recognition_gt_formats()``.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT sample_id, source_id, raw_ocr, exact_label
+                FROM samples
+                WHERE extraction_method=? AND status='accepted' AND exact_label IS NOT NULL
+                ORDER BY source_id, sample_id
+                """,
+                (extraction_method,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def samples_source_counts(
+        self, extraction_method: str, status: str | None = None, sort: str = "source"
+    ) -> list[dict[str, Any]]:
+        """Per-source total/pending/accepted/excluded counts for one extraction method.
+
+        Split out of ``recognition_ground_truth_web.py``'s ``source_rows()``.
+        ``sort`` picks a fixed ``ORDER BY`` (never interpolated from request
+        input directly) matching that function's ``source``/``pending``/
+        ``errors`` modes.
+        """
+        where = "WHERE extraction_method=?"
+        params: list[str] = [extraction_method]
+        if status:
+            where += " AND status=?"
+            params.append(status)
+        order_by = "source_id"
+        if sort == "errors":
+            order_by = "pending DESC, excluded DESC, source_id"
+        elif sort == "pending":
+            order_by = "pending DESC, source_id"
+        with self.connect() as db:
+            rows = db.execute(
+                f"""
+                SELECT source_id,
+                       COUNT(*) AS total,
+                       SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+                       SUM(CASE WHEN status='accepted' THEN 1 ELSE 0 END) AS accepted,
+                       SUM(CASE WHEN status IN ('unreadable','excluded','no_value') THEN 1 ELSE 0 END) AS excluded
+                FROM samples
+                {where}
+                GROUP BY source_id
+                ORDER BY {order_by}
+                """,
+                params,
+            ).fetchall()
+        return [
+            {
+                "source_id": str(row["source_id"]),
+                "total": int(row["total"] or 0),
+                "pending": int(row["pending"] or 0),
+                "accepted": int(row["accepted"] or 0),
+                "excluded": int(row["excluded"] or 0),
+            }
+            for row in rows
+        ]
+
+    def samples_for_source_and_method(self, source_id: str, extraction_method: str) -> list[dict[str, Any]]:
+        """All samples for one source and extraction method, in ROI reading order.
+
+        Split out of ``recognition_ground_truth_web.py``'s ``source_samples()``.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT * FROM samples
+                WHERE source_id=? AND extraction_method=?
+                ORDER BY roi_y1, roi_x1, sample_id
+                """,
+                (source_id, extraction_method),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def samples_by_method(self, extraction_method: str, status: str | None = None) -> list[dict[str, Any]]:
+        """All samples for one extraction method, optionally filtered by status.
+
+        Split out of ``recognition_ground_truth_web.py``'s ``all_samples()``.
+        """
+        where = "WHERE extraction_method=?"
+        params: list[str] = [extraction_method]
+        if status:
+            where += " AND status=?"
+            params.append(status)
+        with self.connect() as db:
+            rows = db.execute(
+                f"""
+                SELECT * FROM samples
+                {where}
+                ORDER BY source_id, roi_y1, roi_x1, sample_id
+                """,
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
