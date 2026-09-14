@@ -8,14 +8,16 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
+from ..geometry import area as _area
+from ..geometry import intersection_area as _intersection_area
 from ..models import Box
 
 if TYPE_CHECKING:
     from ..config import AppConfig, Profile
     from ..ocr.base import OCREngine
-from .projects import resolve_project_workspace
 from .db import TrainingDatabase, utc_now
 from .generic_detection import normalize_text
+from .projects import resolve_project_workspace
 from .mapping_lateral import ambiguous_lateral_suffixes, lateral_candidate_allowed
 from .mapping_semantics import is_missing_value_text, schema_candidate_score
 from .relation_feedback import evaluate_feedback, relation_snapshot
@@ -507,16 +509,6 @@ def auto_confirm_mapping_suggestions(
 
 def _block_box(block: dict[str, Any]) -> Box:
     return Box(int(block["x1"]), int(block["y1"]), int(block["x2"]), int(block["y2"]))
-
-
-def _intersection_area(left: Box, right: Box) -> int:
-    return max(0, min(left.x2, right.x2) - max(left.x1, right.x1)) * max(
-        0, min(left.y2, right.y2) - max(left.y1, right.y1)
-    )
-
-
-def _area(box: Box) -> int:
-    return max(1, box.width * box.height)
 
 
 def _pipeline_a_geometry_match(

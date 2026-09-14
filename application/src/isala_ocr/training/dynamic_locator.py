@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from statistics import median
-from typing import Iterable, Sequence
+from typing import Sequence
 import re
 import unicodedata
 
 from ..config import FieldSpec, Profile
 from ..geometry import scale_box
+from ..geometry import union as _union
 from ..models import Box, OCRToken
 
 LOCATOR_VERSION = "label-row-v2-normalized"
@@ -46,18 +47,6 @@ def _center_x(box: Box) -> float:
 
 def _center_y(box: Box) -> float:
     return (box.y1 + box.y2) / 2.0
-
-
-def _union(boxes: Iterable[Box]) -> Box:
-    values = list(boxes)
-    if not values:
-        raise ValueError("Cannot union an empty box sequence")
-    return Box(
-        min(box.x1 for box in values),
-        min(box.y1 for box in values),
-        max(box.x2 for box in values),
-        max(box.y2 for box in values),
-    )
 
 
 def normalize_for_matching(value: str) -> str:

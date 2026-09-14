@@ -5,8 +5,9 @@ import math
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
+from ..geometry import union as _union
 from ..models import Box, OCRToken
 
 GENERIC_DETECTOR_VERSION = "generic-layout-v3-table-aware"
@@ -122,18 +123,6 @@ def normalize_text(value: str) -> str:
     text = text.casefold().replace("²", "2")
     text = re.sub(r"[^a-z0-9%]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
-
-
-def _union(boxes: Iterable[Box]) -> Box:
-    values = list(boxes)
-    if not values:
-        raise ValueError("Cannot union an empty box sequence")
-    return Box(
-        min(box.x1 for box in values),
-        min(box.y1 for box in values),
-        max(box.x2 for box in values),
-        max(box.y2 for box in values),
-    )
 
 
 def _weighted_confidence(tokens: Sequence[OCRToken]) -> float:

@@ -120,10 +120,51 @@ inventarisatie/uitvoering start.
 Hiermee zijn alle geïnventariseerde raw-SQL-plekken buiten `db.py`
 afgehandeld; item 1 is afgerond.
 
+## Item 2: geometrie/IoU-module
+
+Vóór het verifiëren waren `_intersection_area`/`_area` (`mapping.py`),
+`_intersection_area`/`_union` (`mapping_ground_truth.py`) en `_union`
+(`generic_detection.py`, `dynamic_locator.py`) 5 onafhankelijke, maar
+byte-voor-byte functioneel identieke implementaties (geverifieerd door
+letterlijke code-vergelijking vóór het samenvoegen) op 4 plekken. Verplaatst
+naar het al bestaande, package-brede `isala_ocr/geometry.py` (dat al
+`scale_box()` bevatte en al door `dynamic_locator.py` werd geïmporteerd) in
+plaats van een nieuw `training/geometry.py` te maken -- dat zou de opsplitsing
+van "1 gedeelde module" naar "2 gedeeltelijk overlappende geometriemodules"
+hebben gemaakt, precies het probleem dat dit item moest oplossen.
+
+- `intersection_area(left, right) -> int` (uit `mapping.py`/
+  `mapping_ground_truth.py`, identiek).
+- `area(box) -> int` (uit `mapping.py`, clamp op minimaal 1).
+- `union(boxes) -> Box` (uit `mapping_ground_truth.py`/`generic_detection.py`/
+  `dynamic_locator.py`) — de variant met een expliciete lege-lijst-check
+  (`generic_detection.py`/`dynamic_locator.py`) is gekozen als canoniek boven
+  de kale `min()`/`max()`-versie uit `mapping_ground_truth.py`: dat verandert
+  alleen welke foutmelding een reeds-ongeldige aanroep krijgt (een
+  `ValueError` met duidelijke tekst i.p.v. `min()`'s eigen "arg is an empty
+  sequence"), niet enige uitkomst binnen het geldige bereik.
+
+Alle 4 call-sites importeren de gedeelde functies onder hun oude lokale naam
+(`from ..geometry import intersection_area as _intersection_area`, etc.), dus
+geen enkele aanroep-plek hoefde te wijzigen. `Iterable` werd een ongebruikte
+import in `generic_detection.py`/`dynamic_locator.py` na het verwijderen van
+hun lokale `_union`; opgeruimd.
+
+**Bewust NIET meegenomen:** `table_model_comparison.py`'s `_iou`/`_box_area`/
+`_coverage_fraction` werken op platte `(x1,y1,x2,y2)`-float-tuples i.p.v.
+`Box`, en gebruiken een `1e-9`-epsilon-guard i.p.v. de clamp-op-1 hierboven —
+een bewust andere aanpak voor een ander (float, hoog-volume
+vergelijkings-)gebruik. Samenvoegen zou de al-getunede
+vergelijkingsdrempels die op deze epsilon-semantiek vertrouwen kunnen
+verschuiven op randgevallen (zeer kleine/degenererende boxen) — precies het
+risico dat het reviewrapport benoemt. Dat vraagt een bewuste
+product-beslissing, geen stille eenwording; niet uitgevoerd zonder die
+beslissing.
+
 ## Status per item
 
 - [x] 1. Raw-SQL-plekken (zie inventaris hierboven)
-- [ ] 2. Geometrie/IoU-module
+- [x] 2. Geometrie/IoU-module (zie hieronder)
 - [ ] 3. FieldSpec.whitelist-onderzoek
 - [ ] 4. `_similarity`-functies
 - [ ] 5. CLI-duplicatie
