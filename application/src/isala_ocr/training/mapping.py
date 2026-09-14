@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 from .projects import resolve_project_workspace
 from .db import TrainingDatabase, utc_now
 from .generic_detection import normalize_text
+from .mapping_lateral import ambiguous_lateral_suffixes, lateral_candidate_allowed
 from .mapping_semantics import is_missing_value_text, schema_candidate_score
 from .relation_feedback import evaluate_feedback, relation_snapshot
 
@@ -229,6 +230,7 @@ def suggest_mappings(
         if str(relation.get("status") or "proposed") != "rejected"
     }
     fields = database.list_field_definitions(active_only=True)
+    lateral_ambiguities = ambiguous_lateral_suffixes(fields)
     existing = database.list_mappings(source_id)
     confirmed_fields = {item["field_key"] for item in existing if item["status"] == "confirmed"}
     confirmed_relations = {item["relation_id"] for item in existing if item["status"] == "confirmed" and item["relation_id"]}
@@ -266,12 +268,74 @@ def suggest_mappings(
             continue
         eligible_relations.append(relation)
 
-    suggestions: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
+    # The global field profile is authoritative when a label is an exact alias
+    # in the correct table context. Without this pass, the later global score
+    # sort can assign a same-unit field to the wrong row (for example Stroke
+    # Volume -> ED Volume) simply because the labels are spatially duplicated.
+    # This mirrors the exact-alias disambiguation in ``suggest_mappings_fast``
+    # so that both mapping strategies apply the same safety guard.
+    exact_candidates: dict[str, list[tuple[float, dict[str, Any], dict[str, Any]]]] = {}
+    for relation in eligible_relations:
+        relation_id = str(relation["relation_id"])
+        feedback = feedback_by_relation[relation_id]
+        for field in fields:
+            field_key = str(field["field_key"])
+            if field_key in confirmed_fields:
+                continue
+            if not lateral_candidate_allowed(field, relation, lateral_ambiguities):
+                continue
+            score, evidence = schema_candidate_score(
+                field,
+                relation,
+                similarity=_similarity,
+                context_score=_context_score,
+                feedback_multiplier=float(feedback["multiplier"]),
+            )
+            if not evidence.get("exact_alias") or score < minimum_score:
+                continue
+            group = str(field.get("group_name") or "")
+            context = str(relation.get("context_text") or "")
+            context_value = _context_score(group, context)
+            if group and context_value < 0:
+                continue
+            exact_candidates.setdefault(relation_id, []).append((
+                score,
+                field,
+                {
+                    **relation,
+                    "feedback_quality": float(feedback["quality"]),
+                    "feedback_matched_examples": int(feedback["matched_examples"]),
+                    "mapping_evidence": evidence,
+                },
+            ))
+
+    exact_assignments: dict[str, tuple[float, dict[str, Any], dict[str, Any]]] = {}
+    exact_field_use: dict[str, int] = {}
+    for relation_id, candidates in exact_candidates.items():
+        # An exact alias is safe only when the table context leaves one field
+        # and that field is not claimed by another exact relation.
+        field_keys = {str(item[1]["field_key"]) for item in candidates}
+        if len(field_keys) == 1 and len(candidates) == 1:
+            exact_assignments[relation_id] = candidates[0]
+            field_key = next(iter(field_keys))
+            exact_field_use[field_key] = exact_field_use.get(field_key, 0) + 1
+    exact_assignments = {
+        relation_id: item
+        for relation_id, item in exact_assignments.items()
+        if exact_field_use.get(str(item[1]["field_key"]), 0) == 1
+    }
+
+    suggestions: list[tuple[float, dict[str, Any], dict[str, Any]]] = list(exact_assignments.values())
     for field in fields:
         if field["field_key"] in confirmed_fields:
             continue
         for relation in eligible_relations:
-            feedback = feedback_by_relation[str(relation["relation_id"])]
+            relation_id = str(relation["relation_id"])
+            if relation_id in exact_assignments:
+                continue
+            if not lateral_candidate_allowed(field, relation, lateral_ambiguities):
+                continue
+            feedback = feedback_by_relation[relation_id]
             score, evidence = schema_candidate_score(
                 field,
                 relation,
