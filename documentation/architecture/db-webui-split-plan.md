@@ -155,12 +155,37 @@ GET-afhandeling voor die stap bevat, met de benodigde closures/`database`/
 `workspace_root` etc. als parameters; de hoofdfunctie wordt dan een korte
 lookup-dispatch (`handler = _STEP_HANDLERS.get(step_key)`) in plaats van een
 lange `if`/`elif`-keten.
-- [ ] 11+. Eén tak per stap omzetten naar een losse, benoemde functie
-       (`_process_step_<key>(...)`) met expliciete parameters, aangeroepen
-       vanuit de (dan veel kortere) dispatcher. Geen gedragswijziging.
+- [x] 11a. `input-selection` (GET+POST) verplaatst naar een losse geneste
+       functie `_process_step_input_selection(step)`, aangeroepen vanuit
+       `process_step()`. Nog steeds een closure over `create_web_app()`'s
+       locals (nog geen expliciete parameters voor alle closures) - dat komt
+       pas aan bod bij de laatste stap hieronder, waar wordt beoordeeld of
+       verplaatsing naar een eigen bestand haalbaar is.
+- [x] 11b. De `elif`-keten die alleen `state`/`header_counts` vulde
+       (`detection-models`, `{detect-candidates, detection-review}`,
+       `redetect`, `mapping`, `{apply-mapping, value-extract}`,
+       `value-review`, `recognition-*`-prefix) omgezet naar acht losse
+       `_process_step_state_<naam>()`-functies plus een
+       `_PROCESS_STEP_STATE_BUILDERS`-dispatch-dict; `process_step()` doet nu
+       een lookup in plaats van de lange keten. `process_step()` zelf ging
+       van ~980 naar 746 regels.
+       Let op tijdens deze stap: `tests/test_preparation_readiness_v3111.py`
+       controleerde de letterlijke broncode-string
+       `state["preparation"] = preparation_for_current_strategy()` - een
+       dict-literal-vorm brak die test zonder gedragsverschil; teruggezet
+       naar de exacte toewijzingsvorm zodat de test ongewijzigd kon blijven.
+- [ ] 11c+. Resterende takken (`panel-setup`, `table-region-model`,
+       `table-quality` POST+GET (grootste/complexte tak, met geneste
+       `indexed_cells`/`axis_groups`/`table_record`-helpers),
+       `table-compare` POST+GET, `localization-dataset` POST+GET,
+       `{localization-evaluate, localization-register, detection-report}`,
+       `detect-candidates`+table_first, `artifacts`, impliciete
+       `header-normalization`-POST) één voor één verplaatsen naar
+       `_process_step_<key>(...)`-functies volgens hetzelfde patroon.
 - [ ] Laatste stap: evalueren of (een deel van) deze functies alsnog naar een
        eigen module kunnen verhuizen zonder circulaire import met de
-       `routes_*.py`-bestanden die ze nu al aanroepen.
+       `routes_*.py`-bestanden die ze nu al aanroepen (daarvoor moeten hun
+       closures alsnog expliciete parameters worden).
 
 ## Validatie per stap
 

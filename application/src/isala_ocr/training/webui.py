@@ -2955,6 +2955,163 @@ def create_web_app(
         table_panel_review_context=_table_panel_review_context,
     )
 
+    def _process_step_state_detection_models() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        state: dict[str, Any] = {}
+        state["preparation"] = preparation_for_current_strategy()
+        state["panel_state"] = table_panel_state()
+        state["input_file_count"] = input_source_count()
+        state["registered_source_count"] = len(database.list_detection_sources())
+        return state, None
+
+    def _process_step_state_detection_review(step_key: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        detection_sources = database.list_detection_sources()
+        detection_reviews = step4_review_counts()
+        state: dict[str, Any] = dict(
+            detection_sources=detection_sources,
+            detection_reviews=detection_reviews,
+            input_selection=input_selection_state(),
+            panel_state=(table_panel_state() if localization_strategy() == "table_first" else {"configured": True, "detection_current": True}),
+        )
+        if step_key == "detect-candidates" and localization_strategy() == "table_first":
+            state["table_model"] = table_cell_training_state(workspace_root())
+        header_counts = {
+            "total": int(detection_reviews.get("candidate_total", 0)) + int(detection_reviews.get("added", 0)),
+            "pending": int(detection_reviews.get("pending", 0)),
+            "accepted": int(detection_reviews.get("positive", 0)),
+        }
+        return state, header_counts
+
+    def _process_step_state_redetect() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        evaluations = database.list_localization_evaluations()
+        state: dict[str, Any] = dict(
+            detection_gate=current_detection_gate(),
+            localization_baseline=next((item for item in evaluations if item.get("kind") == "baseline"), None),
+            localization_trained=next((item for item in evaluations if item.get("kind") == "trained"), None),
+            active_localization_model=database.active_localization_model(),
+        )
+        return state, None
+
+    def _process_step_state_mapping() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        mapping = database.mapping_counts()
+        state: dict[str, Any] = dict(detection_gate=current_pipeline_gate(), mapping=mapping)
+        header_counts = {
+            "total": mapping.get("relations", 0),
+            "pending": mapping.get("suggested", 0),
+            "accepted": mapping.get("confirmed", 0),
+        }
+        return state, header_counts
+
+    def _process_step_state_apply_mapping() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        mapped = mapped_sample_state()
+        state: dict[str, Any] = dict(detection_gate=current_pipeline_gate(), mapped=mapped)
+        header_counts = {
+            "total": mapped.get("total", 0),
+            "pending": max(0, mapped.get("total", 0) - mapped.get("roi_correct", 0)),
+            "accepted": mapped.get("roi_correct", 0),
+        }
+        return state, header_counts
+
+    def _process_step_state_value_review() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        value = value_review_counts()
+        outputs = []
+        for source in database.list_detection_sources():
+            current_source = str(source.get("source_id") or "")
+            output_path = workspace_root() / "extracted_output" / f"{current_source}.json"
+            payload = _read_json(output_path, {}) if output_path.is_file() else {}
+            measurements = payload.get("measurements") if isinstance(payload, dict) else {}
+            if isinstance(measurements, dict) and measurements:
+                outputs.append({
+                    "source_id": current_source,
+                    "measurement_count": len(measurements),
+                    "generated_at": payload.get("generated_at") or "",
+                })
+        state: dict[str, Any] = dict(detection_gate=current_pipeline_gate(), value=value, outputs=outputs)
+        return state, value
+
+    def _process_step_state_recognition() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        _, active = registry_state()
+        recognition_baseline, recognition_custom = latest_evaluations()
+        state: dict[str, Any] = dict(
+            detection_gate=current_recognition_gate(),
+            pipeline_gate=current_pipeline_gate(),
+            dataset=latest_dataset_info(),
+            active=active,
+            recognition_baseline=recognition_baseline,
+            recognition_custom=recognition_custom,
+            recognition_comparison=latest_comparison(),
+        )
+        return state, None
+
+    # step_key -> state-builder, for the process_step steps that only need to
+    # populate `state`/`header_counts` before the shared process_step.html
+    # render (see documentation/architecture/db-webui-split-plan.md). Kept as
+    # one dispatch table instead of an if/elif chain in process_step() itself.
+    _PROCESS_STEP_STATE_BUILDERS: dict[str, Any] = {
+        "detection-models": _process_step_state_detection_models,
+        "detect-candidates": lambda: _process_step_state_detection_review("detect-candidates"),
+        "detection-review": lambda: _process_step_state_detection_review("detection-review"),
+        "redetect": _process_step_state_redetect,
+        "mapping": _process_step_state_mapping,
+        "apply-mapping": _process_step_state_apply_mapping,
+        "value-extract": _process_step_state_apply_mapping,
+        "value-review": _process_step_state_value_review,
+    }
+
+    def _process_step_input_selection(step):
+        """Handle the ``input-selection`` process step (GET+POST).
+
+        Extracted from the ``process_step()`` dispatcher (see
+        ``documentation/architecture/db-webui-split-plan.md``) - still a
+        closure over create_web_app()'s locals, not yet moved to its own
+        module.
+        """
+        if request.method == "POST":
+            selected = {
+                str(value).strip().replace("\\", "/")
+                for value in request.form.getlist("selected_file")
+                if str(value).strip()
+            }
+            available = {str(item["key"]) for item in input_selection_state()["files"]}
+            selected &= available
+            payload = selection_payload(selected)
+            payload["updated_at"] = _utcnow()
+            input_selection_path().parent.mkdir(parents=True, exist_ok=True)
+            input_selection_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            flash(f"Inputselectie opgeslagen: {len(selected)} van {len(available)} afbeeldingen geselecteerd.", "success")
+            if request.form.get("open_panel") == "1":
+                return redirect(url_for("process_step", step_key="panel-setup"))
+            if request.form.get("start_processing") == "1":
+                if loaded_config is None:
+                    flash("Bronpreview kan niet worden voorbereid: de actieve configuratie ontbreekt.", "error")
+                    return redirect(url_for("process_step", step_key="input-selection"))
+                try:
+                    result = prepare_source_renders("/input", workspace_root(), loaded_config)
+                    flash(f"{result['sources']} volledige bronpreview(s) voorbereid. Stap 3 voor tabelregio’s is nu beschikbaar.", "success")
+                    return redirect(url_for("process_step", step_key="panel-setup"))
+                except Exception as exc:
+                    _record_webui_error("source_render_prepare", exc)
+                    flash(f"Bronpreview voorbereiden mislukt: {type(exc).__name__}: {exc}", "error")
+                    return redirect(url_for("process_step", step_key="input-selection"))
+            return redirect(url_for("process_step", step_key="input-selection"))
+        selection = input_selection_state()
+        existing_sources = {str(item["source_id"]) for item in database.list_detection_sources()}
+        for item in selection["files"]:
+            item["processed"] = item["source_id"] in existing_sources
+            if item["processed"]:
+                item["preview_url"] = url_for("source_render", source_id=item["source_id"])
+            elif Path(item["key"]).suffix.lower() in {".dcm", ".dicom", ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
+                item["preview_url"] = url_for("input_preview", relative_path=item["key"])
+        return render_template(
+            "input_selection.html", step=step, selection=selection,
+            header_counts={
+                "total": selection["total"],
+                "pending": selection["new"],
+                "accepted": selection["selected"],
+            },
+            header_total_label="afbeeldingen", header_pending_label="nieuw",
+            header_accepted_label="geselecteerd",
+        )
+
     @app.route("/process/<step_key>", methods=["GET", "POST"])
     def process_step(step_key: str):
         legacy_step_aliases = {
@@ -2975,52 +3132,7 @@ def create_web_app(
             return redirect(url_for("detection_review_index"))
 
         if step_key == "input-selection":
-            if request.method == "POST":
-                selected = {
-                    str(value).strip().replace("\\", "/")
-                    for value in request.form.getlist("selected_file")
-                    if str(value).strip()
-                }
-                available = {str(item["key"]) for item in input_selection_state()["files"]}
-                selected &= available
-                payload = selection_payload(selected)
-                payload["updated_at"] = _utcnow()
-                input_selection_path().parent.mkdir(parents=True, exist_ok=True)
-                input_selection_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
-                flash(f"Inputselectie opgeslagen: {len(selected)} van {len(available)} afbeeldingen geselecteerd.", "success")
-                if request.form.get("open_panel") == "1":
-                    return redirect(url_for("process_step", step_key="panel-setup"))
-                if request.form.get("start_processing") == "1":
-                    if loaded_config is None:
-                        flash("Bronpreview kan niet worden voorbereid: de actieve configuratie ontbreekt.", "error")
-                        return redirect(url_for("process_step", step_key="input-selection"))
-                    try:
-                        result = prepare_source_renders("/input", workspace_root(), loaded_config)
-                        flash(f"{result['sources']} volledige bronpreview(s) voorbereid. Stap 3 voor tabelregio’s is nu beschikbaar.", "success")
-                        return redirect(url_for("process_step", step_key="panel-setup"))
-                    except Exception as exc:
-                        _record_webui_error("source_render_prepare", exc)
-                        flash(f"Bronpreview voorbereiden mislukt: {type(exc).__name__}: {exc}", "error")
-                        return redirect(url_for("process_step", step_key="input-selection"))
-                return redirect(url_for("process_step", step_key="input-selection"))
-            selection = input_selection_state()
-            existing_sources = {str(item["source_id"]) for item in database.list_detection_sources()}
-            for item in selection["files"]:
-                item["processed"] = item["source_id"] in existing_sources
-                if item["processed"]:
-                    item["preview_url"] = url_for("source_render", source_id=item["source_id"])
-                elif Path(item["key"]).suffix.lower() in {".dcm", ".dicom", ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
-                    item["preview_url"] = url_for("input_preview", relative_path=item["key"])
-            return render_template(
-                "input_selection.html", step=step, selection=selection,
-                header_counts={
-                    "total": selection["total"],
-                    "pending": selection["new"],
-                    "accepted": selection["selected"],
-                },
-                header_total_label="afbeeldingen", header_pending_label="nieuw",
-                header_accepted_label="geselecteerd",
-            )
+            return _process_step_input_selection(step)
 
         header_status_filter = str(request.args.get("header_status", "pending")).strip().lower()
         if header_status_filter not in {"all", "pending", "accepted", "rejected", "deferred"}:
@@ -3727,79 +3839,11 @@ def create_web_app(
         state: dict[str, Any] = {}
         header_counts = None
 
-        if step_key == "detection-models":
-            state["preparation"] = preparation_for_current_strategy()
-            state["panel_state"] = table_panel_state()
-            state["input_file_count"] = input_source_count()
-            state["registered_source_count"] = len(database.list_detection_sources())
-        elif step_key in {"detect-candidates", "detection-review"}:
-            detection_sources = database.list_detection_sources()
-            detection_reviews = step4_review_counts()
-            state.update(
-                detection_sources=detection_sources,
-                detection_reviews=detection_reviews,
-                input_selection=input_selection_state(),
-                panel_state=(table_panel_state() if localization_strategy() == "table_first" else {"configured": True, "detection_current": True}),
-            )
-            if step_key == "detect-candidates" and localization_strategy() == "table_first":
-                state["table_model"] = table_cell_training_state(workspace_root())
-            header_counts = {
-                "total": int(detection_reviews.get("candidate_total", 0)) + int(detection_reviews.get("added", 0)),
-                "pending": int(detection_reviews.get("pending", 0)),
-                "accepted": int(detection_reviews.get("positive", 0)),
-            }
-        elif step_key == "redetect":
-            evaluations = database.list_localization_evaluations()
-            state.update(
-                detection_gate=current_detection_gate(),
-                localization_baseline=next((item for item in evaluations if item.get("kind") == "baseline"), None),
-                localization_trained=next((item for item in evaluations if item.get("kind") == "trained"), None),
-                active_localization_model=database.active_localization_model(),
-            )
-        elif step_key == "mapping":
-            mapping = database.mapping_counts()
-            state.update(detection_gate=current_pipeline_gate(), mapping=mapping)
-            header_counts = {
-                "total": mapping.get("relations", 0),
-                "pending": mapping.get("suggested", 0),
-                "accepted": mapping.get("confirmed", 0),
-            }
-        elif step_key in {"apply-mapping", "value-extract"}:
-            mapped = mapped_sample_state()
-            state.update(detection_gate=current_pipeline_gate(), mapped=mapped)
-            header_counts = {
-                "total": mapped.get("total", 0),
-                "pending": max(0, mapped.get("total", 0) - mapped.get("roi_correct", 0)),
-                "accepted": mapped.get("roi_correct", 0),
-            }
-        elif step_key == "value-review":
-            value = value_review_counts()
-            outputs = []
-            for source in database.list_detection_sources():
-                current_source = str(source.get("source_id") or "")
-                output_path = workspace_root() / "extracted_output" / f"{current_source}.json"
-                payload = _read_json(output_path, {}) if output_path.is_file() else {}
-                measurements = payload.get("measurements") if isinstance(payload, dict) else {}
-                if isinstance(measurements, dict) and measurements:
-                    outputs.append({
-                        "source_id": current_source,
-                        "measurement_count": len(measurements),
-                        "generated_at": payload.get("generated_at") or "",
-                    })
-            state.update(detection_gate=current_pipeline_gate(), value=value, outputs=outputs)
-            header_counts = value
+        state_builder = _PROCESS_STEP_STATE_BUILDERS.get(step_key)
+        if state_builder is not None:
+            state, header_counts = state_builder()
         elif step_key.startswith("recognition-"):
-            _, active = registry_state()
-            recognition_baseline, recognition_custom = latest_evaluations()
-            state.update(
-                detection_gate=current_recognition_gate(),
-                pipeline_gate=current_pipeline_gate(),
-                dataset=latest_dataset_info(),
-                active=active,
-                recognition_baseline=recognition_baseline,
-                recognition_custom=recognition_custom,
-                recognition_comparison=latest_comparison(),
-            )
+            state, header_counts = _process_step_state_recognition()
         elif step.get("group") == "value":
             state["detection_gate"] = current_pipeline_gate()
 
