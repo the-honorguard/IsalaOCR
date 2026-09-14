@@ -619,14 +619,32 @@ def _detect_soft_row_boundaries(gray: np.ndarray, box: Box, *, min_gap: int = 10
     distribution are ignored too (already an obvious edge the detector would
     have found on its own) - this targets exactly the "too faint to notice"
     middle ground.
+
+    Text inside a row is the main source of false positives: a handful of
+    dark glyph pixels shift the row *mean* noticeably even though they only
+    cover a small fraction of the row's width, whereas a genuine row-to-row
+    background shift changes the color of (most of) the entire row. Using the
+    row *median* instead of the mean already filters almost all of that out
+    on its own - a minority-coverage glyph cannot move a robust midpoint
+    statistic the way it moves an average - and comparing the median of a
+    short window immediately before each candidate y to the window
+    immediately after (instead of a single-scanline derivative, even after
+    smoothing) additionally requires the shift to hold for multiple
+    scanlines. On real screenshots the old mean+derivative version fired a
+    "boundary" at nearly every glyph instead of just the real row edges.
     """
     region = gray[box.y1:box.y2, box.x1:box.x2]
-    if region.size == 0 or region.shape[0] < 6:
+    height = region.shape[0]
+    if region.size == 0 or height < 6:
         return []
-    row_means = region.astype(np.float32).mean(axis=1)
-    kernel = np.ones(3, dtype=np.float32) / 3.0
-    smoothed = np.convolve(row_means, kernel, mode="same")
-    diffs = np.abs(np.diff(smoothed))
+    row_profile = np.median(region.astype(np.float32), axis=1)
+    span = max(3, min(8, height // 6))
+    if height < span * 2 + 1:
+        return []
+    diffs = np.array([
+        abs(float(row_profile[index:index + span].mean()) - float(row_profile[index - span:index].mean()))
+        for index in range(span, height - span)
+    ], dtype=np.float32)
     if diffs.size == 0:
         return []
     noise_floor = float(diffs.std()) * 1.5
@@ -635,7 +653,8 @@ def _detect_soft_row_boundaries(gray: np.ndarray, box: Box, *, min_gap: int = 10
         return []
     boundaries: list[int] = []
     last_index = -min_gap
-    for index, value in enumerate(diffs):
+    for offset, value in enumerate(diffs):
+        index = offset + span
         absolute_y = index + box.y1
         if (
             noise_floor < value < hard_edge
