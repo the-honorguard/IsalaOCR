@@ -20,7 +20,7 @@ from .training.source_preview import prepare_source_renders
 from .training.dataset import build_dataset
 from .training.db import TrainingDatabase, utc_now
 from .training.evaluator import compare_evaluations, evaluate_model
-from .training.registry import activate_model, register_model
+from .training.model_registry import activate_model, register_model
 from .training.mapping import (
     auto_confirm_mapping_suggestions, materialize_confirmed_mappings,
     recognize_approved_mapped_samples,
