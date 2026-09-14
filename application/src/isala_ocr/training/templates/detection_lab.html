@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block body_class %}detection-lab-page{% endblock %}
+{% block title %}Detectie-lab (tijdelijk) · IsalaOCR{% endblock %}
+{% block heading %}🧪 Detectie-lab (tijdelijk){% endblock %}
+{% block subtitle %}Vergelijk drie aanpakken voor cellen die blijven samenvoegen. Niet onderdeel van de vaste stappenrij - alleen voor deze uitzoekronde.{% endblock %}
+{% block content %}
+<section class="card">
+  <p>
+    {% if active_region_model %}
+    Er staat nu een getraind tabelregio-model actief. Dat model doet standaard <strong>geen</strong> preprocessing-variant-trial meer
+    (zie <code>detect_with_trained_regions</code>) - dat is de meest waarschijnlijke oorzaak van cellen die steeds weer samengevoegd worden.
+    {% else %}
+    Er staat momenteel geen getraind tabelregio-model actief; detectie loopt via de volledige benchmark.
+    {% endif %}
+    Kies hieronder een bron en probeer de drie aanpakken; de resultaten verschijnen naast elkaar zodat je kunt vergelijken welke de rijen/cellen het beste scheidt.
+  </p>
+  <form id="detection-lab-source-form" method="get" action="/detection-lab">
+    <label>Lezing
+      <select name="source_id" onchange="this.form.submit()">
+        {% for item in sources %}
+        <option value="{{ item.source_id }}" {% if item.source_id == selected_source_id %}selected{% endif %}>{{ item.source_id }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+</section>
+
+{% if selected_source_id %}
+<section class="card">
+  <div class="region-review-actions">
+    <div>
+      <span>Basisbeeld</span>
+      <button type="button" class="detection-lab-run" data-approach="forced_benchmark">Probeer 1 · Volledige benchmark</button>
+      <button type="button" class="detection-lab-run" data-approach="region_variant_trial">Probeer 2 · Regio-model + variant-trial</button>
+      <button type="button" class="detection-lab-run" data-approach="contrast_lines">Probeer 3 · Contrastlijnen tussen rijen</button>
+    </div>
+  </div>
+  <div id="detection-lab-message" class="inline-status"></div>
+</section>
+
+<div class="detection-lab-grid" id="detection-lab-grid">
+  <section class="card detection-lab-column" data-approach="forced_benchmark">
+    <h3>Probeer 1 · Volledige benchmark</h3>
+    <p class="muted">Draait alle preprocessing-varianten (origineel, grijswaarden, CLAHE, invert-CLAHE, adaptieve threshold) op de volledige bron, ook als er een regio-model actief is.</p>
+    <div class="detection-lab-result" data-slot="result"><span class="muted">Nog niet gedraaid.</span></div>
+  </section>
+  <section class="card detection-lab-column" data-approach="region_variant_trial">
+    <h3>Probeer 2 · Regio-model + variant-trial</h3>
+    <p class="muted">Gebruikt de boxen van het actieve regio-model, maar probeert per gevonden regio alsnog alle preprocessing-varianten.</p>
+    <div class="detection-lab-result" data-slot="result"><span class="muted">Nog niet gedraaid.</span></div>
+  </section>
+  <section class="card detection-lab-column" data-approach="contrast_lines">
+    <h3>Probeer 3 · Contrastlijnen tussen rijen</h3>
+    <p class="muted">Zoekt lichte contrastverschillen tussen rijen binnen het tabelpaneel en zet daar een lijntje overheen vóór de detectie.</p>
+    <div class="detection-lab-result" data-slot="result"><span class="muted">Nog niet gedraaid.</span></div>
+  </section>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<style>
+.detection-lab-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:16px;}
+.detection-lab-column img{max-width:100%;border-radius:6px;border:1px solid var(--border,#3a3f4b);}
+.detection-lab-result dl{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:0.85em;margin-top:8px;}
+.detection-lab-result dt{opacity:0.7;}
+.detection-lab-result dd{margin:0;font-weight:600;}
+</style>
+<script>
+(() => {
+  const sourceId = {{ selected_source_id|tojson }};
+  const grid = document.getElementById('detection-lab-grid');
+  const message = document.getElementById('detection-lab-message');
+  if (!grid) return;
+  const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const renderResult = (approach, data) => {
+    const column = grid.querySelector(`.detection-lab-column[data-approach="${approach}"] [data-slot="result"]`);
+    if (!column) return;
+    const m = data.metrics || {};
+    column.innerHTML = `
+      <img src="${data.image_url}" alt="Resultaat ${escapeHtml(approach)}">
+      <dl>
+        <dt>Score</dt><dd>${m.score ?? '-'}</dd>
+        <dt>Tabellen</dt><dd>${m.table_count ?? '-'}</dd>
+        <dt>Cellen</dt><dd>${m.cell_count ?? '-'}</dd>
+        <dt>Rijen</dt><dd>${m.row_count ?? '-'}</dd>
+        <dt>Rijregelmaat</dt><dd>${m.row_regularity ?? '-'}</dd>
+        <dt>Kolomuitlijning</dt><dd>${m.column_alignment ?? '-'}</dd>
+        <dt>Overlap-penalty</dt><dd>${m.overlap_penalty ?? '-'}</dd>
+      </dl>`;
+  };
+  document.querySelectorAll('.detection-lab-run').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const approach = button.dataset.approach;
+      button.disabled = true;
+      message.textContent = `Bezig met ${button.textContent.trim()}...`;
+      message.className = 'inline-status';
+      try {
+        const response = await fetch('/api/detection-lab/run', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({source_id: sourceId, approach}),
+        });
+        const data = await response.json();
+        if (!response.ok || data.error) {
+          throw new Error(data.error || `HTTP ${response.status}`);
+        }
+        renderResult(approach, data);
+        message.textContent = `${data.label || approach} klaar.`;
+      } catch (error) {
+        message.textContent = `Mislukt: ${error.message}`;
+        message.className = 'inline-status error';
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+})();
+</script>
+{% endblock %}

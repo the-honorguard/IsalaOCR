@@ -41,6 +41,7 @@ from .table_cell_training import active_table_cell_model, table_cell_training_st
 from .source_preview import prepare_source_renders
 from .legacy_routes import register_legacy_routes
 from .routes_detection_candidate import register_detection_candidate_routes
+from .routes_detection_lab import register_detection_lab_routes
 from .routes_detection_review import register_detection_review_routes
 from .routes_home import register_home_routes
 from .routes_jobs import register_job_routes
@@ -3821,6 +3822,18 @@ def create_web_app(
         app,
         workspace_root=workspace_root,
         enqueue_job=enqueue_job,
+        loaded_config=loaded_config,
+        record_webui_error=_record_webui_error,
+    )
+
+    # TEMPORARY: detection-lab (cell-merging regression investigation). Remove
+    # this call, routes_detection_lab.py, detection_lab.html and the sidebar
+    # link in base.html once the regression is understood.
+    register_detection_lab_routes(
+        app,
+        workspace_root=workspace_root,
+        safe_workspace_file=safe_workspace_file,
+        database=database,
         loaded_config=loaded_config,
         record_webui_error=_record_webui_error,
     )

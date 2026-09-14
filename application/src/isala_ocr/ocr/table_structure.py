@@ -543,6 +543,55 @@ def _panel_crop_from_regions(regions: Sequence[TableRegion], image_width: int, i
     return Box(union.x1 - pad_x, union.y1 - pad_y, union.x2 + pad_x, union.y2 + pad_y).clamp(image_width, image_height)
 
 
+def _detect_soft_row_boundaries(gray: np.ndarray, box: Box, *, min_gap: int = 10) -> list[int]:
+    """Find y-coordinates with a subtle but consistent contrast step between rows.
+
+    Looks only at the mean row intensity inside ``box``: a real row boundary in
+    these screenshots usually shows up as a small, consistent shift (alternating
+    row shading) rather than a hard printed line. Steps far below the local
+    noise floor are ignored (nothing there), and steps at the very top of the
+    distribution are ignored too (already an obvious edge the detector would
+    have found on its own) - this targets exactly the "too faint to notice"
+    middle ground.
+    """
+    region = gray[box.y1:box.y2, box.x1:box.x2]
+    if region.size == 0 or region.shape[0] < 6:
+        return []
+    row_means = region.astype(np.float32).mean(axis=1)
+    kernel = np.ones(3, dtype=np.float32) / 3.0
+    smoothed = np.convolve(row_means, kernel, mode="same")
+    diffs = np.abs(np.diff(smoothed))
+    if diffs.size == 0:
+        return []
+    noise_floor = float(diffs.std()) * 1.5
+    hard_edge = float(np.percentile(diffs, 98))
+    if hard_edge <= noise_floor:
+        return []
+    boundaries: list[int] = []
+    last_index = -min_gap
+    for index, value in enumerate(diffs):
+        if noise_floor < value < hard_edge and (index - last_index) >= min_gap:
+            boundaries.append(index + box.y1)
+            last_index = index
+    return boundaries
+
+
+def _draw_row_separator_lines(image: np.ndarray, boundary_ys: Sequence[int], box: Box) -> np.ndarray:
+    """Draw a 1px line at each detected row boundary, inside ``box`` only."""
+    import cv2
+
+    canvas = image.copy()
+    if not boundary_ys:
+        return canvas
+    gray = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY) if canvas.ndim == 3 else canvas
+    # Light line on a dark UI, dark line on a light one, so it reads as a
+    # gridline rather than noise regardless of the screenshot's theme.
+    color = (255, 255, 255) if float(gray.mean()) < 128 else (0, 0, 0)
+    for y in boundary_ys:
+        cv2.line(canvas, (box.x1, y), (box.x2, y), color, 1, cv2.LINE_AA)
+    return canvas
+
+
 def score_table_structure(regions: Sequence[TableRegion]) -> dict[str, float | int]:
     """Score table output using geometry only, never recognized text.
 
@@ -754,6 +803,113 @@ class PPStructureTableEngine:
             "model_threshold": float(self.table_settings.get("table_region_model_threshold", 0.25) or 0.25),
         }
 
+    def detect_with_trained_regions_benchmark(
+        self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()
+    ) -> tuple[list[TableRegion], dict[str, Any]]:
+        """Trained-region boxes, but with a preprocessing-variant trial per box.
+
+        ``detect_with_trained_regions`` does a single un-preprocessed pass per
+        region, which is what removed the contrast/polarity benchmark once a
+        region model was activated. This keeps the trained region boxes (still
+        the most reliable way to find the table panel itself) but restores the
+        per-region variant trial, mirroring ``detect_panels_with_benchmark``.
+        Used only by the temporary detection-lab comparison tool ("Probeer 2").
+        """
+        height, width = image.shape[:2]
+        variants = self.table_settings.get("preprocessing_variants") or [
+            "original", "grayscale", "clahe", "invert_clahe", "adaptive"
+        ]
+        allowed = {"original", "grayscale", "clahe", "invert_clahe", "adaptive"}
+        variants = [str(item) for item in variants if str(item) in allowed]
+        if "original" not in variants:
+            variants.insert(0, "original")
+
+        all_regions: list[TableRegion] = []
+        region_results: list[dict[str, Any]] = []
+        all_runs: list[dict[str, Any]] = []
+        region_boxes = self._trained_region_boxes(image)
+        for index, (box, _score) in enumerate(region_boxes, start=1):
+            box = box.clamp(width, height)
+            if box.width < 20 or box.height < 20:
+                continue
+            crop = image[box.y1:box.y2, box.x1:box.x2]
+            best_regions: list[TableRegion] = []
+            best_score = -1.0
+            best_variant = "original"
+            for variant in variants:
+                prepared = _preprocess_table_image(crop, variant)
+                local_source_id = f"{source_id}:table-region-{index}"
+                local_regions = self._detect_once(
+                    prepared, source_id=local_source_id,
+                    fallback_tokens=fallback_tokens if variant == "original" else (),
+                )
+                translated = _translate_table_regions(local_regions, box.x1, box.y1)
+                metrics = score_table_structure(translated)
+                run = {"region_index": index, "variant": variant, "scope": "trained_region", "region_box": box.to_list(), **metrics}
+                all_runs.append(run)
+                numeric_score = float(metrics.get("score") or 0.0)
+                if numeric_score > best_score:
+                    best_regions = translated
+                    best_score = numeric_score
+                    best_variant = variant
+            all_regions.extend(best_regions)
+            region_results.append({
+                "region_index": index, "region_box": box.to_list(),
+                "selected_variant": best_variant,
+                "selected_score": round(max(0.0, best_score), 2),
+                "cell_count": sum(len(region.cells) for region in best_regions),
+            })
+        selected_score = (
+            sum(float(item["selected_score"]) for item in region_results) / len(region_results)
+            if region_results else 0.0
+        )
+        return all_regions, {
+            "enabled": True,
+            "mode": "trained_table_regions_benchmark",
+            "selected_variant": "per-region",
+            "selected_score": round(selected_score, 2),
+            "region_count": len(region_results),
+            "regions": region_results,
+            "runs": all_runs,
+            "model_threshold": float(self.table_settings.get("table_region_model_threshold", 0.25) or 0.25),
+            "selection_rule": "best preprocessing variant per trained table-region box",
+        }
+
+    def detect_with_contrast_lines(
+        self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()
+    ) -> tuple[list[TableRegion], dict[str, Any]]:
+        """Find faint row-to-row contrast steps and reinforce them as a hard line.
+
+        Idea: alternating-row shading in the source screenshots is often too
+        subtle for PP-Structure's line/edge model to separate into distinct
+        rows, which is one plausible explanation for cells merging across a
+        row boundary. This scans the mean row intensity inside the likely
+        table panel for small-but-consistent steps (above sensor noise, below
+        an already-obvious gridline) and draws a 1px separator at each one
+        before running detection once on the result. Used only by the
+        temporary detection-lab comparison tool ("Probeer 3").
+        """
+        import cv2
+
+        height, width = image.shape[:2]
+        baseline_regions = self._detect_once(image, source_id=source_id, fallback_tokens=fallback_tokens)
+        panel_box = _panel_crop_from_regions(baseline_regions, width, height)
+        if panel_box is None:
+            panel_box = Box(0, 0, width, height)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+        boundary_ys = _detect_soft_row_boundaries(gray, panel_box)
+        augmented = _draw_row_separator_lines(image, boundary_ys, panel_box)
+        regions = self._detect_once(augmented, source_id=source_id, fallback_tokens=fallback_tokens)
+        metrics = score_table_structure(regions)
+        return regions, {
+            "enabled": True,
+            "mode": "contrast_row_lines",
+            "panel_box": panel_box.to_list(),
+            "lines_drawn": len(boundary_ys),
+            "line_positions": boundary_ys,
+            **metrics,
+        }
+
     def _detect_once(self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()) -> list[TableRegion]:
         pipeline = self._load()
         prepared = PaddleEngine._prepare_image(image)
@@ -790,6 +946,24 @@ class PPStructureTableEngine:
         """
         if str(self.table_settings.get("table_region_model_dir") or "").strip():
             return self.detect_with_trained_regions(image, source_id=source_id, fallback_tokens=fallback_tokens)
+        return self._benchmark_full_image(image, source_id=source_id, fallback_tokens=fallback_tokens)
+
+    def detect_with_forced_full_benchmark(
+        self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()
+    ) -> tuple[list[TableRegion], dict[str, Any]]:
+        """Always run the full preprocessing-variant benchmark, ignoring an active
+        trained table-region model.
+
+        Used only by the temporary detection-lab comparison tool ("Probeer 1")
+        to test whether the contrast/polarity variant trial still helps once a
+        trained region model has taken over ``detect_with_benchmark``. Not part
+        of the regular detection pipeline.
+        """
+        return self._benchmark_full_image(image, source_id=source_id, fallback_tokens=fallback_tokens)
+
+    def _benchmark_full_image(
+        self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()
+    ) -> tuple[list[TableRegion], dict[str, Any]]:
         variants = self.table_settings.get("preprocessing_variants") or [
             "original", "grayscale", "clahe", "invert_clahe", "adaptive"
         ]
