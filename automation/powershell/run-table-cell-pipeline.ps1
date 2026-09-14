@@ -1,7 +1,11 @@
 param(
     [ValidateSet("auto", "cpu", "gpu")]
     [string]$ExecutionDevice = "auto",
-    [ValidateSet("standard","active")][string]$StartFrom = "standard"
+    [ValidateSet("standard","active")][string]$StartFrom = "standard",
+    # Forwarded to build-table-cell-dataset.ps1; 0 keeps the built-in
+    # hard-example replay defaults (see table_hard_negative_policy.py).
+    [double]$ReplayBudgetRatio = 0,
+    [int]$ReplayMaxWeight = 0
 )
 
 . (Join-Path $PSScriptRoot "training-common.ps1")
@@ -178,7 +182,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Canonical GT completion failed." }
 
     Write-Host "Alles laten draaien: dataset bouwen..." -ForegroundColor Cyan
-    & (Join-Path $PSScriptRoot "build-table-cell-dataset.ps1")
+    & (Join-Path $PSScriptRoot "build-table-cell-dataset.ps1") `
+        -ReplayBudgetRatio $ReplayBudgetRatio -ReplayMaxWeight $ReplayMaxWeight
     if ($LASTEXITCODE -ne 0) { throw "Table-cell dataset build failed." }
 
     $datasetPointer = Join-Path $HostWorkspace "table_cell_datasets\latest.txt"

@@ -5,7 +5,7 @@ import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from .db import TrainingDatabase, utc_now
 from .localization_dataset import resolve_localization_splits
@@ -596,43 +596,31 @@ def _prediction_box(item: dict[str, Any]) -> tuple[float, float, float, float] |
     return values  # type: ignore[return-value]
 
 
-def evaluate_table_cell_predictions(
-    workspace: str | Path,
-    predictions_path: str | Path,
-    *,
-    dataset_id: str = "latest",
-    split: str = "val",
-    confidence: float = 0.25,
-    iou_threshold: float = 0.50,
-) -> dict[str, Any]:
-    if split not in SPLIT_NAMES:
-        raise ValueError(f"Onbekende split: {split}")
-    root = resolve_project_workspace(workspace)
-    dataset_root = _resolve_dataset(root, dataset_id)
-    ground_truth = _read_json(dataset_root / "annotations" / f"instance_{split}.json", {}) or {}
-    predictions_payload = _read_json(Path(predictions_path), {}) or {}
+# A single (confidence, IoU) operating point is easy to saturate on a small,
+# fixed validation split: confidence=0.25 is a permissive acceptance bar and
+# IoU=0.50 is a loose overlap requirement, so "1.0 precision/recall" there does
+# not mean the detector is flawless -- it means this split no longer
+# discriminates at that point. The sweep below re-scores the same predictions
+# at stricter combinations so a run-over-run comparison has somewhere to move.
+DEFAULT_SWEEP_CONFIDENCE_THRESHOLDS: tuple[float, ...] = (0.10, 0.25, 0.50, 0.75, 0.90)
+DEFAULT_SWEEP_IOU_THRESHOLDS: tuple[float, ...] = (0.50, 0.65, 0.75, 0.85, 0.95)
+_SATURATION_EPSILON = 1e-9
+
+
+def _load_table_cell_predictions_by_stem(
+    predictions_payload: dict[str, Any], images: list[dict[str, Any]]
+) -> dict[str, list[tuple[float, tuple[float, float, float, float]]]]:
+    """Parse the raw prediction JSON once so a threshold sweep can reuse it."""
     predictions = predictions_payload.get("predictions") if isinstance(predictions_payload, dict) else {}
     if not isinstance(predictions, dict):
         raise ValueError("Prediction-bestand bevat geen predictions-object")
-    images = ground_truth.get("images") if isinstance(ground_truth.get("images"), list) else []
-    annotations = ground_truth.get("annotations") if isinstance(ground_truth.get("annotations"), list) else []
-    gt_by_image: dict[int, list[tuple[float, float, float, float]]] = {}
-    for item in annotations:
-        if not isinstance(item, dict) or not isinstance(item.get("bbox"), list) or len(item["bbox"]) != 4:
-            continue
-        x, y, w, h = [float(value) for value in item["bbox"]]
-        gt_by_image.setdefault(int(item.get("image_id") or -1), []).append((x, y, x+w, y+h))
-
-    tp = fp = fn = 0
-    image_results = []
+    scored_by_stem: dict[str, list[tuple[float, tuple[float, float, float, float]]]] = {}
     for image in images:
         if not isinstance(image, dict):
             continue
-        image_id = int(image.get("id") or -1)
         stem = Path(str(image.get("file_name") or "")).stem
-        truth = list(gt_by_image.get(image_id, []))
         raw_predictions = predictions.get(stem) if isinstance(predictions.get(stem), list) else []
-        pred = []
+        scored: list[tuple[float, tuple[float, float, float, float]]] = []
         for item in raw_predictions:
             if not isinstance(item, dict):
                 continue
@@ -641,9 +629,33 @@ def evaluate_table_cell_predictions(
             except (TypeError, ValueError):
                 score = 0.0
             box = _prediction_box(item)
-            if score >= confidence and box is not None:
-                pred.append((score, box))
-        pred.sort(key=lambda row: row[0], reverse=True)
+            if box is not None:
+                scored.append((score, box))
+        scored_by_stem[stem] = scored
+    return scored_by_stem
+
+
+def _score_table_cell_operating_point(
+    images: list[dict[str, Any]],
+    gt_by_image: dict[int, list[tuple[float, float, float, float]]],
+    scored_by_stem: dict[str, list[tuple[float, tuple[float, float, float, float]]]],
+    *,
+    confidence: float,
+    iou_threshold: float,
+) -> dict[str, Any]:
+    """Match predictions against ground truth at one (confidence, IoU) point."""
+    tp = fp = fn = 0
+    image_results = []
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+        image_id = int(image.get("id") or -1)
+        stem = Path(str(image.get("file_name") or "")).stem
+        truth = list(gt_by_image.get(image_id, []))
+        pred = sorted(
+            (row for row in scored_by_stem.get(stem, []) if row[0] >= confidence),
+            key=lambda row: row[0], reverse=True,
+        )
         matched_truth: set[int] = set()
         image_tp = 0
         image_fp = 0
@@ -669,9 +681,7 @@ def evaluate_table_cell_predictions(
     recall = tp / max(1, tp + fn)
     precision = tp / max(1, tp + fp)
     f1 = 2 * precision * recall / max(1e-12, precision + recall)
-    report = {
-        "dataset_id": dataset_root.name,
-        "split": split,
+    return {
         "confidence": confidence,
         "iou_threshold": iou_threshold,
         "tp": tp, "fp": fp, "fn": fn,
@@ -679,9 +689,109 @@ def evaluate_table_cell_predictions(
         "precision": precision,
         "f1": f1,
         "false_positives_per_panel": fp / max(1, len(images)),
+        "images": image_results,
+    }
+
+
+def evaluate_table_cell_predictions(
+    workspace: str | Path,
+    predictions_path: str | Path,
+    *,
+    dataset_id: str = "latest",
+    split: str = "val",
+    confidence: float = 0.25,
+    iou_threshold: float = 0.50,
+    confidence_thresholds: Iterable[float] | None = None,
+    iou_thresholds: Iterable[float] | None = None,
+) -> dict[str, Any]:
+    """Evaluate predictions at one operating point, plus a stricter sweep.
+
+    The top-level ``tp``/``fp``/``fn``/``precision``/``recall``/``f1``/``images``
+    fields are the single point at ``confidence``/``iou_threshold`` exactly as
+    before (existing callers/consumers are unaffected). ``sweep`` additionally
+    re-scores the same predictions across a grid of stricter confidence/IoU
+    combinations (``confidence_thresholds`` x ``iou_thresholds``, defaulting to
+    ``DEFAULT_SWEEP_CONFIDENCE_THRESHOLDS``/``DEFAULT_SWEEP_IOU_THRESHOLDS``) so
+    a run that already scores 1.0 at the loose default point still has
+    somewhere to show a regression or an improvement.
+    """
+    if split not in SPLIT_NAMES:
+        raise ValueError(f"Onbekende split: {split}")
+    root = resolve_project_workspace(workspace)
+    dataset_root = _resolve_dataset(root, dataset_id)
+    ground_truth = _read_json(dataset_root / "annotations" / f"instance_{split}.json", {}) or {}
+    predictions_payload = _read_json(Path(predictions_path), {}) or {}
+    images = ground_truth.get("images") if isinstance(ground_truth.get("images"), list) else []
+    annotations = ground_truth.get("annotations") if isinstance(ground_truth.get("annotations"), list) else []
+    gt_by_image: dict[int, list[tuple[float, float, float, float]]] = {}
+    for item in annotations:
+        if not isinstance(item, dict) or not isinstance(item.get("bbox"), list) or len(item["bbox"]) != 4:
+            continue
+        x, y, w, h = [float(value) for value in item["bbox"]]
+        gt_by_image.setdefault(int(item.get("image_id") or -1), []).append((x, y, x+w, y+h))
+    scored_by_stem = _load_table_cell_predictions_by_stem(predictions_payload, images)
+
+    primary = _score_table_cell_operating_point(
+        images, gt_by_image, scored_by_stem, confidence=confidence, iou_threshold=iou_threshold
+    )
+
+    sweep_confidences = sorted({
+        max(0.0, min(1.0, float(value)))
+        for value in (*(confidence_thresholds or DEFAULT_SWEEP_CONFIDENCE_THRESHOLDS), confidence)
+    })
+    sweep_ious = sorted({
+        max(0.0, min(1.0, float(value)))
+        for value in (*(iou_thresholds or DEFAULT_SWEEP_IOU_THRESHOLDS), iou_threshold)
+    })
+    sweep: list[dict[str, Any]] = []
+    for sweep_confidence in sweep_confidences:
+        for sweep_iou in sweep_ious:
+            point = _score_table_cell_operating_point(
+                images, gt_by_image, scored_by_stem, confidence=sweep_confidence, iou_threshold=sweep_iou
+            )
+            sweep.append({key: value for key, value in point.items() if key != "images"})
+
+    saturated = bool(images) and (
+        abs(primary["precision"] - 1.0) < _SATURATION_EPSILON and abs(primary["recall"] - 1.0) < _SATURATION_EPSILON
+    )
+    # The highest IoU threshold (at the requested confidence) that is still a
+    # clean match. A saturated primary point that only holds up to IoU 0.55
+    # is much weaker evidence than one that holds to 0.95, even though both
+    # report precision=recall=1.0 at the loose default point.
+    strictest_clean_iou_threshold = max(
+        (
+            point["iou_threshold"] for point in sweep
+            if abs(point["confidence"] - confidence) < _SATURATION_EPSILON and point["fp"] == 0 and point["fn"] == 0
+        ),
+        default=None,
+    )
+    note = ""
+    if saturated:
+        note = (
+            f"Precisie/recall/F1 zijn 1.0 bij confidence={confidence}/IoU={iou_threshold} op maar "
+            f"{len(images)} panelen -- dat is het zachtste punt in de sweep en verzadigt makkelijk op een "
+            "kleine, vaste validatieset. Het zegt dat dit meetpunt hier niet meer onderscheidt, niet dat het "
+            "model foutloos is. Vergelijk 'strictest_clean_iou_threshold' en 'sweep' tussen trainingsronden "
+            "om een echt verschil te zien."
+        )
+
+    report = {
+        "dataset_id": dataset_root.name,
+        "split": split,
+        "confidence": confidence,
+        "iou_threshold": iou_threshold,
+        "tp": primary["tp"], "fp": primary["fp"], "fn": primary["fn"],
+        "recall": primary["recall"],
+        "precision": primary["precision"],
+        "f1": primary["f1"],
+        "false_positives_per_panel": primary["false_positives_per_panel"],
         "panel_count": len(images),
         "evaluated_at": utc_now(),
-        "images": image_results,
+        "images": primary["images"],
+        "saturated": saturated,
+        "strictest_clean_iou_threshold": strictest_clean_iou_threshold,
+        "sweep": sweep,
+        "note": note,
     }
     return report
 
@@ -776,6 +886,62 @@ def list_table_cell_models(workspace: str | Path) -> list[dict[str, Any]]:
             item["active"] = str(item.get("model_id") or "") == active_id
             models.append(item)
     return sorted(models, key=lambda item: str(item.get("created_at") or ""), reverse=True)
+
+
+def table_cell_model_history(workspace: str | Path) -> dict[str, Any]:
+    """Chronological trend of registered table-cell models and their evaluation.
+
+    A single run's ``evaluate_table_cell_predictions`` report cannot tell you
+    whether a fixed, small validation split has stopped discriminating between
+    model generations -- it only knows about the run it was called for. This
+    walks every registered model (``list_table_cell_models``, which already
+    stores each model's ``evaluation`` payload) in training order so a
+    saturated metric across several consecutive rounds is visible at a glance,
+    without needing any new persistent storage.
+    """
+    models = sorted(list_table_cell_models(workspace), key=lambda item: str(item.get("created_at") or ""))
+    rows: list[dict[str, Any]] = []
+    for model in models:
+        evaluation = model.get("evaluation") if isinstance(model.get("evaluation"), dict) else {}
+        rows.append({
+            "model_id": str(model.get("model_id") or ""),
+            "created_at": str(model.get("created_at") or ""),
+            "active": bool(model.get("active")),
+            "training_mode": str(model.get("training_mode") or ""),
+            "learning_rate": model.get("learning_rate"),
+            "epochs": model.get("epochs"),
+            "dataset_id": str(model.get("dataset_id") or ""),
+            "precision": evaluation.get("precision"),
+            "recall": evaluation.get("recall"),
+            "f1": evaluation.get("f1"),
+            "panel_count": evaluation.get("panel_count"),
+            # Only present for evaluations produced after the sweep was added;
+            # older registered models simply report these as null/absent.
+            "saturated": evaluation.get("saturated"),
+            "strictest_clean_iou_threshold": evaluation.get("strictest_clean_iou_threshold"),
+        })
+
+    saturated_streak = 0
+    for row in reversed(rows):
+        if row["saturated"] is not True:
+            break
+        saturated_streak += 1
+
+    note = ""
+    if saturated_streak >= 2:
+        note = (
+            f"De laatste {saturated_streak} geregistreerde modellen scoren allemaal 'saturated' (precisie/recall "
+            "1.0 op het standaard meetpunt). Deze validatiesplit onderscheidt momenteel geen modelgeneraties meer "
+            "-- vergroot of verlevendig de vaste val-set, of vertrouw voor vergelijkingen tussen ronden op "
+            "'strictest_clean_iou_threshold' en de bredere COCO-AP uit de trainingslog in plaats van dit getal."
+        )
+
+    return {
+        "model_count": len(rows),
+        "saturated_streak": saturated_streak,
+        "note": note,
+        "models": rows,
+    }
 
 
 def active_table_cell_model(workspace: str | Path) -> dict[str, Any] | None:

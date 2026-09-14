@@ -5,6 +5,8 @@ from pathlib import Path
 from isala_ocr.training.table_hard_negative_policy import (
     MAX_REPLAY_WEIGHT,
     REPLAY_BUDGET_RATIO,
+    _configured_max_replay_weight,
+    _configured_replay_budget_ratio,
     _feedback_from_completed_runs,
     _plan_replay,
 )
@@ -148,6 +150,84 @@ def test_scarce_budget_prioritizes_recurrent_high_confidence_panel() -> None:
     assert replay_counts[panel_keys[0]] == 2
     assert replay_counts[panel_keys[1]] == 2
     assert replay_counts[panel_keys[3]] <= 1
+
+
+def test_configured_resolvers_fall_back_to_module_defaults_when_unset(monkeypatch) -> None:
+    monkeypatch.delenv("ISALA_TABLE_REPLAY_MAX_WEIGHT", raising=False)
+    monkeypatch.delenv("ISALA_TABLE_REPLAY_BUDGET_RATIO", raising=False)
+    assert _configured_max_replay_weight() == MAX_REPLAY_WEIGHT == 3
+    assert _configured_replay_budget_ratio() == REPLAY_BUDGET_RATIO == 1.50
+
+
+def test_configured_resolvers_ignore_garbage_env_values(monkeypatch) -> None:
+    monkeypatch.setenv("ISALA_TABLE_REPLAY_MAX_WEIGHT", "not-a-number")
+    monkeypatch.setenv("ISALA_TABLE_REPLAY_BUDGET_RATIO", "also-not-a-number")
+    assert _configured_max_replay_weight() == MAX_REPLAY_WEIGHT
+    assert _configured_replay_budget_ratio() == REPLAY_BUDGET_RATIO
+
+
+def test_configured_resolvers_honour_valid_env_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("ISALA_TABLE_REPLAY_MAX_WEIGHT", "5")
+    monkeypatch.setenv("ISALA_TABLE_REPLAY_BUDGET_RATIO", "0.5")
+    assert _configured_max_replay_weight() == 5
+    assert _configured_replay_budget_ratio() == 0.5
+
+
+def test_replay_budget_ratio_env_override_narrows_the_budget(monkeypatch) -> None:
+    monkeypatch.setenv("ISALA_TABLE_REPLAY_BUDGET_RATIO", "0.5")
+    feedback = {
+        "fingerprint": "round-ratio",
+        "replay_panel_weights": {"source-a::left": 3, "source-b::right": 2},
+        "hard_example_registry": [
+            {"panel_key": "source-a::left", "error_streak": 2, "latest_error_count": 2, "max_confidence": 0.99},
+            {"panel_key": "source-b::right", "error_streak": 1, "latest_error_count": 1, "max_confidence": 0.85},
+        ],
+    }
+    manifest = {
+        "panels": [
+            {"source_id": "source-a", "panel_id": "left", "panel_name": "A", "file_name": "a.png", "split": "train"},
+            {"source_id": "source-b", "panel_id": "right", "panel_name": "B", "file_name": "b.png", "split": "train"},
+            {"source_id": "source-c", "panel_id": "left", "panel_name": "C", "file_name": "c.png", "split": "train"},
+            {"source_id": "source-d", "panel_id": "right", "panel_name": "D", "file_name": "d.png", "split": "train"},
+        ]
+    }
+
+    plan = _plan_replay(manifest, feedback)
+
+    # Default ratio (1.50) would allow budget_extra_draws == 3 (see
+    # test_replay_plan_is_train_only_and_budgeted); halving it via the env
+    # override should visibly shrink the budget instead of leaving it fixed.
+    assert plan["budget_ratio"] == 0.5
+    assert plan["budget_ratio_default"] == REPLAY_BUDGET_RATIO
+    assert plan["budget_extra_draws"] == min(3, int(4 * 0.5)) == 2
+    assert plan["selected_extra_draws"] == 2
+
+
+def test_replay_max_weight_env_override_of_one_disables_replay(monkeypatch) -> None:
+    monkeypatch.setenv("ISALA_TABLE_REPLAY_MAX_WEIGHT", "1")
+    feedback = {
+        "fingerprint": "round-max-weight",
+        "replay_panel_weights": {"source-a::left": 3},
+        "hard_example_registry": [
+            {"panel_key": "source-a::left", "error_streak": 2, "latest_error_count": 2, "max_confidence": 0.99},
+        ],
+    }
+    manifest = {
+        "panels": [
+            {"source_id": "source-a", "panel_id": "left", "panel_name": "A", "file_name": "a.png", "split": "train"},
+        ]
+    }
+
+    plan = _plan_replay(manifest, feedback)
+
+    assert plan["max_replay_weight"] == 1
+    assert plan["max_replay_weight_default"] == MAX_REPLAY_WEIGHT
+    assert plan["requested_extra_draws"] == 0
+    assert plan["selected_extra_draws"] == 0
+    # The panel is still listed (nothing is silently hidden), but capped to a
+    # single, unreplayed draw: weight 1 means "no hard-example replay at all".
+    assert [item["replay_count"] for item in plan["panels"]] == [0]
+    assert [item["effective_weight"] for item in plan["panels"]] == [1]
 
 
 def test_policy_no_longer_generates_negative_crops_or_duplicate_pngs() -> None:
