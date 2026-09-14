@@ -1,10 +1,11 @@
 # db.py / webui.py opsplitsing — uitvoeringsplan
 
-Status: wordt automatisch bijgewerkt terwijl dit stap voor stap wordt uitgevoerd
-(zie `documentation/CODE_REVIEW_v3.16.0.md`, sectie "Hoog", voor de oorspronkelijke
+Status: **afgerond** — alle stappen hieronder zijn uitgevoerd en gepusht (zie
+`documentation/CODE_REVIEW_v3.16.0.md`, sectie "Hoog", voor de oorspronkelijke
 bevindingen). Elke stap is een eigen commit op `claude/code-review-calls-jc8xyn`
-(PR #38), alleen gepusht nadat de volledige testsuite groen is (op de 6
-vooraf-bestaande, onafhankelijke falende tests na).
+(PR #38), alleen gepusht nadat de volledige testsuite groen was (op de 6
+vooraf-bestaande, onafhankelijke falende tests na, die door dit plan heen
+ongewijzigd zijn gebleven).
 
 ## Aanpak
 
@@ -214,10 +215,62 @@ lange `if`/`elif`-keten.
        Met stap 11e is de volledige `elif`/`if`-keten van de dispatcher
        omgezet in een-regel-aanroepen naar losse, benoemde functies; stap 12
        is hiermee afgerond.
-- [ ] Laatste stap: evalueren of (een deel van) deze functies alsnog naar een
-       eigen module kunnen verhuizen zonder circulaire import met de
-       `routes_*.py`-bestanden die ze nu al aanroepen (daarvoor moeten hun
-       closures alsnog expliciete parameters worden).
+- [x] Laatste stap: evaluatie of (een deel van) deze functies alsnog naar een
+       eigen module kunnen verhuizen, afgerond.
+
+       **Methode**: voor elke `_process_step_*`-functie is de broncode
+       gescand op verwijzingen naar de ~88 overige geneste helperfuncties van
+       `create_web_app()` (de "closure-oppervlakte") en naar de belangrijkste
+       overige locals (`database`, `loaded_config`, `header_profile`, `app`).
+       Resultaat (aantal externe afhankelijkheden per functie, exclusief het
+       triviale/overal-aanwezige `workspace_root`):
+
+       | functie | afhankelijkheden |
+       |---|---|
+       | `_process_step_state_detection_models` | `input_source_count`, `preparation_for_current_strategy`, `table_panel_state`, `database` |
+       | `_process_step_state_detection_review` | `input_selection_state`, `localization_strategy`, `step4_review_counts`, `table_panel_state`, `database` |
+       | `_process_step_state_redetect` | `current_detection_gate`, `database` |
+       | `_process_step_state_mapping` | `current_pipeline_gate`, `database` |
+       | `_process_step_state_apply_mapping` | `current_pipeline_gate`, `mapped_sample_state` |
+       | `_process_step_state_value_review` | `current_pipeline_gate`, `value_review_counts`, `database` |
+       | `_process_step_state_recognition` | `current_pipeline_gate`, `current_recognition_gate`, `latest_comparison`, `latest_dataset_info`, `latest_evaluations`, `registry_state` |
+       | `_process_step_panel_setup` | `_table_panel_review_context`, `table_panel_state`, `database` |
+       | `_process_step_table_quality_get` | `current_table_first_quality`, `database` (grootste, 200 regels, met 3 eigen geneste helpers) |
+       | `_process_step_table_region_model` | `database` |
+       | `_process_step_table_model` | (geen; alleen `workspace_root`) |
+       | `_process_step_table_compare_get` | (geen; alleen `workspace_root`) |
+       | `_process_step_detect_candidates_table_first` | `_table_panel_review_context`, `database` |
+       | `_process_step_input_selection` | `_record_webui_error`, `input_selection_path`, `input_selection_state`, `database`, `loaded_config` |
+       | `_process_step_table_quality_post` | (geen; alleen `workspace_root`) |
+       | `_process_step_table_compare_post` | (geen; alleen `workspace_root`) |
+       | `_process_step_localization_dataset_post` | (geen; alleen `workspace_root`) |
+       | `_process_step_header_normalization_post` | `enqueue_job`, `header_model_path`, `app`, `database`, `header_profile` |
+
+       (`process_step` zelf duikt in een paar functies op, maar uitsluitend
+       als string-literal in `url_for("process_step", ...)` — geen echte
+       afhankelijkheid.)
+
+       **Conclusie**: technisch is verplaatsing voor elke functie haalbaar
+       zonder circulaire import — precies zoals `routes_table_panel_review.py`
+       al doet (`register_..._routes(app, *, dependency=...)`, expliciete
+       callables in plaats van closures), en de afhankelijkheidsaantallen zijn
+       laag genoeg (0-6 per functie) om dat mechanisch te doen.
+
+       **Advies: niet uitvoeren, wel gedocumenteerd voor later.** Reden: het
+       hoofddoel van deze hele opsplitsing was een monolithische,
+       ~980-regelige dispatcher met 18+ vervlochten `elif`-takken
+       ombouwen tot losse, eigen-verantwoordelijkheid-functies die je
+       afzonderlijk kunt lezen en begrijpen — dat is nu gerealiseerd
+       (`process_step()`: ~980 → ~165 regels, elke tak een eigen benoemde
+       functie). Verplaatsing naar aparte bestanden voegt daar geen
+       risicoreductie of leesbaarheidswinst aan toe die opweegt tegen de
+       kans op fouten bij het (voor 18 functies opnieuw) expliciet maken van
+       closures, met name voor `_process_step_table_quality_get` (de grootste,
+       met drie eigen geneste helpers die op hun beurt weer over lokale
+       state van *die* functie closen). Dat risico is niet in verhouding tot
+       de marginale organisatiewinst. Mocht een toekomstige stap dit alsnog
+       oppakken: de tabel hierboven is het startpunt (geen nieuwe analyse
+       nodig), en `routes_table_panel_review.py` is het te volgen patroon.
 
 ## Validatie per stap
 
