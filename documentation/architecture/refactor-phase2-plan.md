@@ -52,8 +52,14 @@ inventarisatie/uitvoering start.
       ongewijzigd: die werken op een ander project se databasebestand, niet
       op de actieve `TrainingDatabase`-instantie, en horen niet bij "raw SQL
       tegen dezelfde tabellen".
-- [ ] `table_quality.py:74-110` (`table_first_quality`, 4 queries in 1
-      `db.connect()`-blok)
+- [x] `table_quality.py:74-110` (`table_first_quality`, 4 queries in 1
+      `db.connect()`-blok) — verplaatst naar nieuwe
+      `TrainingDatabase.table_first_quality_rows()`
+      (`db_detection_review.py`, `DetectionReviewMixin`), die de 4 queries
+      ongewijzigd uitvoert en als lijsten van `dict`s teruggeeft (in plaats
+      van `sqlite3.Row`, maar met dezelfde `row["kolom"]`-toegang, dus geen
+      wijziging nodig in de consumerende aggregatielogica in
+      `table_quality.py`).
 - [ ] `webui.py:918,939,969,1042,1068,1089` (6 plekken)
 - [ ] `recognition_ground_truth_web.py:29,53,74,101,161,207` (6 plekken)
 - [ ] `recognition_ground_truth.py:304,438,444`

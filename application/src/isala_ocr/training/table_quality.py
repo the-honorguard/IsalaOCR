@@ -70,44 +70,12 @@ def table_first_quality(
     and every GT source is explicitly complete. Detector precision/FP/adjustment
     metrics remain diagnostic only and may no longer close Pipeline B.
     """
-    with db.connect() as conn:
-        source_rows = conn.execute(
-            "SELECT source_id, review_completed FROM detection_sources ORDER BY source_id"
-        ).fetchall()
-        source_ids = [str(row["source_id"]) for row in source_rows]
-        candidate_rows = conn.execute(
-            """
-            SELECT source_id, COUNT(*) amount
-            FROM detection_candidates
-            WHERE source_kind LIKE '%table_cell%'
-            GROUP BY source_id
-            """
-        ).fetchall()
-        review_rows = conn.execute(
-            """
-            SELECT r.source_id, r.review_status, r.relevance_status, COUNT(*) amount
-            FROM detection_reviews r
-            JOIN detection_candidates c
-              ON c.source_id=r.source_id AND c.candidate_id=r.candidate_id
-            WHERE c.source_kind LIKE '%table_cell%'
-            GROUP BY r.source_id, r.review_status, r.relevance_status
-            """
-        ).fetchall()
-        added_rows = conn.execute(
-            """
-            SELECT a.source_id, COUNT(*) amount,
-                   SUM(CASE WHEN r.notes LIKE 'Geometrisch gereconstrueerd%' THEN 1 ELSE 0 END) reconstructed
-            FROM detection_annotations a
-            JOIN detection_sources s ON s.source_id=a.source_id
-            LEFT JOIN detection_reviews r ON r.review_id=a.review_id
-            WHERE a.active=1
-              AND a.training_role='positive'
-              AND a.candidate_id=''
-              AND a.provenance='added'
-              AND a.created_at >= s.detected_at
-            GROUP BY a.source_id
-            """
-        ).fetchall()
+    rows = db.table_first_quality_rows()
+    source_rows = rows["source_rows"]
+    source_ids = [str(row["source_id"]) for row in source_rows]
+    candidate_rows = rows["candidate_rows"]
+    review_rows = rows["review_rows"]
+    added_rows = rows["added_rows"]
 
     by_source = {source_id: _empty_source(source_id) for source_id in source_ids}
     for row in source_rows:

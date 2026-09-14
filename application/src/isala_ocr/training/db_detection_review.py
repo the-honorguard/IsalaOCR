@@ -686,3 +686,56 @@ class DetectionReviewMixin:
         for row in cell_rows:
             result.setdefault(str(row["source_id"]), {"regions": 0, "cells": 0})["cells"] = int(row["amount"])
         return result
+
+    def table_first_quality_rows(self) -> dict[str, list[dict[str, Any]]]:
+        """Raw rows behind the table-first quality gate (see ``table_quality.py``).
+
+        Previously ``table_quality.py`` ran these four queries itself via a
+        raw ``db.connect()`` block (CODE_REVIEW_v3.16.0.md, sectie Hoog).
+        Centralizing them here means a schema change to these tables is felt
+        in this one place instead of silently drifting out of sync with
+        ``table_quality.py``'s own copy of the same column/table names.
+        """
+        with self.connect() as db:
+            source_rows = db.execute(
+                "SELECT source_id, review_completed FROM detection_sources ORDER BY source_id"
+            ).fetchall()
+            candidate_rows = db.execute(
+                """
+                SELECT source_id, COUNT(*) amount
+                FROM detection_candidates
+                WHERE source_kind LIKE '%table_cell%'
+                GROUP BY source_id
+                """
+            ).fetchall()
+            review_rows = db.execute(
+                """
+                SELECT r.source_id, r.review_status, r.relevance_status, COUNT(*) amount
+                FROM detection_reviews r
+                JOIN detection_candidates c
+                  ON c.source_id=r.source_id AND c.candidate_id=r.candidate_id
+                WHERE c.source_kind LIKE '%table_cell%'
+                GROUP BY r.source_id, r.review_status, r.relevance_status
+                """
+            ).fetchall()
+            added_rows = db.execute(
+                """
+                SELECT a.source_id, COUNT(*) amount,
+                       SUM(CASE WHEN r.notes LIKE 'Geometrisch gereconstrueerd%' THEN 1 ELSE 0 END) reconstructed
+                FROM detection_annotations a
+                JOIN detection_sources s ON s.source_id=a.source_id
+                LEFT JOIN detection_reviews r ON r.review_id=a.review_id
+                WHERE a.active=1
+                  AND a.training_role='positive'
+                  AND a.candidate_id=''
+                  AND a.provenance='added'
+                  AND a.created_at >= s.detected_at
+                GROUP BY a.source_id
+                """
+            ).fetchall()
+        return {
+            "source_rows": [dict(row) for row in source_rows],
+            "candidate_rows": [dict(row) for row in candidate_rows],
+            "review_rows": [dict(row) for row in review_rows],
+            "added_rows": [dict(row) for row in added_rows],
+        }
