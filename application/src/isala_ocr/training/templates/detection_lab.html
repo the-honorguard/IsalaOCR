@@ -57,11 +57,13 @@
 
 {% block scripts %}
 <style>
-.detection-lab-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:16px;}
-.detection-lab-column img{max-width:100%;border-radius:6px;border:1px solid var(--border,#3a3f4b);}
+.detection-lab-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px;}
+.detection-lab-column{min-width:0;}
+.detection-lab-column img{display:block;width:100%;height:auto;max-width:none;border-radius:6px;border:1px solid var(--border,#3a3f4b);}
 .detection-lab-result dl{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:0.85em;margin-top:8px;}
 .detection-lab-result dt{opacity:0.7;}
 .detection-lab-result dd{margin:0;font-weight:600;}
+@media(max-width:900px){.detection-lab-grid{grid-template-columns:1fr;}}
 </style>
 <script>
 (() => {
@@ -147,6 +149,19 @@
     }
     return data.results || {};
   };
+  const loadSavedResults = async () => {
+    try {
+      const results = await fetchResults();
+      APPROACHES.forEach((approach) => renderResult(approach, results[approach]));
+      if (Object.keys(results).length) message.textContent = 'Opgeslagen resultaten geladen.';
+    } catch (error) {
+      // A missing results file is the normal state before the first run.
+      if (!String(error.message || '').includes('404')) {
+        message.textContent = `Opgeslagen resultaten konden niet worden geladen: ${error.message}`;
+        message.className = 'inline-status error';
+      }
+    }
+  };
   runAllButton.addEventListener('click', async () => {
     runAllButton.disabled = true;
     resetColumns();
@@ -175,6 +190,7 @@
       runAllButton.disabled = false;
     }
   });
+  loadSavedResults();
 })();
 </script>
 {% endblock %}
