@@ -83,7 +83,7 @@ function Get-IsalaActionCatalog {
         # this entry, detection-lab-compare.ps1, isala_ocr.detection_lab_cli,
         # routes_detection_lab.py and the sidebar link in base.html together
         # once the regression is understood.
-        "62" = @{ Name = "Detectie-lab: 3 celdetectie-aanpakken vergelijken"; Script = "detection-lab-compare.ps1"; Profile = "detection-lab" }
+        "62" = @{ Name = "Detectie-lab: 6 celdetectie-aanpakken vergelijken"; Script = "detection-lab-compare.ps1"; Profile = "detection-lab" }
         "24" = @{ Name = "Build and validate recognition dataset"; Script = "build-training-dataset.ps1"; Profile = "dataset-build" }
         "25" = @{ Name = "Validate recognition dataset"; Script = "check-training-dataset.ps1"; Profile = "dataset-check" }
         "26" = @{ Name = "Train recognition model"; Script = "train-recognition-model.ps1"; Profile = "recognition-train"; Arguments = @{ Device = "gpu" } }

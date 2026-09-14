@@ -239,9 +239,14 @@ def register_job_routes(
             options["start_from"] = start_from
         payload = enqueue_job(action_id, options)
         job_id = str(payload["job_id"])
-        flash(f"Taak gestart: {actions[action_id]}","success")
+        # Only flash for the traditional form-submit-then-redirect flow. A
+        # JSON/XHR caller (Detectie-lab polls /jobs repeatedly, once per
+        # approach/source, without ever navigating) would otherwise pile up
+        # one "Taak gestart" flash message per call in the session, all
+        # dumped at once the next time a full page renders.
         if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.accept_mimetypes.best == "application/json":
             return jsonify(payload), 202
+        flash(f"Taak gestart: {actions[action_id]}","success")
         destination=request.referrer or url_for("process_step",step_key="detect-candidates")
         separator="&" if "?" in destination else "?"
         return redirect(f"{destination}{separator}job_id={job_id}")
