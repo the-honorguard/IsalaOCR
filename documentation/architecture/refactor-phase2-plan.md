@@ -86,8 +86,10 @@ inventarisatie/uitvoering start.
       keep_sample_ids, stale_extraction_method)` (voor de read+update-combo
       in `materialize_recognition_ground_truth`, die nu net als voorheen in
       één transactie gebeurt).
-- [ ] `routes_roi_review.py:35`
-- [ ] `routes_value_review.py:133`
+- [x] `routes_roi_review.py:35` — verplaatst naar
+      `SamplesMixin.roi_review_status_counts_by_source()`.
+- [x] `routes_value_review.py:133` (`duplicates_apply`, self-join op
+      `samples`) — verplaatst naar `SamplesMixin.duplicate_pending_matches()`.
 - [ ] `mapping.py:1004,1017`
 - [ ] `dataset.py:124`
 - [ ] `labeler.py:56`

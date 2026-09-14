@@ -129,18 +129,7 @@ def register_value_review_routes(
 
     @app.post("/review/duplicates-apply")
     def duplicates_apply():
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT p.sample_id, a.exact_label, a.content_class
-                FROM samples p JOIN samples a
-                  ON p.crop_sha256=a.crop_sha256 AND p.field_key=a.field_key
-                WHERE p.status='pending' AND p.roi_review_status='correct'
-                  AND p.crop_sha256<>''
-                  AND a.status='accepted' AND a.roi_review_status='correct'
-                  AND a.exact_label IS NOT NULL
-                """
-            ).fetchall()
+        rows = database.duplicate_pending_matches()
         done = 0
         seen = set()
         for row in rows:

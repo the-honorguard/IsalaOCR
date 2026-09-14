@@ -31,22 +31,7 @@ def register_roi_review_routes(
         if status not in {"all", "pending", "correct", "incorrect", "deferred"}:
             abort(400)
         sources = source_rows()
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT source_id, roi_review_status, COUNT(*) AS amount
-                FROM samples
-                WHERE extraction_method<>'mapped_generic_stale'
-                GROUP BY source_id, roi_review_status
-                """
-            ).fetchall()
-        counts_by_source: dict[str, dict[str, int]] = {}
-        for row in rows:
-            local = counts_by_source.setdefault(
-                str(row["source_id"]),
-                {"pending": 0, "correct": 0, "incorrect": 0, "deferred": 0},
-            )
-            local[str(row["roi_review_status"])] = int(row["amount"])
+        counts_by_source = database.roi_review_status_counts_by_source()
         for source in sources:
             source["roi_counts"] = counts_by_source.get(
                 str(source["source_id"]),

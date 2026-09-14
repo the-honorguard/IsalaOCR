@@ -508,6 +508,30 @@ class SamplesMixin:
         counts["total"] = sum(counts.values())
         return counts
 
+    def roi_review_status_counts_by_source(self) -> dict[str, dict[str, int]]:
+        """Per-source ROI-review status counts, excluding stale generic-mapping remnants.
+
+        Split out of ``routes_roi_review.py``'s ``roi_review_home()``
+        (CODE_REVIEW_v3.16.0.md, sectie Hoog).
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT source_id, roi_review_status, COUNT(*) AS amount
+                FROM samples
+                WHERE extraction_method<>'mapped_generic_stale'
+                GROUP BY source_id, roi_review_status
+                """
+            ).fetchall()
+        counts_by_source: dict[str, dict[str, int]] = {}
+        for row in rows:
+            local = counts_by_source.setdefault(
+                str(row["source_id"]),
+                {"pending": 0, "correct": 0, "incorrect": 0, "deferred": 0},
+            )
+            local[str(row["roi_review_status"])] = int(row["amount"])
+        return counts_by_source
+
     def mapped_value_review_status_counts(self) -> dict[str, int]:
         """Value-review status counts for the currently mapped application output.
 
@@ -711,6 +735,30 @@ class SamplesMixin:
             "accepted": int(row["accepted"] or 0),
             "excluded": int(row["excluded"] or 0),
         }
+
+    def duplicate_pending_matches(self) -> list[dict[str, Any]]:
+        """Pending samples whose crop pixel-matches an already-accepted one.
+
+        Split out of ``routes_value_review.py``'s ``duplicates_apply()``
+        (CODE_REVIEW_v3.16.0.md, sectie Hoog). Returns one row per
+        (pending sample_id, matching accepted exact_label/content_class),
+        exactly as the original self-join did -- the caller still
+        deduplicates on ``sample_id`` (a pending sample can pixel-match more
+        than one accepted sample).
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT p.sample_id, a.exact_label, a.content_class
+                FROM samples p JOIN samples a
+                  ON p.crop_sha256=a.crop_sha256 AND p.field_key=a.field_key
+                WHERE p.status='pending' AND p.roi_review_status='correct'
+                  AND p.crop_sha256<>''
+                  AND a.status='accepted' AND a.roi_review_status='correct'
+                  AND a.exact_label IS NOT NULL
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def mark_stale_samples(
         self, extraction_method: str, keep_sample_ids: set[str], stale_extraction_method: str
