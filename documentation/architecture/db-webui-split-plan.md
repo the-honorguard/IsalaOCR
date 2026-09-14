@@ -36,7 +36,7 @@ imports.
       import SCHEMA_VERSION` e.d. elders in de codebase blijven werken. Reden:
       zonder dit zouden de mixins hieronder circulair van `.db` moeten
       importeren terwijl `db.py` zelf die mixins importeert.
-- [ ] 1. `training/db_samples.py` — `_invalidates_review`, `upsert_sample`, `get`,
+- [x] 1. `training/db_samples.py` — `_invalidates_review`, `upsert_sample`, `get`,
       `review`, `review_header`, `header_review_counts`, `list_header_samples`,
       `header_training_rows`, `review_roi`, `list_samples`, `accepted`,
       `counts`, `mapped_sample_counts`
