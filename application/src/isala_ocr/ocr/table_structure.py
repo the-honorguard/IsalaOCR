@@ -135,18 +135,29 @@ def _box_iou(left: Box, right: Box) -> float:
     return intersection / max(1, union)
 
 
-def _panel_suggestions_from_variant_results(
-    results: dict[str, list[TableRegion]], image_width: int, image_height: int
+def _group_variant_table_candidates(
+    results: dict[str, Sequence[TableRegion]] | Sequence[tuple[str, Sequence[TableRegion]]],
+    image_width: int,
+    image_height: int,
+    *,
+    seed_groups: Sequence[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Keep plausible table regions from *all* preprocessing variants.
+    """Cluster table regions from different preprocessing variants that plausibly
+    represent the same physical table, keeping the best-scoring rendition of each.
 
-    The structurally best full-image run is still used as detector output, but Panel
-    Setup must not lose a second table merely because another contrast variant won
-    the global benchmark. Suggestions are therefore deduplicated across variants.
+    Shared by ``_panel_suggestions_from_variant_results`` (the manual Panel Setup
+    bootstrap flow) and ``_merge_variant_table_regions`` (the actual detection
+    output) so both treat a table dropped by the single globally-best-scoring
+    variant the same way: recovered from whichever variant did find it, instead
+    of silently discarded because a *different* variant scored higher overall.
+    Pass ``seed_groups`` (a prior call's return value) to extend an existing
+    grouping with another pass's candidates, e.g. a panel-cropped retry refining
+    the full-image stage's groups.
     """
+    items = results.items() if isinstance(results, dict) else results
     candidates: list[dict[str, Any]] = []
     image_area = max(1, image_width * image_height)
-    for variant, regions in results.items():
+    for variant, regions in items:
         for region in regions:
             box = region.box.clamp(image_width, image_height)
             area_fraction = (box.width * box.height) / image_area
@@ -156,12 +167,12 @@ def _panel_suggestions_from_variant_results(
             metrics = score_table_structure([region])
             score = float(metrics.get("score") or 0.0) + min(12.0, cell_count * 0.35)
             candidates.append({
-                "box": box, "variant": variant, "score": score,
+                "region": region, "box": box, "variant": variant, "score": score,
                 "cell_count": cell_count, "confidence": float(region.confidence or 0.0),
                 "excluded_boxes": tuple(region.excluded_boxes),
             })
 
-    groups: list[dict[str, Any]] = []
+    groups: list[dict[str, Any]] = [dict(group, variants=set(group["variants"])) for group in (seed_groups or ())]
     for item in sorted(candidates, key=lambda value: float(value["score"]), reverse=True):
         box = item["box"]
         matched = None
@@ -181,7 +192,19 @@ def _panel_suggestions_from_variant_results(
             if float(item["score"]) > float(matched["best"]["score"]):
                 matched["box"] = box
                 matched["best"] = item
+    return groups
 
+
+def _panel_suggestions_from_variant_results(
+    results: dict[str, list[TableRegion]], image_width: int, image_height: int
+) -> list[dict[str, Any]]:
+    """Keep plausible table regions from *all* preprocessing variants.
+
+    The structurally best full-image run is still used as detector output, but Panel
+    Setup must not lose a second table merely because another contrast variant won
+    the global benchmark. Suggestions are therefore deduplicated across variants.
+    """
+    groups = _group_variant_table_candidates(results, image_width, image_height)
     suggestions: list[dict[str, Any]] = []
     for index, group in enumerate(groups[:12], start=1):
         box = group["box"]
@@ -203,6 +226,49 @@ def _panel_suggestions_from_variant_results(
             "excluded_boxes": [item.to_list() for item in excluded],
         })
     return suggestions
+
+
+def _merge_variant_table_regions(
+    results: dict[str, Sequence[TableRegion]] | Sequence[tuple[str, Sequence[TableRegion]]],
+    image_width: int,
+    image_height: int,
+    *,
+    seed_groups: Sequence[dict[str, Any]] | None = None,
+) -> tuple[list[TableRegion], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Union distinct tables found across preprocessing variants instead of
+    keeping only the single globally-best-scoring variant's full result.
+
+    A screenshot's tables do not always need the same preprocessing to render
+    cleanly: one variant's contrast/threshold pass can reveal one table clearly
+    while hiding another that only a *different* variant's pass detects.
+    Previously the benchmark picked one globally-best-scoring variant and used
+    that variant's regions wholesale, which silently dropped any table only
+    visible under a losing variant - even though ``_panel_suggestions_from_
+    variant_results`` already proved (for the manual Panel Setup bootstrap
+    flow) that the losing variant's table could be recovered. This applies the
+    same recovery to the actual detected regions: group overlapping candidates
+    across every variant and keep the best-scoring rendition of each distinct
+    table, so a table only one variant found is folded in rather than
+    discarded because a different variant "won" overall.
+
+    Returns ``(regions, groups, sources)`` where ``groups`` can be passed back
+    in as ``seed_groups`` to extend the merge with another pass (e.g. a
+    panel-cropped retry), and ``sources`` is a diagnostics-friendly summary of
+    which variant contributed each kept table.
+    """
+    groups = _group_variant_table_candidates(results, image_width, image_height, seed_groups=seed_groups)
+    regions = [group["best"]["region"] for group in groups]
+    sources = [
+        {
+            "box": group["box"].to_list(),
+            "variant": str(group["best"]["variant"]),
+            "score": round(float(group["best"]["score"]), 2),
+            "support": int(group["support"]),
+            "variants": sorted(group["variants"]),
+        }
+        for group in groups
+    ]
+    return regions, groups, sources
 
 
 def _assign_tokens_to_cells(tokens: Sequence[OCRToken], cell_boxes: Sequence[Box]) -> dict[int, list[OCRToken]]:
@@ -1074,10 +1140,7 @@ class PPStructureTableEngine:
         if "original" not in variants:
             variants.insert(0, "original")
         runs: list[dict[str, Any]] = []
-        best_regions: list[TableRegion] = []
-        best_score = -1.0
-        best_variant = "original"
-        best_scope = "full"
+        height, width = image.shape[:2]
 
         # Benchmark every preprocessing variant on the full screenshot first.
         # This lets a contrast variant discover a table that the untouched image
@@ -1089,45 +1152,54 @@ class PPStructureTableEngine:
             full_results[variant] = regions
             metrics = score_table_structure(regions)
             runs.append({"variant": variant, "scope": "full", **metrics})
-            numeric_score = float(metrics.get("score") or 0.0)
-            if numeric_score > best_score:
-                best_regions = regions
-                best_score = numeric_score
-                best_variant = variant
-                best_scope = "full"
+
+        # Union tables across variants instead of keeping only the single
+        # globally-best-scoring variant's full result: a table only a losing
+        # variant found must not be discarded (see _merge_variant_table_regions).
+        merged_regions, merged_groups, table_sources = _merge_variant_table_regions(full_results, width, height)
+        contributing_variants = list(dict.fromkeys(source["variant"] for source in table_sources))
+        best_variant = contributing_variants[0] if contributing_variants else "original"
+        best_scope = "full"
 
         # A second pass on only the likely table/result panel removes MRI images,
         # charts and other GUI noise. To keep runtime bounded we only retry the
-        # structurally best full-image variant (plus original when different).
-        height, width = image.shape[:2]
-        panel_box = _panel_crop_from_regions(best_regions, width, height) if bool(self.table_settings.get("auto_panel_crop", True)) else None
+        # variants that actually contributed a kept table (plus original when
+        # different), and merge those candidates into the existing groups the
+        # same way rather than replacing the full-image result wholesale.
+        panel_box = _panel_crop_from_regions(merged_regions, width, height) if bool(self.table_settings.get("auto_panel_crop", True)) else None
         if panel_box is not None:
             panel_image = image[panel_box.y1:panel_box.y2, panel_box.x1:panel_box.x2]
-            panel_variants = [best_variant]
-            if best_variant != "original":
-                panel_variants.append("original")
+            panel_variants = list(dict.fromkeys([*contributing_variants[:2], "original"]))
+            panel_results: dict[str, list[TableRegion]] = {}
             for variant in panel_variants:
                 prepared = _preprocess_table_image(panel_image, variant)
                 local_regions = self._detect_once(prepared, source_id=source_id, fallback_tokens=())
                 regions = _translate_table_regions(local_regions, panel_box.x1, panel_box.y1)
+                panel_results[variant] = regions
                 metrics = score_table_structure(regions)
                 runs.append({"variant": variant, "scope": "panel", **metrics})
-                numeric_score = float(metrics.get("score") or 0.0)
-                if numeric_score > best_score:
-                    best_regions = regions
-                    best_score = numeric_score
-                    best_variant = variant
-                    best_scope = "panel"
+            merged_regions, merged_groups, table_sources = _merge_variant_table_regions(
+                panel_results, width, height, seed_groups=merged_groups,
+            )
+            contributing_variants = list(dict.fromkeys(source["variant"] for source in table_sources))
+            best_variant = contributing_variants[0] if contributing_variants else best_variant
+            best_scope = "panel"
+        final_metrics = score_table_structure(merged_regions)
         panel_suggestions = _panel_suggestions_from_variant_results(full_results, width, height)
-        return best_regions, {
+        return merged_regions, {
             "enabled": True,
             "selected_variant": best_variant,
             "selected_scope": best_scope,
-            "selected_score": round(max(0.0, best_score), 2),
+            "selected_score": final_metrics.get("score", 0.0),
             "panel_crop": panel_box.to_list() if panel_box is not None else None,
             "panel_suggestions": panel_suggestions,
+            "table_sources": table_sources,
             "runs": runs,
-            "selection_rule": "row regularity + column alignment + usable cell density - overlap penalty",
+            "selection_rule": (
+                "union of tables across preprocessing variants (best-scoring rendition kept per "
+                "table via row regularity + column alignment + usable cell density - overlap penalty), "
+                "not one globally-best variant"
+            ),
         }
 
     def detect_panels_with_benchmark(
