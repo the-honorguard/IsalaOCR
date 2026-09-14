@@ -265,19 +265,32 @@
   runAllSourcesButton.addEventListener('click', async () => {
     runAllSourcesButton.disabled = true;
     runAllButton.disabled = true;
+    // One source's job failing outright (missing bronrender, a PaddleOCR
+    // crash, ...) must not abort the whole batch - otherwise every
+    // afbeelding after the first failure is silently never attempted. Keep
+    // going and report which sources failed at the end instead.
+    const failedSources = [];
     try {
       for (let index = 0; index < sourceIds.length; index += 1) {
         await showSource(index);
         message.textContent = `Afbeelding ${index + 1}/${sourceIds.length}: taak inplannen...`;
-        const jobId = await startJob();
-        await waitForJob(jobId);
-        const results = await fetchResults();
-        APPROACHES.forEach((approach) => renderResult(approach, results[approach]));
+        try {
+          const jobId = await startJob();
+          await waitForJob(jobId);
+          const results = await fetchResults();
+          APPROACHES.forEach((approach) => renderResult(approach, results[approach]));
+        } catch (error) {
+          failedSources.push({index, sourceId, message: error.message});
+        }
       }
+      if (failedSources.length === 0) {
         message.textContent = `Alle 6 aanpakken uitgevoerd voor ${sourceIds.length} afbeeldingen.`;
-    } catch (error) {
-      message.textContent = `Bulkverwerking gestopt: ${error.message}`;
-      message.className = 'inline-status error';
+        message.className = 'inline-status';
+      } else {
+        const details = failedSources.map((f) => `#${f.index + 1} (${f.sourceId}): ${f.message}`).join(' · ');
+        message.textContent = `${sourceIds.length - failedSources.length}/${sourceIds.length} afbeeldingen klaar, ${failedSources.length} mislukt: ${details}`;
+        message.className = 'inline-status error';
+      }
     } finally {
       runAllSourcesButton.disabled = false;
       runAllButton.disabled = false;
