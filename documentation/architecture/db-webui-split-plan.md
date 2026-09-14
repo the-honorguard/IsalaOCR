@@ -43,7 +43,7 @@ imports.
 - [x] 2. `training/db_field_definitions.py` — `fields`, `_safe_field_key`,
       `seed_field_definitions`, `upsert_field_definition`, `set_field_active`,
       `get_field_definition`, `list_field_definitions`
-- [ ] 3. `training/db_generic_detection.py` — `_invalidate_mapped_samples_in_connection`,
+- [x] 3. `training/db_generic_detection.py` — `_invalidate_mapped_samples_in_connection`,
       `invalidate_mapped_samples`, `replace_generic_detection`,
       `list_detection_sources`, `get_detection_source`, `list_detected_blocks`,
       `get_detected_block`, `get_detected_relation`
