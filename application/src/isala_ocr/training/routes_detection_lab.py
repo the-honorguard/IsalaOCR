@@ -42,6 +42,7 @@ from typing import Any, Callable
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
 from .collector import _table_settings_with_active_region_model
+from .table_cell_training import list_table_cell_models
 
 _SOURCE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}")
 _FILENAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\.png")
@@ -73,6 +74,8 @@ def register_detection_lab_routes(
             sources=sources,
             active_region_model=bool(active_region_model),
             selected_source_id=request.args.get("source_id") or (sources[0]["source_id"] if sources else ""),
+            table_cell_models=list_table_cell_models(workspace_root()),
+            selected_table_model_id=request.args.get("table_model_id") or "active",
         )
 
     @app.get("/api/detection-lab/results/<source_id>")

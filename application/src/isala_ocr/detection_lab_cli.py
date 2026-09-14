@@ -33,7 +33,7 @@ from typing import Any
 from .config import ConfigError, load_config
 from .logging_utils import configure_logging
 from .ocr.table_structure import PPStructureTableEngine, draw_cell_overlay, score_table_structure
-from .training.collector import _table_settings_with_active_region_model
+from .training.collector import _table_settings_with_active_model, _table_settings_with_active_region_model
 from .training.projects import resolve_project_workspace
 
 LOGGER = logging.getLogger(__name__)
@@ -41,12 +41,14 @@ LOGGER = logging.getLogger(__name__)
 _SOURCE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}")
 # Keep this tuple, and the labels below, in sync with training/routes_detection_lab.py
 # and templates/detection_lab.html - all three list the same three approaches.
-_APPROACHES = ("forced_benchmark", "region_variant_trial", "contrast_lines", "current_default")
+_APPROACHES = ("forced_benchmark", "region_variant_trial", "contrast_lines", "current_default", "hybrid", "hybrid_per_region")
 _APPROACH_LABELS = {
     "forced_benchmark": "Probeer 1 · Volledige benchmark (regio-model genegeerd)",
     "region_variant_trial": "Probeer 2 · Regio-model + variant-trial per regio",
     "contrast_lines": "Probeer 3 · Contrastlijnen tussen rijen",
     "current_default": "Probeer 4 · Huidige standaarddetectie",
+    "hybrid": "Probeer 5 · Hybride Stap 1 + Stap 2",
+    "hybrid_per_region": "Probeer 6 · Hybride per tabelregio",
 }
 
 
@@ -60,6 +62,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser("run")
     run.add_argument("--source-id", required=True)
     run.add_argument("--workspace", default="/training/workspace")
+    run.add_argument("--table-model-id", default="active")
     run.add_argument("--config", default="/app/config/app.yaml")
     return parser
 
@@ -90,11 +93,13 @@ def _run(args: argparse.Namespace) -> int:
     out_dir = workspace / "detection_lab"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    engine = PPStructureTableEngine(config.ocr, _table_settings(workspace, config))
+    settings, _ = _table_settings_with_active_model(workspace, _table_settings(workspace, config), args.table_model_id)
+    engine = PPStructureTableEngine(config.ocr, settings)
     engine.warmup()
 
     run_token = int(time.time() * 1000)
     results: dict[str, Any] = {}
+    detected_regions: dict[str, Any] = {}
     for approach in _APPROACHES:
         LOGGER.info("Draai aanpak %s voor bron %s", approach, source_id)
         try:
@@ -104,8 +109,18 @@ def _run(args: argparse.Namespace) -> int:
                 regions, diagnostics = engine.detect_with_trained_regions_benchmark(image, source_id=source_id)
             elif approach == "contrast_lines":
                 regions, diagnostics = engine.detect_with_contrast_lines(image, source_id=source_id)
+            elif approach == "current_default":
+                regions, diagnostics = engine.detect_with_benchmark(image, source_id=source_id)
+            elif approach in ("hybrid", "hybrid_per_region"):
+                regions, diagnostics = engine.detect_with_hybrid_benchmark(
+                    image, source_id=source_id,
+                    base_regions=detected_regions.get("forced_benchmark"),
+                    alternate_regions=detected_regions.get("region_variant_trial"),
+                    allow_cross_column=approach == "hybrid_per_region",
+                )
             else:
                 regions, diagnostics = engine.detect_with_benchmark(image, source_id=source_id)
+            detected_regions[approach] = regions
             metrics = score_table_structure(regions)
             overlay = draw_cell_overlay(image, regions)
             if approach == "contrast_lines":

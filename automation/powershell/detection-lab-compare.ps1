@@ -1,4 +1,4 @@
-param([string]$SourceId = "")
+param([string]$SourceId = "", [string]$TableModelId = "active")
 # TEMPORARY: Detectie-lab cell-merging regression investigation. Remove this
 # script, the "62" action-catalog entry in preflight.ps1, the "62" wiring in
 # training-menu.ps1/webui-worker.ps1/routes_jobs.py/webui.py,
@@ -19,6 +19,7 @@ $args = @(
     "-m","isala_ocr.detection_lab_cli",
     "run",
     "--source-id",$SourceId,
+    "--table-model-id",$TableModelId,
     "--workspace","/training/workspace",
     "--config","/app/config/app.yaml"
 )

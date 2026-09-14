@@ -956,6 +956,62 @@ class PPStructureTableEngine:
             **metrics,
         }
 
+    def detect_with_hybrid_benchmark(
+        self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = (),
+        base_regions: Sequence[TableRegion] | None = None,
+        alternate_regions: Sequence[TableRegion] | None = None,
+        allow_cross_column: bool = False,
+    ) -> tuple[list[TableRegion], dict[str, Any]]:
+        """Keep full-benchmark geometry, borrowing only clear splits from regions.
+
+        The full benchmark is the authority for column widths.  A trained-region
+        pass may replace one unusually tall cell only when two or more of its
+        cells fit inside that cell and together cover most of its height.
+        """
+        base_meta: dict[str, Any] = {"selection_rule": "cached full benchmark"}
+        if base_regions is None:
+            base, base_meta = self.detect_with_forced_full_benchmark(
+                image, source_id=source_id, fallback_tokens=fallback_tokens
+            )
+        else:
+            base = list(base_regions)
+        if alternate_regions is None:
+            alternate, _ = self.detect_with_trained_regions_benchmark(
+                image, source_id=source_id, fallback_tokens=fallback_tokens
+            )
+        else:
+            alternate = list(alternate_regions)
+        replacements = 0
+        merged: list[TableRegion] = []
+        for region in base:
+            candidates = [item for item in alternate if _box_iou(region.box, item.box) >= 0.35]
+            alt_cells = [cell for item in candidates for cell in item.cells]
+            cells: list[TableCell] = []
+            for cell in region.cells:
+                splits = [
+                    other for other in alt_cells
+                    if (allow_cross_column or other.column_index == cell.column_index)
+                    and _inside(_center(other.box), cell.box, guard=3)
+                    and _intersection_area(cell.box, other.box) / max(1, cell.box.height * other.box.height) >= 0.65
+                    and _intersection_area(cell.box, other.box) / max(1, other.box.width * other.box.height) >= 0.65
+                ]
+                if len(splits) < 2:
+                    cells.append(cell)
+                    continue
+                splits.sort(key=lambda item: item.box.y1)
+                covered = _box_union([item.box for item in splits])
+                coverage = _intersection_area(cell.box, covered) / max(1, cell.box.width * cell.box.height)
+                if coverage < 0.65 or covered.height < cell.box.height * 0.75:
+                    cells.append(cell)
+                    continue
+                cells.extend(splits)
+                replacements += 1
+            merged.append(TableRegion(region.table_id, region.box, region.confidence, tuple(cells), region.html, region.excluded_boxes))
+        return merged, {
+            "enabled": True, "mode": "hybrid_full_benchmark_with_region_splits",
+            "split_replacements": replacements, **base_meta,
+        }
+
     def _detect_once(self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()) -> list[TableRegion]:
         pipeline = self._load()
         prepared = PaddleEngine._prepare_image(image)

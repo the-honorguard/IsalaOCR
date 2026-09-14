@@ -210,7 +210,7 @@ def register_job_routes(
         if action_id in {"24", "25", "26", "27", "28"} and not current_recognition_gate().get("ready"):
             abort(423, description="Recognition is locked until approved Recognition-GT samples are available")
         options={}
-        if action_id == "2":
+        if action_id in {"2", "62"}:
             table_model_id = str(request.form.get("table_model_id") or "").strip()
             if table_model_id and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", table_model_id):
                 abort(400)
