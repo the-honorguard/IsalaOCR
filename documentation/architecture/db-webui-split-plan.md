@@ -73,7 +73,7 @@ imports.
       `get_localization_model`, `get_localization_evaluation`,
       `delete_localization_dataset_record`, `delete_localization_evaluation`,
       `delete_localization_model`
-- [ ] 8. `training/db_detection_gate.py` — `set_detection_gate`, `detection_gate`
+- [x] 8. `training/db_detection_gate.py` — `set_detection_gate`, `detection_gate`
 - [ ] 9. `db.py` blijft: `__init__`, `_file_identity`, `connect`, `_column_names`,
       `_ensure_columns`, `_ensure_review_history_columns`,
       `_ensure_detection_columns`, `_backup_before_migration`,
