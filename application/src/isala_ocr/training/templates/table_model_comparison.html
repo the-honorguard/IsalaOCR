@@ -146,6 +146,28 @@
 </section>
 {% endif %}
 
+{% set split_suggestions = comparison.split_group_suggestions or {} %}
+{% if split_suggestions.issues and comparison.review_writable %}
+<section class="card section-gap functional-suggestion-card">
+  <div class="toolbar">
+    <div>
+      <span class="eyebrow">GESPLITSTE DETECTIES</span>
+      <h3>{{ split_suggestions.issues|length }} GT-cel{{ 'len' if split_suggestions.issues|length != 1 }} kregen 2+ losse detecties</h3>
+      <p class="muted">Het model tekende meerdere kaders voor inhoud die in één GT-cel hoort. Dat is altijd een modelfout: functioneel correct of GT aanpassen is hier nooit van toepassing. Bekijk eerst de voorbeelden hieronder voordat je in bulk toepast; niets wordt automatisch gemarkeerd.</p>
+    </div>
+    <form method="post" class="functional-suggestion-form">
+      <input type="hidden" name="comparison_action" value="apply_split_group_model_error">
+      <input type="hidden" name="run_id" value="{{ cur.run_id }}">
+      <input type="hidden" name="reference_run_id" value="{{ ref.run_id }}">
+      <input type="hidden" name="candidate_run_id" value="{{ cur.run_id }}">
+      {% for group in split_suggestions.issues %}{% for gid in group.issue_ids %}<input type="hidden" name="issue_id" value="{{ gid }}">{% endfor %}{% endfor %}
+      <button class="primary" type="submit">{{ split_suggestions.issue_ids|length }} als modelfout markeren</button>
+    </form>
+  </div>
+  <small class="muted">Voorbeelden: {% for group in split_suggestions.issues[:4] %}{{ group.panel_name }} ({{ group.group_size }} kaders){% if not loop.last %} · {% endif %}{% endfor %}</small>
+</section>
+{% endif %}
+
 <section class="card section-gap decision-guide">
   <div class="toolbar"><div><span class="eyebrow">PER AFWIJKING ÉÉN KEUZE</span><h3>Wat moet ik aanklikken?</h3></div></div>
   <div class="decision-guide-grid">
