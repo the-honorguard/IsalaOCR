@@ -39,6 +39,10 @@ from .table_quality import table_first_quality
 from .table_panels import load_panel_profile
 from .table_cell_training import active_table_cell_model, table_cell_training_state
 from .source_preview import prepare_source_renders
+from .comparison_review_queue_web import install_comparison_review_queue
+from .job_cancellation import install_job_cancellation
+from .recognition_ground_truth_web import install_recognition_ground_truth_review
+from .stale_job_reconciliation import install_stale_job_reconciliation
 from .legacy_routes import register_legacy_routes
 from .routes_detection_candidate import register_detection_candidate_routes
 from .routes_detection_lab import register_detection_lab_routes
@@ -4075,5 +4079,17 @@ def create_web_app(
         enqueue_job=enqueue_job,
         utcnow=_utcnow,
     )
+
+    # These attach their own routes/hooks on top of the ones registered above.
+    # They live in separate modules (each independently useful, e.g. in a
+    # narrower test) but must always be wired into every app this function
+    # builds - previously only webui_server.py's main() did this, so any other
+    # caller (a test, a future embedding) silently got an app missing
+    # recognition-GT review, the comparison review queue, job cancellation and
+    # stale-job reconciliation.
+    install_recognition_ground_truth_review(app, workspace)
+    install_comparison_review_queue(app, workspace)
+    install_job_cancellation(app, workspace)
+    install_stale_job_reconciliation(app, workspace)
 
     return app
