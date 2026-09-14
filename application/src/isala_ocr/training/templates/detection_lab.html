@@ -172,8 +172,8 @@
   // "62"), the same worker that runs every other pipeline step, so it
   // executes inside the training-collector container that does have the
   // PaddleOCR/PaddleX stack.
-  const startJob = async () => {
-    const body = new URLSearchParams({action_id: '62', source_id: sourceId, table_model_id: tableModelId});
+  const startJob = async (sourceIdOrCsv) => {
+    const body = new URLSearchParams({action_id: '62', source_id: sourceIdOrCsv, table_model_id: tableModelId});
     const response = await fetch('/jobs', {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
@@ -238,7 +238,7 @@
     message.textContent = 'Taak inplannen...';
     message.className = 'inline-status';
     try {
-      const jobId = await startJob();
+      const jobId = await startJob(sourceId);
       await waitForJob(jobId);
       const results = await fetchResults();
       let failed = 0;
@@ -265,32 +265,45 @@
   runAllSourcesButton.addEventListener('click', async () => {
     runAllSourcesButton.disabled = true;
     runAllButton.disabled = true;
-    // One source's job failing outright (missing bronrender, a PaddleOCR
-    // crash, ...) must not abort the whole batch - otherwise every
-    // afbeelding after the first failure is silently never attempted. Keep
-    // going and report which sources failed at the end instead.
-    const failedSources = [];
+    resetColumns();
+    message.textContent = `Batchtaak voor ${sourceIds.length} afbeeldingen inplannen...`;
+    message.className = 'inline-status';
     try {
-      for (let index = 0; index < sourceIds.length; index += 1) {
-        await showSource(index);
-        message.textContent = `Afbeelding ${index + 1}/${sourceIds.length}: taak inplannen...`;
-        try {
-          const jobId = await startJob();
-          await waitForJob(jobId);
-          const results = await fetchResults();
-          APPROACHES.forEach((approach) => renderResult(approach, results[approach]));
-        } catch (error) {
-          failedSources.push({index, sourceId, message: error.message});
+      // One job for every source (comma-separated) instead of one job per
+      // source: the container/model only starts up once, and the batch keeps
+      // running server-side even if this tab is closed or reloaded partway
+      // through - see detection_lab_cli.py._run for why that matters.
+      const jobId = await startJob(sourceIds.join(','));
+      const job = await waitForJob(jobId);
+      // The job prints a final {"succeeded": [...], "failed": [...]} summary
+      // line; pull it from the log for a real per-source count instead of
+      // just "the job as a whole finished".
+      let summary = null;
+      try {
+        const logResponse = await fetch(`/api/jobs/${jobId}/log`);
+        if (logResponse.ok) {
+          const lines = (await logResponse.text()).trim().split('\n');
+          for (let i = lines.length - 1; i >= 0 && !summary; i -= 1) {
+            try { summary = JSON.parse(lines[i]); } catch { /* not the summary line */ }
+          }
         }
-      }
-      if (failedSources.length === 0) {
-        message.textContent = `Alle 6 aanpakken uitgevoerd voor ${sourceIds.length} afbeeldingen.`;
-        message.className = 'inline-status';
+      } catch { /* summary is a nice-to-have, not required */ }
+      await loadSavedResults();
+      if (summary && Array.isArray(summary.succeeded) && Array.isArray(summary.failed)) {
+        if (summary.failed.length === 0) {
+          message.textContent = `Alle ${summary.total} afbeeldingen verwerkt.`;
+          message.className = 'inline-status';
+        } else {
+          const details = summary.failed.map((f) => `${f.source_id}: ${f.error}`).join(' · ');
+          message.textContent = `${summary.succeeded.length}/${summary.total} afbeeldingen klaar, ${summary.failed.length} mislukt: ${details}`;
+          message.className = 'inline-status error';
+        }
       } else {
-        const details = failedSources.map((f) => `#${f.index + 1} (${f.sourceId}): ${f.message}`).join(' · ');
-        message.textContent = `${sourceIds.length - failedSources.length}/${sourceIds.length} afbeeldingen klaar, ${failedSources.length} mislukt: ${details}`;
-        message.className = 'inline-status error';
+        message.textContent = `Batchtaak ${jobId}: ${job.progress_label || job.status}.`;
       }
+    } catch (error) {
+      message.textContent = `Batchtaak mislukt: ${error.message}`;
+      message.className = 'inline-status error';
     } finally {
       runAllSourcesButton.disabled = false;
       runAllButton.disabled = false;

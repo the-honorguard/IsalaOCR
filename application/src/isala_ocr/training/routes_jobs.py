@@ -219,13 +219,20 @@ def register_job_routes(
         if action_id in {"2", "20", "21", "22", "62"}:
             source_id=str(request.form.get("source_id","")).strip()
             if source_id:
-                if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", source_id):
+                if action_id == "62":
+                    # "Alle afbeeldingen draaien" submits every source as one
+                    # job (comma-separated) so the model loads once and the
+                    # batch keeps running server-side even if the browser tab
+                    # that started it closes - see detection_lab_cli.py._run.
+                    ids = [part.strip() for part in source_id.split(",") if part.strip()]
+                    if not ids or len(ids) > 500 or any(
+                        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", item) for item in ids
+                    ):
+                        abort(400)
+                elif not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}", source_id):
                     abort(400)
                 options["source_id"]=source_id
             elif action_id == "62":
-                # Unlike the source-scoped mapping actions above, Detectie-lab
-                # has no "all sources" mode: it always compares approaches on
-                # exactly one already-rendered source.
                 abort(400)
         if action_id == "26":
             device=str(request.form.get("device","gpu")).strip().lower()

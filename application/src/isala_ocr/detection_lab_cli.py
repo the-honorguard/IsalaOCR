@@ -1,8 +1,9 @@
 """TEMPORARY CLI for the Detectie-lab cell-merging regression investigation.
 
-Runs the three candidate cell-detection approaches for one already-rendered
-source and writes overlays + a comparable metrics JSON to the shared training
-workspace. This is the job-worker counterpart of
+Runs the six candidate cell-detection approaches for one or more
+already-rendered sources (comma-separated; the model is loaded once and
+reused across all of them) and writes overlays + a comparable metrics JSON
+per source to the shared training workspace. This is the job-worker counterpart of
 ``training.routes_detection_lab``: that route lives in the ``labeler``
 container, which deliberately does not install PaddleOCR/PaddlePaddle (see
 ``infrastructure/docker/Dockerfile.labeler``), so it cannot run
@@ -55,11 +56,14 @@ _APPROACH_LABELS = {
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="isala_ocr.detection_lab_cli",
-        description="Run the three Detectie-lab cell-detection approaches for one source.",
+        description="Run the three Detectie-lab cell-detection approaches for one or more sources.",
     )
     parser.add_argument("--log-level", default="INFO")
     subparsers = parser.add_subparsers(dest="command", required=True)
     run = subparsers.add_parser("run")
+    # Comma-separated so "Alle afbeeldingen draaien" can submit every source as
+    # ONE job (one container, one model load) instead of one job per source -
+    # see _run() for why that matters.
     run.add_argument("--source-id", required=True)
     run.add_argument("--workspace", default="/training/workspace")
     run.add_argument("--table-model-id", default="active")
@@ -72,15 +76,11 @@ def _table_settings(workspace: Path, config: Any) -> dict[str, Any]:
     return _table_settings_with_active_region_model(workspace, raw)
 
 
-def _run(args: argparse.Namespace) -> int:
+def _run_one(engine: PPStructureTableEngine, *, workspace: Path, out_dir: Path, source_id: str) -> bool:
+    """Run all approaches for one already-rendered source. Returns True if at
+    least one approach produced a usable result."""
     import cv2
 
-    source_id = str(args.source_id or "").strip()
-    if not _SOURCE_ID_RE.fullmatch(source_id):
-        raise ValueError(f"Ongeldig source_id: {source_id!r}")
-
-    config = load_config(args.config)
-    workspace = resolve_project_workspace(args.workspace)
     render_path = workspace / "source_renders" / f"{source_id}.png"
     if not render_path.is_file():
         raise RuntimeError(
@@ -89,13 +89,6 @@ def _run(args: argparse.Namespace) -> int:
     image = cv2.imread(str(render_path))
     if image is None:
         raise RuntimeError(f"Bronrender kon niet worden gelezen: {render_path}")
-
-    out_dir = workspace / "detection_lab"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    settings, _ = _table_settings_with_active_model(workspace, _table_settings(workspace, config), args.table_model_id)
-    engine = PPStructureTableEngine(config.ocr, settings)
-    engine.warmup()
 
     run_token = int(time.time() * 1000)
     results: dict[str, Any] = {}
@@ -164,7 +157,73 @@ def _run(args: argparse.Namespace) -> int:
     temp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     temp.replace(results_path)
     print(json.dumps({"ok": True, "source_id": source_id, "results_file": results_path.name}, ensure_ascii=False), flush=True)
-    return 0 if any(bool(item.get("ok")) for item in results.values()) else 1
+    return any(bool(item.get("ok")) for item in results.values())
+
+
+def _parse_source_ids(raw: str) -> list[str]:
+    """Split and validate the (possibly comma-separated) --source-id value.
+
+    Kept standalone so this parsing/validation is unit-testable without the
+    PaddleOCR/cv2 dependencies the rest of this module needs.
+    """
+    source_ids = [part.strip() for part in str(raw or "").split(",") if part.strip()]
+    if not source_ids:
+        raise ValueError("Geen geldige source_id's opgegeven")
+    invalid = [item for item in source_ids if not _SOURCE_ID_RE.fullmatch(item)]
+    if invalid:
+        raise ValueError(f"Ongeldig(e) source_id('s): {invalid!r}")
+    return source_ids
+
+
+def _run(args: argparse.Namespace) -> int:
+    """Run one or more sources in a single process.
+
+    "Alle afbeeldingen draaien" used to submit one job per source, each of
+    which spins up a fresh container and reloads every PaddleX model from
+    scratch (~2 minutes of fixed overhead before any detection even starts) -
+    for dozens of sources that adds up to hours, and the multi-hour batch only
+    ever progresses while the browser tab that is looping over one-job-per-
+    source stays open, so closing/reloading it silently strands the rest.
+    Accepting several source ids here lets the whole batch run as one job:
+    the model is loaded once and reused, and the batch keeps going
+    server-side regardless of what the browser tab does afterwards.
+    """
+    source_ids = _parse_source_ids(args.source_id)
+
+    config = load_config(args.config)
+    workspace = resolve_project_workspace(args.workspace)
+    out_dir = workspace / "detection_lab"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    settings, _ = _table_settings_with_active_model(workspace, _table_settings(workspace, config), args.table_model_id)
+    engine = PPStructureTableEngine(config.ocr, settings)
+    engine.warmup()
+
+    total = len(source_ids)
+    succeeded: list[str] = []
+    failed: list[dict[str, str]] = []
+    for index, source_id in enumerate(source_ids, start=1):
+        # Matches webui-worker.ps1's Get-LiveProgressLabel "[step/total] detail"
+        # pattern, so the job's progress_label shows real batch progress
+        # instead of a static "live output active" for the whole run.
+        print(f"[{index}/{total}] Bron {source_id}", flush=True)
+        LOGGER.info("Verwerk bron %d/%d: %s", index, total, source_id)
+        try:
+            ok = _run_one(engine, workspace=workspace, out_dir=out_dir, source_id=source_id)
+        except Exception as exc:  # noqa: BLE001 - one source failing outright (e.g. missing
+            # bronrender) must not strand every source still queued behind it.
+            LOGGER.exception("Bron %s volledig mislukt", source_id)
+            failed.append({"source_id": source_id, "error": f"{type(exc).__name__}: {exc}"})
+            continue
+        if ok:
+            succeeded.append(source_id)
+        else:
+            failed.append({"source_id": source_id, "error": "Geen enkele aanpak leverde een resultaat op"})
+
+    print(json.dumps(
+        {"ok": bool(succeeded), "total": total, "succeeded": succeeded, "failed": failed}, ensure_ascii=False,
+    ), flush=True)
+    return 0 if succeeded else 1
 
 
 def main(argv: list[str] | None = None) -> int:
