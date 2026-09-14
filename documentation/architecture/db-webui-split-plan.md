@@ -174,14 +174,24 @@ lange `if`/`elif`-keten.
        `state["preparation"] = preparation_for_current_strategy()` - een
        dict-literal-vorm brak die test zonder gedragsverschil; teruggezet
        naar de exacte toewijzingsvorm zodat de test ongewijzigd kon blijven.
-- [ ] 11c+. Resterende takken (`panel-setup`, `table-region-model`,
-       `table-quality` POST+GET (grootste/complexte tak, met geneste
-       `indexed_cells`/`axis_groups`/`table_record`-helpers),
-       `table-compare` POST+GET, `localization-dataset` POST+GET,
-       `{localization-evaluate, localization-register, detection-report}`,
-       `detect-candidates`+table_first, `artifacts`, impliciete
-       `header-normalization`-POST) één voor één verplaatsen naar
-       `_process_step_<key>(...)`-functies volgens hetzelfde patroon.
+- [x] 11c. De kleinere zelfstandige GET-renderfuncties verplaatst naar losse
+       geneste functies (zelfde patroon als 11a): `panel-setup` →
+       `_process_step_panel_setup(step)`, `table-region-model` →
+       `_process_step_table_region_model(step)`, `table-model` →
+       `_process_step_table_model(step)`, `table-compare` (GET) →
+       `_process_step_table_compare_get(step)`, `detect-candidates`+
+       table_first → `_process_step_detect_candidates_table_first(step)`.
+       `localization-dataset` (GET), `{localization-evaluate,
+       localization-register, detection-report}` (GET) en `artifacts` bleven
+       bewust inline: elk is al maar 1-2 regels, een aparte functie zou daar
+       alleen ceremonie toevoegen zonder de dispatcher echt te verkleinen.
+       `process_step()`: 746 → 615 regels.
+- [ ] 11d+. Resterende, grotere takken (`table-quality` POST+GET
+       (grootste/complexte tak, met geneste `indexed_cells`/`axis_groups`/
+       `table_record`-helpers), `table-compare` POST, `localization-dataset`
+       POST, impliciete `header-normalization`-POST) één voor één
+       verplaatsen naar `_process_step_<key>(...)`-functies volgens hetzelfde
+       patroon.
 - [ ] Laatste stap: evalueren of (een deel van) deze functies alsnog naar een
        eigen module kunnen verhuizen zonder circulaire import met de
        `routes_*.py`-bestanden die ze nu al aanroepen (daarvoor moeten hun

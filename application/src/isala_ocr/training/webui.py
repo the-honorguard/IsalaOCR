@@ -3057,6 +3057,155 @@ def create_web_app(
         "value-review": _process_step_state_value_review,
     }
 
+    def _process_step_panel_setup(step):
+        panel_state = table_panel_state()
+        context = _table_panel_review_context(str(request.args.get("source_id") or ""), panel_state)
+        region_sources = list_table_region_sources(workspace_root())
+        region_total = sum(int(item.get("region_count") or 0) for item in region_sources)
+        expected_sources = database.list_detection_sources()
+        region_by_source = {str(item.get("source_id") or ""): item for item in region_sources}
+        region_pending = sum(
+            1 for item in expected_sources
+            if not bool(region_by_source.get(str(item.get("source_id") or ""), {}).get("review_completed"))
+            or not bool(region_by_source.get(str(item.get("source_id") or ""), {}).get("region_count"))
+        )
+        return render_template(
+            "table_panel_setup.html", step=step, panel_state=panel_state,
+            panel_profile=panel_state.get("profile") or {}, sources=context["sources"], source=context["source"],
+            source_id=context["source_id"], suggestions=context["suggestions"],
+            detection_info=context["detection_info"],
+            region_ground_truth=context["region_ground_truth"],
+            table_review_sources=context["table_review_sources"],
+            header_counts={
+                "total": region_total,
+                "pending": region_pending,
+                "accepted": region_total,
+            },
+            header_total_label="regio’s", header_pending_label="lezingen open", header_accepted_label="opgeslagen",
+        )
+
+    def _process_step_table_region_model(step):
+        region_sources = list_table_region_sources(workspace_root())
+        dataset = None
+        latest_pointer = workspace_root() / "table_region_datasets" / "latest.txt"
+        try:
+            dataset_id = latest_pointer.read_text(encoding="ascii").strip()
+        except OSError:
+            dataset_id = ""
+        if dataset_id:
+            dataset = _read_json(workspace_root() / "table_region_datasets" / dataset_id / "manifest.json", None)
+        reviewed_sources = [item for item in region_sources if item.get("review_completed")]
+        return render_template(
+            "table_region_training.html", step=step,
+            region_sources=region_sources, reviewed_sources=reviewed_sources,
+            dataset=dataset,
+            header_counts={
+                "total": sum(int(item.get("region_count") or 0) for item in reviewed_sources),
+                "pending": max(0, len(sources := database.list_detection_sources()) - len(reviewed_sources)),
+                "accepted": int((dataset or {}).get("annotation_count") or 0),
+            },
+            header_total_label="tabelregio’s", header_pending_label="lezingen open",
+            header_accepted_label="trainingskaders",
+        )
+
+    def _process_step_table_model(step):
+        model_state = table_cell_training_state(workspace_root())
+        preview = model_state.get("preview") or {}
+        dataset = model_state.get("dataset") or {}
+        validation = dataset.get("validation") if isinstance(dataset, dict) else {}
+        validation = validation if isinstance(validation, dict) else {}
+        latest_model = model_state.get("latest_model") or {}
+        evaluation = latest_model.get("evaluation") if isinstance(latest_model, dict) else {}
+        evaluation = evaluation if isinstance(evaluation, dict) else {}
+        dataset_current = bool(model_state.get("dataset_current"))
+        build_ready = bool(preview.get("ready"))
+        validate_ready = bool(dataset and dataset_current)
+        train_ready = bool(validate_ready and validation.get("valid"))
+        model_for_current_dataset = bool(
+            latest_model.get("model_id") and dataset.get("dataset_id")
+            and str(latest_model.get("dataset_id") or "") == str(dataset.get("dataset_id") or "")
+        )
+        active_is_latest = bool(
+            model_for_current_dataset and (model_state.get("active_model") or {}).get("model_id")
+            and str((model_state.get("active_model") or {}).get("model_id") or "") == str(latest_model.get("model_id") or "")
+        )
+        needs_training = bool(train_ready and not model_for_current_dataset)
+        activate_ready = bool(model_for_current_dataset and not active_is_latest)
+        needs_redetect = bool(model_for_current_dataset and active_is_latest)
+        reasons = {
+            "build": "" if build_ready else "Rond eerst de tabelreview af en zorg dat er positieve functionele cellen zijn.",
+            "validate": "" if validate_ready else ("De review is gewijzigd sinds de laatste dataset. Bouw de dataset opnieuw." if dataset else "Bouw eerst de table-cell dataset."),
+            "train": "" if train_ready else ("Valideer eerst de actuele table-cell dataset." if validate_ready else "Bouw eerst een actuele dataset uit de huidige reviewcorrecties."),
+            "activate": "" if activate_ready else ("Dit model is al actief." if active_is_latest else "Train eerst een model op de actuele dataset."),
+        }
+        return render_template(
+            "table_model_training.html", step=step, model_state=model_state, preview=preview,
+            dataset=dataset, validation=validation, latest_model=latest_model, evaluation=evaluation,
+            build_ready=build_ready, validate_ready=validate_ready, train_ready=train_ready,
+            needs_training=needs_training, model_for_current_dataset=model_for_current_dataset,
+            activate_ready=activate_ready, needs_redetect=needs_redetect, reasons=reasons,
+            header_counts={
+                "total": int(preview.get("annotation_count") or 0),
+                "pending": 0 if dataset_current else (1 if dataset else 0),
+                "accepted": len(model_state.get("models") or []),
+            },
+            header_total_label="reviewcellen", header_pending_label="dataset verouderd",
+            header_accepted_label="getrainde modellen",
+        )
+
+    def _process_step_table_compare_get(step):
+        comparison = table_cell_comparison_state(
+            workspace_root(),
+            reference_run_id=str(request.args.get("reference") or "").strip() or None,
+            candidate_run_id=str(request.args.get("candidate") or "").strip() or None,
+        )
+        candidate_metrics = ((comparison.get("candidate") or {}).get("metrics") or {}) if comparison.get("ready") else {}
+        return render_template(
+            "table_model_comparison.html",
+            step=step, comparison=comparison,
+            header_counts={
+                "total": int(candidate_metrics.get("gt_total") or 0),
+                "pending": int(comparison.get("open_issue_count") or 0),
+                "accepted": int(comparison.get("reviewed_issue_count") or 0),
+            },
+            header_total_label="GT-cellen", header_pending_label="afwijkingen open",
+            header_accepted_label="afwijkingen beoordeeld",
+        )
+
+    def _process_step_detect_candidates_table_first(step):
+        # Region predictions get their own review surface. Keeping this out
+        # of Panel Setup prevents newly detected boxes from being confused
+        # with the manually accepted region GT used to train the model.
+        sources = [dict(item) for item in database.list_detection_sources()]
+        requested_source_id = str(request.args.get("source_id") or "").strip()
+        source = next((item for item in sources if str(item.get("source_id") or "") == requested_source_id), None)
+        if source is None and sources:
+            source = sources[0]
+        source_id = str((source or {}).get("source_id") or "")
+        geometry = database.list_detection_table_geometry(source_id) if source_id else {"regions": [], "cells": []}
+        context = _table_panel_review_context(source_id)
+        # One bulk query pair instead of a database.list_detection_table_geometry()
+        # (two full-table SELECTs) per source, just to count regions.
+        region_counts_by_source = database.detection_table_counts_by_source()
+        review_sources = []
+        for item in sources:
+            item_source_id = str(item.get("source_id") or "")
+            item["region_count"] = region_counts_by_source.get(item_source_id, {}).get("regions", 0)
+            review_sources.append(item)
+        return render_template(
+            "table_region_review.html", step=step, sources=review_sources, source=source,
+            source_id=source_id, regions=geometry.get("regions", []),
+            panel_profile=load_panel_profile(workspace_root()),
+            ocr_contexts=database.list_detected_relations(source_id) if source_id else [],
+            ground_truth_regions=list_table_regions(workspace_root(), source_id) if source_id else [],
+            detection_info=context.get("detection_info") or {},
+            header_counts={
+                "total": len(geometry.get("regions", [])), "pending": len(geometry.get("regions", [])),
+                "accepted": len(list_table_regions(workspace_root(), source_id)) if source_id else 0,
+            },
+            header_total_label="modelregio’s", header_pending_label="te beoordelen", header_accepted_label="oude GT",
+        )
+
     def _process_step_input_selection(step):
         """Handle the ``input-selection`` process step (GET+POST).
 
@@ -3485,55 +3634,10 @@ def create_web_app(
             return redirect(url_for("process_step", step_key=step_key, **parameters))
 
         if step_key == "panel-setup":
-            panel_state = table_panel_state()
-            context = _table_panel_review_context(str(request.args.get("source_id") or ""), panel_state)
-            region_sources = list_table_region_sources(workspace_root())
-            region_total = sum(int(item.get("region_count") or 0) for item in region_sources)
-            expected_sources = database.list_detection_sources()
-            region_by_source = {str(item.get("source_id") or ""): item for item in region_sources}
-            region_pending = sum(
-                1 for item in expected_sources
-                if not bool(region_by_source.get(str(item.get("source_id") or ""), {}).get("review_completed"))
-                or not bool(region_by_source.get(str(item.get("source_id") or ""), {}).get("region_count"))
-            )
-            return render_template(
-                "table_panel_setup.html", step=step, panel_state=panel_state,
-                panel_profile=panel_state.get("profile") or {}, sources=context["sources"], source=context["source"],
-                source_id=context["source_id"], suggestions=context["suggestions"],
-                detection_info=context["detection_info"],
-                region_ground_truth=context["region_ground_truth"],
-                table_review_sources=context["table_review_sources"],
-                header_counts={
-                    "total": region_total,
-                    "pending": region_pending,
-                    "accepted": region_total,
-                },
-                header_total_label="regio’s", header_pending_label="lezingen open", header_accepted_label="opgeslagen",
-            )
+            return _process_step_panel_setup(step)
 
         if step_key == "table-region-model":
-            region_sources = list_table_region_sources(workspace_root())
-            dataset = None
-            latest_pointer = workspace_root() / "table_region_datasets" / "latest.txt"
-            try:
-                dataset_id = latest_pointer.read_text(encoding="ascii").strip()
-            except OSError:
-                dataset_id = ""
-            if dataset_id:
-                dataset = _read_json(workspace_root() / "table_region_datasets" / dataset_id / "manifest.json", None)
-            reviewed_sources = [item for item in region_sources if item.get("review_completed")]
-            return render_template(
-                "table_region_training.html", step=step,
-                region_sources=region_sources, reviewed_sources=reviewed_sources,
-                dataset=dataset,
-                header_counts={
-                    "total": sum(int(item.get("region_count") or 0) for item in reviewed_sources),
-                    "pending": max(0, len(sources := database.list_detection_sources()) - len(reviewed_sources)),
-                    "accepted": int((dataset or {}).get("annotation_count") or 0),
-                },
-                header_total_label="tabelregio’s", header_pending_label="lezingen open",
-                header_accepted_label="trainingskaders",
-            )
+            return _process_step_table_region_model(step)
 
         if step_key == "table-quality":
             quality = current_table_first_quality()
@@ -3726,68 +3830,10 @@ def create_web_app(
             )
 
         if step_key == "table-model":
-            model_state = table_cell_training_state(workspace_root())
-            preview = model_state.get("preview") or {}
-            dataset = model_state.get("dataset") or {}
-            validation = dataset.get("validation") if isinstance(dataset, dict) else {}
-            validation = validation if isinstance(validation, dict) else {}
-            latest_model = model_state.get("latest_model") or {}
-            evaluation = latest_model.get("evaluation") if isinstance(latest_model, dict) else {}
-            evaluation = evaluation if isinstance(evaluation, dict) else {}
-            dataset_current = bool(model_state.get("dataset_current"))
-            build_ready = bool(preview.get("ready"))
-            validate_ready = bool(dataset and dataset_current)
-            train_ready = bool(validate_ready and validation.get("valid"))
-            model_for_current_dataset = bool(
-                latest_model.get("model_id") and dataset.get("dataset_id")
-                and str(latest_model.get("dataset_id") or "") == str(dataset.get("dataset_id") or "")
-            )
-            active_is_latest = bool(
-                model_for_current_dataset and (model_state.get("active_model") or {}).get("model_id")
-                and str((model_state.get("active_model") or {}).get("model_id") or "") == str(latest_model.get("model_id") or "")
-            )
-            needs_training = bool(train_ready and not model_for_current_dataset)
-            activate_ready = bool(model_for_current_dataset and not active_is_latest)
-            needs_redetect = bool(model_for_current_dataset and active_is_latest)
-            reasons = {
-                "build": "" if build_ready else "Rond eerst de tabelreview af en zorg dat er positieve functionele cellen zijn.",
-                "validate": "" if validate_ready else ("De review is gewijzigd sinds de laatste dataset. Bouw de dataset opnieuw." if dataset else "Bouw eerst de table-cell dataset."),
-                "train": "" if train_ready else ("Valideer eerst de actuele table-cell dataset." if validate_ready else "Bouw eerst een actuele dataset uit de huidige reviewcorrecties."),
-                "activate": "" if activate_ready else ("Dit model is al actief." if active_is_latest else "Train eerst een model op de actuele dataset."),
-            }
-            return render_template(
-                "table_model_training.html", step=step, model_state=model_state, preview=preview,
-                dataset=dataset, validation=validation, latest_model=latest_model, evaluation=evaluation,
-                build_ready=build_ready, validate_ready=validate_ready, train_ready=train_ready,
-                needs_training=needs_training, model_for_current_dataset=model_for_current_dataset,
-                activate_ready=activate_ready, needs_redetect=needs_redetect, reasons=reasons,
-                header_counts={
-                    "total": int(preview.get("annotation_count") or 0),
-                    "pending": 0 if dataset_current else (1 if dataset else 0),
-                    "accepted": len(model_state.get("models") or []),
-                },
-                header_total_label="reviewcellen", header_pending_label="dataset verouderd",
-                header_accepted_label="getrainde modellen",
-            )
+            return _process_step_table_model(step)
 
         if step_key == "table-compare":
-            comparison = table_cell_comparison_state(
-                workspace_root(),
-                reference_run_id=str(request.args.get("reference") or "").strip() or None,
-                candidate_run_id=str(request.args.get("candidate") or "").strip() or None,
-            )
-            candidate_metrics = ((comparison.get("candidate") or {}).get("metrics") or {}) if comparison.get("ready") else {}
-            return render_template(
-                "table_model_comparison.html",
-                step=step, comparison=comparison,
-                header_counts={
-                    "total": int(candidate_metrics.get("gt_total") or 0),
-                    "pending": int(comparison.get("open_issue_count") or 0),
-                    "accepted": int(comparison.get("reviewed_issue_count") or 0),
-                },
-                header_total_label="GT-cellen", header_pending_label="afwijkingen open",
-                header_accepted_label="afwijkingen beoordeeld",
-            )
+            return _process_step_table_compare_get(step)
 
         if step_key == "localization-dataset":
             return render_template("react_localization_workbench.html", step=step)
@@ -3799,35 +3845,7 @@ def create_web_app(
         # of Panel Setup prevents newly detected boxes from being confused
         # with the manually accepted region GT used to train the model.
         if step_key == "detect-candidates" and localization_strategy() == "table_first":
-            sources = [dict(item) for item in database.list_detection_sources()]
-            requested_source_id = str(request.args.get("source_id") or "").strip()
-            source = next((item for item in sources if str(item.get("source_id") or "") == requested_source_id), None)
-            if source is None and sources:
-                source = sources[0]
-            source_id = str((source or {}).get("source_id") or "")
-            geometry = database.list_detection_table_geometry(source_id) if source_id else {"regions": [], "cells": []}
-            context = _table_panel_review_context(source_id)
-            # One bulk query pair instead of a database.list_detection_table_geometry()
-            # (two full-table SELECTs) per source, just to count regions.
-            region_counts_by_source = database.detection_table_counts_by_source()
-            review_sources = []
-            for item in sources:
-                item_source_id = str(item.get("source_id") or "")
-                item["region_count"] = region_counts_by_source.get(item_source_id, {}).get("regions", 0)
-                review_sources.append(item)
-            return render_template(
-                "table_region_review.html", step=step, sources=review_sources, source=source,
-                source_id=source_id, regions=geometry.get("regions", []),
-                panel_profile=load_panel_profile(workspace_root()),
-                ocr_contexts=database.list_detected_relations(source_id) if source_id else [],
-                ground_truth_regions=list_table_regions(workspace_root(), source_id) if source_id else [],
-                detection_info=context.get("detection_info") or {},
-                header_counts={
-                    "total": len(geometry.get("regions", [])), "pending": len(geometry.get("regions", [])),
-                    "accepted": len(list_table_regions(workspace_root(), source_id)) if source_id else 0,
-                },
-                header_total_label="modelregio’s", header_pending_label="te beoordelen", header_accepted_label="oude GT",
-            )
+            return _process_step_detect_candidates_table_first(step)
 
         if step_key == "artifacts":
             return render_management(active_tab="models")
