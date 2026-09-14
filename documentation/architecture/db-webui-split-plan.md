@@ -66,7 +66,7 @@ imports.
       `set_detection_source_review_completed`, `list_detection_annotations`,
       `list_detection_reviews`, `detection_review_counts`,
       `detection_review_counts_by_source`, `detection_table_counts_by_source`
-- [ ] 7. `training/db_localization.py` — `save_localization_dataset`,
+- [x] 7. `training/db_localization.py` — `save_localization_dataset`,
       `list_localization_datasets`, `save_localization_evaluation`,
       `list_localization_evaluations`, `register_localization_model`,
       `active_localization_model`, `list_localization_models`,
