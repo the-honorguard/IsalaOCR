@@ -189,9 +189,64 @@ aanname:
    deze keer), en de nulmeting-rerun leverde 18/19 screenshots
    byte-identiek op (de 19e verschilt 1 byte, consistent met
    render-jitter, geen DOM-verschil).
-5. De gedeelde retry-queue-primitive, gemodelleerd naar de
-   `localStorage`-queue (akkoord, zie hierboven), met URL-opbouwer en
-   optimistic-apply/-rollback-callbacks als expliciete parameters per scherm.
+5. ✅ **Afgerond.** De gedeelde retry-queue-primitive (`static/review-queue.js`,
+   `IsalaReviewQueue.createTaskQueue`) gemodelleerd naar detection-review's
+   `localStorage`-queue (akkoord, zie hierboven), in drie deelstappen:
+   - **5a**: detection-review's eigen queue geëxtraheerd naar de gedeelde
+     module (zuivere extractie, geen gedragswijziging) — `execute`/
+     `isEligible`/`onChange`/`onTaskError` als expliciete parameters per
+     scherm, precies zoals hier gepland.
+   - **5b**: `mapping-review-studio.js`'s `approveCurrent()` overgezet op de
+     gedeelde queue. Dit is de eerste plek waar het akkoord ("geen
+     automatische rollback meer, wel een Opnieuw-knop") echt gedrag
+     verandert: goedkeuren zet nu direct de wachtrij-taak klaar en navigeert
+     meteen door (optimistisch, net als detection-review), i.p.v. te
+     wachten op de fetch; een mislukte poging retryt met backoff en toont
+     pas na 3 pogingen een blijvende foutmelding + "Opnieuw"-knop naast de
+     voortgangsbalk. Geverifieerd met gerichte Playwright-checks (happy
+     path navigeert meteen door; een geforceerde netwerkfout toont na 3
+     pogingen de Opnieuw-knop en herstelt na klikken).
+   - **5c**: `step7-review-flow.js`'s per-issue-formulier (table-compare)
+     overgezet op dezelfde queue. Hier bestond nog geen retry-mechanisme
+     (single-shot fetch met volledige rollback op elke fout); nu ook hier
+     automatische retry met backoff, en bij definitieve mislukking géén
+     rollback meer maar een "N wijzigingen niet opgeslagen"-banner met
+     Opnieuw-knop in de bestaande zwevende statuswidget
+     (`#comparison-inline-status`) — er was hier geen ruimte voor een
+     losstaande retry-knop per rij (rij wordt optimistisch verborgen), dus
+     hergebruikt de bestaande statuswidget als gedeelde Opnieuw-plek, net
+     als de queue-statusregel bij de andere twee schermen.
+     `captureViewportAnchor`'s scroll-snapshot leeft in een runtime-only
+     `Map` (niet meegepersisteerd met de taak) omdat scrollpositie herstellen
+     na een echte paginaherlaad toch geen betekenis meer heeft.
+
+   **Bug gevonden en gefixt tijdens 5c** (raakt alle drie schermen):
+   `review-queue.js`'s `run()` riep in een `finally`-blok altijd meteen
+   `pump()` aan, óók na een niet-definitieve mislukking — dat pikte dezelfde
+   taak vrijwel direct weer op (nog niet `failed`, `inFlight` net leeggemaakt)
+   *voordat* de geplande backoff-timer afliep, waardoor pogingen vlak na
+   elkaar vuurden i.p.v. verspreid met 700ms/1400ms backoff. Ontdekt door bij
+   5c niet alleen op eindresultaat te controleren maar ook op ruwe
+   netwerkverzoek-timing. Gefixt: `pump()` wordt nu alleen direct aangeroepen
+   bij succes of bij een *definitieve* mislukking (om andere wachtende taken
+   verder te helpen); een niet-definitieve mislukking wacht op zijn eigen
+   backoff. Detection-review en mapping-review-studio opnieuw geverifieerd:
+   precies 3 verzoeken met de bedoelde ~700ms/1400ms-tussenpozen i.p.v. 3
+   verzoeken binnen ~0.1s.
+
+   **Zijwaartse bevinding (geen actie nodig)**: bij het testen van 5c's
+   geforceerde-mislukking-scenario duurde het via Playwright's
+   `route.abort('failed')` op sommige momenten aanzienlijk langer dan
+   verwacht voordat de `fetch()`-promise van table-compare's
+   `cache:'no-store'`-optie daadwerkelijk afwees — Chromium probeert de
+   onderliggende netwerkaanvraag intern met een eigen exponentiële backoff
+   opnieuw voordat de aan JS zichtbare promise settlet. Dit bleek een
+   eigenschap van deze specifieke test-simulatiemethode (niet van mijn code:
+   `execute()` werd aantoonbaar precies zo vaak aangeroepen als verwacht,
+   geverifieerd met tijdelijke instrumentatie) en bestond al in de
+   ongewijzigde `cache:'no-store'`-fetch-optie vóór deze migratie. Geen
+   wijziging nodig; puur een observatie voor een volgende sessie die dit
+   opnieuw test.
 6. Wat bewust NIET wordt aangeraakt: elk scherm's eigen datamodel ("wat is
    een box") en backend-routevorm — dat hoort bij het domeinobject van dat
    scherm, niet bij de studio-infrastructuur.
@@ -327,7 +382,7 @@ van het script om daarheen te delegeren.
 
 | Punt | Blokkerende afhankelijkheid | Status |
 |---|---|---|
-| 1. Frontend review-studio's | — | Nulmeting (stap 1-2) **afgerond**; retry-strategie- en route-beslissing **genomen** (localStorage-queue, `/mapping/<id>`); stap 3-5 kunnen door |
+| 1. Frontend review-studio's | — | **Afgerond** (stap 1-5): nulmeting, gedeelde pan-, box-overlay- en retry-queue-primitives voor alle 3 schermen, inclusief een tijdens het werk gevonden en gefixte race condition in de retry-queue-engine zelf |
 | 2. CLI exit-codes | — | **Afgerond**: audit gedaan, contract gedocumenteerd, 2 subcommands rechtgetrokken |
 | 2b. `table_first_cli.py` argv-scanner | — | **Afgerond**: `--name=waarde`-syntax toegevoegd, `--name waarde` bleef werken |
 | 3. `activate-table-region-model.ps1` | Docker/GPU-trainingsomgeving | Moet wachten tot die beschikbaar is |
