@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$RunAction = "",
     [string]$ActionValue = ""
 )
