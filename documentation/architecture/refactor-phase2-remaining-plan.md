@@ -142,11 +142,38 @@ aanname:
    Voorgelegd en beantwoord: unificeren op de bestaande `/mapping/<id>`-route
    (zie hierboven); de hoofdflow-routing wordt in dit traject niet apart
    aangepast.
-3. Eerst de laagste-risico primitive extraheren: de
-   zoom/pan-schaal-en-scroll-wiskunde (al bijna identiek tussen
-   `mapping-review-studio.js` en de inline detection-review-script). Bouwen,
-   opnieuw tegen de nulmeting testen (zelfde interactiesequentie, zelfde
-   screenshots), pas dan committen.
+3. ✅ **Afgerond.** De pan-sleepmechaniek (pointerdown/move/up →
+   `scrollLeft`/`scrollTop`-delta, incl. pointer-capture) was byte-voor-byte
+   bijna identiek tussen `mapping-review-studio.js` en de inline
+   detection-review-script; geëxtraheerd naar
+   `static/viewport-pan.js` (`IsalaViewportPan.createDragPan`, gewone
+   browser-global zoals de rest van deze scripts — geen bundelaar hier). Elk
+   scherm behoudt zijn eigen trigger-conditie (spatie+slepen vs.
+   pan-mode-knop vs. middelste muisknop) en event-fase/`stopPropagation`-keuze
+   als expliciete opties, want die verschillen bewust per scherm (detection-
+   review's viewport heeft ook box-tekenen/-selecteren op dezelfde
+   pointer-events, mapping niet).
+   Geladen via een nieuwe `<script>`-tag in `base.html`'s `<head>` (niet
+   onderaan bij de andere static-scripts) — de detection-review-inline-script
+   staat middenin `{% block content %}` en wordt dus al uitgevoerd vóórdat de
+   scripts onderaan de pagina laden; in `<head>` laden garandeert
+   beschikbaarheid vóór welke `{% block content %}` dan ook.
+   De **zoom-schaalwiskunde zelf bleef bewust ongemoeid**: de twee schermen
+   berekenen zoom conceptueel anders (detection-review: absolute
+   percentage-breedte met cursor-anchoring; mapping: multiplier over een
+   "fit"-basisschaal, altijd viewport-center-behoudend, geen
+   cursor-anchoring) — dat samenvoegen zou een zichtbare gedragswijziging
+   zijn, geen neutrale extractie, en hoort dus niet in deze laagrisico-stap.
+   Twee bestaande literal-string-tests
+   (`tests/test_detection_zoom_busy_v3811.py`,
+   `tests/test_mapping_review_pan_v31412.py`) verwezen naar de oude
+   inline-pan-code; bijgewerkt naar de nieuwe `IsalaViewportPan.createDragPan`
+   call-sites. Geverifieerd: volledige pytest-suite blijft op dezelfde 6
+   vooraf bekende, ongerelateerde faalpunten; een Playwright-nulmeting-rerun
+   op alle drie schermen leverde 19 screenshots op, 16 byte-identiek aan de
+   nulmeting en de overige 3 (wheel-zoom-stappen in detection-review) visueel
+   ononderscheidbaar (muispositie-/timingjitter tussen losse browserruns,
+   geen DOM-verschil).
 4. Dan de percentage-box-overlay-positionering (pixelcoördinaten + natuurlijke
    afbeeldingsgrootte → CSS-percentages) — zelfde aanpak.
 5. De gedeelde retry-queue-primitive, gemodelleerd naar de
