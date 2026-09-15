@@ -1,0 +1,185 @@
+# Fase 2 — resterende punten: wat nodig is en hoe
+
+Dit document beschrijft de drie punten die in `refactor-phase2-plan.md`
+bewust zijn opengelaten, met per punt: waarom het is opengelaten, wat ik
+nodig heb om het alsnog te doen, en de concrete stappen. Doel: dit kan als
+los vervolgtraject worden opgepakt (in deze of een volgende sessie) zonder
+opnieuw te hoeven uitzoeken wat er nodig is.
+
+---
+
+## 1. Frontend: de drie "echte" review-studio's unificeren
+
+(`mapping-review-studio.js`, `step7-review-flow.js`+`step7-single-panel.js`,
+de inline `<script>` in `detection_review_studio.html`. Zie
+`refactor-phase2-plan.md`, item 10, voor de volledige analyse van de vier
+implementaties en waarom de React-familie er niet bij hoort.)
+
+### Waarom opengelaten
+Geen geautomatiseerde regressietest zoals de rest van dit hele plan had
+(723 pytest-tests aan de Python-kant). Elke wijziging aan zoom/pan,
+sneltoetsen of de retry/rollback-logica is alleen interactief in een browser
+te verifiëren.
+
+### Wat ik nodig heb — geverifieerd beschikbaar
+Ik heb dit al gecontroleerd in deze sessie-omgeving, dus dit is geen
+aanname:
+- **Een lokale dev-server voor de trainings-webapp draait zonder Docker/GPU.**
+  `create_web_app()` importeert en start volledig zonder PaddleOCR
+  geïnstalleerd (bevestigd) en de bestaande testsuite bootst 'm al op met
+  een minimale tijdelijke workspace (`tests/test_webui_activity_dock.py`'s
+  `make_app(tmp_path)`-patroon: alleen een lege `project/VERSION`-file en
+  wat lege mappen nodig). `webui_server.py` draait op `waitress`, dat al
+  geïnstalleerd is.
+- **Chromium is beschikbaar** (`/opt/pw-browsers/chromium`). Python's
+  `playwright`-package zelf staat nog niet in de omgeving, maar is een
+  gewone `pip install playwright` (de browserbinaries hoeven niet opnieuw
+  gedownload te worden — dat is al geregeld via
+  `PLAYWRIGHT_BROWSERS_PATH`/`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`).
+- **Fixture-data**: de drie schermen hebben ieder wat databasegevulling nodig
+  om iets te tonen (detectiekandidaten, table-compare-issues, mapping-
+  relaties). Ik bouw dit met de bestaande `TrainingDatabase`-methodes (nu
+  allemaal in `db_*.py`-mixins, dus rechtstreeks aan te roepen) i.p.v. een
+  echte DICOM-pijplijn te draaien — sneller en al hoe de bestaande
+  `tests/test_*review*.py`-fixtures dit ook doen.
+
+### Wat ik NIET heb en moet vragen zodra het zover is
+- **Productbeslissing**: welke van de vier retry/rollback-strategieën wordt
+  de gedeelde standaard? Mijn aanbeveling (zie item 10 in het plan) is de
+  `localStorage`-queue van `detection_review_studio.html` (rijkste
+  retry/backoff/dedup-semantiek), maar dat betekent dat
+  `mapping-review-studio.js` en `step7-*.js` een zichtbaar andere
+  foutafhandeling krijgen dan nu (geen automatische rollback meer, wel een
+  "Opnieuw"-knop bij een mislukte poging). Dat leg ik voor voordat ik het
+  bouw, niet erna.
+- **Akkoord om screenshots/opnames van de webapp te maken en te bewaren**
+  voor before/after-vergelijking (bevat geen patiëntdata — dit is de
+  trainings-webapp met synthetische fixture-data, niet de productie-app met
+  echte DICOM's, maar ik vraag dit toch expliciet voordat ik het doe).
+
+### Stappen (per stap: bouwen → in de browser testen → pas dan committen)
+1. Fixture-workspace + minimale config schrijven (herbruikbaar script in
+   `application/scratch/` of vergelijkbaar, niet meegecommit) die elk van de
+   drie schermen vult met genoeg data om te tonen en te bewerken.
+   `webui_server.py` (of rechtstreeks `create_web_app()` + `waitress.serve`)
+   lokaal starten.
+2. **Nulmeting**: van elk van de drie schermen, vóór enige wijziging,
+   Playwright-screenshots + een vaste interactiesequentie vastleggen (zoom
+   in/uit, pannen, een sneltoets, een save die expres laten mislukken om de
+   rollback/retry te zien). Dit is de referentie waar elke volgende stap
+   tegen wordt vergeleken.
+3. Eerst de laagste-risico primitive extraheren: de
+   zoom/pan-schaal-en-scroll-wiskunde (al bijna identiek tussen
+   `mapping-review-studio.js` en de inline detection-review-script). Bouwen,
+   opnieuw tegen de nulmeting testen (zelfde interactiesequentie, zelfde
+   screenshots), pas dan committen.
+4. Dan de percentage-box-overlay-positionering (pixelcoördinaten + natuurlijke
+   afbeeldingsgrootte → CSS-percentages) — zelfde aanpak.
+5. Pas na productakkoord op de retry-strategie: de gedeelde retry-queue-
+   primitive, gemodelleerd naar de `localStorage`-queue, met URL-opbouwer en
+   optimistic-apply/-rollback-callbacks als expliciete parameters per scherm.
+6. Wat bewust NIET wordt aangeraakt: elk scherm's eigen datamodel ("wat is
+   een box") en backend-routevorm — dat hoort bij het domeinobject van dat
+   scherm, niet bij de studio-infrastructuur.
+7. Na elke stap: dezelfde nulmeting-interactiesequentie opnieuw uitvoeren op
+   alle drie schermen (niet alleen het scherm dat net veranderde — de
+   primitives worden gedeeld), screenshots vergelijken, pas dan naar de
+   volgende stap.
+
+---
+
+## 2. CLI: argv-scanner in `table_first_cli.py` + inconsistente exit-codes
+
+(Zie `refactor-phase2-plan.md`, item 5, "Bewust NIET aangepakt".)
+
+### Waarom opengelaten
+`table_first_cli.py`'s eigen argv-scanner herstructureren naar echte
+argparse raakt hoe elke subcommand wordt aangeroepen; de exit-codes over
+~31 subcommands van `cli.py` rechttrekken zonder te weten wat de
+PowerShell-automatisering per subcommand aan exit-code verwacht, kan
+`$LASTEXITCODE`-checks in `automation/powershell/*.ps1` stil laten breken.
+
+### Wat ik nodig heb
+- **Geen nieuwe tool/omgeving** — dit kan volledig met wat al beschikbaar is
+  (Python, pytest, tekstueel doorzoeken van de `.ps1`-scripts). Dit is dus
+  het makkelijkst van de drie om alsnog te doen, mits ik het grondig
+  uitzoek in plaats van gok.
+- **Tijd voor een volledige audit**, niet een steekproef: voor elk van de
+  ~31 subcommands van `cli.py` opzoeken (a) welke exit-codes het nu
+  daadwerkelijk kan retourneren, en (b) of en hoe een `.ps1`-script
+  `$LASTEXITCODE` daarna gebruikt (`-eq`/`-ne`/specifieke waarde, of alleen
+  "niet-nul is fout").
+
+### Stappen
+1. **Inventariseren, niet wijzigen**: script dat voor elke `_xxx`-functie in
+   `cli.py` alle `return <int>`-paden extraheert (met de omringende
+   voorwaarde) in een tabel: subcommand → mogelijke exit-codes → betekenis.
+2. Voor elke `automation/powershell/*.ps1` die naar een `isala_ocr.cli`-
+   subcommand verwijst: de exacte `$LASTEXITCODE`-check ernaast leggen.
+3. Pas daarna een target-contract voorstellen (bijv. "0 = succes, 1 =
+   gedeeltelijk mislukt/data-issue, 2 = configuratie-/argumentfout" — in
+   lijn met wat `main()` nu al doet voor `ConfigError`/`ValueError`/etc.)
+   en per subcommand list welke een wijziging nodig hebben.
+4. `table_first_cli.py`'s argv-scanner: pas herstructureren zodra stap 1-3
+   laten zien dat geen enkel script op de huidige (impliciete) `--workspace`/
+   `--config`-parsing-nuances leunt die een echte argparse-parse zou missen
+   (bijv. `--workspace=pad`-syntax, die de huidige scanner al niet
+   ondersteunt — dat is zelf al een klein, apart, laag-risico bugfixje dat
+   los kan vóór de grotere herstructurering).
+5. Voor elke wijziging: bestaande CLI-tests (`tests/test_*cli*.py`) plus een
+   gerichte nieuwe test per aangepast subcommand; nooit een exit-code
+   wijzigen zonder een test die het oude én nieuwe gedrag vastlegt.
+
+---
+
+## 3. `activate-table-region-model.ps1` naar de gecontaineriseerde tool migreren
+
+(Zie `refactor-phase2-plan.md`, item 6, "Bewust NIET aangepakt".)
+
+### Waarom opengelaten
+Dit script doet nu zijn eigen activatielogica in raw PowerShell (leest
+`model.json`/`evaluation_artifacts/test_evaluation.json` van het
+hostbestandssysteem, schrijft `active.json` weg) i.p.v. te delegeren naar de
+`model-manager`-tool zoals de andere drie `activate-*.ps1`-scripts. Een
+correcte fix is een echte productiefunctie-migratie: een nieuwe Python-CLI-
+subcommand die dezelfde logica in de container uitvoert, plus herschrijving
+van het script om daarheen te delegeren.
+
+### Wat ik nodig heb — en niet heb in deze sessie-omgeving
+- **Een werkende Docker-trainingsomgeving** (de `training`-profile services
+  uit `docker-compose`, incl. het `model-manager`-image) om de nieuwe
+  subcommand daadwerkelijk te draaien tegen een echt getraind
+  tabelregio-model (`table_region_runs/<run>/model.json` +
+  `evaluation_artifacts/test_evaluation.json`). Dat heb ik hier niet, en kan
+  ik niet nabootsen zonder het risico te lopen een activatiepad te bouwen
+  dat er in de code goed uitziet maar in het echte containerpad anders
+  gedraagt (andere host-vs-containerpaden, andere Python-omgeving).
+- **Toegang tot zo'n omgeving** (jouw kant, of een sessie met
+  Docker/GPU-toegang) om de nieuwe subcommand + het herschreven script
+  end-to-end te draaien vóór het wordt gecommit.
+
+### Stappen (uit te voeren zodra Docker/GPU-toegang beschikbaar is)
+1. De huidige raw-PowerShell-logica (paden-validatie, evaluatie-check,
+   `active.json`-formaat) 1-op-1 overzetten naar een nieuwe
+   `activate-table-region-model`-subcommand in `cli.py`/`model_registry.py`,
+   met dezelfde host-vs-containerpad-vertaling als de bestaande
+   `register-localization-model`/`activate-table-cell-model`-subcommands
+   al doen.
+2. `activate-table-region-model.ps1` herschrijven naar het `docker compose
+   --profile training run --rm --build model-manager ...`-patroon van de
+   andere drie `activate-*.ps1`-scripts.
+3. Tegen een echt getraind tabelregio-model draaien (zowel het oude script
+   als het nieuwe, op dezelfde modelmap) en de resulterende `active.json`
+   byte-voor-byte vergelijken.
+4. Pas als dat gelijk is: committen, en de oude host-pad-validatielogica
+   verwijderen.
+
+---
+
+## Samenvatting: wat kan al, wat moet wachten
+
+| Punt | Blokkerende afhankelijkheid | Status |
+|---|---|---|
+| 1. Frontend review-studio's | Productbeslissing (retry-strategie) + expliciet akkoord voor browsertests | Kan technisch al starten (nulmeting, laagrisico-stappen 3-4); stap 5 wacht op productbeslissing |
+| 2. CLI argv-scanner/exit-codes | Niets — alleen tijd voor een grondige audit | Kan volledig nu al |
+| 3. `activate-table-region-model.ps1` | Docker/GPU-trainingsomgeving | Moet wachten tot die beschikbaar is |
