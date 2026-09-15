@@ -151,12 +151,14 @@ PowerShell-automatisering per subcommand aan exit-code verwacht, kan
    gedeeltelijk mislukt/data-issue, 2 = configuratie-/argumentfout" — in
    lijn met wat `main()` nu al doet voor `ConfigError`/`ValueError`/etc.)
    en per subcommand list welke een wijziging nodig hebben.
-4. `table_first_cli.py`'s argv-scanner: pas herstructureren zodra stap 1-3
-   laten zien dat geen enkel script op de huidige (impliciete) `--workspace`/
-   `--config`-parsing-nuances leunt die een echte argparse-parse zou missen
-   (bijv. `--workspace=pad`-syntax, die de huidige scanner al niet
-   ondersteunt — dat is zelf al een klein, apart, laag-risico bugfixje dat
-   los kan vóór de grotere herstructurering).
+4. `table_first_cli.py`'s argv-scanner — **het kleine bugfixje is
+   afgerond**: `_argument_value()` ondersteunt nu ook `--workspace=pad`/
+   `--config=pad` naast de bestaande `--workspace pad`-vorm (6 nieuwe tests
+   in `tests/test_table_first_cli_argument_value.py`). De grotere
+   herstructurering (dit hele pre-scan-mechanisme vervangen door een echte
+   argparse-parse) blijft open — dat vraagt nog steeds de stap 1-3-audit
+   hierboven om zeker te weten dat geen enkel script op een andere,
+   impliciete parsing-nuance leunt.
 5. Voor elke wijziging: bestaande CLI-tests (`tests/test_*cli*.py`) plus een
    gerichte nieuwe test per aangepast subcommand; nooit een exit-code
    wijzigen zonder een test die het oude én nieuwe gedrag vastlegt.
@@ -213,5 +215,5 @@ van het script om daarheen te delegeren.
 |---|---|---|
 | 1. Frontend review-studio's | Productbeslissing (retry-strategie) + expliciet akkoord voor browsertests | Kan technisch al starten (nulmeting, laagrisico-stappen 3-4); stap 5 wacht op productbeslissing |
 | 2. CLI exit-codes | — | **Afgerond**: audit gedaan, contract gedocumenteerd, 2 subcommands rechtgetrokken |
-| 2b. `table_first_cli.py` argv-scanner | Niets — losstaand van de exit-codes | Kan nu al |
+| 2b. `table_first_cli.py` argv-scanner | — | **Afgerond**: `--name=waarde`-syntax toegevoegd, `--name waarde` bleef werken |
 | 3. `activate-table-region-model.ps1` | Docker/GPU-trainingsomgeving | Moet wachten tot die beschikbaar is |
