@@ -253,10 +253,7 @@
       return;
     }
     element.hidden = false;
-    element.style.left = `${x1 / sourceWidth * 100}%`;
-    element.style.top = `${y1 / sourceHeight * 100}%`;
-    element.style.width = `${(x2 - x1) / sourceWidth * 100}%`;
-    element.style.height = `${(y2 - y1) / sourceHeight * 100}%`;
+    IsalaBoxOverlay.applyBoxRect(element, [x1, y1, x2, y2], sourceWidth, sourceHeight);
   }
 
   function relationLabelBox(relation) {
