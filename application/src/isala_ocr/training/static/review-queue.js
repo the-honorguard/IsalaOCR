@@ -83,6 +83,9 @@
       try {
         await execute(task);
         remove(task.id);
+        // A freed concurrency slot may let another queued task proceed now;
+        // this task itself is done, so re-running it is not a concern here.
+        pump();
       } catch (error) {
         inFlight.delete(task.id);
         task.attempt = Number(task.attempt || 0) + 1;
@@ -91,11 +94,13 @@
         persist();
         notify();
         onTaskError(task, error);
-        if (!task.failed) global.setTimeout(pump, backoff(task.attempt));
-      } finally {
-        inFlight.delete(task.id);
-        notify();
-        pump();
+        // A non-terminal failure must wait for its backoff -- pumping here
+        // too would immediately re-pick this same task and defeat the
+        // backoff entirely. A terminal failure can pump right away: this
+        // task is now `failed` and pump()'s eligibility check skips it, so
+        // the call only lets *other* queued tasks proceed.
+        if (task.failed) pump();
+        else global.setTimeout(pump, backoff(task.attempt));
       }
     }
 
