@@ -176,6 +176,19 @@ def ensure_default_field_definitions(database: TrainingDatabase, profile: Profil
 
 
 def _similarity(left: str, right: str) -> float:
+    """Fuzzy-match a schema-candidate label against a field label during Mapping.
+
+    NOTE: ``dynamic_locator.py`` has its own, differently-tuned
+    ``_similarity()`` for a different problem (locator-label vs. OCR-observed
+    text matching, normalized with ``normalize_for_matching()`` instead of
+    this module's ``normalize_text()``, with ED/ES/BSA domain guards this one
+    doesn't have). They are NOT merged (CODE_REVIEW_v3.16.0.md, sectie Hoog;
+    zie ook documentation/architecture/refactor-phase2-plan.md, item 4): if
+    Mapping ever needs the same ED/ES/BSA protection dynamic_locator.py has,
+    port the guard deliberately -- don't unify the two functions wholesale,
+    that would shift real field-matching behavior in production with no way
+    to verify the shift is safe across the full range of real reports.
+    """
     a = normalize_text(left)
     b = normalize_text(right)
     if not a or not b:

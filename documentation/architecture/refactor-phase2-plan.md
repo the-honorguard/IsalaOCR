@@ -201,12 +201,31 @@ duidelijke `ValueError` geeft i.p.v. stilzwijgend fout gedrag.
 Volledige testsuite: 723 passed (5 nieuw), 6 failed — de bekende,
 onafhankelijke baseline, ongewijzigd.
 
+## Item 4: `_similarity`-functies
+
+`mapping.py._similarity()` (schema-candidate-labelmatching tijdens Mapping)
+en `dynamic_locator.py._similarity()` (locator-label-vs-OCR-tekstmatching)
+lossen een oppervlakkig vergelijkbaar probleem op, maar met verschillende
+normalisatie (`normalize_text()` resp. `normalize_for_matching()`) en
+verschillende extra logica (containment-bonus in `mapping.py`; ED/ES/BSA-
+domeinguards in `dynamic_locator.py`). **Niet samengevoegd**: dat zou reëel
+veldmatchgedrag in productie kunnen verschuiven zonder enige manier om te
+verifiëren dat de verschuiving veilig is over de volle breedte van echte
+rapporten — hetzelfde risico als bij de IoU-epsilon-kwestie in item 2.
+
+In plaats daarvan: een docstring in beide functies die expliciet naar de
+andere verwijst, zodat een toekomstige ED/ES/BSA-bugfix in de ene minstens
+zichtbaar maakt dat de andere mogelijk hetzelfde nodig heeft — precies het
+"onzichtbaar voor de andere kant"-risico dat het reviewrapport benoemt,
+opgelost door het zichtbaar te maken in plaats van de functies te dwingen tot
+identiek gedrag. Puur documentatie, geen gedragswijziging.
+
 ## Status per item
 
 - [x] 1. Raw-SQL-plekken (zie inventaris hierboven)
 - [x] 2. Geometrie/IoU-module (zie hieronder)
 - [x] 3. FieldSpec.whitelist-onderzoek (zie hieronder)
-- [ ] 4. `_similarity`-functies
+- [x] 4. `_similarity`-functies (zie hieronder)
 - [ ] 5. CLI-duplicatie
 - [ ] 6. PowerShell-scripts
 - [ ] 7. JSON-foutrespons-helper

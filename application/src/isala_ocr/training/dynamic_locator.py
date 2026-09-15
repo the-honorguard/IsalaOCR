@@ -58,6 +58,21 @@ def normalize_for_matching(value: str) -> str:
 
 
 def _similarity(expected: str, observed: str) -> float:
+    """Fuzzy-match a locator's expected label text against OCR-observed text.
+
+    NOTE: ``mapping.py`` has its own, differently-tuned ``_similarity()`` for
+    a different problem (schema-candidate label matching during Mapping,
+    normalized with ``normalize_text()`` instead of this module's
+    ``normalize_for_matching()``, with a containment bonus this one doesn't
+    have). They are NOT merged (CODE_REVIEW_v3.16.0.md, sectie Hoog:
+    "Twee onafhankelijk getunede fuzzy-matchfuncties, beide _similarity
+    genoemd"; zie ook documentation/architecture/refactor-phase2-plan.md,
+    item 4): forcing one shape onto both would shift real field/label
+    matches in production with no way to verify the shift is safe across the
+    full range of real reports. If you fix an ED/ES or BSA confusion here,
+    check whether ``mapping.py``'s ``_similarity()`` needs the same guard --
+    it currently has none.
+    """
     left = normalize_for_matching(expected)
     right = normalize_for_matching(observed)
     if not left or not right:
