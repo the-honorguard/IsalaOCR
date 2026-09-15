@@ -7,7 +7,7 @@ import logging
 import sys
 from pathlib import Path
 
-from .config import ConfigError, load_config
+from .config import AppConfig, ConfigError, load_config
 from .logging_utils import configure_logging
 from .model_prep import download_models
 from .ocr import create_engine
@@ -164,6 +164,27 @@ def _mapping_workspace(config, workspace_override: str | None = None) -> Path:
     return _training_workspace(config, workspace_override)
 
 
+def _locator_settings(config: AppConfig) -> dict:
+    """Build PaddleEngine settings for the neutral screen-label locator.
+
+    Shared by ``_collect_training()``, ``_collect_mapping()`` and
+    ``_run_application_pipeline()`` below, and by ``mapping_gt_cli.py``'s own
+    ``_collect_mapping()`` (CODE_REVIEW_v3.16.0.md, sectie Middel:
+    "Locator-engine-constructie 4x gekopieerd"). Label localization must keep
+    the official general-purpose recognition model: a custom value-only model
+    may recognize digits well but degrade screen-label text such as
+    "Stroke Volume".
+    """
+    locator_settings = dict(config.ocr)
+    locator_settings.pop("active_recognition_model_dir", None)
+    locator_settings["recognition_model"] = str(
+        config.raw.get("training", {}).get("collection", {}).get(
+            "locator_recognition_model", "PP-OCRv6_small_rec"
+        )
+    )
+    return locator_settings
+
+
 def _collect_training(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     workspace = _training_workspace(config, args.workspace)
@@ -195,17 +216,7 @@ def _collect_training(args: argparse.Namespace) -> int:
     else:
         engine = PaddleRecognitionEngine(config.ocr)
         if locator_mode != "fixed":
-            # Label localization must keep the official general-purpose
-            # recognition model. A custom value-only model may recognize
-            # digits well but degrade screen-label text such as "Stroke Volume".
-            locator_settings = dict(config.ocr)
-            locator_settings.pop("active_recognition_model_dir", None)
-            locator_settings["recognition_model"] = str(
-                config.raw.get("training", {})
-                .get("collection", {})
-                .get("locator_recognition_model", "PP-OCRv6_small_rec")
-            )
-            locator_engine = PaddleEngine(locator_settings)
+            locator_engine = PaddleEngine(_locator_settings(config))
     manifest = collect_samples(
         args.input,
         workspace,
@@ -228,12 +239,7 @@ def _collect_mapping(args: argparse.Namespace) -> int:
     if args.device:
         config.raw.setdefault("ocr", {})["device"] = args.device
     recognition_engine = PaddleRecognitionEngine(config.ocr)
-    locator_settings = dict(config.ocr)
-    locator_settings.pop("active_recognition_model_dir", None)
-    locator_settings["recognition_model"] = str(
-        config.raw.get("training", {}).get("collection", {}).get("locator_recognition_model", "PP-OCRv6_small_rec")
-    )
-    locator_engine = PaddleEngine(locator_settings)
+    locator_engine = PaddleEngine(_locator_settings(config))
     manifest = collect_mapping_detections(
         args.input,
         _training_workspace(config, args.workspace),
@@ -273,18 +279,11 @@ def _run_application_pipeline(args: argparse.Namespace) -> int:
         raise ValueError("Aangeboden source-id hoort niet bij het geselecteerde DICOM-bestand")
 
     engine = PaddleRecognitionEngine(config.ocr)
-    locator_settings = dict(config.ocr)
-    locator_settings.pop("active_recognition_model_dir", None)
-    locator_settings["recognition_model"] = str(
-        config.raw.get("training", {}).get("collection", {}).get(
-            "locator_recognition_model", "PP-OCRv6_small_rec"
-        )
-    )
     # The generic_mapping dispatcher requires a locator engine even in
     # table-first mode.  Table-first keeps it out of Pipeline-A geometry, but
     # the same neutral OCR locator is still needed for the semantic mapping
     # stage that follows.
-    locator_engine = PaddleEngine(locator_settings)
+    locator_engine = PaddleEngine(_locator_settings(config))
     detection = collect_samples(
         input_path, workspace, config, engine,
         locator_engine=locator_engine, locator_mode="fixed",

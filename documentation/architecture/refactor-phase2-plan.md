@@ -220,13 +220,65 @@ zichtbaar maakt dat de andere mogelijk hetzelfde nodig heeft — precies het
 opgelost door het zichtbaar te maken in plaats van de functies te dwingen tot
 identiek gedrag. Puur documentatie, geen gedragswijziging.
 
+## Item 5: CLI-duplicatie
+
+Aangepakt (mechanisch, veilig, geen gedragswijziging):
+
+- **Locator-engine-constructie (4x gekopieerd)**: `cli.py`'s
+  `_collect_training()`/`_collect_mapping()`/`_run_application_pipeline()` en
+  `mapping_gt_cli.py`'s `_collect_mapping()` bouwden elk dezelfde
+  `locator_settings`-dict (kopieer `config.ocr`, verwijder
+  `active_recognition_model_dir`, zet `recognition_model` uit
+  `locator_recognition_model`). Verplaatst naar `cli.py`'s nieuwe
+  `_locator_settings(config)`; `mapping_gt_cli.py` importeert 'm.
+- **Detectiegate-synclogica (2x letterlijk gekopieerd)**:
+  `table_first_cli.py`'s `_sync_table_first_gate()` en `mapping_gt_cli.py`'s
+  `_sync_canonical_gate()` berekenden dezelfde ready/reason-tekst en
+  schreven 'm naar `TrainingDatabase.set_detection_gate()`. Verplaatst naar
+  `training/table_cell_ground_truth.py`'s nieuwe
+  `canonical_detection_gate_state()` (berekening) en
+  `sync_canonical_detection_gate()` (berekening + persisteren) — een
+  training-concern, niet een CLI-concern, dus daar ondergebracht i.p.v. in
+  `cli.py`. `table_first_cli.py` behield zijn eigen vroege return (skip als
+  er nog geen canonieke GT is); `mapping_gt_cli.py`'s aanroeper kreeg de
+  teruggegeven state ongewijzigd.
+- **`recognition_gt_cli.py` mist `--log-level`/top-level try-except**: als
+  enige van de vier CLI-entrypoints kreeg een `ConfigError` hier voorheen een
+  ruwe Python-traceback i.p.v. de nette "log + exit 2" van de andere drie.
+  Toegevoegd: `--log-level`-argument, `configure_logging()`-aanroep, en
+  hetzelfde `except (ConfigError, FileNotFoundError, KeyError, ValueError,
+  RuntimeError): LOGGER.error(...); return 2`-patroon als `cli.py`/
+  `mapping_gt_cli.py`. Handmatig gecontroleerd: een niet-bestaand
+  configpad geeft nu een nette foutregel + exit-code 2 i.p.v. een
+  traceback.
+
+**Bewust NIET aangepakt (gedocumenteerd, niet geforceerd):**
+
+- **`table_first_cli.py`'s eigen, zwakkere argv-scanner** (`_argument_value`)
+  naast de echte `argparse`-afhandeling in `cli.py`: bestaat om `--config`/
+  `--workspace` te lezen vóórdat de volledige argv wordt doorgegeven aan
+  `cli.py`'s eigen parser. Ondersteunt geen `--workspace=pad`-syntax (alleen
+  `--workspace pad`) terwijl `argparse` dat wel doet — een echte, kleine
+  correctheidsleemte. Herstructureren zodat dit via een echte
+  (deel-)argparse-parse loopt is een groter en risicovoller project (kans op
+  net-andere randgevallen bij verplichte argumenten/afkortingen) dan de
+  andere punten hier; niet uitgevoerd zonder dat apart te doen en te
+  verifiëren tegen de echte subcommand-argumenten.
+- **Inconsistente exit-codes over cli.py's ~31 subcommands** (bevestigd:
+  33 losse `return <int>`-statements): sommige falen met 1, andere met 2,
+  evaluatie/vergelijkingscommando's geven bewust altijd 0 terug. Er is geen
+  gedocumenteerd contract. Dit zonder volledige audit "rechttrekken" zou het
+  risico lopen PowerShell-automatiseringsscripts te breken die mogelijk al
+  op een van de huidige (inconsistente) exit-codes vertrouwen voor een
+  specifiek subcommand — niet zonder die audit uitgevoerd.
+
 ## Status per item
 
 - [x] 1. Raw-SQL-plekken (zie inventaris hierboven)
 - [x] 2. Geometrie/IoU-module (zie hieronder)
 - [x] 3. FieldSpec.whitelist-onderzoek (zie hieronder)
 - [x] 4. `_similarity`-functies (zie hieronder)
-- [ ] 5. CLI-duplicatie
+- [x] 5. CLI-duplicatie (zie hieronder)
 - [ ] 6. PowerShell-scripts
 - [ ] 7. JSON-foutrespons-helper
 - [ ] 8. Overige lage-risico opruimpunten

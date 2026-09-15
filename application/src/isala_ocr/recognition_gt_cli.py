@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 
-from .config import load_config
+from .config import ConfigError, load_config
+from .logging_utils import configure_logging
 from .ocr.recognition import PaddleRecognitionEngine
 from .training.projects import resolve_project_workspace
 from .training.recognition_ground_truth import materialize_recognition_ground_truth
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _baseline_engine(config) -> PaddleRecognitionEngine:
@@ -29,12 +33,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workspace", default="/training/workspace")
     parser.add_argument("--config", default="/app/config/app.yaml")
     parser.add_argument("--no-ocr", action="store_true", help="Only materialize crops; do not create baseline OCR suggestions")
+    parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
+    configure_logging(args.log_level)
 
-    config = load_config(args.config)
-    workspace = resolve_project_workspace(Path(args.workspace))
-    engine = None if args.no_ocr else _baseline_engine(config)
-    summary = materialize_recognition_ground_truth(workspace, recognition_engine=engine)
+    try:
+        config = load_config(args.config)
+        workspace = resolve_project_workspace(Path(args.workspace))
+        engine = None if args.no_ocr else _baseline_engine(config)
+        summary = materialize_recognition_ground_truth(workspace, recognition_engine=engine)
+    except (ConfigError, FileNotFoundError, KeyError, ValueError, RuntimeError) as exc:
+        LOGGER.error("%s", exc)
+        return 2
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
 

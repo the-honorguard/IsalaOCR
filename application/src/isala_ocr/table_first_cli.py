@@ -5,11 +5,10 @@ from pathlib import Path
 
 from .cli import main as legacy_cli_main
 from .config import load_config
-from .training.db import TrainingDatabase
 from .training.projects import resolve_project_workspace
 from .training.table_cell_ground_truth import (
     ensure_table_cell_ground_truth,
-    ground_truth_review_state,
+    sync_canonical_detection_gate,
 )
 
 
@@ -54,30 +53,7 @@ def _sync_table_first_gate(argv: list[str]) -> None:
     if ensure_table_cell_ground_truth(workspace) is None:
         return
 
-    state = ground_truth_review_state(workspace)
-    source_count = int(state.get("source_count") or 0)
-    open_source_count = int(state.get("open_source_count") or 0)
-    gt_cell_count = int(state.get("gt_cell_count") or 0)
-    ready = bool(source_count > 0 and gt_cell_count > 0 and open_source_count == 0)
-
-    if ready:
-        reason = (
-            f"Canonical table-cell Ground Truth ready: {source_count} source(s), "
-            f"{gt_cell_count} cell(s), 0 open GT source(s)."
-        )
-    elif source_count == 0 or gt_cell_count == 0:
-        reason = "Canonical table-cell Ground Truth is missing or contains no cells."
-    else:
-        reason = (
-            f"Canonical table-cell Ground Truth still has {open_source_count} open "
-            f"source(s) out of {source_count}."
-        )
-
-    TrainingDatabase(workspace / "samples.sqlite3").set_detection_gate(
-        ready,
-        reason=reason,
-        evaluation_id="",
-    )
+    sync_canonical_detection_gate(workspace)
 
 
 def main(argv: list[str] | None = None) -> int:
