@@ -45,7 +45,6 @@ from .recognition_ground_truth_web import install_recognition_ground_truth_revie
 from .stale_job_reconciliation import install_stale_job_reconciliation
 from .legacy_routes import register_legacy_routes
 from .routes_detection_candidate import register_detection_candidate_routes
-from .routes_detection_lab import register_detection_lab_routes
 from .routes_detection_review import register_detection_review_routes
 from .routes_home import register_home_routes
 from .routes_jobs import register_job_routes, write_job_payload
@@ -137,7 +136,6 @@ ACTIONS = {
     "21": "Nieuwe raster/celkaders toepassen op de bevestigde mappings",
     "22": "Waarden uit het nieuwe raster uitlezen",
     "58": "Nieuw raster toepassen en waarden uitlezen",
-    "62": "Detectie-lab: 6 celdetectie-aanpakken vergelijken",
     "24": "Recognition-dataset bouwen en valideren",
     "25": "Recognition-dataset valideren",
     "26": "Recognition-model trainen",
@@ -170,7 +168,6 @@ ACTION_DURATION_ESTIMATES = {
     "10": {"label": "± 1–5 min", "detail": "Baseline en getraind model vergelijken."},
     "11": {"label": "± 10–30 sec", "detail": "Model kopiëren, registreren en activeren."},
     "12": {"label": "± 2–10 min", "detail": "Afhankelijk van aantal bronnen."},
-    "62": {"label": "± 2–8 min", "detail": "Draait alle 6 Detectie-lab-aanpakken voor één bron."},
     "13": {"label": "± 5–30 sec", "detail": "Rapportage over bestaande evaluatieresultaten."},
     "14": {"label": "± 10–30 min", "detail": "Eerste keer; met gevulde caches meestal veel sneller."},
     "15": {"label": "± 5–20 min", "detail": "CPU detector/PicoDet stack installeren of bouwen."},
@@ -3865,18 +3862,6 @@ def create_web_app(
         app,
         workspace_root=workspace_root,
         enqueue_job=enqueue_job,
-        loaded_config=loaded_config,
-        record_webui_error=_record_webui_error,
-    )
-
-    # TEMPORARY: detection-lab (cell-merging regression investigation). Remove
-    # this call, routes_detection_lab.py, detection_lab.html and the sidebar
-    # link in base.html once the regression is understood.
-    register_detection_lab_routes(
-        app,
-        workspace_root=workspace_root,
-        safe_workspace_file=safe_workspace_file,
-        database=database,
         loaded_config=loaded_config,
         record_webui_error=_record_webui_error,
     )

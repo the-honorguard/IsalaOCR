@@ -166,38 +166,6 @@ def test_mapping_preparation_is_not_blocked_by_unrelated_detection_gate(tmp_path
 
 
 @pytest.mark.skipif(not FLASK_AVAILABLE, reason="Flask is not installed in the test runtime")
-def test_detection_lab_run_all_accepts_a_batched_source_id_list(tmp_path: Path) -> None:
-    """"Alle afbeeldingen draaien" submits every source as one comma-separated
-    job (see detection_lab_cli.py._run) instead of one job per source."""
-    app, workspace = make_app(tmp_path)
-    client = app.test_client()
-    response = client.post(
-        "/jobs",
-        data={"action_id": "62", "source_id": "aaa111,bbb222,ccc333"},
-        headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
-    )
-    assert response.status_code == 202
-    job_id = response.get_json()["job_id"]
-    stored = json.loads((workspace / "webui" / "jobs" / "pending" / f"{job_id}.json").read_text(encoding="utf-8"))
-    assert stored["options"]["source_id"] == "aaa111,bbb222,ccc333"
-
-    # One invalid id anywhere in the list must reject the whole batch, the
-    # same way a single invalid id always has.
-    invalid = client.post(
-        "/jobs",
-        data={"action_id": "62", "source_id": "aaa111,not valid!,ccc333"},
-        headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
-    )
-    assert invalid.status_code == 400
-
-    empty = client.post(
-        "/jobs",
-        data={"action_id": "62", "source_id": ""},
-        headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
-    )
-    assert empty.status_code == 400
-
-@pytest.mark.skipif(not FLASK_AVAILABLE, reason="Flask is not installed in the test runtime")
 def test_utf16_windows_output_is_rendered_as_visible_text(tmp_path: Path) -> None:
     app, workspace = make_app(tmp_path)
     jobs = workspace / "webui" / "jobs"

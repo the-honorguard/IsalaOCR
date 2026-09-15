@@ -1,15 +1,12 @@
 ﻿param(
     [string]$RunAction = "",
     [string]$ActionValue = "",
-    # Named flags webui-worker.ps1 appends directly onto the launcher.ps1
+    # Named flag webui-worker.ps1 appends directly onto the launcher.ps1
     # command line for actions whose extra value doesn't fit the single
-    # positional $ActionValue slot above (e.g. action 50/51 pass both a
-    # source-agnostic StartFrom choice; action 62 needs both a SourceId,
-    # already carried by $ActionValue, and a TableModelId). launcher.ps1
-    # forwards these through untouched via its own ValueFromRemainingArguments
-    # parameter.
-    [ValidateSet("standard","active","")][string]$StartFrom = "",
-    [string]$TableModelId = ""
+    # positional $ActionValue slot above (action 50/51 pass a
+    # source-agnostic StartFrom choice this way). launcher.ps1 forwards this
+    # through untouched via its own ValueFromRemainingArguments parameter.
+    [ValidateSet("standard","active","")][string]$StartFrom = ""
 )
 
 if (-not (Get-Command Invoke-IsalaPreflight -ErrorAction SilentlyContinue)) {
@@ -239,7 +236,7 @@ if ($RunAction) {
             $extra.TableModelId = $ActionValue
         }
     }
-    elseif ($RunAction -in @("20","21","22","62") -and $ActionValue) {
+    elseif ($RunAction -in @("20","21","22") -and $ActionValue) {
         $extra.SourceId = $ActionValue
     }
     elseif ($RunAction -eq "60" -and $ActionValue) {
@@ -248,15 +245,12 @@ if ($RunAction) {
     elseif ($RunAction -eq "26" -and $ActionValue) {
         $extra.Device = $ActionValue
     }
-    # Independent of the $ActionValue-based branches above: these two ride
-    # along as separate named flags (see the param block comment) rather than
-    # overloading the single $ActionValue slot, so they are layered in here
+    # Independent of the $ActionValue-based branches above: rides along as a
+    # separate named flag (see the param block comment) rather than
+    # overloading the single $ActionValue slot, so it is layered in here
     # regardless of which branch above matched.
     if ($RunAction -in @("50","51") -and $StartFrom) {
         $extra.StartFrom = $StartFrom
-    }
-    if ($RunAction -eq "62" -and $TableModelId) {
-        $extra.TableModelId = $TableModelId
     }
     Invoke-IsalaMenuAction -ActionId $RunAction -AdditionalArguments $extra
     return
