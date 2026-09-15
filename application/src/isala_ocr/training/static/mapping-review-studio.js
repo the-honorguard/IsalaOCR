@@ -119,7 +119,7 @@
     </div>
     <footer class="mapping-review-foot">
       <div class="mapping-review-progress">
-        <div class="mapping-review-progress-copy"><span id="mapping-review-progress-copy">0 afgehandeld</span><span class="mapping-review-shortcuts">Enter = goedkeuren · ←/→ = navigeren · P = pan · F/Esc = sluiten</span></div>
+        <div class="mapping-review-progress-copy"><span id="mapping-review-progress-copy">0 afgehandeld</span><span class="mapping-review-shortcuts">Enter = goedkeuren · ←/→ = navigeren · P = pan · F/Esc = sluiten</span><span class="mapping-review-queue-status" id="mapping-review-queue-status"></span><button type="button" class="ghost hidden" id="mapping-review-queue-retry">Opnieuw</button></div>
         <div class="mapping-review-progress-track"><span id="mapping-review-progress-bar"></span></div>
       </div>
       <div class="mapping-review-actions">
@@ -166,6 +166,8 @@
   const panButton = $('mapping-review-pan');
   const progressCopy = $('mapping-review-progress-copy');
   const progressBar = $('mapping-review-progress-bar');
+  const queueStatusOut = $('mapping-review-queue-status');
+  const queueRetryButton = $('mapping-review-queue-retry');
   const rejectDialog = document.getElementById('mapping-reject-dialog');
 
   reviewImage.src = sourceImage.src;
@@ -175,8 +177,6 @@
   let zoom = 1;
   let panMode = false;
   let spaceDown = false;
-  let panning = false;
-  let panStart = null;
   let autoAdvanceAfterReject = false;
   const studioStateKey = 'isala-mapping-review-studio-state';
 
@@ -255,10 +255,7 @@
       return;
     }
     element.hidden = false;
-    element.style.left = `${x1 / sourceWidth * 100}%`;
-    element.style.top = `${y1 / sourceHeight * 100}%`;
-    element.style.width = `${(x2 - x1) / sourceWidth * 100}%`;
-    element.style.height = `${(y2 - y1) / sourceHeight * 100}%`;
+    IsalaBoxOverlay.applyBoxRect(element, [x1, y1, x2, y2], sourceWidth, sourceHeight);
   }
 
   function relationLabelBox(relation) {
@@ -543,7 +540,54 @@
     if (dirty) dirty.hidden = true;
   }
 
-  async function approveCurrent() {
+  function renderQueueStatus() {
+    const state = approveQueue.tasks(), failed = state.filter((t) => t.failed).length,
+      pending = state.length - failed, running = approveQueue.inFlight.size;
+    queueStatusOut.textContent = !state.length ? '' :
+      [running ? `${running} bezig` : null, pending ? `${pending} wacht` : null, failed ? `${failed} fout` : null]
+        .filter(Boolean).join(' · ');
+    queueRetryButton.classList.toggle('hidden', failed === 0);
+  }
+
+  const approveQueue = IsalaReviewQueue.createTaskQueue({
+    storageKey: `isala-mapping-review-studio:approve-queue:${window.location.pathname}`,
+    concurrency: 3,
+    execute: async (task) => {
+      const row = rows.find((item) => item.dataset.relationId === task.relationId);
+      if (!row) return;
+      const body = new FormData();
+      body.append('mapping_action', 'save');
+      body.append('relation_id', task.relationId);
+      body.append(`field_${task.relationId}`, task.fieldKey);
+      body.append(`notes_${task.relationId}`, task.notes);
+      const response = await fetch(form.action || window.location.href, {
+        method: 'POST',
+        body,
+        credentials: 'same-origin',
+        headers: {'X-Requested-With': 'MappingReviewStudio'},
+      });
+      const html = await response.text();
+      const {parsed, error} = extractServerError(html);
+      if (!response.ok || error) throw new Error(error || `HTTP ${response.status}`);
+      copyFreshRowState(row, parsed);
+      updateProgress();
+      if (currentRow === row) renderRow(row);
+    },
+    onChange: renderQueueStatus,
+    onTaskError: (task, error) => {
+      const row = rows.find((item) => item.dataset.relationId === task.relationId);
+      if (currentRow !== row) return;
+      setMessage(
+        task.failed
+          ? `Opslaan mislukt: ${error.message || error}. Klik Opnieuw om te retryen.`
+          : `Opslaan mislukt, wordt opnieuw geprobeerd (${task.attempt}/3): ${error.message || error}`,
+        'error',
+      );
+    },
+  });
+  queueRetryButton.addEventListener('click', () => approveQueue.retryFailed());
+
+  function approveCurrent() {
     if (!currentRow) return;
     syncStudioEditorToRow();
     const sourceSelect = currentRow.querySelector('.mapping-field-select');
@@ -563,39 +607,15 @@
       return;
     }
 
-    approveButton.disabled = true;
-    previousButton.disabled = true;
-    nextButton.disabled = true;
-    setMessage('Opslaan…');
-    const body = new FormData();
-    body.append('mapping_action', 'save');
-    body.append('relation_id', relationId);
-    body.append(`field_${relationId}`, sourceSelect.value);
-    body.append(`notes_${relationId}`, sourceNotes?.value || '');
-    const savedRow = currentRow;
-    try {
-      const response = await fetch(form.action || window.location.href, {
-        method: 'POST',
-        body,
-        credentials: 'same-origin',
-        headers: {'X-Requested-With': 'MappingReviewStudio'},
-      });
-      const html = await response.text();
-      const {parsed, error} = extractServerError(html);
-      if (!response.ok || error) throw new Error(error || `HTTP ${response.status}`);
-      copyFreshRowState(savedRow, parsed);
-      setMessage('Mapping bevestigd.', 'ok');
-      updateProgress();
-      window.setTimeout(() => {
-        const next = nearestQueueRow(1);
-        renderRow(next);
-      }, 180);
-    } catch (error) {
-      setMessage(`Opslaan mislukt: ${error.message}`, 'error');
-      approveButton.disabled = false;
-      previousButton.disabled = false;
-      nextButton.disabled = false;
-    }
+    approveQueue.enqueue(
+      {kind: 'approve', relationId, fieldKey: sourceSelect.value, notes: sourceNotes?.value || ''},
+      (existing, incoming) => existing.kind === 'approve' && existing.relationId === incoming.relationId,
+    );
+    setMessage('In wachtrij: wordt op de achtergrond opgeslagen…', 'ok');
+    window.setTimeout(() => {
+      const next = nearestQueueRow(1);
+      renderRow(next);
+    }, 180);
   }
 
   function proxyFeedbackAction() {
@@ -647,27 +667,11 @@
     applyZoom(true);
   }, {passive: false});
 
-  viewport.addEventListener('pointerdown', (event) => {
-    if (!(panMode || spaceDown) || event.button !== 0) return;
-    panning = true;
-    panStart = {x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop};
-    viewport.classList.add('panning');
-    viewport.setPointerCapture?.(event.pointerId);
-    event.preventDefault();
+  const dragPan = IsalaViewportPan.createDragPan(viewport, {
+    panningClass: 'panning',
+    shouldStart: (event) => (panMode || spaceDown) && event.button === 0,
   });
-  viewport.addEventListener('pointermove', (event) => {
-    if (!panning || !panStart) return;
-    viewport.scrollLeft = panStart.left - (event.clientX - panStart.x);
-    viewport.scrollTop = panStart.top - (event.clientY - panStart.y);
-  });
-  const endPan = () => {
-    panning = false;
-    panStart = null;
-    viewport.classList.remove('panning');
-  };
-  viewport.addEventListener('pointerup', endPan);
-  viewport.addEventListener('pointercancel', endPan);
-  viewport.addEventListener('lostpointercapture', endPan);
+  const endPan = () => dragPan.cancel();
 
   const observer = new MutationObserver((mutations) => {
     if (studio.hidden || !currentRow) return;

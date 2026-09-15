@@ -105,6 +105,7 @@ def score_format(value: str, confidence: float, profile: dict[str, Any]) -> tupl
         return 0, "Nog te weinig format-GT"
     signatures = profile.get("signatures") if isinstance(profile.get("signatures"), dict) else {}
     families = profile.get("families") if isinstance(profile.get("families"), dict) else {}
+    canonical_signatures = profile.get("canonical_signatures") if isinstance(profile.get("canonical_signatures"), dict) else {}
     signature = _signature(value)
     family = _family(value)
     score = 0
@@ -112,9 +113,14 @@ def score_format(value: str, confidence: float, profile: dict[str, Any]) -> tupl
     if signature not in signatures:
         score += 45
         reasons.append("nieuw format")
-    elif int(signatures.get(signature) or 0) == 1:
-        score += 12
-        reasons.append("zeldzaam format")
+    else:
+        if int(signatures.get(signature) or 0) == 1:
+            score += 12
+            reasons.append("zeldzaam format")
+        canonical_signature = canonical_signatures.get(family)
+        if canonical_signature and canonical_signature != signature:
+            score += 15
+            reasons.append("wijkt af van canoniek format")
     if family not in families:
         score += 35
         reasons.append("onbekend type")

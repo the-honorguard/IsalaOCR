@@ -19,12 +19,16 @@ def test_recognition_pipeline_does_not_require_all_table_sources_closed() -> Non
 def test_recognition_training_is_scoped_to_step8_approved_samples() -> None:
     gt = (ROOT / "application/src/isala_ocr/training/recognition_ground_truth.py").read_text(encoding="utf-8")
     dataset = (ROOT / "application/src/isala_ocr/training/dataset.py").read_text(encoding="utf-8")
+    # The actual filter lives in db_samples.py's accepted_exact_label_samples()
+    # since the raw-SQL-cleanup in documentation/architecture/refactor-phase2-plan.md.
+    samples_db = (ROOT / "application/src/isala_ocr/training/db_samples.py").read_text(encoding="utf-8")
 
     assert "list_ground_truth_sources(root)" in gt
     assert "_completed_ground_truth_sources" not in gt
     assert "RECOGNITION_GT_METHOD" in dataset
-    assert "AND status='accepted'" in dataset
-    assert "exact_label IS NOT NULL" in dataset
+    assert "accepted_exact_label_samples" in dataset
+    assert "AND status='accepted'" in samples_db
+    assert "exact_label IS NOT NULL" in samples_db
     assert "completed_source_ids" not in dataset
 
 

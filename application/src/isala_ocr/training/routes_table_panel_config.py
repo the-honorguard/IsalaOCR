@@ -30,6 +30,7 @@ from typing import Any, Callable
 from flask import Flask, jsonify, request
 
 from .dynamic_locator import normalize_for_matching
+from .json_api import json_body
 from .table_panels import clear_panel_geometry, load_panel_profile, save_panel_definitions, save_panel_profile
 from .table_region_ground_truth import clear_table_regions, save_table_regions
 from .table_region_training import build_table_region_dataset
@@ -47,7 +48,7 @@ def register_table_panel_config_routes(
 ) -> None:
     @app.post("/api/table-panel-definitions")
     def table_panel_definitions_save_api():
-        payload = request.get_json(silent=True) or {}
+        payload = json_body(request)
         definitions = payload.get("definitions")
         if not isinstance(definitions, list):
             return jsonify({"error": "definitions moet een lijst zijn"}), 400
@@ -63,7 +64,7 @@ def register_table_panel_config_routes(
 
     @app.post("/api/table-panels")
     def table_panels_save_api():
-        payload = request.get_json(silent=True) or {}
+        payload = json_body(request)
         panels = payload.get("panels")
         if not isinstance(panels, list):
             return jsonify({"error": "panels moet een lijst zijn"}), 400
@@ -87,7 +88,7 @@ def register_table_panel_config_routes(
 
     @app.post("/api/table-region-ground-truth")
     def table_region_ground_truth_save_api():
-        payload = request.get_json(silent=True) or {}
+        payload = json_body(request)
         source_id = str(payload.get("source_id") or "").strip()
         regions = payload.get("regions")
         if not source_id or not isinstance(regions, list):
@@ -110,7 +111,7 @@ def register_table_panel_config_routes(
 
     @app.post("/api/table-region-review/<source_id>")
     def table_region_review_accept_api(source_id: str):
-        payload = request.get_json(silent=True) or {}
+        payload = json_body(request)
         if not _SOURCE_ID_RE.fullmatch(source_id):
             return jsonify({"error": "Ongeldig source_id"}), 400
         if not any(str(item.get("source_id") or "") == source_id for item in database.list_detection_sources()):
@@ -133,7 +134,7 @@ def register_table_panel_config_routes(
 
     @app.post("/api/table-region-clear")
     def table_region_clear_api():
-        source_id = str((request.get_json(silent=True) or {}).get("source_id") or "").strip()
+        source_id = str(json_body(request).get("source_id") or "").strip()
         if not source_id:
             return jsonify({"error": "source_id is verplicht"}), 400
         removed = clear_table_regions(workspace_root(), source_id)
@@ -165,7 +166,7 @@ def register_table_panel_config_routes(
 
     @app.post("/api/table-semantics/<table_id>")
     def table_semantics_save_api(table_id: str):
-        payload = request.get_json(silent=True) or {}
+        payload = json_body(request)
         table_name = str(payload.get("table_name") or "").strip()
         if not table_name:
             return jsonify({"error": "Tabelnaam is verplicht"}), 400

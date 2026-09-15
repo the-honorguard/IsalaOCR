@@ -48,7 +48,7 @@ from .routes_detection_candidate import register_detection_candidate_routes
 from .routes_detection_lab import register_detection_lab_routes
 from .routes_detection_review import register_detection_review_routes
 from .routes_home import register_home_routes
-from .routes_jobs import register_job_routes
+from .routes_jobs import register_job_routes, write_job_payload
 from .routes_localization_v2 import register_localization_v2_routes
 from .routes_documents import register_document_routes
 from .routes_field_mapping_config import register_field_mapping_config_routes
@@ -66,6 +66,7 @@ from .routes_test_pipeline import register_test_pipeline_routes
 from .routes_table_region_detect import register_table_region_detect_routes
 from .routes_value_review import register_value_review_routes
 from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
+from .json_api import json_error
 from .json_store import read_json as _read_json, write_json_atomic as _write_json_atomic
 from .table_cell_ground_truth import (
     ensure_table_cell_ground_truth, ground_truth_counts, ground_truth_review_state,
@@ -826,13 +827,7 @@ def create_web_app(
             "created_at": _utcnow(),
             "updated_at": _utcnow(),
         }
-        temporary = jobs_root / "pending" / f"{job_id}.json.tmp"
-        final = jobs_root / "pending" / f"{job_id}.json"
-        temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        temporary.replace(final)
-        (jobs_root / "status" / f"{job_id}.json").write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        write_job_payload(jobs_root, payload)
         return payload
 
     def enqueue_artifact_delete_job(
@@ -874,13 +869,7 @@ def create_web_app(
             "created_at": _utcnow(),
             "updated_at": _utcnow(),
         }
-        temporary = jobs_root / "pending" / f"{job_id}.json.tmp"
-        final = jobs_root / "pending" / f"{job_id}.json"
-        temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        temporary.replace(final)
-        (jobs_root / "status" / f"{job_id}.json").write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        write_job_payload(jobs_root, payload)
         return payload
 
     def safe_workspace_file(relative: str | Path) -> Path:
@@ -916,33 +905,13 @@ def create_web_app(
             return image
 
     def source_rows() -> list[dict[str, Any]]:
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT source_id, MIN(profile) profile, COUNT(*) sample_count,
-                       SUM(CASE WHEN extraction_method LIKE 'dynamic_%' THEN 1 ELSE 0 END) dynamic_count,
-                       SUM(CASE WHEN extraction_method IN ('fixed_fallback','fixed_roi') THEN 1 ELSE 0 END) fallback_count,
-                       AVG(locator_confidence) average_locator_confidence,
-                       AVG(raw_confidence) average_confidence,
-                       MIN(raw_confidence) minimum_confidence,
-                       MAX(updated_at) updated_at
-                FROM samples GROUP BY source_id ORDER BY updated_at DESC, source_id
-                """
-            ).fetchall()
-        result=[]
-        for row in rows:
-            item=dict(row)
+        result = database.source_summary_rows()
+        for item in result:
             item["render_exists"]=(workspace_root()/"source_renders"/f"{item['source_id']}.png").is_file()
-            result.append(item)
         return result
 
     def source_samples(source_id: str) -> list[dict[str, Any]]:
-        with database.connect() as db:
-            rows=db.execute(
-                "SELECT * FROM samples WHERE source_id=? ORDER BY roi_y1, roi_x1, field_key",
-                (source_id,),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        return database.samples_for_source(source_id)
 
     def source_study_info(source_id: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
         diagnostics = _read_json(workspace_root() / "collection_diagnostics" / f"{source_id}.json", {})
@@ -967,15 +936,7 @@ def create_web_app(
         return info, rows
 
     def roi_review_counts() -> dict[str, int]:
-        with database.connect() as db:
-            rows = db.execute(
-                "SELECT roi_review_status, COUNT(*) AS amount FROM samples WHERE extraction_method<>'mapped_generic_stale' GROUP BY roi_review_status"
-            ).fetchall()
-        counts = {"pending": 0, "correct": 0, "incorrect": 0, "deferred": 0}
-        for row in rows:
-            counts[str(row["roi_review_status"])] = int(row["amount"])
-        counts["total"] = sum(counts.values())
-        return counts
+        return database.roi_review_status_counts()
 
     def header_review_counts() -> dict[str, int]:
         counts = database.header_review_counts()
@@ -1040,65 +1001,14 @@ def create_web_app(
 
     def value_review_counts() -> dict[str, int]:
         """Return value-review counts for the current mapped application output."""
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT status, COUNT(*) AS amount
-                FROM samples
-                WHERE extraction_method='mapped_generic'
-                  AND roi_review_status='correct'
-                  AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
-                GROUP BY status
-                """
-            ).fetchall()
-        counts = {
-            "pending": 0, "accepted": 0, "no_value": 0,
-            "unreadable": 0, "excluded": 0,
-        }
-        for row in rows:
-            status = str(row["status"])
-            if status in counts:
-                counts[status] = int(row["amount"])
-        counts["total"] = sum(counts.values())
-        counts["reviewed"] = counts["total"] - counts["pending"]
-        counts["problems"] = counts["unreadable"] + counts["excluded"]
-        return counts
+        return database.mapped_value_review_status_counts()
 
     def value_source_rows() -> list[dict[str, Any]]:
         """Group only current mapped samples for the value-review step."""
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT source_id, COUNT(*) sample_count,
-                       SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) pending,
-                       SUM(CASE WHEN status='accepted' THEN 1 ELSE 0 END) accepted,
-                       SUM(CASE WHEN status='no_value' THEN 1 ELSE 0 END) no_value,
-                       SUM(CASE WHEN status IN ('unreadable','excluded') THEN 1 ELSE 0 END) problems,
-                       AVG(raw_confidence) average_confidence,
-                       MAX(updated_at) updated_at
-                FROM samples
-                WHERE extraction_method='mapped_generic'
-                  AND roi_review_status='correct'
-                  AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
-                GROUP BY source_id
-                ORDER BY updated_at DESC, source_id
-                """
-            ).fetchall()
-        return [dict(row) for row in rows]
+        return database.mapped_value_review_source_rows()
 
     def value_source_samples(source_id: str) -> list[dict[str, Any]]:
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT * FROM samples
-                WHERE source_id=? AND extraction_method='mapped_generic'
-                  AND roi_review_status='correct'
-                  AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
-                ORDER BY roi_y1, roi_x1, field_key
-                """,
-                (source_id,),
-            ).fetchall()
-        return [dict(row) for row in rows]
+        return database.mapped_value_review_source_samples(source_id)
 
     def latest_dataset() -> str | None:
         pointer=workspace_root()/"datasets"/"latest.txt"
@@ -2957,6 +2867,890 @@ def create_web_app(
         table_panel_review_context=_table_panel_review_context,
     )
 
+    def _process_step_state_detection_models() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        state: dict[str, Any] = {}
+        state["preparation"] = preparation_for_current_strategy()
+        state["panel_state"] = table_panel_state()
+        state["input_file_count"] = input_source_count()
+        state["registered_source_count"] = len(database.list_detection_sources())
+        return state, None
+
+    def _process_step_state_detection_review(step_key: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        detection_sources = database.list_detection_sources()
+        detection_reviews = step4_review_counts()
+        state: dict[str, Any] = dict(
+            detection_sources=detection_sources,
+            detection_reviews=detection_reviews,
+            input_selection=input_selection_state(),
+            panel_state=(table_panel_state() if localization_strategy() == "table_first" else {"configured": True, "detection_current": True}),
+        )
+        if step_key == "detect-candidates" and localization_strategy() == "table_first":
+            state["table_model"] = table_cell_training_state(workspace_root())
+        header_counts = {
+            "total": int(detection_reviews.get("candidate_total", 0)) + int(detection_reviews.get("added", 0)),
+            "pending": int(detection_reviews.get("pending", 0)),
+            "accepted": int(detection_reviews.get("positive", 0)),
+        }
+        return state, header_counts
+
+    def _process_step_state_redetect() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        evaluations = database.list_localization_evaluations()
+        state: dict[str, Any] = dict(
+            detection_gate=current_detection_gate(),
+            localization_baseline=next((item for item in evaluations if item.get("kind") == "baseline"), None),
+            localization_trained=next((item for item in evaluations if item.get("kind") == "trained"), None),
+            active_localization_model=database.active_localization_model(),
+        )
+        return state, None
+
+    def _process_step_state_mapping() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        mapping = database.mapping_counts()
+        state: dict[str, Any] = dict(detection_gate=current_pipeline_gate(), mapping=mapping)
+        header_counts = {
+            "total": mapping.get("relations", 0),
+            "pending": mapping.get("suggested", 0),
+            "accepted": mapping.get("confirmed", 0),
+        }
+        return state, header_counts
+
+    def _process_step_state_apply_mapping() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        mapped = mapped_sample_state()
+        state: dict[str, Any] = dict(detection_gate=current_pipeline_gate(), mapped=mapped)
+        header_counts = {
+            "total": mapped.get("total", 0),
+            "pending": max(0, mapped.get("total", 0) - mapped.get("roi_correct", 0)),
+            "accepted": mapped.get("roi_correct", 0),
+        }
+        return state, header_counts
+
+    def _process_step_state_value_review() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        value = value_review_counts()
+        outputs = []
+        for source in database.list_detection_sources():
+            current_source = str(source.get("source_id") or "")
+            output_path = workspace_root() / "extracted_output" / f"{current_source}.json"
+            payload = _read_json(output_path, {}) if output_path.is_file() else {}
+            measurements = payload.get("measurements") if isinstance(payload, dict) else {}
+            if isinstance(measurements, dict) and measurements:
+                outputs.append({
+                    "source_id": current_source,
+                    "measurement_count": len(measurements),
+                    "generated_at": payload.get("generated_at") or "",
+                })
+        state: dict[str, Any] = dict(detection_gate=current_pipeline_gate(), value=value, outputs=outputs)
+        return state, value
+
+    def _process_step_state_recognition() -> tuple[dict[str, Any], dict[str, Any] | None]:
+        _, active = registry_state()
+        recognition_baseline, recognition_custom = latest_evaluations()
+        state: dict[str, Any] = dict(
+            detection_gate=current_recognition_gate(),
+            pipeline_gate=current_pipeline_gate(),
+            dataset=latest_dataset_info(),
+            active=active,
+            recognition_baseline=recognition_baseline,
+            recognition_custom=recognition_custom,
+            recognition_comparison=latest_comparison(),
+        )
+        return state, None
+
+    # step_key -> state-builder, for the process_step steps that only need to
+    # populate `state`/`header_counts` before the shared process_step.html
+    # render (see documentation/architecture/db-webui-split-plan.md). Kept as
+    # one dispatch table instead of an if/elif chain in process_step() itself.
+    _PROCESS_STEP_STATE_BUILDERS: dict[str, Any] = {
+        "detection-models": _process_step_state_detection_models,
+        "detect-candidates": lambda: _process_step_state_detection_review("detect-candidates"),
+        "detection-review": lambda: _process_step_state_detection_review("detection-review"),
+        "redetect": _process_step_state_redetect,
+        "mapping": _process_step_state_mapping,
+        "apply-mapping": _process_step_state_apply_mapping,
+        "value-extract": _process_step_state_apply_mapping,
+        "value-review": _process_step_state_value_review,
+    }
+
+    def _process_step_panel_setup(step):
+        panel_state = table_panel_state()
+        context = _table_panel_review_context(str(request.args.get("source_id") or ""), panel_state)
+        region_sources = list_table_region_sources(workspace_root())
+        region_total = sum(int(item.get("region_count") or 0) for item in region_sources)
+        expected_sources = database.list_detection_sources()
+        region_by_source = {str(item.get("source_id") or ""): item for item in region_sources}
+        region_pending = sum(
+            1 for item in expected_sources
+            if not bool(region_by_source.get(str(item.get("source_id") or ""), {}).get("review_completed"))
+            or not bool(region_by_source.get(str(item.get("source_id") or ""), {}).get("region_count"))
+        )
+        return render_template(
+            "table_panel_setup.html", step=step, panel_state=panel_state,
+            panel_profile=panel_state.get("profile") or {}, sources=context["sources"], source=context["source"],
+            source_id=context["source_id"], suggestions=context["suggestions"],
+            detection_info=context["detection_info"],
+            region_ground_truth=context["region_ground_truth"],
+            table_review_sources=context["table_review_sources"],
+            header_counts={
+                "total": region_total,
+                "pending": region_pending,
+                "accepted": region_total,
+            },
+            header_total_label="regio’s", header_pending_label="lezingen open", header_accepted_label="opgeslagen",
+        )
+
+    def _process_step_table_quality_get(step):
+        """Handle the ``table-quality`` GET render (table studio + geometry view).
+
+        Extracted from the ``process_step()`` dispatcher (see
+        ``documentation/architecture/db-webui-split-plan.md``) - still a
+        closure over create_web_app()'s locals, not yet moved to its own
+        module. Last and largest remaining branch (step 11e): keeps its
+        nested ``indexed_cells``/``axis_groups``/``table_record`` helpers,
+        which close over this function's own locals (``profile``,
+        ``semantic_assignments``, ``studio_source_id``).
+        """
+        quality = current_table_first_quality()
+        preview = recognition_scope_preview(workspace_root())
+        semantic_assignments = load_table_semantic_assignments(workspace_root())
+        # The persisted table raster is authoritative here. Do not rebuild
+        # rows and columns by clustering canonical GT cells.
+        studio_source_id = str(preview.get("source_id") or "")
+        geometry = database.list_detection_table_geometry(studio_source_id) if studio_source_id else {"regions": [], "cells": []}
+        profile = load_panel_profile(workspace_root())
+        reference_width = float(profile.get("reference_width") or 0)
+        reference_height = float(profile.get("reference_height") or 0)
+        named_tables: dict[str, dict[str, Any]] = {}
+        for region in geometry.get("regions", []):
+            center_x = (float(region.get("x1") or 0) + float(region.get("x2") or 0)) / 2
+            center_y = (float(region.get("y1") or 0) + float(region.get("y2") or 0)) / 2
+            for panel in profile.get("panels") or []:
+                if (
+                    float(panel.get("x1") or 0) * reference_width <= center_x <= float(panel.get("x2") or 0) * reference_width
+                    and float(panel.get("y1") or 0) * reference_height <= center_y <= float(panel.get("y2") or 0) * reference_height
+                ):
+                    named_tables[str(region.get("table_id") or "")] = panel
+                    break
+        table_groups: dict[str, list[dict[str, Any]]] = {}
+        for cell in geometry.get("cells", []):
+            raw_table_id = str(cell.get("table_id") or "")
+            panel = named_tables.get(raw_table_id) or {}
+            table_id = str(panel.get("panel_id") or raw_table_id or "__default__")
+            table_groups.setdefault(table_id, []).append({
+                **cell, "panel_id": table_id,
+                "panel_name": str(panel.get("name") or table_id),
+            })
+
+        def indexed_cells(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            """Use persisted row/column indices; infer only for legacy records.
+
+            Older canonical GT records store exact boxes but predate the
+            optional row_index/column_index fields. Tabelstudio needs
+            stable visual grouping, so infer the indices from box centers
+            without changing the canonical GT file.
+            """
+            usable = [dict(cell) for cell in cells]
+            if all("row_index" in item and "column_index" in item for item in usable):
+                return usable
+            heights = [
+                max(1, int(item.get("y2") or 0) - int(item.get("y1") or 0))
+                for item in usable
+            ]
+            widths = [
+                max(1, int(item.get("x2") or 0) - int(item.get("x1") or 0))
+                for item in usable
+            ]
+            row_tolerance = max(6.0, (sum(heights) / max(1, len(heights))) * 0.75)
+            column_tolerance = max(8.0, (sum(heights) / max(1, len(heights))) * 1.5)
+
+            def cluster(items: list[dict[str, Any]], center_key: str, tolerance: float) -> list[list[dict[str, Any]]]:
+                groups: list[list[dict[str, Any]]] = []
+                for item in sorted(items, key=lambda value: float(value[center_key])):
+                    center = float(item[center_key])
+                    if not groups:
+                        groups.append([item])
+                        continue
+                    previous_center = sum(float(value[center_key]) for value in groups[-1]) / len(groups[-1])
+                    if center - previous_center <= tolerance:
+                        groups[-1].append(item)
+                    else:
+                        groups.append([item])
+                return groups
+
+            for item in usable:
+                item["_center_y"] = (int(item.get("y1") or 0) + int(item.get("y2") or 0)) / 2
+                item["_center_x"] = (int(item.get("x1") or 0) + int(item.get("x2") or 0)) / 2
+            rows = cluster(usable, "_center_y", row_tolerance)
+            columns = cluster(usable, "_center_x", column_tolerance)
+            for row_index, row in enumerate(rows):
+                for item in row:
+                    item["row_index"] = row_index
+            for column_index, column in enumerate(columns):
+                for item in column:
+                    item["column_index"] = column_index
+            for item in usable:
+                item.pop("_center_y", None)
+                item.pop("_center_x", None)
+            return usable
+
+        def axis_groups(cells: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+            groups: dict[int, list[dict[str, Any]]] = {}
+            for cell in cells:
+                groups.setdefault(int(cell.get(key, -1)), []).append(cell)
+            result = [
+                {"index": index, "cells": sorted(items, key=lambda item: int(item.get("column_index" if key == "row_index" else "row_index", -1))),
+                 "x1": min(int(item.get("x1") or 0) for item in items), "y1": min(int(item.get("y1") or 0) for item in items),
+                 "x2": max(int(item.get("x2") or 0) for item in items), "y2": max(int(item.get("y2") or 0) for item in items)}
+                for index, items in sorted(groups.items()) if index >= 0
+            ]
+            if key == "column_index":
+                # Adjacent raster columns share one boundary. Detection
+                # boxes can overlap by a few pixels; never expose that
+                # overlap as a semantic column boundary in the Studio.
+                for left, right in zip(result, result[1:]):
+                    left_center = (left["x1"] + left["x2"]) / 2
+                    right_center = (right["x1"] + right["x2"]) / 2
+                    boundary = round((left_center + right_center) / 2)
+                    boundary = max(left["x1"] + 1, min(boundary, right["x2"] - 1))
+                    left["x2"] = boundary
+                    right["x1"] = boundary
+            return result
+        def table_record(table_id: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
+            cells = indexed_cells(cells)
+            padding = 16
+            fallback_name = str(cells[0].get("table_name") or cells[0].get("panel_name") or ("Tabel zonder profiel" if table_id == "__default__" else table_id))
+            relations = database.list_detected_relations(studio_source_id)
+            ocr_parts = []
+            bounds = (min(int(item.get("x1") or 0) for item in cells), min(int(item.get("y1") or 0) for item in cells), max(int(item.get("x2") or 0) for item in cells), max(int(item.get("y2") or 0) for item in cells))
+            for relation in relations:
+                cx = (int(relation.get("label_x1") or 0) + int(relation.get("label_x2") or 0)) / 2
+                cy = (int(relation.get("label_y1") or 0) + int(relation.get("label_y2") or 0)) / 2
+                if bounds[0] <= cx <= bounds[2] and bounds[1] <= cy <= bounds[3]:
+                    for key in ("context_text", "label_text", "header_text", "column_header"):
+                        value = str(relation.get(key) or "").strip()
+                        if value and value not in ocr_parts:
+                            ocr_parts.append(value)
+            saved = semantic_assignments.get(table_id) or {}
+            suggested_name, suggestion_source = suggest_table_name(
+                " | ".join(ocr_parts),
+                [str(item.get("name") or "") for item in profile.get("panels") or [] if str(item.get("name") or "").strip()],
+                fallback_name,
+            )
+            return {"table_id": table_id, "table_name": str(saved.get("table_name") or suggested_name), "table_name_source": str(saved.get("source") or suggestion_source), "ocr_header_text": " | ".join(ocr_parts), "cells": cells, "rows": axis_groups(cells, "row_index"), "columns": axis_groups(cells, "column_index"), "crop": {"x1": max(0, bounds[0] - padding), "y1": max(0, bounds[1] - padding), "x2": bounds[2] + padding, "y2": bounds[3] + padding}}
+        studio = {
+            "source_id": str(preview.get("source_id") or ""),
+            "tables": [table_record(table_id, cells) for table_id, cells in sorted(table_groups.items())],
+        }
+        if str(request.args.get("view") or "").strip().lower() == "geometry":
+            return render_template(
+                "table_structure.html",
+                step=step, table_quality=quality, studio=studio,
+                header_counts={
+                    "total": int((quality.get("totals") or {}).get("desired_total", 0)),
+                    "pending": int((quality.get("totals") or {}).get("pending", 0)),
+                    "accepted": int((quality.get("totals") or {}).get("detected_desired", 0)),
+                },
+                header_total_label="doelcellen", header_pending_label="te reviewen",
+                header_accepted_label="direct gevonden",
+            )
+        roles = table_studio_roles(workspace_root())
+        configured_rows = table_studio_rows(workspace_root())
+        studio_tables = [
+            {
+                **table,
+                "rows": [
+                    {
+                        **row,
+                        "active": (
+                            table["table_id"] not in configured_rows
+                            or int(row["index"]) in configured_rows.get(table["table_id"], [])
+                        ),
+                    }
+                    for row in table["rows"]
+                ],
+                "columns": [
+                    {
+                        **column,
+                        "role": roles.get(table["table_id"], {}).get(str(column["index"]), ""),
+                    }
+                    for column in table["columns"]
+                ],
+            }
+            for table in studio["tables"]
+            if table["table_id"] != "__default__"
+        ]
+        return render_template(
+            "table_studio.html",
+            step=step, table_quality=quality, studio=studio,
+            studio_tables=studio_tables,
+            table_roles=roles,
+            table_rows=configured_rows,
+            role_options=[
+                ("", "Niet ingesteld"),
+                ("label", "Label"), ("value", "Waarde"),
+                ("unit", "Eenheid"), ("header", "Koptekst"), ("skip", "Overslaan"),
+            ],
+            header_counts={
+                "total": len(studio_tables),
+                "pending": sum(1 for table in studio_tables for column in table["columns"] if not column["role"]),
+                "accepted": sum(1 for table in studio_tables for column in table["columns"] if column["role"]),
+            },
+            header_total_label="tabellen", header_pending_label="kolommen open",
+            header_accepted_label="rollen gekozen",
+        )
+
+    def _process_step_table_region_model(step):
+        region_sources = list_table_region_sources(workspace_root())
+        dataset = None
+        latest_pointer = workspace_root() / "table_region_datasets" / "latest.txt"
+        try:
+            dataset_id = latest_pointer.read_text(encoding="ascii").strip()
+        except OSError:
+            dataset_id = ""
+        if dataset_id:
+            dataset = _read_json(workspace_root() / "table_region_datasets" / dataset_id / "manifest.json", None)
+        reviewed_sources = [item for item in region_sources if item.get("review_completed")]
+        return render_template(
+            "table_region_training.html", step=step,
+            region_sources=region_sources, reviewed_sources=reviewed_sources,
+            dataset=dataset,
+            header_counts={
+                "total": sum(int(item.get("region_count") or 0) for item in reviewed_sources),
+                "pending": max(0, len(sources := database.list_detection_sources()) - len(reviewed_sources)),
+                "accepted": int((dataset or {}).get("annotation_count") or 0),
+            },
+            header_total_label="tabelregio’s", header_pending_label="lezingen open",
+            header_accepted_label="trainingskaders",
+        )
+
+    def _process_step_table_model(step):
+        model_state = table_cell_training_state(workspace_root())
+        preview = model_state.get("preview") or {}
+        dataset = model_state.get("dataset") or {}
+        validation = dataset.get("validation") if isinstance(dataset, dict) else {}
+        validation = validation if isinstance(validation, dict) else {}
+        latest_model = model_state.get("latest_model") or {}
+        evaluation = latest_model.get("evaluation") if isinstance(latest_model, dict) else {}
+        evaluation = evaluation if isinstance(evaluation, dict) else {}
+        dataset_current = bool(model_state.get("dataset_current"))
+        build_ready = bool(preview.get("ready"))
+        validate_ready = bool(dataset and dataset_current)
+        train_ready = bool(validate_ready and validation.get("valid"))
+        model_for_current_dataset = bool(
+            latest_model.get("model_id") and dataset.get("dataset_id")
+            and str(latest_model.get("dataset_id") or "") == str(dataset.get("dataset_id") or "")
+        )
+        active_is_latest = bool(
+            model_for_current_dataset and (model_state.get("active_model") or {}).get("model_id")
+            and str((model_state.get("active_model") or {}).get("model_id") or "") == str(latest_model.get("model_id") or "")
+        )
+        needs_training = bool(train_ready and not model_for_current_dataset)
+        activate_ready = bool(model_for_current_dataset and not active_is_latest)
+        needs_redetect = bool(model_for_current_dataset and active_is_latest)
+        reasons = {
+            "build": "" if build_ready else "Rond eerst de tabelreview af en zorg dat er positieve functionele cellen zijn.",
+            "validate": "" if validate_ready else ("De review is gewijzigd sinds de laatste dataset. Bouw de dataset opnieuw." if dataset else "Bouw eerst de table-cell dataset."),
+            "train": "" if train_ready else ("Valideer eerst de actuele table-cell dataset." if validate_ready else "Bouw eerst een actuele dataset uit de huidige reviewcorrecties."),
+            "activate": "" if activate_ready else ("Dit model is al actief." if active_is_latest else "Train eerst een model op de actuele dataset."),
+        }
+        return render_template(
+            "table_model_training.html", step=step, model_state=model_state, preview=preview,
+            dataset=dataset, validation=validation, latest_model=latest_model, evaluation=evaluation,
+            build_ready=build_ready, validate_ready=validate_ready, train_ready=train_ready,
+            needs_training=needs_training, model_for_current_dataset=model_for_current_dataset,
+            activate_ready=activate_ready, needs_redetect=needs_redetect, reasons=reasons,
+            header_counts={
+                "total": int(preview.get("annotation_count") or 0),
+                "pending": 0 if dataset_current else (1 if dataset else 0),
+                "accepted": len(model_state.get("models") or []),
+            },
+            header_total_label="reviewcellen", header_pending_label="dataset verouderd",
+            header_accepted_label="getrainde modellen",
+        )
+
+    def _process_step_table_compare_get(step):
+        comparison = table_cell_comparison_state(
+            workspace_root(),
+            reference_run_id=str(request.args.get("reference") or "").strip() or None,
+            candidate_run_id=str(request.args.get("candidate") or "").strip() or None,
+        )
+        candidate_metrics = ((comparison.get("candidate") or {}).get("metrics") or {}) if comparison.get("ready") else {}
+        return render_template(
+            "table_model_comparison.html",
+            step=step, comparison=comparison,
+            header_counts={
+                "total": int(candidate_metrics.get("gt_total") or 0),
+                "pending": int(comparison.get("open_issue_count") or 0),
+                "accepted": int(comparison.get("reviewed_issue_count") or 0),
+            },
+            header_total_label="GT-cellen", header_pending_label="afwijkingen open",
+            header_accepted_label="afwijkingen beoordeeld",
+        )
+
+    def _process_step_detect_candidates_table_first(step):
+        # Region predictions get their own review surface. Keeping this out
+        # of Panel Setup prevents newly detected boxes from being confused
+        # with the manually accepted region GT used to train the model.
+        sources = [dict(item) for item in database.list_detection_sources()]
+        requested_source_id = str(request.args.get("source_id") or "").strip()
+        source = next((item for item in sources if str(item.get("source_id") or "") == requested_source_id), None)
+        if source is None and sources:
+            source = sources[0]
+        source_id = str((source or {}).get("source_id") or "")
+        geometry = database.list_detection_table_geometry(source_id) if source_id else {"regions": [], "cells": []}
+        context = _table_panel_review_context(source_id)
+        # One bulk query pair instead of a database.list_detection_table_geometry()
+        # (two full-table SELECTs) per source, just to count regions.
+        region_counts_by_source = database.detection_table_counts_by_source()
+        review_sources = []
+        for item in sources:
+            item_source_id = str(item.get("source_id") or "")
+            item["region_count"] = region_counts_by_source.get(item_source_id, {}).get("regions", 0)
+            review_sources.append(item)
+        return render_template(
+            "table_region_review.html", step=step, sources=review_sources, source=source,
+            source_id=source_id, regions=geometry.get("regions", []),
+            panel_profile=load_panel_profile(workspace_root()),
+            ocr_contexts=database.list_detected_relations(source_id) if source_id else [],
+            ground_truth_regions=list_table_regions(workspace_root(), source_id) if source_id else [],
+            detection_info=context.get("detection_info") or {},
+            header_counts={
+                "total": len(geometry.get("regions", [])), "pending": len(geometry.get("regions", [])),
+                "accepted": len(list_table_regions(workspace_root(), source_id)) if source_id else 0,
+            },
+            header_total_label="modelregio’s", header_pending_label="te beoordelen", header_accepted_label="oude GT",
+        )
+
+    def _process_step_input_selection(step):
+        """Handle the ``input-selection`` process step (GET+POST).
+
+        Extracted from the ``process_step()`` dispatcher (see
+        ``documentation/architecture/db-webui-split-plan.md``) - still a
+        closure over create_web_app()'s locals, not yet moved to its own
+        module.
+        """
+        if request.method == "POST":
+            selected = {
+                str(value).strip().replace("\\", "/")
+                for value in request.form.getlist("selected_file")
+                if str(value).strip()
+            }
+            available = {str(item["key"]) for item in input_selection_state()["files"]}
+            selected &= available
+            payload = selection_payload(selected)
+            payload["updated_at"] = _utcnow()
+            input_selection_path().parent.mkdir(parents=True, exist_ok=True)
+            input_selection_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            flash(f"Inputselectie opgeslagen: {len(selected)} van {len(available)} afbeeldingen geselecteerd.", "success")
+            if request.form.get("open_panel") == "1":
+                return redirect(url_for("process_step", step_key="panel-setup"))
+            if request.form.get("start_processing") == "1":
+                if loaded_config is None:
+                    flash("Bronpreview kan niet worden voorbereid: de actieve configuratie ontbreekt.", "error")
+                    return redirect(url_for("process_step", step_key="input-selection"))
+                try:
+                    result = prepare_source_renders("/input", workspace_root(), loaded_config)
+                    flash(f"{result['sources']} volledige bronpreview(s) voorbereid. Stap 3 voor tabelregio’s is nu beschikbaar.", "success")
+                    return redirect(url_for("process_step", step_key="panel-setup"))
+                except Exception as exc:
+                    _record_webui_error("source_render_prepare", exc)
+                    flash(f"Bronpreview voorbereiden mislukt: {type(exc).__name__}: {exc}", "error")
+                    return redirect(url_for("process_step", step_key="input-selection"))
+            return redirect(url_for("process_step", step_key="input-selection"))
+        selection = input_selection_state()
+        existing_sources = {str(item["source_id"]) for item in database.list_detection_sources()}
+        for item in selection["files"]:
+            item["processed"] = item["source_id"] in existing_sources
+            if item["processed"]:
+                item["preview_url"] = url_for("source_render", source_id=item["source_id"])
+            elif Path(item["key"]).suffix.lower() in {".dcm", ".dicom", ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
+                item["preview_url"] = url_for("input_preview", relative_path=item["key"])
+        return render_template(
+            "input_selection.html", step=step, selection=selection,
+            header_counts={
+                "total": selection["total"],
+                "pending": selection["new"],
+                "accepted": selection["selected"],
+            },
+            header_total_label="afbeeldingen", header_pending_label="nieuw",
+            header_accepted_label="geselecteerd",
+        )
+
+    def _process_step_table_quality_post(step_key: str):
+        """Handle the ``table-quality`` POST action.
+
+        Extracted from the ``process_step()`` dispatcher (see
+        ``documentation/architecture/db-webui-split-plan.md``) - still a
+        closure over create_web_app()'s locals, not yet moved to its own
+        module.
+        """
+        roles = dict(table_studio_roles(workspace_root()))
+        rows = dict(table_studio_rows(workspace_root()))
+        table_ids = {str(value) for value in request.form.getlist("table_definition") if str(value)}
+        for table_id in table_ids:
+            roles[table_id] = {}
+            rows[table_id] = []
+        for value in request.form.getlist("table_role"):
+            table_id, separator, remainder = str(value).partition("|")
+            column, separator2, role = remainder.partition("|")
+            if not separator or not separator2 or not column.isdigit():
+                continue
+            if role in {"label", "value", "unit", "header", "skip"}:
+                roles.setdefault(table_id, {})[column] = role
+        for value in request.form.getlist("table_row"):
+            table_id, separator, row = str(value).partition("|")
+            if separator and row.isdigit():
+                rows.setdefault(table_id, []).append(int(row))
+        save_table_studio_roles(workspace_root(), roles, rows=rows)
+        recognition_tables = {
+            table_id: {
+                "rows": rows.get(table_id, []),
+                "columns": sorted(
+                    int(column) for column, role in table_roles.items()
+                    if role in {"label", "value", "unit", "header"}
+                ),
+            }
+            for table_id, table_roles in roles.items()
+        }
+        save_recognition_scope(workspace_root(), recognition_tables)
+        included = sum(len(item["rows"]) * len(item["columns"]) for item in recognition_tables.values())
+        flash(f"Tabeldefinitie en Recognition-scope opgeslagen ({included} rasterposities geselecteerd).", "success")
+        return redirect(url_for("process_step", step_key=step_key, source_id=request.form.get("source_id", "")))
+
+    def _process_step_table_compare_post(step_key: str):
+        """Handle the ``table-compare`` POST action (five comparison actions).
+
+        Extracted from the ``process_step()`` dispatcher (see
+        ``documentation/architecture/db-webui-split-plan.md``) - still a
+        closure over create_web_app()'s locals, not yet moved to its own
+        module.
+        """
+        action = str(request.form.get("comparison_action") or "").strip().lower()
+        if action not in {
+            "review_issue",
+            "add_prediction_to_gt",
+            "apply_functional_suggestions",
+            "apply_model_error_suggestions",
+            "apply_all_open_geometry_functional_ok",
+        }:
+            abort(400)
+        run_id = str(request.form.get("run_id") or "").strip()[:180]
+        issue_id = str(request.form.get("issue_id") or "").strip()[:80]
+        reference = str(request.form.get("reference_run_id") or "").strip()
+        candidate = str(request.form.get("candidate_run_id") or "").strip()
+        if action == "apply_functional_suggestions":
+            state = table_cell_comparison_state(
+                workspace_root(),
+                reference_run_id=reference or None,
+                candidate_run_id=candidate or run_id or None,
+            )
+            active_run = str((state.get("candidate") or {}).get("run_id") or "")
+            allowed_ids = set((state.get("functional_suggestions") or {}).get("issue_ids") or [])
+            requested_ids = {
+                str(value).strip()[:80]
+                for value in request.form.getlist("issue_id")
+                if str(value).strip()
+            }
+            selected_ids = sorted(allowed_ids.intersection(requested_ids))
+            if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
+                flash("De veilige suggesties horen bij de nieuwste, schrijfbare detectierun.", "error")
+            elif not selected_ids:
+                flash("Er zijn geen geldige, nog open functionele suggesties om toe te passen.", "warning")
+            else:
+                applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "functional_ok")
+                flash(
+                    f"{len(applied)} veilige geometrieën als functioneel correct gemarkeerd. "
+                    "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
+                    "success",
+                )
+            parameters = {}
+            if reference:
+                parameters["reference"] = reference
+            if candidate:
+                parameters["candidate"] = candidate
+            return redirect(url_for("process_step", step_key=step_key, **parameters))
+        if action == "apply_model_error_suggestions":
+            # Merges what used to be three separate bulk actions (overduidelijke
+            # modelfouten, onvolledige detecties, gesplitste detecties) into one:
+            # all three are, by construction, always a model mistake -- never a
+            # "functioneel correct" or "GT aanpassen" call -- so there is no reason
+            # to make a reviewer click three buttons for the same decision. The
+            # allowed-id set already comes pre-deduplicated from
+            # table_cell_comparison_state, and functional_suggestions/
+            # open_geometry_issue_ids there explicitly exclude these same ids, so
+            # applying this action can never contradict a "functioneel correct"
+            # bulk action on the same issue.
+            state = table_cell_comparison_state(
+                workspace_root(),
+                reference_run_id=reference or None,
+                candidate_run_id=candidate or run_id or None,
+            )
+            active_run = str((state.get("candidate") or {}).get("run_id") or "")
+            allowed_ids = set((state.get("model_error_suggestions") or {}).get("issue_ids") or [])
+            requested_ids = {
+                str(value).strip()[:80]
+                for value in request.form.getlist("issue_id")
+                if str(value).strip()
+            }
+            selected_ids = sorted(allowed_ids.intersection(requested_ids))
+            if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
+                flash("De foutsuggesties horen bij de nieuwste, schrijfbare detectierun.", "error")
+            elif not selected_ids:
+                flash("Er zijn geen geldige, nog open foutsuggesties om toe te passen.", "warning")
+            else:
+                applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "model_error")
+                flash(
+                    f"{len(applied)} kaders (overduidelijke modelfouten, onvolledige detecties en "
+                    "gesplitste detecties) als modelfout gemarkeerd.",
+                    "success",
+                )
+            parameters = {}
+            if reference:
+                parameters["reference"] = reference
+            if candidate:
+                parameters["candidate"] = candidate
+            return redirect(url_for("process_step", step_key=step_key, **parameters))
+        if action == "apply_all_open_geometry_functional_ok":
+            # Unlike apply_functional_suggestions above, this is not limited to the
+            # conservative gt_coverage/prediction_excess thresholds: a reviewer who has
+            # seen enough geometry afwijkingen to trust the button can approve every
+            # still-open one on this run in a single click, same "functional_ok" decision
+            # as the per-issue button.
+            state = table_cell_comparison_state(
+                workspace_root(),
+                reference_run_id=reference or None,
+                candidate_run_id=candidate or run_id or None,
+            )
+            active_run = str((state.get("candidate") or {}).get("run_id") or "")
+            allowed_ids = set(state.get("open_geometry_issue_ids") or [])
+            requested_ids = {
+                str(value).strip()[:80]
+                for value in request.form.getlist("issue_id")
+                if str(value).strip()
+            }
+            selected_ids = sorted(allowed_ids.intersection(requested_ids))
+            if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
+                flash("Dit geldt alleen voor de nieuwste, schrijfbare detectierun.", "error")
+            elif not selected_ids:
+                flash("Er zijn geen open geometrie-afwijkingen meer om zo te markeren.", "warning")
+            else:
+                applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "functional_ok")
+                flash(
+                    f"{len(applied)} open geometrie-afwijkingen als functioneel correct gemarkeerd. "
+                    "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
+                    "success",
+                )
+            parameters = {}
+            if reference:
+                parameters["reference"] = reference
+            if candidate:
+                parameters["candidate"] = candidate
+            return redirect(url_for("process_step", step_key=step_key, **parameters))
+        wants_json = (
+            request.headers.get("X-Requested-With") == "XMLHttpRequest"
+            or request.accept_mimetypes.best == "application/json"
+        )
+        effective_decision = ""
+        promoted: dict[str, Any] | None = None
+        error_message = ""
+        message = ""
+        if action == "add_prediction_to_gt":
+            try:
+                promoted = add_comparison_fp_to_ground_truth(workspace_root(), run_id, issue_id)
+            except (KeyError, ValueError, FileNotFoundError) as exc:
+                error_message = f"Prediction kon niet aan de Ground Truth worden toegevoegd: {exc}"
+            else:
+                effective_decision = "gt_added"
+                suffix = " (bestond al in GT)" if promoted.get("already_present") else ""
+                message = (
+                    "Prediction toegevoegd aan de canonieke Ground Truth" + suffix +
+                    ". De huidige table-cell trainingsdataset is nu verouderd; bouw hem in Stap 8 opnieuw."
+                )
+        else:
+            decision = str(request.form.get("decision") or "").strip().lower()
+            try:
+                review_comparison_issue(workspace_root(), run_id, issue_id, decision)
+            except (KeyError, ValueError) as exc:
+                error_message = f"Vervolg-review kon niet worden opgeslagen: {exc}"
+            else:
+                effective_decision = "" if decision == "clear" else decision
+                labels = {
+                    "model_error": "Modelmisser bevestigd",
+                    "functional_ok": "Geometrie functioneel correct bevonden",
+                    "gt_check": "Gemarkeerd voor Ground Truth-controle",
+                    "gt_added": "Prediction toegevoegd aan Ground Truth",
+                    "deferred": "Beoordeling uitgesteld",
+                    "clear": "Beoordeling gewist",
+                }
+                message = labels.get(decision, "Vervolg-review opgeslagen")
+
+        if wants_json:
+            if error_message:
+                return json_error(error_message, 409)
+            state = table_cell_comparison_state(
+                workspace_root(),
+                reference_run_id=reference or None,
+                candidate_run_id=candidate or run_id or None,
+            )
+            return jsonify({
+                "ok": True,
+                "message": message,
+                "decision": effective_decision,
+                "already_present": bool((promoted or {}).get("already_present")),
+                "counts": {
+                    "open_issue_count": int(state.get("open_issue_count") or 0),
+                    "reviewed_issue_count": int(state.get("reviewed_issue_count") or 0),
+                    "issue_count": int(state.get("issue_count") or 0),
+                },
+            })
+
+        if error_message:
+            flash(error_message, "error")
+        else:
+            flash(message, "success")
+        parameters = {}
+        if reference:
+            parameters["reference"] = reference
+        if candidate:
+            parameters["candidate"] = candidate
+        return redirect(url_for("process_step", step_key=step_key, **parameters))
+
+    def _process_step_localization_dataset_post(step_key: str):
+        """Handle the ``localization-dataset`` POST action.
+
+        Extracted from the ``process_step()`` dispatcher (see
+        ``documentation/architecture/db-webui-split-plan.md``) - still a
+        closure over create_web_app()'s locals, not yet moved to its own
+        module.
+        """
+        split_action = str(request.form.get("split_action") or "save").strip().lower()
+        try:
+            if split_action == "auto":
+                plan = save_localization_split_config(workspace_root(), mode="auto", overrides={})
+                flash(
+                    f"Veilige automatische split toegepast: {plan['counts']['train']} train / "
+                    f"{plan['counts']['val']} val / {plan['counts']['test']} test.",
+                    "success",
+                )
+            elif split_action == "save":
+                targets = {
+                    "train": int(request.form.get("split_train") or 0),
+                    "val": int(request.form.get("split_val") or 0),
+                    "test": int(request.form.get("split_test") or 0),
+                }
+                source_ids = request.form.getlist("split_source_id")
+                choices = request.form.getlist("split_choice")
+                overrides = {
+                    str(source_id): str(choice)
+                    for source_id, choice in zip(source_ids, choices)
+                    if str(choice) in {"train", "val", "test"}
+                }
+                plan = save_localization_split_config(
+                    workspace_root(), mode="counts", targets=targets, overrides=overrides
+                )
+                flash(
+                    f"Dataset-split opgeslagen: {plan['counts']['train']} train / "
+                    f"{plan['counts']['val']} val / {plan['counts']['test']} test. "
+                    "Bouw de localization-dataset opnieuw om deze verdeling vast te leggen.",
+                    "success",
+                )
+            else:
+                abort(400)
+        except (TypeError, ValueError) as exc:
+            flash(f"Dataset-split kon niet worden opgeslagen: {exc}", "error")
+        return redirect(url_for("process_step", step_key=step_key))
+
+    def _process_step_header_normalization_post(
+        step_key: str,
+        header_status_filter: str,
+        header_source_filter: str,
+        header_sample_filter: str,
+        header_method_filter: str,
+    ):
+        """Handle the ``header-normalization`` POST action (the implicit fallback).
+
+        Extracted from the ``process_step()`` dispatcher (see
+        ``documentation/architecture/db-webui-split-plan.md``) - still a
+        closure over create_web_app()'s locals, not yet moved to its own
+        module.
+        """
+        if step_key != "header-normalization":
+            abort(405)
+        if header_profile is None:
+            flash("Het actieve profiel kon niet worden geladen; normalisatietraining is niet beschikbaar.", "error")
+            return redirect(url_for("process_step", step_key=step_key))
+
+        action = str(request.form.get("header_action", "save")).strip().lower()
+        sample_ids = request.form.getlist("header_sample_id")
+        saved = 0
+        rejected = 0
+        for sample_id in sample_ids:
+            current = database.get(sample_id)
+            if current is None:
+                continue
+            selected = str(request.form.get(f"header_status_{sample_id}", "accepted")).strip().lower()
+            if action == "accept_visible":
+                selected = "accepted"
+            target = str(
+                request.form.get(
+                    f"header_target_{sample_id}",
+                    current.get("header_target_field_key") or current.get("field_key") or "",
+                )
+            ).strip()
+            exact = str(request.form.get(f"header_exact_{sample_id}", ""))
+            notes = str(request.form.get(f"header_notes_{sample_id}", ""))
+            try:
+                database.review_header(sample_id, selected, target, exact, notes)
+                saved += 1
+                rejected += int(selected == "rejected")
+            except ValueError as exc:
+                flash(f"Rijheader {sample_id} kon niet worden opgeslagen: {exc}", "error")
+
+        trained_payload: dict[str, Any] | None = None
+        if action in {"train", "train_redetect"}:
+            trained_payload = build_header_normalization_model(
+                database.header_training_rows(), header_profile, header_model_path()
+            )
+            if trained_payload.get("included_example_count", 0) > 0:
+                flash(
+                    f"Normalisatiemodel opgebouwd met {trained_payload.get('included_example_count', 0)} "
+                    f"beoordeelde voorbeelden en {trained_payload.get('learned_alias_count', 0)} geleerde aliassen.",
+                    "success",
+                )
+            else:
+                flash(
+                    "Het model is opgeslagen, maar bevat nog geen bruikbare bevestigde rijheaders.",
+                    "warning",
+                )
+            if trained_payload.get("conflicts"):
+                flash(
+                    f"{len(trained_payload['conflicts'])} dubbelzinnige alias(sen) zijn uit veiligheid niet geactiveerd.",
+                    "warning",
+                )
+
+        queued_job: dict[str, Any] | None = None
+        if action == "train_redetect":
+            queued_job = enqueue_job("2")
+            flash(
+                "Nieuwe normalisatie is actief. DICOM-detectie is opnieuw in de wachtrij geplaatst.",
+                "success",
+            )
+        elif action in {"save", "accept_visible"}:
+            flash(
+                f"{saved} rijheaderbeoordeling(en) opgeslagen"
+                + (f"; {rejected} uitgesloten" if rejected else "")
+                + ".",
+                "success",
+            )
+
+        parameters = {"header_status": header_status_filter}
+        if header_source_filter:
+            parameters["source_id"] = header_source_filter
+        if header_sample_filter:
+            parameters["sample_id"] = header_sample_filter
+        if header_method_filter != "all":
+            parameters["extraction_method"] = header_method_filter
+        if queued_job:
+            parameters["job_id"] = str(queued_job["job_id"])
+        return redirect(url_for("process_step", step_key=step_key, **parameters))
+
     @app.route("/process/<step_key>", methods=["GET", "POST"])
     def process_step(step_key: str):
         legacy_step_aliases = {
@@ -2977,52 +3771,7 @@ def create_web_app(
             return redirect(url_for("detection_review_index"))
 
         if step_key == "input-selection":
-            if request.method == "POST":
-                selected = {
-                    str(value).strip().replace("\\", "/")
-                    for value in request.form.getlist("selected_file")
-                    if str(value).strip()
-                }
-                available = {str(item["key"]) for item in input_selection_state()["files"]}
-                selected &= available
-                payload = selection_payload(selected)
-                payload["updated_at"] = _utcnow()
-                input_selection_path().parent.mkdir(parents=True, exist_ok=True)
-                input_selection_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
-                flash(f"Inputselectie opgeslagen: {len(selected)} van {len(available)} afbeeldingen geselecteerd.", "success")
-                if request.form.get("open_panel") == "1":
-                    return redirect(url_for("process_step", step_key="panel-setup"))
-                if request.form.get("start_processing") == "1":
-                    if loaded_config is None:
-                        flash("Bronpreview kan niet worden voorbereid: de actieve configuratie ontbreekt.", "error")
-                        return redirect(url_for("process_step", step_key="input-selection"))
-                    try:
-                        result = prepare_source_renders("/input", workspace_root(), loaded_config)
-                        flash(f"{result['sources']} volledige bronpreview(s) voorbereid. Stap 3 voor tabelregio’s is nu beschikbaar.", "success")
-                        return redirect(url_for("process_step", step_key="panel-setup"))
-                    except Exception as exc:
-                        _record_webui_error("source_render_prepare", exc)
-                        flash(f"Bronpreview voorbereiden mislukt: {type(exc).__name__}: {exc}", "error")
-                        return redirect(url_for("process_step", step_key="input-selection"))
-                return redirect(url_for("process_step", step_key="input-selection"))
-            selection = input_selection_state()
-            existing_sources = {str(item["source_id"]) for item in database.list_detection_sources()}
-            for item in selection["files"]:
-                item["processed"] = item["source_id"] in existing_sources
-                if item["processed"]:
-                    item["preview_url"] = url_for("source_render", source_id=item["source_id"])
-                elif Path(item["key"]).suffix.lower() in {".dcm", ".dicom", ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}:
-                    item["preview_url"] = url_for("input_preview", relative_path=item["key"])
-            return render_template(
-                "input_selection.html", step=step, selection=selection,
-                header_counts={
-                    "total": selection["total"],
-                    "pending": selection["new"],
-                    "accepted": selection["selected"],
-                },
-                header_total_label="afbeeldingen", header_pending_label="nieuw",
-                header_accepted_label="geselecteerd",
-            )
+            return _process_step_input_selection(step)
 
         header_status_filter = str(request.args.get("header_status", "pending")).strip().lower()
         if header_status_filter not in {"all", "pending", "accepted", "rejected", "deferred"}:
@@ -3035,649 +3784,33 @@ def create_web_app(
 
         if request.method == "POST":
             if step_key == "table-quality":
-                roles = dict(table_studio_roles(workspace_root()))
-                rows = dict(table_studio_rows(workspace_root()))
-                table_ids = {str(value) for value in request.form.getlist("table_definition") if str(value)}
-                for table_id in table_ids:
-                    roles[table_id] = {}
-                    rows[table_id] = []
-                for value in request.form.getlist("table_role"):
-                    table_id, separator, remainder = str(value).partition("|")
-                    column, separator2, role = remainder.partition("|")
-                    if not separator or not separator2 or not column.isdigit():
-                        continue
-                    if role in {"label", "value", "unit", "header", "skip"}:
-                        roles.setdefault(table_id, {})[column] = role
-                for value in request.form.getlist("table_row"):
-                    table_id, separator, row = str(value).partition("|")
-                    if separator and row.isdigit():
-                        rows.setdefault(table_id, []).append(int(row))
-                save_table_studio_roles(workspace_root(), roles, rows=rows)
-                recognition_tables = {
-                    table_id: {
-                        "rows": rows.get(table_id, []),
-                        "columns": sorted(
-                            int(column) for column, role in table_roles.items()
-                            if role in {"label", "value", "unit", "header"}
-                        ),
-                    }
-                    for table_id, table_roles in roles.items()
-                }
-                save_recognition_scope(workspace_root(), recognition_tables)
-                included = sum(len(item["rows"]) * len(item["columns"]) for item in recognition_tables.values())
-                flash(f"Tabeldefinitie en Recognition-scope opgeslagen ({included} rasterposities geselecteerd).", "success")
-                return redirect(url_for("process_step", step_key=step_key, source_id=request.form.get("source_id", "")))
+                return _process_step_table_quality_post(step_key)
             if step_key == "table-compare":
-                action = str(request.form.get("comparison_action") or "").strip().lower()
-                if action not in {
-                    "review_issue",
-                    "add_prediction_to_gt",
-                    "apply_functional_suggestions",
-                    "apply_model_error_suggestions",
-                    "apply_all_open_geometry_functional_ok",
-                }:
-                    abort(400)
-                run_id = str(request.form.get("run_id") or "").strip()[:180]
-                issue_id = str(request.form.get("issue_id") or "").strip()[:80]
-                reference = str(request.form.get("reference_run_id") or "").strip()
-                candidate = str(request.form.get("candidate_run_id") or "").strip()
-                if action == "apply_functional_suggestions":
-                    state = table_cell_comparison_state(
-                        workspace_root(),
-                        reference_run_id=reference or None,
-                        candidate_run_id=candidate or run_id or None,
-                    )
-                    active_run = str((state.get("candidate") or {}).get("run_id") or "")
-                    allowed_ids = set((state.get("functional_suggestions") or {}).get("issue_ids") or [])
-                    requested_ids = {
-                        str(value).strip()[:80]
-                        for value in request.form.getlist("issue_id")
-                        if str(value).strip()
-                    }
-                    selected_ids = sorted(allowed_ids.intersection(requested_ids))
-                    if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
-                        flash("De veilige suggesties horen bij de nieuwste, schrijfbare detectierun.", "error")
-                    elif not selected_ids:
-                        flash("Er zijn geen geldige, nog open functionele suggesties om toe te passen.", "warning")
-                    else:
-                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "functional_ok")
-                        flash(
-                            f"{len(applied)} veilige geometrieën als functioneel correct gemarkeerd. "
-                            "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
-                            "success",
-                        )
-                    parameters = {}
-                    if reference:
-                        parameters["reference"] = reference
-                    if candidate:
-                        parameters["candidate"] = candidate
-                    return redirect(url_for("process_step", step_key=step_key, **parameters))
-                if action == "apply_model_error_suggestions":
-                    # Merges what used to be three separate bulk actions (overduidelijke
-                    # modelfouten, onvolledige detecties, gesplitste detecties) into one:
-                    # all three are, by construction, always a model mistake -- never a
-                    # "functioneel correct" or "GT aanpassen" call -- so there is no reason
-                    # to make a reviewer click three buttons for the same decision. The
-                    # allowed-id set already comes pre-deduplicated from
-                    # table_cell_comparison_state, and functional_suggestions/
-                    # open_geometry_issue_ids there explicitly exclude these same ids, so
-                    # applying this action can never contradict a "functioneel correct"
-                    # bulk action on the same issue.
-                    state = table_cell_comparison_state(
-                        workspace_root(),
-                        reference_run_id=reference or None,
-                        candidate_run_id=candidate or run_id or None,
-                    )
-                    active_run = str((state.get("candidate") or {}).get("run_id") or "")
-                    allowed_ids = set((state.get("model_error_suggestions") or {}).get("issue_ids") or [])
-                    requested_ids = {
-                        str(value).strip()[:80]
-                        for value in request.form.getlist("issue_id")
-                        if str(value).strip()
-                    }
-                    selected_ids = sorted(allowed_ids.intersection(requested_ids))
-                    if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
-                        flash("De foutsuggesties horen bij de nieuwste, schrijfbare detectierun.", "error")
-                    elif not selected_ids:
-                        flash("Er zijn geen geldige, nog open foutsuggesties om toe te passen.", "warning")
-                    else:
-                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "model_error")
-                        flash(
-                            f"{len(applied)} kaders (overduidelijke modelfouten, onvolledige detecties en "
-                            "gesplitste detecties) als modelfout gemarkeerd.",
-                            "success",
-                        )
-                    parameters = {}
-                    if reference:
-                        parameters["reference"] = reference
-                    if candidate:
-                        parameters["candidate"] = candidate
-                    return redirect(url_for("process_step", step_key=step_key, **parameters))
-                if action == "apply_all_open_geometry_functional_ok":
-                    # Unlike apply_functional_suggestions above, this is not limited to the
-                    # conservative gt_coverage/prediction_excess thresholds: a reviewer who has
-                    # seen enough geometry afwijkingen to trust the button can approve every
-                    # still-open one on this run in a single click, same "functional_ok" decision
-                    # as the per-issue button.
-                    state = table_cell_comparison_state(
-                        workspace_root(),
-                        reference_run_id=reference or None,
-                        candidate_run_id=candidate or run_id or None,
-                    )
-                    active_run = str((state.get("candidate") or {}).get("run_id") or "")
-                    allowed_ids = set(state.get("open_geometry_issue_ids") or [])
-                    requested_ids = {
-                        str(value).strip()[:80]
-                        for value in request.form.getlist("issue_id")
-                        if str(value).strip()
-                    }
-                    selected_ids = sorted(allowed_ids.intersection(requested_ids))
-                    if not state.get("ready") or not state.get("review_writable") or run_id != active_run:
-                        flash("Dit geldt alleen voor de nieuwste, schrijfbare detectierun.", "error")
-                    elif not selected_ids:
-                        flash("Er zijn geen open geometrie-afwijkingen meer om zo te markeren.", "warning")
-                    else:
-                        applied = review_comparison_issues_bulk(workspace_root(), run_id, selected_ids, "functional_ok")
-                        flash(
-                            f"{len(applied)} open geometrie-afwijkingen als functioneel correct gemarkeerd. "
-                            "Ground Truth en trainingsfeedback zijn niet gewijzigd.",
-                            "success",
-                        )
-                    parameters = {}
-                    if reference:
-                        parameters["reference"] = reference
-                    if candidate:
-                        parameters["candidate"] = candidate
-                    return redirect(url_for("process_step", step_key=step_key, **parameters))
-                wants_json = (
-                    request.headers.get("X-Requested-With") == "XMLHttpRequest"
-                    or request.accept_mimetypes.best == "application/json"
-                )
-                effective_decision = ""
-                promoted: dict[str, Any] | None = None
-                error_message = ""
-                message = ""
-                if action == "add_prediction_to_gt":
-                    try:
-                        promoted = add_comparison_fp_to_ground_truth(workspace_root(), run_id, issue_id)
-                    except (KeyError, ValueError, FileNotFoundError) as exc:
-                        error_message = f"Prediction kon niet aan de Ground Truth worden toegevoegd: {exc}"
-                    else:
-                        effective_decision = "gt_added"
-                        suffix = " (bestond al in GT)" if promoted.get("already_present") else ""
-                        message = (
-                            "Prediction toegevoegd aan de canonieke Ground Truth" + suffix +
-                            ". De huidige table-cell trainingsdataset is nu verouderd; bouw hem in Stap 8 opnieuw."
-                        )
-                else:
-                    decision = str(request.form.get("decision") or "").strip().lower()
-                    try:
-                        review_comparison_issue(workspace_root(), run_id, issue_id, decision)
-                    except (KeyError, ValueError) as exc:
-                        error_message = f"Vervolg-review kon niet worden opgeslagen: {exc}"
-                    else:
-                        effective_decision = "" if decision == "clear" else decision
-                        labels = {
-                            "model_error": "Modelmisser bevestigd",
-                            "functional_ok": "Geometrie functioneel correct bevonden",
-                            "gt_check": "Gemarkeerd voor Ground Truth-controle",
-                            "gt_added": "Prediction toegevoegd aan Ground Truth",
-                            "deferred": "Beoordeling uitgesteld",
-                            "clear": "Beoordeling gewist",
-                        }
-                        message = labels.get(decision, "Vervolg-review opgeslagen")
-
-                if wants_json:
-                    if error_message:
-                        return jsonify({"ok": False, "error": error_message}), 409
-                    state = table_cell_comparison_state(
-                        workspace_root(),
-                        reference_run_id=reference or None,
-                        candidate_run_id=candidate or run_id or None,
-                    )
-                    return jsonify({
-                        "ok": True,
-                        "message": message,
-                        "decision": effective_decision,
-                        "already_present": bool((promoted or {}).get("already_present")),
-                        "counts": {
-                            "open_issue_count": int(state.get("open_issue_count") or 0),
-                            "reviewed_issue_count": int(state.get("reviewed_issue_count") or 0),
-                            "issue_count": int(state.get("issue_count") or 0),
-                        },
-                    })
-
-                if error_message:
-                    flash(error_message, "error")
-                else:
-                    flash(message, "success")
-                parameters = {}
-                if reference:
-                    parameters["reference"] = reference
-                if candidate:
-                    parameters["candidate"] = candidate
-                return redirect(url_for("process_step", step_key=step_key, **parameters))
+                return _process_step_table_compare_post(step_key)
             if step_key == "localization-dataset":
-                split_action = str(request.form.get("split_action") or "save").strip().lower()
-                try:
-                    if split_action == "auto":
-                        plan = save_localization_split_config(workspace_root(), mode="auto", overrides={})
-                        flash(
-                            f"Veilige automatische split toegepast: {plan['counts']['train']} train / "
-                            f"{plan['counts']['val']} val / {plan['counts']['test']} test.",
-                            "success",
-                        )
-                    elif split_action == "save":
-                        targets = {
-                            "train": int(request.form.get("split_train") or 0),
-                            "val": int(request.form.get("split_val") or 0),
-                            "test": int(request.form.get("split_test") or 0),
-                        }
-                        source_ids = request.form.getlist("split_source_id")
-                        choices = request.form.getlist("split_choice")
-                        overrides = {
-                            str(source_id): str(choice)
-                            for source_id, choice in zip(source_ids, choices)
-                            if str(choice) in {"train", "val", "test"}
-                        }
-                        plan = save_localization_split_config(
-                            workspace_root(), mode="counts", targets=targets, overrides=overrides
-                        )
-                        flash(
-                            f"Dataset-split opgeslagen: {plan['counts']['train']} train / "
-                            f"{plan['counts']['val']} val / {plan['counts']['test']} test. "
-                            "Bouw de localization-dataset opnieuw om deze verdeling vast te leggen.",
-                            "success",
-                        )
-                    else:
-                        abort(400)
-                except (TypeError, ValueError) as exc:
-                    flash(f"Dataset-split kon niet worden opgeslagen: {exc}", "error")
-                return redirect(url_for("process_step", step_key=step_key))
-            if step_key != "header-normalization":
-                abort(405)
-            if header_profile is None:
-                flash("Het actieve profiel kon niet worden geladen; normalisatietraining is niet beschikbaar.", "error")
-                return redirect(url_for("process_step", step_key=step_key))
-
-            action = str(request.form.get("header_action", "save")).strip().lower()
-            sample_ids = request.form.getlist("header_sample_id")
-            saved = 0
-            rejected = 0
-            for sample_id in sample_ids:
-                current = database.get(sample_id)
-                if current is None:
-                    continue
-                selected = str(request.form.get(f"header_status_{sample_id}", "accepted")).strip().lower()
-                if action == "accept_visible":
-                    selected = "accepted"
-                target = str(
-                    request.form.get(
-                        f"header_target_{sample_id}",
-                        current.get("header_target_field_key") or current.get("field_key") or "",
-                    )
-                ).strip()
-                exact = str(request.form.get(f"header_exact_{sample_id}", ""))
-                notes = str(request.form.get(f"header_notes_{sample_id}", ""))
-                try:
-                    database.review_header(sample_id, selected, target, exact, notes)
-                    saved += 1
-                    rejected += int(selected == "rejected")
-                except ValueError as exc:
-                    flash(f"Rijheader {sample_id} kon niet worden opgeslagen: {exc}", "error")
-
-            trained_payload: dict[str, Any] | None = None
-            if action in {"train", "train_redetect"}:
-                trained_payload = build_header_normalization_model(
-                    database.header_training_rows(), header_profile, header_model_path()
-                )
-                if trained_payload.get("included_example_count", 0) > 0:
-                    flash(
-                        f"Normalisatiemodel opgebouwd met {trained_payload.get('included_example_count', 0)} "
-                        f"beoordeelde voorbeelden en {trained_payload.get('learned_alias_count', 0)} geleerde aliassen.",
-                        "success",
-                    )
-                else:
-                    flash(
-                        "Het model is opgeslagen, maar bevat nog geen bruikbare bevestigde rijheaders.",
-                        "warning",
-                    )
-                if trained_payload.get("conflicts"):
-                    flash(
-                        f"{len(trained_payload['conflicts'])} dubbelzinnige alias(sen) zijn uit veiligheid niet geactiveerd.",
-                        "warning",
-                    )
-
-            queued_job: dict[str, Any] | None = None
-            if action == "train_redetect":
-                queued_job = enqueue_job("2")
-                flash(
-                    "Nieuwe normalisatie is actief. DICOM-detectie is opnieuw in de wachtrij geplaatst.",
-                    "success",
-                )
-            elif action in {"save", "accept_visible"}:
-                flash(
-                    f"{saved} rijheaderbeoordeling(en) opgeslagen"
-                    + (f"; {rejected} uitgesloten" if rejected else "")
-                    + ".",
-                    "success",
-                )
-
-            parameters = {"header_status": header_status_filter}
-            if header_source_filter:
-                parameters["source_id"] = header_source_filter
-            if header_sample_filter:
-                parameters["sample_id"] = header_sample_filter
-            if header_method_filter != "all":
-                parameters["extraction_method"] = header_method_filter
-            if queued_job:
-                parameters["job_id"] = str(queued_job["job_id"])
-            return redirect(url_for("process_step", step_key=step_key, **parameters))
+                return _process_step_localization_dataset_post(step_key)
+            return _process_step_header_normalization_post(
+                step_key,
+                header_status_filter,
+                header_source_filter,
+                header_sample_filter,
+                header_method_filter,
+            )
 
         if step_key == "panel-setup":
-            panel_state = table_panel_state()
-            context = _table_panel_review_context(str(request.args.get("source_id") or ""), panel_state)
-            region_sources = list_table_region_sources(workspace_root())
-            region_total = sum(int(item.get("region_count") or 0) for item in region_sources)
-            expected_sources = database.list_detection_sources()
-            region_by_source = {str(item.get("source_id") or ""): item for item in region_sources}
-            region_pending = sum(
-                1 for item in expected_sources
-                if not bool(region_by_source.get(str(item.get("source_id") or ""), {}).get("review_completed"))
-                or not bool(region_by_source.get(str(item.get("source_id") or ""), {}).get("region_count"))
-            )
-            return render_template(
-                "table_panel_setup.html", step=step, panel_state=panel_state,
-                panel_profile=panel_state.get("profile") or {}, sources=context["sources"], source=context["source"],
-                source_id=context["source_id"], suggestions=context["suggestions"],
-                detection_info=context["detection_info"],
-                region_ground_truth=context["region_ground_truth"],
-                table_review_sources=context["table_review_sources"],
-                header_counts={
-                    "total": region_total,
-                    "pending": region_pending,
-                    "accepted": region_total,
-                },
-                header_total_label="regio’s", header_pending_label="lezingen open", header_accepted_label="opgeslagen",
-            )
+            return _process_step_panel_setup(step)
 
         if step_key == "table-region-model":
-            region_sources = list_table_region_sources(workspace_root())
-            dataset = None
-            latest_pointer = workspace_root() / "table_region_datasets" / "latest.txt"
-            try:
-                dataset_id = latest_pointer.read_text(encoding="ascii").strip()
-            except OSError:
-                dataset_id = ""
-            if dataset_id:
-                dataset = _read_json(workspace_root() / "table_region_datasets" / dataset_id / "manifest.json", None)
-            reviewed_sources = [item for item in region_sources if item.get("review_completed")]
-            return render_template(
-                "table_region_training.html", step=step,
-                region_sources=region_sources, reviewed_sources=reviewed_sources,
-                dataset=dataset,
-                header_counts={
-                    "total": sum(int(item.get("region_count") or 0) for item in reviewed_sources),
-                    "pending": max(0, len(sources := database.list_detection_sources()) - len(reviewed_sources)),
-                    "accepted": int((dataset or {}).get("annotation_count") or 0),
-                },
-                header_total_label="tabelregio’s", header_pending_label="lezingen open",
-                header_accepted_label="trainingskaders",
-            )
+            return _process_step_table_region_model(step)
 
         if step_key == "table-quality":
-            quality = current_table_first_quality()
-            preview = recognition_scope_preview(workspace_root())
-            semantic_assignments = load_table_semantic_assignments(workspace_root())
-            # The persisted table raster is authoritative here. Do not rebuild
-            # rows and columns by clustering canonical GT cells.
-            studio_source_id = str(preview.get("source_id") or "")
-            geometry = database.list_detection_table_geometry(studio_source_id) if studio_source_id else {"regions": [], "cells": []}
-            profile = load_panel_profile(workspace_root())
-            reference_width = float(profile.get("reference_width") or 0)
-            reference_height = float(profile.get("reference_height") or 0)
-            named_tables: dict[str, dict[str, Any]] = {}
-            for region in geometry.get("regions", []):
-                center_x = (float(region.get("x1") or 0) + float(region.get("x2") or 0)) / 2
-                center_y = (float(region.get("y1") or 0) + float(region.get("y2") or 0)) / 2
-                for panel in profile.get("panels") or []:
-                    if (
-                        float(panel.get("x1") or 0) * reference_width <= center_x <= float(panel.get("x2") or 0) * reference_width
-                        and float(panel.get("y1") or 0) * reference_height <= center_y <= float(panel.get("y2") or 0) * reference_height
-                    ):
-                        named_tables[str(region.get("table_id") or "")] = panel
-                        break
-            table_groups: dict[str, list[dict[str, Any]]] = {}
-            for cell in geometry.get("cells", []):
-                raw_table_id = str(cell.get("table_id") or "")
-                panel = named_tables.get(raw_table_id) or {}
-                table_id = str(panel.get("panel_id") or raw_table_id or "__default__")
-                table_groups.setdefault(table_id, []).append({
-                    **cell, "panel_id": table_id,
-                    "panel_name": str(panel.get("name") or table_id),
-                })
-
-            def indexed_cells(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
-                """Use persisted row/column indices; infer only for legacy records.
-
-                Older canonical GT records store exact boxes but predate the
-                optional row_index/column_index fields. Tabelstudio needs
-                stable visual grouping, so infer the indices from box centers
-                without changing the canonical GT file.
-                """
-                usable = [dict(cell) for cell in cells]
-                if all("row_index" in item and "column_index" in item for item in usable):
-                    return usable
-                heights = [
-                    max(1, int(item.get("y2") or 0) - int(item.get("y1") or 0))
-                    for item in usable
-                ]
-                widths = [
-                    max(1, int(item.get("x2") or 0) - int(item.get("x1") or 0))
-                    for item in usable
-                ]
-                row_tolerance = max(6.0, (sum(heights) / max(1, len(heights))) * 0.75)
-                column_tolerance = max(8.0, (sum(heights) / max(1, len(heights))) * 1.5)
-
-                def cluster(items: list[dict[str, Any]], center_key: str, tolerance: float) -> list[list[dict[str, Any]]]:
-                    groups: list[list[dict[str, Any]]] = []
-                    for item in sorted(items, key=lambda value: float(value[center_key])):
-                        center = float(item[center_key])
-                        if not groups:
-                            groups.append([item])
-                            continue
-                        previous_center = sum(float(value[center_key]) for value in groups[-1]) / len(groups[-1])
-                        if center - previous_center <= tolerance:
-                            groups[-1].append(item)
-                        else:
-                            groups.append([item])
-                    return groups
-
-                for item in usable:
-                    item["_center_y"] = (int(item.get("y1") or 0) + int(item.get("y2") or 0)) / 2
-                    item["_center_x"] = (int(item.get("x1") or 0) + int(item.get("x2") or 0)) / 2
-                rows = cluster(usable, "_center_y", row_tolerance)
-                columns = cluster(usable, "_center_x", column_tolerance)
-                for row_index, row in enumerate(rows):
-                    for item in row:
-                        item["row_index"] = row_index
-                for column_index, column in enumerate(columns):
-                    for item in column:
-                        item["column_index"] = column_index
-                for item in usable:
-                    item.pop("_center_y", None)
-                    item.pop("_center_x", None)
-                return usable
-
-            def axis_groups(cells: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
-                groups: dict[int, list[dict[str, Any]]] = {}
-                for cell in cells:
-                    groups.setdefault(int(cell.get(key, -1)), []).append(cell)
-                result = [
-                    {"index": index, "cells": sorted(items, key=lambda item: int(item.get("column_index" if key == "row_index" else "row_index", -1))),
-                     "x1": min(int(item.get("x1") or 0) for item in items), "y1": min(int(item.get("y1") or 0) for item in items),
-                     "x2": max(int(item.get("x2") or 0) for item in items), "y2": max(int(item.get("y2") or 0) for item in items)}
-                    for index, items in sorted(groups.items()) if index >= 0
-                ]
-                if key == "column_index":
-                    # Adjacent raster columns share one boundary. Detection
-                    # boxes can overlap by a few pixels; never expose that
-                    # overlap as a semantic column boundary in the Studio.
-                    for left, right in zip(result, result[1:]):
-                        left_center = (left["x1"] + left["x2"]) / 2
-                        right_center = (right["x1"] + right["x2"]) / 2
-                        boundary = round((left_center + right_center) / 2)
-                        boundary = max(left["x1"] + 1, min(boundary, right["x2"] - 1))
-                        left["x2"] = boundary
-                        right["x1"] = boundary
-                return result
-            def table_record(table_id: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
-                cells = indexed_cells(cells)
-                padding = 16
-                fallback_name = str(cells[0].get("table_name") or cells[0].get("panel_name") or ("Tabel zonder profiel" if table_id == "__default__" else table_id))
-                relations = database.list_detected_relations(studio_source_id)
-                ocr_parts = []
-                bounds = (min(int(item.get("x1") or 0) for item in cells), min(int(item.get("y1") or 0) for item in cells), max(int(item.get("x2") or 0) for item in cells), max(int(item.get("y2") or 0) for item in cells))
-                for relation in relations:
-                    cx = (int(relation.get("label_x1") or 0) + int(relation.get("label_x2") or 0)) / 2
-                    cy = (int(relation.get("label_y1") or 0) + int(relation.get("label_y2") or 0)) / 2
-                    if bounds[0] <= cx <= bounds[2] and bounds[1] <= cy <= bounds[3]:
-                        for key in ("context_text", "label_text", "header_text", "column_header"):
-                            value = str(relation.get(key) or "").strip()
-                            if value and value not in ocr_parts:
-                                ocr_parts.append(value)
-                saved = semantic_assignments.get(table_id) or {}
-                suggested_name, suggestion_source = suggest_table_name(
-                    " | ".join(ocr_parts),
-                    [str(item.get("name") or "") for item in profile.get("panels") or [] if str(item.get("name") or "").strip()],
-                    fallback_name,
-                )
-                return {"table_id": table_id, "table_name": str(saved.get("table_name") or suggested_name), "table_name_source": str(saved.get("source") or suggestion_source), "ocr_header_text": " | ".join(ocr_parts), "cells": cells, "rows": axis_groups(cells, "row_index"), "columns": axis_groups(cells, "column_index"), "crop": {"x1": max(0, bounds[0] - padding), "y1": max(0, bounds[1] - padding), "x2": bounds[2] + padding, "y2": bounds[3] + padding}}
-            studio = {
-                "source_id": str(preview.get("source_id") or ""),
-                "tables": [table_record(table_id, cells) for table_id, cells in sorted(table_groups.items())],
-            }
-            if str(request.args.get("view") or "").strip().lower() == "geometry":
-                return render_template(
-                    "table_structure.html",
-                    step=step, table_quality=quality, studio=studio,
-                    header_counts={
-                        "total": int((quality.get("totals") or {}).get("desired_total", 0)),
-                        "pending": int((quality.get("totals") or {}).get("pending", 0)),
-                        "accepted": int((quality.get("totals") or {}).get("detected_desired", 0)),
-                    },
-                    header_total_label="doelcellen", header_pending_label="te reviewen",
-                    header_accepted_label="direct gevonden",
-                )
-            roles = table_studio_roles(workspace_root())
-            configured_rows = table_studio_rows(workspace_root())
-            studio_tables = [
-                {
-                    **table,
-                    "rows": [
-                        {
-                            **row,
-                            "active": (
-                                table["table_id"] not in configured_rows
-                                or int(row["index"]) in configured_rows.get(table["table_id"], [])
-                            ),
-                        }
-                        for row in table["rows"]
-                    ],
-                    "columns": [
-                        {
-                            **column,
-                            "role": roles.get(table["table_id"], {}).get(str(column["index"]), ""),
-                        }
-                        for column in table["columns"]
-                    ],
-                }
-                for table in studio["tables"]
-                if table["table_id"] != "__default__"
-            ]
-            return render_template(
-                "table_studio.html",
-                step=step, table_quality=quality, studio=studio,
-                studio_tables=studio_tables,
-                table_roles=roles,
-                table_rows=configured_rows,
-                role_options=[
-                    ("", "Niet ingesteld"),
-                    ("label", "Label"), ("value", "Waarde"),
-                    ("unit", "Eenheid"), ("header", "Koptekst"), ("skip", "Overslaan"),
-                ],
-                header_counts={
-                    "total": len(studio_tables),
-                    "pending": sum(1 for table in studio_tables for column in table["columns"] if not column["role"]),
-                    "accepted": sum(1 for table in studio_tables for column in table["columns"] if column["role"]),
-                },
-                header_total_label="tabellen", header_pending_label="kolommen open",
-                header_accepted_label="rollen gekozen",
-            )
+            return _process_step_table_quality_get(step)
 
         if step_key == "table-model":
-            model_state = table_cell_training_state(workspace_root())
-            preview = model_state.get("preview") or {}
-            dataset = model_state.get("dataset") or {}
-            validation = dataset.get("validation") if isinstance(dataset, dict) else {}
-            validation = validation if isinstance(validation, dict) else {}
-            latest_model = model_state.get("latest_model") or {}
-            evaluation = latest_model.get("evaluation") if isinstance(latest_model, dict) else {}
-            evaluation = evaluation if isinstance(evaluation, dict) else {}
-            dataset_current = bool(model_state.get("dataset_current"))
-            build_ready = bool(preview.get("ready"))
-            validate_ready = bool(dataset and dataset_current)
-            train_ready = bool(validate_ready and validation.get("valid"))
-            model_for_current_dataset = bool(
-                latest_model.get("model_id") and dataset.get("dataset_id")
-                and str(latest_model.get("dataset_id") or "") == str(dataset.get("dataset_id") or "")
-            )
-            active_is_latest = bool(
-                model_for_current_dataset and (model_state.get("active_model") or {}).get("model_id")
-                and str((model_state.get("active_model") or {}).get("model_id") or "") == str(latest_model.get("model_id") or "")
-            )
-            needs_training = bool(train_ready and not model_for_current_dataset)
-            activate_ready = bool(model_for_current_dataset and not active_is_latest)
-            needs_redetect = bool(model_for_current_dataset and active_is_latest)
-            reasons = {
-                "build": "" if build_ready else "Rond eerst de tabelreview af en zorg dat er positieve functionele cellen zijn.",
-                "validate": "" if validate_ready else ("De review is gewijzigd sinds de laatste dataset. Bouw de dataset opnieuw." if dataset else "Bouw eerst de table-cell dataset."),
-                "train": "" if train_ready else ("Valideer eerst de actuele table-cell dataset." if validate_ready else "Bouw eerst een actuele dataset uit de huidige reviewcorrecties."),
-                "activate": "" if activate_ready else ("Dit model is al actief." if active_is_latest else "Train eerst een model op de actuele dataset."),
-            }
-            return render_template(
-                "table_model_training.html", step=step, model_state=model_state, preview=preview,
-                dataset=dataset, validation=validation, latest_model=latest_model, evaluation=evaluation,
-                build_ready=build_ready, validate_ready=validate_ready, train_ready=train_ready,
-                needs_training=needs_training, model_for_current_dataset=model_for_current_dataset,
-                activate_ready=activate_ready, needs_redetect=needs_redetect, reasons=reasons,
-                header_counts={
-                    "total": int(preview.get("annotation_count") or 0),
-                    "pending": 0 if dataset_current else (1 if dataset else 0),
-                    "accepted": len(model_state.get("models") or []),
-                },
-                header_total_label="reviewcellen", header_pending_label="dataset verouderd",
-                header_accepted_label="getrainde modellen",
-            )
+            return _process_step_table_model(step)
 
         if step_key == "table-compare":
-            comparison = table_cell_comparison_state(
-                workspace_root(),
-                reference_run_id=str(request.args.get("reference") or "").strip() or None,
-                candidate_run_id=str(request.args.get("candidate") or "").strip() or None,
-            )
-            candidate_metrics = ((comparison.get("candidate") or {}).get("metrics") or {}) if comparison.get("ready") else {}
-            return render_template(
-                "table_model_comparison.html",
-                step=step, comparison=comparison,
-                header_counts={
-                    "total": int(candidate_metrics.get("gt_total") or 0),
-                    "pending": int(comparison.get("open_issue_count") or 0),
-                    "accepted": int(comparison.get("reviewed_issue_count") or 0),
-                },
-                header_total_label="GT-cellen", header_pending_label="afwijkingen open",
-                header_accepted_label="afwijkingen beoordeeld",
-            )
+            return _process_step_table_compare_get(step)
 
         if step_key == "localization-dataset":
             return render_template("react_localization_workbench.html", step=step)
@@ -3689,35 +3822,7 @@ def create_web_app(
         # of Panel Setup prevents newly detected boxes from being confused
         # with the manually accepted region GT used to train the model.
         if step_key == "detect-candidates" and localization_strategy() == "table_first":
-            sources = [dict(item) for item in database.list_detection_sources()]
-            requested_source_id = str(request.args.get("source_id") or "").strip()
-            source = next((item for item in sources if str(item.get("source_id") or "") == requested_source_id), None)
-            if source is None and sources:
-                source = sources[0]
-            source_id = str((source or {}).get("source_id") or "")
-            geometry = database.list_detection_table_geometry(source_id) if source_id else {"regions": [], "cells": []}
-            context = _table_panel_review_context(source_id)
-            # One bulk query pair instead of a database.list_detection_table_geometry()
-            # (two full-table SELECTs) per source, just to count regions.
-            region_counts_by_source = database.detection_table_counts_by_source()
-            review_sources = []
-            for item in sources:
-                item_source_id = str(item.get("source_id") or "")
-                item["region_count"] = region_counts_by_source.get(item_source_id, {}).get("regions", 0)
-                review_sources.append(item)
-            return render_template(
-                "table_region_review.html", step=step, sources=review_sources, source=source,
-                source_id=source_id, regions=geometry.get("regions", []),
-                panel_profile=load_panel_profile(workspace_root()),
-                ocr_contexts=database.list_detected_relations(source_id) if source_id else [],
-                ground_truth_regions=list_table_regions(workspace_root(), source_id) if source_id else [],
-                detection_info=context.get("detection_info") or {},
-                header_counts={
-                    "total": len(geometry.get("regions", [])), "pending": len(geometry.get("regions", [])),
-                    "accepted": len(list_table_regions(workspace_root(), source_id)) if source_id else 0,
-                },
-                header_total_label="modelregio’s", header_pending_label="te beoordelen", header_accepted_label="oude GT",
-            )
+            return _process_step_detect_candidates_table_first(step)
 
         if step_key == "artifacts":
             return render_management(active_tab="models")
@@ -3729,79 +3834,11 @@ def create_web_app(
         state: dict[str, Any] = {}
         header_counts = None
 
-        if step_key == "detection-models":
-            state["preparation"] = preparation_for_current_strategy()
-            state["panel_state"] = table_panel_state()
-            state["input_file_count"] = input_source_count()
-            state["registered_source_count"] = len(database.list_detection_sources())
-        elif step_key in {"detect-candidates", "detection-review"}:
-            detection_sources = database.list_detection_sources()
-            detection_reviews = step4_review_counts()
-            state.update(
-                detection_sources=detection_sources,
-                detection_reviews=detection_reviews,
-                input_selection=input_selection_state(),
-                panel_state=(table_panel_state() if localization_strategy() == "table_first" else {"configured": True, "detection_current": True}),
-            )
-            if step_key == "detect-candidates" and localization_strategy() == "table_first":
-                state["table_model"] = table_cell_training_state(workspace_root())
-            header_counts = {
-                "total": int(detection_reviews.get("candidate_total", 0)) + int(detection_reviews.get("added", 0)),
-                "pending": int(detection_reviews.get("pending", 0)),
-                "accepted": int(detection_reviews.get("positive", 0)),
-            }
-        elif step_key == "redetect":
-            evaluations = database.list_localization_evaluations()
-            state.update(
-                detection_gate=current_detection_gate(),
-                localization_baseline=next((item for item in evaluations if item.get("kind") == "baseline"), None),
-                localization_trained=next((item for item in evaluations if item.get("kind") == "trained"), None),
-                active_localization_model=database.active_localization_model(),
-            )
-        elif step_key == "mapping":
-            mapping = database.mapping_counts()
-            state.update(detection_gate=current_pipeline_gate(), mapping=mapping)
-            header_counts = {
-                "total": mapping.get("relations", 0),
-                "pending": mapping.get("suggested", 0),
-                "accepted": mapping.get("confirmed", 0),
-            }
-        elif step_key in {"apply-mapping", "value-extract"}:
-            mapped = mapped_sample_state()
-            state.update(detection_gate=current_pipeline_gate(), mapped=mapped)
-            header_counts = {
-                "total": mapped.get("total", 0),
-                "pending": max(0, mapped.get("total", 0) - mapped.get("roi_correct", 0)),
-                "accepted": mapped.get("roi_correct", 0),
-            }
-        elif step_key == "value-review":
-            value = value_review_counts()
-            outputs = []
-            for source in database.list_detection_sources():
-                current_source = str(source.get("source_id") or "")
-                output_path = workspace_root() / "extracted_output" / f"{current_source}.json"
-                payload = _read_json(output_path, {}) if output_path.is_file() else {}
-                measurements = payload.get("measurements") if isinstance(payload, dict) else {}
-                if isinstance(measurements, dict) and measurements:
-                    outputs.append({
-                        "source_id": current_source,
-                        "measurement_count": len(measurements),
-                        "generated_at": payload.get("generated_at") or "",
-                    })
-            state.update(detection_gate=current_pipeline_gate(), value=value, outputs=outputs)
-            header_counts = value
+        state_builder = _PROCESS_STEP_STATE_BUILDERS.get(step_key)
+        if state_builder is not None:
+            state, header_counts = state_builder()
         elif step_key.startswith("recognition-"):
-            _, active = registry_state()
-            recognition_baseline, recognition_custom = latest_evaluations()
-            state.update(
-                detection_gate=current_recognition_gate(),
-                pipeline_gate=current_pipeline_gate(),
-                dataset=latest_dataset_info(),
-                active=active,
-                recognition_baseline=recognition_baseline,
-                recognition_custom=recognition_custom,
-                recognition_comparison=latest_comparison(),
-            )
+            state, header_counts = _process_step_state_recognition()
         elif step.get("group") == "value":
             state["detection_gate"] = current_pipeline_gate()
 

@@ -29,6 +29,7 @@ from typing import Any, Callable
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 
 from .generic_detection import normalize_text
+from .json_api import json_error
 from .mapping_lateral import field_lateral_side, field_lateral_suffix, relation_lateral_side
 from .relation_feedback import RELATION_FEEDBACK_REASONS
 from .recognition_ground_truth import table_studio_roles, table_studio_rows
@@ -99,7 +100,7 @@ def register_mapping_studio_routes(
         relation_id = str(payload.get("relation_id") or "").strip()
         feedback_action = str(payload.get("action") or "reject").strip().lower()
         if not relation_id:
-            return jsonify({"ok": False, "error": "relation_id ontbreekt"}), 400
+            return json_error("relation_id ontbreekt", 400)
         try:
             if feedback_action == "restore":
                 database.clear_relation_feedback(source_id, relation_id)
@@ -128,9 +129,9 @@ def register_mapping_studio_routes(
                     "reason_detail": feedback["reason_detail"],
                 }
             else:
-                return jsonify({"ok": False, "error": "Onbekende feedbackactie"}), 400
+                return json_error("Onbekende feedbackactie", 400)
         except (KeyError, ValueError) as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return json_error(str(exc), 400)
         result["stats"] = database.relation_feedback_stats()
         return jsonify(result)
 

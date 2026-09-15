@@ -1,31 +1,69 @@
-const hq = React.createElement;
-const QualityComponent = React.Component;
-function qnum(value) { const n = Number(value); return Number.isFinite(n) ? n : 0; }
-function qpct(value) { return `${(qnum(value) * 100).toFixed(1)}%`; }
-function qfixed(value, digits = 3) { return qnum(value).toFixed(digits); }
-function qtext(value, fallback = "—") { return value === null || value === undefined || value === "" ? fallback : String(value); }
-function qwhen(value) {
+/* Shared formatting/UI helpers for the localization-* React page controllers.
+ *
+ * Before this file existed, `text`/`qtext`/`safeText`, `artifactWhen`/`qwhen`,
+ * `artifactAction`/`qAction`/`actionControl`, `datasetName`/`qdatasetName`
+ * and `modelName`/`qmodelName`/`evaluationName`/`qevalName` were each
+ * duplicated near-verbatim across localization-artifacts.ts,
+ * localization-quality.ts and localization-workbench.ts
+ * (CODE_REVIEW_v3.16.0.md, sectie Middel: "drie React-paginacontrollers...
+ * met bijna letterlijk gekopieerde format-helpers"; zie ook
+ * documentation/architecture/refactor-phase2-plan.md, item 10).
+ *
+ * Declared here as ambient globals (matching this build's `module: "none"`
+ * + `outFile` setup, where each page's tsconfig lists this file before its
+ * own .ts file so tsc concatenates them into one global-scope program) --
+ * NOT extracted: each page's Boundary class and poll/refresh scaffolding.
+ * Those look similar but differ in real ways (different render markup and
+ * state shape per Boundary; different "is a job still active" predicates
+ * and extra per-page hooks in the poll loops) -- unifying them would mean
+ * either a user-visible behavior change or a real abstraction-design
+ * decision, neither of which this pass makes blindly without a way to
+ * verify it live in a browser.
+ */
+/** Empty/None/undefined -> `fallback` (default "—"), otherwise String(value). */
+function sharedText(value, fallback = "—") {
+    return value === null || value === undefined || value === "" ? fallback : String(value);
+}
+/** Dutch-locale "26 mrt 2025, 14:03"-style datetime, or a placeholder for an empty value. */
+function sharedFriendlyWhen(value) {
     if (!value)
         return "onbekende datum";
     const parsed = new Date(String(value));
     if (Number.isNaN(parsed.getTime()))
         return String(value);
-    return parsed.toLocaleString("nl-NL", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(",", "");
+    return parsed
+        .toLocaleString("nl-NL", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+        .replace(",", "");
 }
-function qdatasetName(item, projectName) {
-    return `${qtext(projectName, "Project")} · veld-dataset · ${qwhen(item && item.created_at)}`;
+/** A button plus an optional "why this is disabled" note, in the shared action-control shape. */
+function sharedActionControl(className, button, reason = "") {
+    return React.createElement("div", { className }, button, reason ? React.createElement("small", { className: "action-disabled-reason", role: "note" }, `Niet beschikbaar: ${reason}`) : null);
 }
-function qmodelName(item, projectName) {
-    const model = qtext(item && item.model_name, "veld-detector");
+function sharedDatasetName(item, projectName) {
+    return `${sharedText(projectName, "Project")} · veld-dataset · ${sharedFriendlyWhen(item && item.created_at)}`;
+}
+function sharedModelName(item, projectName) {
+    const model = sharedText(item && item.model_name, "veld-detector");
     const device = item && item.device ? ` · ${String(item.device).toUpperCase()}` : "";
-    return `${qtext(projectName, "Project")} · ${model}${device} · ${qwhen((item && (item.registered_at || item.created_at)) || "")}`;
+    return `${sharedText(projectName, "Project")} · ${model}${device} · ${sharedFriendlyWhen((item && (item.registered_at || item.created_at)) || "")}`;
 }
-function qevalName(item) {
+function sharedEvaluationName(item) {
     const kind = String((item && item.kind) || "evaluatie").toLowerCase() === "baseline" ? "Baseline" : "Getraind";
-    return `${kind} · ${qwhen(item && item.created_at)}`;
+    return `${kind} · ${sharedFriendlyWhen(item && item.created_at)}`;
 }
+/* Localization quality / gate workbench. */
+const hq = React.createElement;
+const QualityComponent = React.Component;
+function qnum(value) { const n = Number(value); return Number.isFinite(n) ? n : 0; }
+function qpct(value) { return `${(qnum(value) * 100).toFixed(1)}%`; }
+function qfixed(value, digits = 3) { return qnum(value).toFixed(digits); }
+const qtext = sharedText;
+const qwhen = sharedFriendlyWhen;
+const qdatasetName = sharedDatasetName;
+const qmodelName = sharedModelName;
+const qevalName = sharedEvaluationName;
 function qAction(button, reason = "") {
-    return hq("div", { className: "quality-action-control" }, button, reason ? hq("small", { className: "action-disabled-reason", role: "note" }, `Niet beschikbaar: ${reason}`) : null);
+    return sharedActionControl("quality-action-control", button, reason);
 }
 function gateTone(state) {
     if (state === "open")

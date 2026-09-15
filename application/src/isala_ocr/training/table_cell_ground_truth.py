@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .db import utc_now
+from .db import TrainingDatabase, utc_now
 from .projects import resolve_project_workspace
 from .json_store import read_json as _read_json, write_json_atomic as _write_json
 
@@ -282,6 +282,48 @@ def ground_truth_review_state(workspace: str | Path) -> dict[str, Any]:
         "sources": sources,
         "ready": bool(sources) and completed == len(sources),
     }
+
+
+def canonical_detection_gate_state(workspace: str | Path) -> dict[str, Any]:
+    """Ready/reason for the canonical table-cell GT detection gate.
+
+    Split out of ``table_first_cli.py``'s ``_sync_table_first_gate()`` and
+    ``mapping_gt_cli.py``'s ``_sync_canonical_gate()``, which computed the
+    exact same ready/reason logic independently (CODE_REVIEW_v3.16.0.md,
+    sectie Middel: "Detectiegate-synclogica letterlijk gekopieerd").
+    """
+    state = ground_truth_review_state(workspace)
+    source_count = int(state.get("source_count") or 0)
+    open_source_count = int(state.get("open_source_count") or 0)
+    gt_cell_count = int(state.get("gt_cell_count") or 0)
+    ready = bool(source_count > 0 and gt_cell_count > 0 and open_source_count == 0)
+    if ready:
+        reason = (
+            f"Canonical table-cell Ground Truth ready: {source_count} source(s), "
+            f"{gt_cell_count} cell(s), 0 open GT source(s)."
+        )
+    elif source_count == 0 or gt_cell_count == 0:
+        reason = "Canonical table-cell Ground Truth is missing or contains no cells."
+    else:
+        reason = (
+            f"Canonical table-cell Ground Truth still has {open_source_count} open "
+            f"source(s) out of {source_count}."
+        )
+    return {**state, "ready": ready, "reason": reason}
+
+
+def sync_canonical_detection_gate(workspace: str | Path) -> dict[str, Any]:
+    """Compute the canonical detection-gate state and persist it to TrainingDatabase.
+
+    Split out of the same two CLI entrypoints as
+    ``canonical_detection_gate_state()`` above.
+    """
+    workspace = Path(workspace)
+    state = canonical_detection_gate_state(workspace)
+    TrainingDatabase(workspace / "samples.sqlite3").set_detection_gate(
+        bool(state["ready"]), reason=str(state["reason"]), evaluation_id="",
+    )
+    return state
 
 
 def list_ground_truth_cells(workspace: str | Path, source_id: str) -> list[dict[str, Any]]:

@@ -118,20 +118,7 @@ def build_dataset(
     # Recognition training is a Model Factory concern. The canonical geometry
     # is authoritative outside the legacy Application ROI-review state, so select
     # accepted Recognition-GT labels directly instead of the legacy ROI helper.
-    with db.connect() as connection:
-        rows = [
-            dict(row)
-            for row in connection.execute(
-                """
-                SELECT * FROM samples
-                WHERE extraction_method=?
-                  AND status='accepted'
-                  AND exact_label IS NOT NULL
-                ORDER BY source_id, sample_id
-                """,
-                (RECOGNITION_GT_METHOD,),
-            ).fetchall()
-        ]
+    rows = db.accepted_exact_label_samples(RECOGNITION_GT_METHOD)
     if len(rows) < minimum_samples:
         raise ValueError(
             f"Only {len(rows)} accepted Recognition-GT samples are available; minimum is {minimum_samples}. "

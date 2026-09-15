@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from isala_ocr.training.registry import activate_model, register_model
+from isala_ocr.training.model_registry import activate_model, register_model
 
 
 def _fake_export(run: Path) -> Path:

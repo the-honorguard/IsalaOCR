@@ -5,6 +5,7 @@ from pathlib import Path
 
 from flask import Flask, request
 
+from .json_api import json_body
 from .json_store import read_json_object, write_json_atomic
 
 
@@ -38,7 +39,7 @@ def install_stale_job_reconciliation(app: Flask, workspace: str | Path) -> None:
     def reconcile_stale_v2_job_statuses():
         if request.method != "POST" or request.path != "/api/v2/jobs":
             return None
-        body = request.get_json(silent=True) or {}
+        body = json_body(request)
         action_id = str(body.get("action_id") or "").strip()
         if not action_id:
             return None

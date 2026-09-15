@@ -638,21 +638,7 @@ def build_step4_baseline(workspace: str | Path, dataset: dict[str, Any] | None =
     created_at = _safe_iso(dataset.get("created_at"))
     panel_profile_at = _safe_iso(dataset.get("panel_profile_updated_at"))
     db = TrainingDatabase(root / "samples.sqlite3")
-    with db.connect() as conn:
-        sql = """
-            SELECT source_id,review_status,original_x1,original_y1,original_x2,original_y2,reviewed_at
-            FROM detection_reviews
-            WHERE review_status<>'added'
-        """
-        params: list[Any] = []
-        if created_at:
-            sql += " AND reviewed_at<=?"
-            params.append(created_at)
-        if panel_profile_at:
-            sql += " AND reviewed_at>=?"
-            params.append(panel_profile_at)
-        sql += " ORDER BY reviewed_at,source_id"
-        rows = [dict(row) for row in conn.execute(sql, params).fetchall()]
+    rows = db.detection_reviews_before_baseline(created_at, panel_profile_at)
 
     by_source: dict[str, list[dict[str, Any]]] = {}
     for index, item in enumerate(rows):

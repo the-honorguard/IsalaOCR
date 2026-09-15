@@ -88,28 +88,7 @@ def _current_table_annotations(db: TrainingDatabase, source_id: str) -> list[dic
     candidate-less additions count only when they were created after the current source
     detection timestamp. This mirrors the table-first quality calculation.
     """
-    with db.connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT a.*, s.render_path, s.image_width, s.image_height, s.detected_at,
-                   c.source_kind, r.notes, r.reason_code
-            FROM detection_annotations a
-            JOIN detection_sources s ON s.source_id=a.source_id
-            LEFT JOIN detection_candidates c
-              ON c.source_id=a.source_id AND c.candidate_id=a.candidate_id
-            LEFT JOIN detection_reviews r ON r.review_id=a.review_id
-            WHERE a.source_id=?
-              AND a.active=1
-              AND a.training_role='positive'
-              AND (
-                    (a.candidate_id<>'' AND c.source_kind LIKE '%table_cell%')
-                 OR (a.candidate_id='' AND a.provenance='added' AND a.created_at>=s.detected_at)
-              )
-            ORDER BY a.y1,a.x1
-            """,
-            (source_id,),
-        ).fetchall()
-    return [dict(row) for row in rows]
+    return db.current_table_annotations(source_id)
 
 
 def _overlap_fraction(box: tuple[int, int, int, int], panel: tuple[int, int, int, int]) -> float:

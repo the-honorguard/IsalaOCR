@@ -1,0 +1,455 @@
+# Fase 2 — resterende punten: wat nodig is en hoe
+
+Dit document beschrijft de drie punten die in `refactor-phase2-plan.md`
+bewust zijn opengelaten, met per punt: waarom het is opengelaten, wat ik
+nodig heb om het alsnog te doen, en de concrete stappen. Doel: dit kan als
+los vervolgtraject worden opgepakt (in deze of een volgende sessie) zonder
+opnieuw te hoeven uitzoeken wat er nodig is.
+
+---
+
+## 1. Frontend: de drie "echte" review-studio's unificeren
+
+(`mapping-review-studio.js`, `step7-review-flow.js`+`step7-single-panel.js`,
+de inline `<script>` in `detection_review_studio.html`. Zie
+`refactor-phase2-plan.md`, item 10, voor de volledige analyse van de vier
+implementaties en waarom de React-familie er niet bij hoort.)
+
+### Waarom opengelaten
+Geen geautomatiseerde regressietest zoals de rest van dit hele plan had
+(723 pytest-tests aan de Python-kant). Elke wijziging aan zoom/pan,
+sneltoetsen of de retry/rollback-logica is alleen interactief in een browser
+te verifiëren.
+
+### Wat ik nodig heb — geverifieerd beschikbaar
+Ik heb dit al gecontroleerd in deze sessie-omgeving, dus dit is geen
+aanname:
+- **Een lokale dev-server voor de trainings-webapp draait zonder Docker/GPU.**
+  `create_web_app()` importeert en start volledig zonder PaddleOCR
+  geïnstalleerd (bevestigd) en de bestaande testsuite bootst 'm al op met
+  een minimale tijdelijke workspace (`tests/test_webui_activity_dock.py`'s
+  `make_app(tmp_path)`-patroon: alleen een lege `project/VERSION`-file en
+  wat lege mappen nodig). `webui_server.py` draait op `waitress`, dat al
+  geïnstalleerd is.
+- **Chromium is beschikbaar** (`/opt/pw-browsers/chromium`). Python's
+  `playwright`-package zelf staat nog niet in de omgeving, maar is een
+  gewone `pip install playwright` (de browserbinaries hoeven niet opnieuw
+  gedownload te worden — dat is al geregeld via
+  `PLAYWRIGHT_BROWSERS_PATH`/`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`).
+- **Fixture-data**: de drie schermen hebben ieder wat databasegevulling nodig
+  om iets te tonen (detectiekandidaten, table-compare-issues, mapping-
+  relaties). Ik bouw dit met de bestaande `TrainingDatabase`-methodes (nu
+  allemaal in `db_*.py`-mixins, dus rechtstreeks aan te roepen) i.p.v. een
+  echte DICOM-pijplijn te draaien — sneller en al hoe de bestaande
+  `tests/test_*review*.py`-fixtures dit ook doen.
+
+### Wat ik NIET heb en moet vragen zodra het zover is
+- ✅ **Productbeslissing genomen**: de `localStorage`-queue van
+  `detection_review_studio.html` (rijkste retry/backoff/dedup-semantiek)
+  wordt de gedeelde standaard. `mapping-review-studio.js` en `step7-*.js`
+  krijgen daardoor bewust zichtbaar ander foutgedrag dan nu (geen
+  automatische rollback meer, wel een "Opnieuw"-knop bij een definitief
+  mislukte poging) — dit is akkoord, dus stap 5 hoeft niet meer te wachten.
+- ✅ **Akkoord op screenshots/opnames** van de trainings-webapp met
+  synthetische fixture-data — al gebruikt voor de nulmeting hierboven.
+- ✅ **Route-beslissing genomen**: `mapping-review-studio.js` wordt
+  gerefactored op zijn bestaande, bereikbare route (`/mapping/<source_id>`,
+  `mapping_studio.html`) zoals gepland; het feit dat de hoofdflow er niet
+  naartoe wijst wordt in dit traject niet apart gerepareerd (dat is een
+  eigen, ongerelateerd product/UX-besluit over routing, geen
+  studio-infrastructuur).
+
+### Stappen (per stap: bouwen → in de browser testen → pas dan committen)
+1. ✅ **Afgerond.** Fixture-workspace + minimale config geschreven als
+   scratchpad-script (niet meegecommit, zoals gepland — leeft alleen in de
+   sessie-omgeving onder `/tmp/.../scratchpad/studio_baseline/`), dat elk
+   van de drie schermen vult met genoeg data om te tonen en te bewerken:
+   - `detection-review/source-detect`: 8 `table_cell`-kandidaten +
+     1 handmatige annotatie via `replace_localization_detection()` /
+     `add_detection_annotation()`.
+   - `mapping/source-map`: 1 veld (`lv_ef`) + 1 label/waarde-relatie via
+     `seed_field_definitions()` / `replace_generic_detection()`, plus een
+     reviewed detection-annotation die exact het waardeblok dekt — nodig
+     omdat `routes_roi_mapping_studio.py` een relatie alleen toont als
+     `pipeline_a_roi_ready` waar is (elke relatie zonder een corresponderende
+     Pipeline-A-annotatie/kandidaat wordt **stil weggefilterd**, geen fout).
+   - `process/table-compare`: een volledige baseline-vs-current-run opzet
+     (canonieke dataset + `detection_reviews`-rij als bevroren Stap-4-GT +
+     `localization_detections/<source>.json` als "huidige" Stap-8-run +
+     `table_cell_models/active.json`), 1-op-1 naar het patroon van
+     `tests/test_table_model_comparison_v3130.py::_seed_dataset`/
+     `_seed_baseline_and_current` — zonder dat opzet toont deze pagina geen
+     enkel comparison-panel (`open.count == 0` → `display:none`).
+   `create_web_app()` + `waitress.serve` lokaal gestart op
+   `127.0.0.1:8099`.
+
+   **Onverwachte bevinding tijdens het opzetten** (geen actie nodig, wel
+   relevant voor toekomstig werk aan deze schermen): een workspace-pad van de
+   vorm `<root>/training/workspace` wordt door zowel `webui.py`'s
+   `workspace_root()` als door `table_model_comparison.py`/
+   `table_cell_training.py` (via `resolve_project_workspace()`) herschreven
+   naar `<root>/training/workspace/projects/<actief-project-id>/` —
+   `TrainingDatabase` zelf doet dat niet. Bij een verse workspace migreert
+   `ProjectManager._initialize()` bestaande data (o.a. `samples.sqlite3`,
+   `source_renders/`, `localization_detections/`) automatisch naar die
+   project-map zodra hij voor het eerst wordt aangemaakt, maar **niet**
+   `table_cell_datasets/` en `table_cell_models/` — die twee ontbraken in de
+   migratie-lijst. Voor deze nulmeting opgelost door alle fixture-data direct
+   in het al-opgeloste projectpad te schrijven (`resolve_project_workspace()`
+   zelf aanroepen vóór het seeden). Geen fix nodig aan de productiecode
+   hiervoor — dit is een scratchpad-only workaround — maar de ontbrekende
+   paden in de migratielijst zijn wel een reëel klein risico voor een echte
+   platform-upgrade-migratie en zijn het vermelden waard als los, apart
+   op te pakken puntje (niet in scope van dit unificatietraject).
+2. ✅ **Afgerond — nulmeting vastgelegd.** Playwright (Python sync API,
+   headless Chromium) heeft alle drie schermen bezocht en 19 screenshots +
+   een vaste interactiesequentie vastgelegd:
+   - **detection-review**: initiële staat, muiswiel-zoom in/uit, spatie+
+     slepen pannen, `F` (fullscreen review-mode — nodig omdat de kandidatenlijst
+     en de zoom-/view-knoppen in de "quick review"-inline-laag altijd
+     `display:none` staan via een unconditionele `<style>`-regel in
+     `detection_review_studio.html` totdat focus-mode actief is), een
+     kandidaatbox selecteren, en een geforceerd mislukte save (`page.route`
+     abort op `/api/detection-review/**`, sneltoets `C` = "Includeren") —
+     de reviewqueue-retry-UI is zichtbaar in het resultaat.
+   - **mapping ROI-studio**: bevestigd dat dit scherm alleen via
+     `/mapping/<source_id>` (niet `/mapping-labels/<source_id>`, zie de
+     bevinding hieronder) een werkende `mapping-review-studio.js`-overlay
+     toont; `F` opent 'm, muiswiel/knoppen zoomen, `P` + slepen pant,
+     pijltjestoets navigeert, `Enter` probeert goed te keuren (blokkeert
+     hier op "kies eerst een functioneel veld" — geen save-call, dus de
+     geforceerde route-abort had in dit specifieke geval geen zichtbaar
+     effect; voor een volgende nulmeting eerst een functioneel veld
+     selecteren voordat Enter wordt gebruikt).
+   - **table-compare**: initiële staat met een echt zichtbaar
+     comparison-panel en 1 open afwijking (FP), paneelnavigatie via
+     `J`/`K`.
+   - Screenshots + het seed-/serve-script zijn scratchpad-only (niet
+     meegecommit, zoals gepland) en dus niet blijvend beschikbaar na deze
+     sessie; de bevindingen hierboven en de aanpak zijn hier vastgelegd zodat
+     een volgende sessie de nulmeting in enkele minuten kan reproduceren.
+
+   **Onverwachte bevinding (relevant voor de scope van dit traject)**:
+   `mapping-review-studio.js`'s activatie-guard (`if (!rows.length || ...)
+   return;`) faalt stil op `/mapping-labels/<source_id>` — de pagina die de
+   hoofdflow (stap-voor-stap-wizard, `/mapping`- en
+   `/mapping-labels`-index-redirects) daadwerkelijk aanstuurt — omdat
+   `mapping_labels_studio.html` de vereiste `.mapping-relation-row`-DOM niet
+   rendert. De derde "echte" studio-implementatie is dus in de praktijk
+   alleen bereikbaar via de oudere `/mapping/<source_id>`-route
+   (`mapping_studio.html`, via `generic_detection.html`'s "Naar
+   mappingstudio"-link vanaf `/detections`), niet via de huidige hoofdroute.
+   Voorgelegd en beantwoord: unificeren op de bestaande `/mapping/<id>`-route
+   (zie hierboven); de hoofdflow-routing wordt in dit traject niet apart
+   aangepast.
+3. ✅ **Afgerond.** De pan-sleepmechaniek (pointerdown/move/up →
+   `scrollLeft`/`scrollTop`-delta, incl. pointer-capture) was byte-voor-byte
+   bijna identiek tussen `mapping-review-studio.js` en de inline
+   detection-review-script; geëxtraheerd naar
+   `static/viewport-pan.js` (`IsalaViewportPan.createDragPan`, gewone
+   browser-global zoals de rest van deze scripts — geen bundelaar hier). Elk
+   scherm behoudt zijn eigen trigger-conditie (spatie+slepen vs.
+   pan-mode-knop vs. middelste muisknop) en event-fase/`stopPropagation`-keuze
+   als expliciete opties, want die verschillen bewust per scherm (detection-
+   review's viewport heeft ook box-tekenen/-selecteren op dezelfde
+   pointer-events, mapping niet).
+   Geladen via een nieuwe `<script>`-tag in `base.html`'s `<head>` (niet
+   onderaan bij de andere static-scripts) — de detection-review-inline-script
+   staat middenin `{% block content %}` en wordt dus al uitgevoerd vóórdat de
+   scripts onderaan de pagina laden; in `<head>` laden garandeert
+   beschikbaarheid vóór welke `{% block content %}` dan ook.
+   De **zoom-schaalwiskunde zelf bleef bewust ongemoeid**: de twee schermen
+   berekenen zoom conceptueel anders (detection-review: absolute
+   percentage-breedte met cursor-anchoring; mapping: multiplier over een
+   "fit"-basisschaal, altijd viewport-center-behoudend, geen
+   cursor-anchoring) — dat samenvoegen zou een zichtbare gedragswijziging
+   zijn, geen neutrale extractie, en hoort dus niet in deze laagrisico-stap.
+   Twee bestaande literal-string-tests
+   (`tests/test_detection_zoom_busy_v3811.py`,
+   `tests/test_mapping_review_pan_v31412.py`) verwezen naar de oude
+   inline-pan-code; bijgewerkt naar de nieuwe `IsalaViewportPan.createDragPan`
+   call-sites. Geverifieerd: volledige pytest-suite blijft op dezelfde 6
+   vooraf bekende, ongerelateerde faalpunten; een Playwright-nulmeting-rerun
+   op alle drie schermen leverde 19 screenshots op, 16 byte-identiek aan de
+   nulmeting en de overige 3 (wheel-zoom-stappen in detection-review) visueel
+   ononderscheidbaar (muispositie-/timingjitter tussen losse browserruns,
+   geen DOM-verschil).
+4. ✅ **Afgerond.** De percentage-box-overlay-positionering
+   (pixelcoördinaten + natuurlijke afbeeldingsgrootte → CSS-percentages) was
+   niet alleen tussen de twee bestanden gedupliceerd, maar ook *binnen*
+   `detection_review_studio.html` zelf op 4 plekken (`setCoords`,
+   `syncMarker`, `renderRasterPreview`, `appendManualAnnotation`) naast
+   `mapping-review-studio.js`'s `setBox`. Geëxtraheerd naar
+   `static/box-overlay.js` (`IsalaBoxOverlay.applyBoxRect`/
+   `applyPointPosition`), zelfde laadplek als `viewport-pan.js`. Elk
+   call-site behield zijn eigen validatie/clamping/hide-on-invalid-gedrag
+   (dat verschilt bewust per plek); alleen de coördinatenwiskunde en de
+   uiteindelijke style-toewijzing zijn gedeeld. Geverifieerd: pytest blijft
+   op dezelfde 6 bekende faalpunten (geen enkele literal-string-test brak
+   deze keer), en de nulmeting-rerun leverde 18/19 screenshots
+   byte-identiek op (de 19e verschilt 1 byte, consistent met
+   render-jitter, geen DOM-verschil).
+5. ✅ **Afgerond.** De gedeelde retry-queue-primitive (`static/review-queue.js`,
+   `IsalaReviewQueue.createTaskQueue`) gemodelleerd naar detection-review's
+   `localStorage`-queue (akkoord, zie hierboven), in drie deelstappen:
+   - **5a**: detection-review's eigen queue geëxtraheerd naar de gedeelde
+     module (zuivere extractie, geen gedragswijziging) — `execute`/
+     `isEligible`/`onChange`/`onTaskError` als expliciete parameters per
+     scherm, precies zoals hier gepland.
+   - **5b**: `mapping-review-studio.js`'s `approveCurrent()` overgezet op de
+     gedeelde queue. Dit is de eerste plek waar het akkoord ("geen
+     automatische rollback meer, wel een Opnieuw-knop") echt gedrag
+     verandert: goedkeuren zet nu direct de wachtrij-taak klaar en navigeert
+     meteen door (optimistisch, net als detection-review), i.p.v. te
+     wachten op de fetch; een mislukte poging retryt met backoff en toont
+     pas na 3 pogingen een blijvende foutmelding + "Opnieuw"-knop naast de
+     voortgangsbalk. Geverifieerd met gerichte Playwright-checks (happy
+     path navigeert meteen door; een geforceerde netwerkfout toont na 3
+     pogingen de Opnieuw-knop en herstelt na klikken).
+   - **5c**: `step7-review-flow.js`'s per-issue-formulier (table-compare)
+     overgezet op dezelfde queue. Hier bestond nog geen retry-mechanisme
+     (single-shot fetch met volledige rollback op elke fout); nu ook hier
+     automatische retry met backoff, en bij definitieve mislukking géén
+     rollback meer maar een "N wijzigingen niet opgeslagen"-banner met
+     Opnieuw-knop in de bestaande zwevende statuswidget
+     (`#comparison-inline-status`) — er was hier geen ruimte voor een
+     losstaande retry-knop per rij (rij wordt optimistisch verborgen), dus
+     hergebruikt de bestaande statuswidget als gedeelde Opnieuw-plek, net
+     als de queue-statusregel bij de andere twee schermen.
+     `captureViewportAnchor`'s scroll-snapshot leeft in een runtime-only
+     `Map` (niet meegepersisteerd met de taak) omdat scrollpositie herstellen
+     na een echte paginaherlaad toch geen betekenis meer heeft.
+
+   **Bug gevonden en gefixt tijdens 5c** (raakt alle drie schermen):
+   `review-queue.js`'s `run()` riep in een `finally`-blok altijd meteen
+   `pump()` aan, óók na een niet-definitieve mislukking — dat pikte dezelfde
+   taak vrijwel direct weer op (nog niet `failed`, `inFlight` net leeggemaakt)
+   *voordat* de geplande backoff-timer afliep, waardoor pogingen vlak na
+   elkaar vuurden i.p.v. verspreid met 700ms/1400ms backoff. Ontdekt door bij
+   5c niet alleen op eindresultaat te controleren maar ook op ruwe
+   netwerkverzoek-timing. Gefixt: `pump()` wordt nu alleen direct aangeroepen
+   bij succes of bij een *definitieve* mislukking (om andere wachtende taken
+   verder te helpen); een niet-definitieve mislukking wacht op zijn eigen
+   backoff. Detection-review en mapping-review-studio opnieuw geverifieerd:
+   precies 3 verzoeken met de bedoelde ~700ms/1400ms-tussenpozen i.p.v. 3
+   verzoeken binnen ~0.1s.
+
+   **Zijwaartse bevinding (geen actie nodig)**: bij het testen van 5c's
+   geforceerde-mislukking-scenario duurde het via Playwright's
+   `route.abort('failed')` op sommige momenten aanzienlijk langer dan
+   verwacht voordat de `fetch()`-promise van table-compare's
+   `cache:'no-store'`-optie daadwerkelijk afwees — Chromium probeert de
+   onderliggende netwerkaanvraag intern met een eigen exponentiële backoff
+   opnieuw voordat de aan JS zichtbare promise settlet. Dit bleek een
+   eigenschap van deze specifieke test-simulatiemethode (niet van mijn code:
+   `execute()` werd aantoonbaar precies zo vaak aangeroepen als verwacht,
+   geverifieerd met tijdelijke instrumentatie) en bestond al in de
+   ongewijzigde `cache:'no-store'`-fetch-optie vóór deze migratie. Geen
+   wijziging nodig; puur een observatie voor een volgende sessie die dit
+   opnieuw test.
+6. Wat bewust NIET wordt aangeraakt: elk scherm's eigen datamodel ("wat is
+   een box") en backend-routevorm — dat hoort bij het domeinobject van dat
+   scherm, niet bij de studio-infrastructuur.
+7. Na elke stap: dezelfde nulmeting-interactiesequentie opnieuw uitvoeren op
+   alle drie schermen (niet alleen het scherm dat net veranderde — de
+   primitives worden gedeeld), screenshots vergelijken, pas dan naar de
+   volgende stap.
+
+---
+
+## 2. CLI: argv-scanner in `table_first_cli.py` + inconsistente exit-codes
+
+(Zie `refactor-phase2-plan.md`, item 5, "Bewust NIET aangepakt".)
+
+### Status: exit-codes uitgevoerd; argv-scanner nog open
+
+**De audit is uitgevoerd** (alle 30 subcommands' `return`-paden
+geëxtraheerd met `ast`, gekruist tegen elk `automation/powershell/*.ps1`-
+script dat `$LASTEXITCODE` controleert). Belangrijkste bevinding:
+**geen enkel script controleert ooit een specifieke waarde (1 vs. 2) — elk
+script checkt uitsluitend `-ne 0`.** Dat maakt normaliseren van de
+exit-codes zelf risicoloos voor de bestaande automatisering.
+
+Gevonden contract (nu ook dat consistent, en dat is ook zo gedocumenteerd in
+`cli.py`'s `main()`-docstring):
+- **0** = success.
+- **1** = draaide volledig, maar met een data-kwaliteitsprobleem (niet een
+  bug) — al zo bij `process`, `collect-training`, `collect-mapping`,
+  `apply-mappings`, `read-mapped-values`.
+- **2** = kon niet eens draaien (configuratie/argumentfout, of een
+  onbehandelde `ConfigError`/`FileNotFoundError`/`KeyError`/`ValueError`/
+  `RuntimeError` die naar `main()`'s catch-all doorstroomt).
+
+Twee subcommands weken hiervan af en zijn rechtgetrokken:
+`validate-localization-dataset`/`validate-table-cell-dataset` gaven bij een
+niet-valide dataset exit-code **2** (hergebruikte de "kon niet draaien"-code
+voor een normale, verwachte uitkomst) i.p.v. **1** (zoals de andere
+data-kwaliteit-uitkomsten). Beide scripts die deze subcommands aanroepen
+(`validate-localization-dataset.ps1`/`validate-table-cell-dataset.ps1`)
+checken ook hier alleen `-ne 0`, dus geen enkel automatiseringspad
+verandert van gedrag.
+
+`table_first_cli.py`'s argv-scanner (stap 4 hieronder) is nog niet
+aangepakt — dat blijft een aparte, grotere herstructurering.
+
+### Waarom opengelaten
+`table_first_cli.py`'s eigen argv-scanner herstructureren naar echte
+argparse raakt hoe elke subcommand wordt aangeroepen; de exit-codes over
+~31 subcommands van `cli.py` rechttrekken zonder te weten wat de
+PowerShell-automatisering per subcommand aan exit-code verwacht, kan
+`$LASTEXITCODE`-checks in `automation/powershell/*.ps1` stil laten breken.
+
+### Wat ik nodig heb
+- **Geen nieuwe tool/omgeving** — dit kan volledig met wat al beschikbaar is
+  (Python, pytest, tekstueel doorzoeken van de `.ps1`-scripts). Dit is dus
+  het makkelijkst van de drie om alsnog te doen, mits ik het grondig
+  uitzoek in plaats van gok.
+- **Tijd voor een volledige audit**, niet een steekproef: voor elk van de
+  ~31 subcommands van `cli.py` opzoeken (a) welke exit-codes het nu
+  daadwerkelijk kan retourneren, en (b) of en hoe een `.ps1`-script
+  `$LASTEXITCODE` daarna gebruikt (`-eq`/`-ne`/specifieke waarde, of alleen
+  "niet-nul is fout").
+
+### Stappen
+1. **Inventariseren, niet wijzigen**: script dat voor elke `_xxx`-functie in
+   `cli.py` alle `return <int>`-paden extraheert (met de omringende
+   voorwaarde) in een tabel: subcommand → mogelijke exit-codes → betekenis.
+2. Voor elke `automation/powershell/*.ps1` die naar een `isala_ocr.cli`-
+   subcommand verwijst: de exacte `$LASTEXITCODE`-check ernaast leggen.
+3. Pas daarna een target-contract voorstellen (bijv. "0 = succes, 1 =
+   gedeeltelijk mislukt/data-issue, 2 = configuratie-/argumentfout" — in
+   lijn met wat `main()` nu al doet voor `ConfigError`/`ValueError`/etc.)
+   en per subcommand list welke een wijziging nodig hebben.
+4. `table_first_cli.py`'s argv-scanner — **het kleine bugfixje is
+   afgerond**: `_argument_value()` ondersteunt nu ook `--workspace=pad`/
+   `--config=pad` naast de bestaande `--workspace pad`-vorm (6 nieuwe tests
+   in `tests/test_table_first_cli_argument_value.py`). De grotere
+   herstructurering (dit hele pre-scan-mechanisme vervangen door een echte
+   argparse-parse) blijft open — dat vraagt nog steeds de stap 1-3-audit
+   hierboven om zeker te weten dat geen enkel script op een andere,
+   impliciete parsing-nuance leunt.
+5. Voor elke wijziging: bestaande CLI-tests (`tests/test_*cli*.py`) plus een
+   gerichte nieuwe test per aangepast subcommand; nooit een exit-code
+   wijzigen zonder een test die het oude én nieuwe gedrag vastlegt.
+
+---
+
+## 3. `activate-table-region-model.ps1` naar de gecontaineriseerde tool migreren
+
+(Zie `refactor-phase2-plan.md`, item 6, "Bewust NIET aangepakt".)
+
+### Waarom opengelaten
+Dit script doet nu zijn eigen activatielogica in raw PowerShell (leest
+`model.json`/`evaluation_artifacts/test_evaluation.json` van het
+hostbestandssysteem, schrijft `active.json` weg) i.p.v. te delegeren naar de
+`model-manager`-tool zoals de andere drie `activate-*.ps1`-scripts. Een
+correcte fix is een echte productiefunctie-migratie: een nieuwe Python-CLI-
+subcommand die dezelfde logica in de container uitvoert, plus herschrijving
+van het script om daarheen te delegeren.
+
+### Wat ik nodig heb — en niet heb in deze sessie-omgeving
+- **Een werkende Docker-trainingsomgeving** (de `training`-profile services
+  uit `docker-compose`, incl. het `model-manager`-image) om de nieuwe
+  subcommand daadwerkelijk te draaien tegen een echt getraind
+  tabelregio-model (`table_region_runs/<run>/model.json` +
+  `evaluation_artifacts/test_evaluation.json`). Dat heb ik hier niet, en kan
+  ik niet nabootsen zonder het risico te lopen een activatiepad te bouwen
+  dat er in de code goed uitziet maar in het echte containerpad anders
+  gedraagt (andere host-vs-containerpaden, andere Python-omgeving).
+- **Toegang tot zo'n omgeving** (jouw kant, of een sessie met
+  Docker/GPU-toegang) om de nieuwe subcommand + het herschreven script
+  end-to-end te draaien vóór het wordt gecommit.
+
+### Stappen (uit te voeren zodra Docker/GPU-toegang beschikbaar is)
+1. ✅ **Afgerond.** De huidige raw-PowerShell-logica (paden-validatie,
+   evaluatie-check, `active.json`-formaat) 1-op-1 overgezet naar een nieuwe
+   `activate_table_region_model()`-functie in `table_region_training.py`,
+   ontsloten als CLI-subcommand `activate-table-region-model` in `cli.py`
+   (zelfde `_localization_workspace()`-host-vs-containerpad-patroon als
+   `activate_table_cell_model`/`register_localization_model`). Zelfde
+   run-selectie (nieuwste `table_region_runs/<run>`-map met een
+   `model.json`, op mtime), dezelfde evaluatiepoort
+   (`evaluation_artifacts/test_evaluation.json` moet bestaan en `passed`
+   zijn) en hetzelfde `active.json`-veldformaat (bestaande `model.json`-
+   velden behouden hun volgorde, `test_evaluation` en `active` worden
+   toegevoegd/overschreven — identiek aan hoe `ConvertTo-Json` een
+   `PSCustomObject` met nieuwe properties zou serialiseren).
+
+   **Bevinding tijdens het overzetten (relevant voor de container-migratie
+   zelf)**: de oorspronkelijke `[IO.Path]::IsPathRooted(...)`-check in raw
+   PowerShell draait op de host (Windows) en herkent dus alleen
+   Windows-achtige absolute paden correct. Zodra deze logica in de
+   Linux-trainingscontainer draait, kan `model.json` (bij een niet volledig
+   gecontaineriseerde of oudere trainingsrun) nog een absoluut Windows-
+   hostpad bevatten (`C:/Users/...`) — en Pythons eigen `Path(...).is_absolute()`
+   op Linux herkent zo'n string niet als absoluut (POSIX kent geen
+   schijfletters), waardoor die string stilzwijgend als "al relatief" zou
+   worden behandeld en er een onbruikbaar pad in `active.json` terecht zou
+   komen. Opgelost door de absoluut-check platformonafhankelijk te maken
+   (`PureWindowsPath(...).is_absolute() of PurePosixPath(...).is_absolute()`,
+   ongeacht het OS waarop de code daadwerkelijk draait) — een pad dat zo
+   wordt herkend maar niet onder de (container-)workspace valt, laat de
+   functie nu hard falen met dezelfde "buiten de projectworkspace"-fout
+   i.p.v. stil verkeerde data weg te schrijven. 7 nieuwe tests in
+   `tests/test_table_region_model_activation.py` (happy path, relatief pad
+   ongewijzigd, run-selectie op mtime, ontbrekend model, ontbrekende/falende
+   evaluatie, pad buiten de workspace).
+2. ✅ **Afgerond.** `activate-table-region-model.ps1` herschreven naar het
+   `docker compose --profile training run --rm --build training-collector
+   activate-table-region-model --workspace ... --config ...`-patroon —
+   zelfde service (`training-collector`, niet `model-manager`; dat laatste
+   is uitsluitend voor de aparte recognition-model-registry) en dezelfde
+   opbouw als het zusterscript `activate-table-cell-model.ps1`. De oude
+   host-pad-validatielogica (`Get-IsalaHostProjectWorkspace`,
+   `Get-ChildItem`/`ConvertFrom-Json`/`ConvertTo-Json` rechtstreeks op de
+   hostbestandssysteem) is volledig verwijderd uit het script.
+3. ✅ **Afgerond — end-to-end getest tegen een echt getraind model.** Er
+   bleek al een echt getraind tabelregio-model in deze werkomgeving te staan
+   (`table_region_runs/table-region-run-20260907T161011-PicoDet-S`, met een
+   geslaagde `test_evaluation.json`) — precies wat hiervoor nodig was.
+
+   **Onverwachte bevinding (het oude script bleek al kapot)**: het *oude*
+   raw-PowerShell-script bleek te crashen op een verse activatie op deze
+   PowerShell-versie (7.6.6): `$model.test_evaluation = $evaluation` faalt
+   met "The property 'test_evaluation' cannot be found on this object" —
+   `ConvertFrom-Json` levert in PowerShell 7 een `PSCustomObject` waarop je
+   via kale dot-assignment geen *nieuwe* property kunt zetten (dat werkte
+   wel op de oudere Windows PowerShell 5.1; hier reproduceerbaar met een
+   losstaand 2-regelig voorbeeld). Geverifieerd dat het oude script hierdoor
+   nooit een `active.json` wegschreef (crashte vóór de `New-Item`/
+   `Set-Content`-regels) — de reeds aanwezige `active.json` in deze
+   werkomgeving moet dus via een ander mechanisme zijn ontstaan, niet via
+   een succesvolle run van dit specifieke script op deze PowerShell-versie.
+   Dit was dus geen regressie door de migratie, maar een al bestaand,
+   latent kapot pad in het te vervangen script.
+
+   Voor de daadwerkelijke vergelijking: het gevonden model's `model.json`
+   bevatte zelf nog een absoluut Windows-hostpad in `inference_dir` (zie de
+   bevinding bij stap 1) — dat is precies het scenario waarin de nieuwe
+   subcommand terecht weigert (`buiten de projectworkspace`, want een
+   hostpad heeft geen betekenis in de container), bevestigd met een echte
+   run tegen `training-collector`. Om de eigenlijke activatielogica end-to-
+   end te toetsen is het veld tijdelijk gecorrigeerd naar het
+   werkspace-relatieve pad dat een correct gecontaineriseerde trainingsrun
+   zou hebben weggeschreven (met een backup, en na de test teruggezet — dit
+   bestand is gitignored, lokale trainingsdata). Daarna: de nieuwe
+   subcommand succesvol gedraaid via `docker compose --profile training run
+   training-collector activate-table-region-model`, en de resulterende
+   `active.json` inhoudelijk vergeleken met de al aanwezige `active.json`
+   (die als referentie diende voor "correct" gedrag) — **identiek**, inclusief
+   exact dezelfde sleutelvolgorde. `model.json` en `active.json` na de test
+   teruggezet naar hun oorspronkelijke staat.
+4. ✅ **Afgerond.** Code gecommit; de oude host-pad-validatielogica bestaat
+   niet meer (volledig vervangen door de subcommand + het herschreven
+   script uit stap 1-2).
+
+---
+
+## Samenvatting: wat kan al, wat moet wachten
+
+| Punt | Blokkerende afhankelijkheid | Status |
+|---|---|---|
+| 1. Frontend review-studio's | — | **Afgerond** (stap 1-5): nulmeting, gedeelde pan-, box-overlay- en retry-queue-primitives voor alle 3 schermen, inclusief een tijdens het werk gevonden en gefixte race condition in de retry-queue-engine zelf |
+| 2. CLI exit-codes | — | **Afgerond**: audit gedaan, contract gedocumenteerd, 2 subcommands rechtgetrokken |
+| 2b. `table_first_cli.py` argv-scanner | — | **Afgerond**: `--name=waarde`-syntax toegevoegd, `--name waarde` bleef werken |
+| 3. `activate-table-region-model.ps1` | — | **Afgerond**: nieuwe `activate-table-region-model`-subcommand, script herschreven naar het `training-collector`-containerpatroon, end-to-end geverifieerd tegen een echt getraind model (en een pre-existent kapot pad in het oude script + een cross-platform padrisico in de nieuwe subcommand gevonden en gefixt onderweg) |

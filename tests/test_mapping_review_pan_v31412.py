@@ -14,7 +14,7 @@ def test_mapping_review_studio_has_explicit_pan_mode():
     assert "let panMode = false;" in js
     assert "function togglePanMode()" in js
     assert "panButton.addEventListener('click', togglePanMode);" in js
-    assert "if (!(panMode || spaceDown) || event.button !== 0) return;" in js
+    assert "shouldStart: (event) => (panMode || spaceDown) && event.button === 0," in js
     assert "event.key === 'p' || event.key === 'P'" in js
     assert "viewport.classList.toggle('pan-ready', ready);" in js
 

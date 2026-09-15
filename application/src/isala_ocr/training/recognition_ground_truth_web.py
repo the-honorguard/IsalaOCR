@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+import logging
+from concurrent.futures import Future, ThreadPoolExecutor
 from collections import defaultdict
 from pathlib import Path
 
@@ -20,21 +21,34 @@ from .recognition_ground_truth import (
 )
 
 
+LOGGER = logging.getLogger(__name__)
+
 _FORMAT_PROFILE_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="recognition-format")
 
 
 def _rebuild_format_profile(project_root: Path) -> None:
     database = TrainingDatabase(project_root / "samples.sqlite3")
-    with database.connect() as db:
-        rows = db.execute(
-            "SELECT exact_label FROM samples WHERE extraction_method=? AND status='accepted' AND exact_label IS NOT NULL",
-            (EXTRACTION_METHOD,),
-        ).fetchall()
-    save_profile(project_root, build_profile(str(row["exact_label"] or "") for row in rows))
+    save_profile(project_root, build_profile(database.accepted_exact_labels(EXTRACTION_METHOD)))
+
+
+def _log_format_profile_rebuild_failure(future: Future) -> None:
+    """Surface a failed background rebuild instead of letting it vanish silently.
+
+    _schedule_format_profile_rebuild() is intentionally fire-and-forget (the
+    caller must not block on a format-profile rebuild), but nothing was ever
+    retrieving the Future's result/exception, so a failure inside
+    _rebuild_format_profile() was invisible anywhere except a
+    "Future exception was never retrieved" warning at garbage-collection time
+    (CODE_REVIEW_v3.16.0.md, sectie "Losse correctheids-signalen").
+    """
+    exc = future.exception()
+    if exc is not None:
+        LOGGER.error("Recognition-format-profile rebuild failed", exc_info=exc)
 
 
 def _schedule_format_profile_rebuild(project_root: Path) -> None:
-    _FORMAT_PROFILE_EXECUTOR.submit(_rebuild_format_profile, project_root)
+    future = _FORMAT_PROFILE_EXECUTOR.submit(_rebuild_format_profile, project_root)
+    future.add_done_callback(_log_format_profile_rebuild_failure)
 
 
 def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
@@ -49,64 +63,16 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
         profile = load_profile(project_root)
         if profile and profile.get("canonical_signatures"):
             return profile
-        with database.connect() as db:
-            accepted = db.execute(
-                "SELECT 1 FROM samples WHERE extraction_method=? AND status='accepted' AND exact_label IS NOT NULL LIMIT 1",
-                (EXTRACTION_METHOD,),
-            ).fetchone()
-        if accepted:
+        if database.has_accepted_exact_label(EXTRACTION_METHOD):
             _rebuild_format_profile(project_root)
             return load_profile(project_root)
         return {}
 
     def source_rows(database: TrainingDatabase, status_filter: str = "", sort: str = "source") -> list[dict]:
-        where = "WHERE extraction_method=?"
-        params: list[str] = [EXTRACTION_METHOD]
-        if status_filter:
-            where += " AND status=?"
-            params.append(status_filter)
-        order_by = "source_id"
-        if sort == "errors":
-            order_by = "pending DESC, excluded DESC, source_id"
-        elif sort == "pending":
-            order_by = "pending DESC, source_id"
-        with database.connect() as db:
-            rows = db.execute(
-                f"""
-                SELECT source_id,
-                       COUNT(*) AS total,
-                       SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
-                       SUM(CASE WHEN status='accepted' THEN 1 ELSE 0 END) AS accepted,
-                       SUM(CASE WHEN status IN ('unreadable','excluded','no_value') THEN 1 ELSE 0 END) AS excluded
-                FROM samples
-                {where}
-                GROUP BY source_id
-                ORDER BY {order_by}
-                """,
-                params,
-            ).fetchall()
-        return [
-            {
-                "source_id": str(row["source_id"]),
-                "total": int(row["total"] or 0),
-                "pending": int(row["pending"] or 0),
-                "accepted": int(row["accepted"] or 0),
-                "excluded": int(row["excluded"] or 0),
-            }
-            for row in rows
-        ]
+        return database.samples_source_counts(EXTRACTION_METHOD, status_filter or None, sort)
 
     def source_samples(database: TrainingDatabase, source_id: str) -> list[dict]:
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT * FROM samples
-                WHERE source_id=? AND extraction_method=?
-                ORDER BY roi_y1, roi_x1, sample_id
-                """,
-                (source_id, EXTRACTION_METHOD),
-            ).fetchall()
-        return [dict(row) for row in rows]
+        return database.samples_for_source_and_method(source_id, EXTRACTION_METHOD)
 
     def filter_format_samples(samples: list[dict], format_signature: str) -> list[dict]:
         signature = str(format_signature or "").strip()
@@ -152,21 +118,7 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
         return sources[index + 1] if index >= 0 and index + 1 < len(sources) else (sources[0] if sources else None)
 
     def all_samples(database: TrainingDatabase, status_filter: str = "") -> list[dict]:
-        where = "WHERE extraction_method=?"
-        params: list[str] = [EXTRACTION_METHOD]
-        if status_filter:
-            where += " AND status=?"
-            params.append(status_filter)
-        with database.connect() as db:
-            rows = db.execute(
-                f"""
-                SELECT * FROM samples
-                {where}
-                ORDER BY source_id, roi_y1, roi_x1, sample_id
-                """,
-                params,
-            ).fetchall()
-        return [dict(row) for row in rows]
+        return database.samples_by_method(EXTRACTION_METHOD, status_filter or None)
 
     @app.before_request
     def redirect_recognition_review_process_step():
@@ -203,16 +155,7 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
         database = current_database()
         project_root = resolve_project_workspace(workspace_root)
         profile = format_profile_for_review(database, project_root)
-        with database.connect() as db:
-            rows = db.execute(
-                """
-                SELECT sample_id, source_id, raw_ocr, exact_label
-                FROM samples
-                WHERE extraction_method=? AND status='accepted' AND exact_label IS NOT NULL
-                ORDER BY source_id, sample_id
-                """,
-                (EXTRACTION_METHOD,),
-            ).fetchall()
+        rows = database.accepted_exact_label_rows(EXTRACTION_METHOD)
         grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
         for row in rows:
             label = str(row["exact_label"] or "")
@@ -226,6 +169,7 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
                     "exact_label": label,
                 }
             )
+        canonical = profile.get("canonical_signatures") if isinstance(profile.get("canonical_signatures"), dict) else {}
         formats = []
         for (family, signature), examples in sorted(grouped.items()):
             formats.append(
@@ -233,7 +177,11 @@ def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
                     "family": family,
                     "signature": signature,
                     "count": len(examples),
-                    "allowed": True,
+                    # The canonical signature per family is the most common one seen
+                    # in approved GT (build_profile()). Every signature here already
+                    # passed review, so "not allowed" only means "a less common
+                    # variant of this family's usual format", not rejected/invalid.
+                    "allowed": canonical.get(family) == signature,
                     "examples": examples,
                 }
             )

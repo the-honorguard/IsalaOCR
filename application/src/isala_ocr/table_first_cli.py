@@ -5,11 +5,10 @@ from pathlib import Path
 
 from .cli import main as legacy_cli_main
 from .config import load_config
-from .training.db import TrainingDatabase
 from .training.projects import resolve_project_workspace
 from .training.table_cell_ground_truth import (
     ensure_table_cell_ground_truth,
-    ground_truth_review_state,
+    sync_canonical_detection_gate,
 )
 
 
@@ -26,14 +25,27 @@ VALUE_PIPELINE_COMMANDS = {
 
 
 def _argument_value(argv: list[str], name: str) -> str | None:
-    try:
-        index = argv.index(name)
-    except ValueError:
-        return None
-    if index + 1 >= len(argv):
-        return None
-    value = str(argv[index + 1] or "").strip()
-    return value or None
+    """Read one option's value from raw argv, before the real argparse parse below.
+
+    Supports both ``--name value`` and ``--name=value`` -- argparse itself
+    accepts both, but this manual pre-scan used to only recognize the
+    space-separated form (CODE_REVIEW_v3.16.0.md, sectie Middel; zie ook
+    documentation/architecture/refactor-phase2-remaining-plan.md, punt 2),
+    so a caller using ``--workspace=/path`` would silently fall back to the
+    default workspace here while still reaching the real ``--workspace=/path``
+    correctly via ``cli.py``'s own argparse further down the line -- a subtle
+    mismatch between what this gate-sync pre-scan saw and what the actual
+    command ran against.
+    """
+    prefix = f"{name}="
+    for index, item in enumerate(argv):
+        if item.startswith(prefix):
+            return str(item[len(prefix):]).strip() or None
+        if item == name:
+            if index + 1 >= len(argv):
+                return None
+            return str(argv[index + 1] or "").strip() or None
+    return None
 
 
 def _sync_table_first_gate(argv: list[str]) -> None:
@@ -54,30 +66,7 @@ def _sync_table_first_gate(argv: list[str]) -> None:
     if ensure_table_cell_ground_truth(workspace) is None:
         return
 
-    state = ground_truth_review_state(workspace)
-    source_count = int(state.get("source_count") or 0)
-    open_source_count = int(state.get("open_source_count") or 0)
-    gt_cell_count = int(state.get("gt_cell_count") or 0)
-    ready = bool(source_count > 0 and gt_cell_count > 0 and open_source_count == 0)
-
-    if ready:
-        reason = (
-            f"Canonical table-cell Ground Truth ready: {source_count} source(s), "
-            f"{gt_cell_count} cell(s), 0 open GT source(s)."
-        )
-    elif source_count == 0 or gt_cell_count == 0:
-        reason = "Canonical table-cell Ground Truth is missing or contains no cells."
-    else:
-        reason = (
-            f"Canonical table-cell Ground Truth still has {open_source_count} open "
-            f"source(s) out of {source_count}."
-        )
-
-    TrainingDatabase(workspace / "samples.sqlite3").set_detection_gate(
-        ready,
-        reason=reason,
-        evaluation_id="",
-    )
+    sync_canonical_detection_gate(workspace)
 
 
 def main(argv: list[str] | None = None) -> int:

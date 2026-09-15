@@ -121,21 +121,19 @@
       syncPanelVisibility(row.closest('.comparison-panel-card'));
     };
 
-    const restoreOptimisticState = (row, snapshot) => {
-      row.dataset.issueOpen = snapshot.issueOpen;
-      row.dataset.issueDecision = snapshot.issueDecision;
-      delete row.dataset.optimisticHidden;
-      row.style.display = snapshot.display;
-      if (openCount) openCount.textContent = snapshot.openCount;
-      if (reviewedCount) reviewedCount.textContent = snapshot.reviewedCount;
-      if (issueCount) issueCount.textContent = snapshot.issueCount;
-      if (openCount) {
-        const value = parseCount(openCount);
-        openCount.classList.toggle('ok', value === 0);
-        openCount.classList.toggle('warn', value !== 0);
-      }
-      const panel = row.closest('.comparison-panel-card');
-      if (panel) panel.style.display = snapshot.panelDisplay;
+    const setStatusRetryable = (message, onRetry) => {
+      if (!status) return;
+      status.replaceChildren();
+      status.classList.remove('ok');
+      status.classList.add('bad');
+      status.append(document.createTextNode(message));
+      const retryButton = document.createElement('button');
+      retryButton.type = 'button';
+      retryButton.className = 'ghost';
+      retryButton.textContent = 'Opnieuw';
+      retryButton.style.marginLeft = '10px';
+      retryButton.addEventListener('click', onRetry);
+      status.append(retryButton);
     };
 
     // Build a viewport-filling review mode that mirrors the GT Studio focus mode:
@@ -210,17 +208,88 @@
       });
     }
 
+    // Runtime-only (not persisted): a queued task surviving a page reload has
+    // no meaningful prior scroll position to restore anyway.
+    const viewportSnapshots = new Map();
+
+    const issueQueue = IsalaReviewQueue.createTaskQueue({
+      storageKey: 'isala-step7-review:issue-queue-v1',
+      concurrency: 3,
+      execute: async task => {
+        const row = document.querySelector(`.comparison-issue-row[data-issue-id="${CSS.escape(task.issueId)}"]`);
+        const form = document.querySelector(`form.comparison-issue-form[data-pending-task-id="${task.id}"]`);
+        const button = form?.querySelector('button') || null;
+        const body = new FormData();
+        Object.entries(task.fields).forEach(([key, value]) => body.append(key, value));
+        const response = await fetch(task.formAction, {
+          method: 'POST',
+          body,
+          headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+          cache: 'no-store',
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${response.status}`);
+
+        const savedDecision = String(payload.decision || task.requestedDecision || '');
+        if (row) {
+          row.dataset.issueDecision = savedDecision;
+          row.dataset.issueOpen = savedDecision === '' || savedDecision === 'deferred' || savedDecision === 'clear' ? '1' : '0';
+        }
+        applyServerCounts(payload);
+
+        if (savedDecision === 'gt_check') {
+          const href = row ? sourceHrefForRow(row) : '';
+          if (href) {
+            const separator = href.includes('?') ? '&' : '?';
+            window.location.assign(`${href}${separator}from_step7=1&issue_id=${encodeURIComponent(task.issueId || '')}`);
+            return;
+          }
+        }
+
+        // A promoted prediction is removed from the blue candidate layer. Reload
+        // the current review image so the freshly persisted canonical GT is
+        // painted by the normal purple GT overlay immediately.
+        if (row && !task.closesItem) {
+          delete row.dataset.optimisticHidden;
+          row.style.display = '';
+        }
+        if (form) delete form.dataset.pendingTaskId;
+        if (button?.isConnected) {
+          button.disabled = false;
+          button.textContent = task.originalButtonText;
+        }
+        syncAllPanelVisibility();
+        restoreViewportAnchor(viewportSnapshots.get(task.id));
+        viewportSnapshots.delete(task.id);
+        setStatus(payload.message || 'Vervolg-review opgeslagen.', true);
+      },
+      onChange: () => {
+        const failed = issueQueue.tasks().filter(t => t.failed).length;
+        if (!failed) return;
+        setStatusRetryable(
+          `${failed} wijziging${failed === 1 ? '' : 'en'} niet opgeslagen na 3 pogingen.`,
+          () => issueQueue.retryFailed(),
+        );
+      },
+      onTaskError: (task, error) => {
+        if (task.failed) return;
+        setStatus(`Opslaan mislukt, wordt opnieuw geprobeerd (${task.attempt}/3): ${error.message || error}`, false);
+      },
+    });
+
     // Capture phase intentionally runs before the older per-form AJAX handler in
-    // table_model_comparison.html. This gives immediate optimistic removal while
-    // still rolling back cleanly if persistence fails.
-    document.addEventListener('submit', async event => {
+    // table_model_comparison.html. This gives immediate optimistic removal, then
+    // queues the actual save: a transient failure retries automatically with
+    // backoff instead of rolling back after the first hiccup (deliberate,
+    // approved behavior change -- see refactor-phase2-remaining-plan.md, punt 1).
+    document.addEventListener('submit', event => {
       const form = event.target instanceof HTMLFormElement ? event.target : null;
       if (!form?.classList.contains('comparison-issue-form')) return;
       event.preventDefault();
       event.stopImmediatePropagation();
 
       const row = form.closest('.comparison-issue-row');
-      if (!row || form.dataset.optimisticBusy === '1') return;
+      if (!row || form.dataset.pendingTaskId) return;
       const data = new FormData(form);
       const action = String(data.get('comparison_action') || '');
       let requestedDecision = String(data.get('decision') || '');
@@ -229,19 +298,9 @@
       const optimisticDecision = requestedDecision || 'deferred';
       const button = form.querySelector('button');
       const originalButtonText = button?.textContent || '';
-      const panel = row.closest('.comparison-panel-card');
+      const issueId = row.dataset.issueId || '';
       const viewportSnapshot = captureViewportAnchor(row);
-      const snapshot = {
-        issueOpen: String(row.dataset.issueOpen || '1'),
-        issueDecision: String(row.dataset.issueDecision || ''),
-        display: row.style.display,
-        panelDisplay: panel?.style.display || '',
-        openCount: openCount?.textContent || '0',
-        reviewedCount: reviewedCount?.textContent || '0',
-        issueCount: issueCount?.textContent || '0',
-      };
 
-      form.dataset.optimisticBusy = '1';
       if (button) {
         button.disabled = true;
         button.textContent = requestedDecision === 'gt_check' ? 'GT openen…' : 'Opslaan…';
@@ -253,51 +312,19 @@
         restoreViewportAnchor(viewportSnapshot);
       }
 
-      try {
-        const response = await fetch(form.action || window.location.href, {
-          method: 'POST',
-          body: data,
-          headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
-          cache: 'no-store',
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${response.status}`);
-
-        const savedDecision = String(payload.decision || requestedDecision || '');
-        row.dataset.issueDecision = savedDecision;
-        row.dataset.issueOpen = savedDecision === '' || savedDecision === 'deferred' || savedDecision === 'clear' ? '1' : '0';
-        applyServerCounts(payload);
-
-        if (savedDecision === 'gt_check') {
-          const href = sourceHrefForRow(row);
-          if (href) {
-            const separator = href.includes('?') ? '&' : '?';
-            window.location.assign(`${href}${separator}from_step7=1&issue_id=${encodeURIComponent(row.dataset.issueId || '')}`);
-            return;
-          }
-        }
-
-        // A promoted prediction is removed from the blue candidate layer. Reload
-        // the current review image so the freshly persisted canonical GT is
-        // painted by the normal purple GT overlay immediately.
-        if (!closesItem) {
-          delete row.dataset.optimisticHidden;
-          row.style.display = '';
-        }
-        syncAllPanelVisibility();
-        restoreViewportAnchor(viewportSnapshot);
-        setStatus(payload.message || 'Vervolg-review opgeslagen.', true);
-      } catch (error) {
-        restoreOptimisticState(row, snapshot);
-        restoreViewportAnchor(viewportSnapshot);
-        setStatus(`Opslaan mislukt: ${error instanceof Error ? error.message : error}`, false);
-      } finally {
-        delete form.dataset.optimisticBusy;
-        if (button?.isConnected) {
-          button.disabled = false;
-          button.textContent = originalButtonText;
-        }
-      }
+      const task = issueQueue.enqueue(
+        {
+          issueId,
+          formAction: form.action || window.location.href,
+          fields: Object.fromEntries(data.entries()),
+          requestedDecision,
+          closesItem,
+          originalButtonText,
+        },
+        (existing, incoming) => existing.issueId === incoming.issueId,
+      );
+      viewportSnapshots.set(task.id, viewportSnapshot);
+      form.dataset.pendingTaskId = task.id;
     }, true);
   }
 

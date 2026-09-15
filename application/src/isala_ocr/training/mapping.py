@@ -8,14 +8,16 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
+from ..geometry import area as _area
+from ..geometry import intersection_area as _intersection_area
 from ..models import Box
 
 if TYPE_CHECKING:
     from ..config import AppConfig, Profile
     from ..ocr.base import OCREngine
-from .projects import resolve_project_workspace
 from .db import TrainingDatabase, utc_now
 from .generic_detection import normalize_text
+from .projects import resolve_project_workspace
 from .mapping_lateral import ambiguous_lateral_suffixes, lateral_candidate_allowed
 from .mapping_semantics import is_missing_value_text, schema_candidate_score
 from .relation_feedback import evaluate_feedback, relation_snapshot
@@ -174,6 +176,19 @@ def ensure_default_field_definitions(database: TrainingDatabase, profile: Profil
 
 
 def _similarity(left: str, right: str) -> float:
+    """Fuzzy-match a schema-candidate label against a field label during Mapping.
+
+    NOTE: ``dynamic_locator.py`` has its own, differently-tuned
+    ``_similarity()`` for a different problem (locator-label vs. OCR-observed
+    text matching, normalized with ``normalize_for_matching()`` instead of
+    this module's ``normalize_text()``, with ED/ES/BSA domain guards this one
+    doesn't have). They are NOT merged (CODE_REVIEW_v3.16.0.md, sectie Hoog;
+    zie ook documentation/architecture/refactor-phase2-plan.md, item 4): if
+    Mapping ever needs the same ED/ES/BSA protection dynamic_locator.py has,
+    port the guard deliberately -- don't unify the two functions wholesale,
+    that would shift real field-matching behavior in production with no way
+    to verify the shift is safe across the full range of real reports.
+    """
     a = normalize_text(left)
     b = normalize_text(right)
     if not a or not b:
@@ -507,16 +522,6 @@ def auto_confirm_mapping_suggestions(
 
 def _block_box(block: dict[str, Any]) -> Box:
     return Box(int(block["x1"]), int(block["y1"]), int(block["x2"]), int(block["y2"]))
-
-
-def _intersection_area(left: Box, right: Box) -> int:
-    return max(0, min(left.x2, right.x2) - max(left.x1, right.x1)) * max(
-        0, min(left.y2, right.y2) - max(left.y1, right.y1)
-    )
-
-
-def _area(box: Box) -> int:
-    return max(1, box.width * box.height)
 
 
 def _pipeline_a_geometry_match(
@@ -1000,31 +1005,10 @@ def materialize_confirmed_mappings(
     # Keep them as historical records, but move them out of the active method.
     stale_samples = 0
     if failed == 0:
-        with database.connect() as db:
-            rows = db.execute(
-                "SELECT sample_id, source_id FROM samples WHERE extraction_method='mapped_generic'"
-            ).fetchall()
-            processed_sources = set(output_sources)
-            stale_ids = [
-                str(row["sample_id"])
-                for row in rows
-                if (
-                    str(row["sample_id"]) not in current_sample_ids
-                    and (source_id is None or str(row["source_id"]) in processed_sources)
-                )
-            ]
-            if stale_ids:
-                db.executemany(
-                    """
-                    UPDATE samples
-                    SET extraction_method='mapped_generic_stale',
-                        roi_review_status='deferred',
-                        updated_at=datetime('now')
-                    WHERE sample_id=? AND extraction_method='mapped_generic'
-                    """,
-                    [(sample_id,) for sample_id in stale_ids],
-                )
-                stale_samples = len(stale_ids)
+        processed_sources = set(output_sources) if source_id is not None else None
+        stale_samples = len(
+            database.mark_stale_mapped_generic_samples(current_sample_ids, processed_sources)
+        )
 
     manifest = {
         "created_at": utc_now(),

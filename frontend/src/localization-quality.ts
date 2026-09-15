@@ -1,6 +1,4 @@
 /* Localization quality / gate workbench. */
-declare const React: any;
-declare const ReactDOM: any;
 const hq = React.createElement;
 const QualityComponent = React.Component;
 
@@ -57,27 +55,13 @@ type QualityState = {
 function qnum(value: any): number { const n = Number(value); return Number.isFinite(n) ? n : 0; }
 function qpct(value: any): string { return `${(qnum(value) * 100).toFixed(1)}%`; }
 function qfixed(value: any, digits = 3): string { return qnum(value).toFixed(digits); }
-function qtext(value: any, fallback = "—"): string { return value === null || value === undefined || value === "" ? fallback : String(value); }
-function qwhen(value: any): string {
-  if (!value) return "onbekende datum";
-  const parsed = new Date(String(value));
-  if (Number.isNaN(parsed.getTime())) return String(value);
-  return parsed.toLocaleString("nl-NL", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(",", "");
-}
-function qdatasetName(item: any, projectName: string): string {
-  return `${qtext(projectName, "Project")} · veld-dataset · ${qwhen(item && item.created_at)}`;
-}
-function qmodelName(item: any, projectName: string): string {
-  const model = qtext(item && item.model_name, "veld-detector");
-  const device = item && item.device ? ` · ${String(item.device).toUpperCase()}` : "";
-  return `${qtext(projectName, "Project")} · ${model}${device} · ${qwhen((item && (item.registered_at || item.created_at)) || "")}`;
-}
-function qevalName(item: any): string {
-  const kind = String((item && item.kind) || "evaluatie").toLowerCase() === "baseline" ? "Baseline" : "Getraind";
-  return `${kind} · ${qwhen(item && item.created_at)}`;
-}
+const qtext = sharedText;
+const qwhen = sharedFriendlyWhen;
+const qdatasetName = sharedDatasetName;
+const qmodelName = sharedModelName;
+const qevalName = sharedEvaluationName;
 function qAction(button: any, reason = "") {
-  return hq("div", { className: "quality-action-control" }, button, reason ? hq("small", { className: "action-disabled-reason", role: "note" }, `Niet beschikbaar: ${reason}`) : null);
+  return sharedActionControl("quality-action-control", button, reason);
 }
 function gateTone(state: string): string {
   if (state === "open") return "ok";

@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from flask import Flask, abort, jsonify, render_template, request
 
+from .json_api import json_body, json_error
 from .table_cell_ground_truth import (
     add_ground_truth_cell,
     delete_ground_truth_cell,
@@ -275,18 +276,6 @@ def register_detection_review_routes(
                 cb = (assist.get("column_bounds") or {}).get(item["column_index"])
                 item["smart_box"] = [cb[0], rb[0], cb[1], rb[1]] if rb and cb else None
         counts = step4_review_counts(source_id)
-        # The canonical GT Studio is the full source-review editor. Keep the
-        # compact React page available only as an explicit compatibility view.
-        if request.args.get("view", "legacy").strip().lower() != "legacy":
-            studio_sources = [
-                {"source_id": str(item["source_id"]), "review_completed": bool(item.get("review_completed"))}
-                for item in database.list_detection_sources()
-            ]
-            return render_template(
-                "gt_studio.html", source=source, source_id=source_id,
-                candidates=candidates, manual_annotations=manual_annotations,
-                sources=studio_sources, gt_mode=gt_mode,
-            )
         return render_template(
             "detection_review_studio.html",
             source=source, source_id=source_id, candidates=candidates, gt_mode=gt_mode,
@@ -310,7 +299,7 @@ def register_detection_review_routes(
 
     @app.post("/api/detection-review/<source_id>/<candidate_id>")
     def detection_review_candidate_api(source_id: str, candidate_id: str):
-        payload = request.get_json(silent=True) or {}
+        payload = json_body(request)
         status = str(payload.get("status") or "").strip().lower()
         reason = str(payload.get("reason_code") or "").strip().lower()
         relevance_status = str(payload.get("relevance_status") or "relevant").strip().lower()
@@ -327,17 +316,17 @@ def register_detection_review_routes(
                 relevance_status=relevance_status, relevance_reason=relevance_reason, notes=notes,
             )
         except KeyError:
-            return jsonify({"ok": False, "error": "Kandidaat niet gevonden"}), 404
+            return json_error("Kandidaat niet gevonden", 404)
         except (TypeError, ValueError) as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return json_error(str(exc), 400)
         return jsonify({"ok": True, "candidate": item, "counts": step4_review_counts(source_id)})
 
     @app.post("/api/detection-review/<source_id>/batch")
     def detection_review_batch_api(source_id: str):
-        payload = request.get_json(silent=True) or {}
+        payload = json_body(request)
         raw_ids = payload.get("candidate_ids")
         if not isinstance(raw_ids, list):
-            return jsonify({"ok": False, "error": "candidate_ids moet een lijst zijn"}), 400
+            return json_error("candidate_ids moet een lijst zijn", 400)
         candidate_ids = []
         seen = set()
         for raw in raw_ids:
@@ -345,23 +334,23 @@ def register_detection_review_routes(
             if candidate_id and candidate_id not in seen:
                 candidate_ids.append(candidate_id); seen.add(candidate_id)
         if not candidate_ids:
-            return jsonify({"ok": False, "error": "Selecteer minimaal één kandidaat"}), 400
+            return json_error("Selecteer minimaal één kandidaat", 400)
         if len(candidate_ids) > 2000:
-            return jsonify({"ok": False, "error": "Maximaal 2000 kandidaten per batch"}), 400
+            return json_error("Maximaal 2000 kandidaten per batch", 400)
         operation = str(payload.get("operation") or "").strip().lower()
         if operation not in {"confirm", "reject", "irrelevant", "relevant"}:
-            return jsonify({"ok": False, "error": "Onbekende batchactie"}), 400
+            return json_error("Onbekende batchactie", 400)
         reason = str(payload.get("reason_code") or "").strip().lower()
         relevance_reason = str(payload.get("relevance_reason") or "").strip().lower()
         notes = str(payload.get("notes") or "")[:2000]
         if reason and reason not in DETECTION_REVIEW_REASONS:
-            return jsonify({"ok": False, "error": "Onbekende detectiereden"}), 400
+            return json_error("Onbekende detectiereden", 400)
         if relevance_reason and relevance_reason not in DETECTION_RELEVANCE_REASONS:
-            return jsonify({"ok": False, "error": "Onbekende relevantieregel"}), 400
+            return json_error("Onbekende relevantieregel", 400)
         current = {str(item["candidate_id"]): item for item in database.list_detection_candidates(source_id, include_rejected=True)}
         missing = [candidate_id for candidate_id in candidate_ids if candidate_id not in current]
         if missing:
-            return jsonify({"ok": False, "error": f"Kandidaat niet gevonden: {missing[0]}"}), 404
+            return json_error(f"Kandidaat niet gevonden: {missing[0]}", 404)
         updated = []
         try:
             for candidate_id in candidate_ids:
@@ -398,12 +387,12 @@ def register_detection_review_routes(
                     notes=notes if notes else str(candidate.get("review_notes") or ""),
                 ))
         except (TypeError, ValueError) as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return json_error(str(exc), 400)
         return jsonify({"ok": True, "updated": len(updated), "candidates": updated, "counts": step4_review_counts(source_id)})
 
     @app.post("/api/detection-review/<source_id>/complete")
     def detection_review_complete_api(source_id: str):
-        payload = request.get_json(silent=True) or {}
+        payload = json_body(request)
         completed = bool(payload.get("completed", True))
         try:
             if canonical_table_gt_mode():
@@ -411,9 +400,9 @@ def register_detection_review_routes(
             else:
                 source = database.set_detection_source_review_completed(source_id, completed)
         except (KeyError, FileNotFoundError):
-            return jsonify({"ok": False, "error": "Bron niet gevonden"}), 404
+            return json_error("Bron niet gevonden", 404)
         except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc), "counts": step4_review_counts(source_id)}), 409
+            return json_error(str(exc), 409, counts=step4_review_counts(source_id))
         return jsonify({
             "ok": True,
             "completed": bool(source.get("review_completed")),
@@ -423,10 +412,10 @@ def register_detection_review_routes(
 
     @app.post("/api/detection-review/<source_id>/manual")
     def detection_review_manual_api(source_id: str):
-        payload = request.get_json(silent=True) or {}
+        payload = json_body(request)
         box_payload = payload.get("box")
         if not isinstance(box_payload, list) or len(box_payload) != 4:
-            return jsonify({"ok": False, "error": "box moet vier coördinaten bevatten"}), 400
+            return json_error("box moet vier coördinaten bevatten", 400)
         try:
             box = tuple(int(round(float(value))) for value in box_payload)
             if canonical_table_gt_mode():
@@ -439,9 +428,9 @@ def register_detection_review_routes(
                     notes=str(payload.get("notes") or "")[:2000],
                 )
         except KeyError:
-            return jsonify({"ok": False, "error": "Bron niet gevonden"}), 404
+            return json_error("Bron niet gevonden", 404)
         except (TypeError, ValueError) as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return json_error(str(exc), 400)
         return jsonify({"ok": True, "annotation": item, "counts": step4_review_counts(source_id)})
 
     @app.post("/api/detection-review/<source_id>/<candidate_id>/promote-to-gt")
@@ -449,7 +438,7 @@ def register_detection_review_routes(
         """Promote one reviewed table-cell proposal to canonical GT."""
         candidate = database.get_detection_candidate(source_id, candidate_id)
         if candidate is None:
-            return jsonify({"ok": False, "error": "Kandidaat niet gevonden"}), 404
+            return json_error("Kandidaat niet gevonden", 404)
         box = (
             int(candidate.get("corrected_x1") or candidate["x1"]),
             int(candidate.get("corrected_y1") or candidate["y1"]),
@@ -464,30 +453,28 @@ def register_detection_review_routes(
                 notes="Promoted to canonical GT",
             )
         except (KeyError, TypeError, ValueError) as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return json_error(str(exc), 400)
         item = {**gt, "annotation_id": gt["gt_id"], "training_role": "positive", "provenance": gt.get("provenance", "step7_prediction_gt")}
         return jsonify({"ok": True, "annotation": item, "counts": ground_truth_counts(workspace_root(), source_id)})
 
     @app.post("/api/detection-review/<source_id>/accept-unreviewed")
     def detection_review_accept_unreviewed_api(source_id: str):
-        return jsonify({
-            "ok": False,
-            "error": "Impliciet accepteren is uitgeschakeld. Alleen expliciet beoordeelde crops worden trainingsdata.",
-        }), 410
+        return json_error(
+            "Impliciet accepteren is uitgeschakeld. Alleen expliciet beoordeelde crops worden trainingsdata.", 410
+        )
 
     @app.post("/api/detection-review/accept-all-unreviewed")
     def detection_review_accept_all_unreviewed_api():
-        return jsonify({
-            "ok": False,
-            "error": "Impliciet accepteren is uitgeschakeld. Onbeoordeelde kandidaten worden bewust genegeerd.",
-        }), 410
+        return json_error(
+            "Impliciet accepteren is uitgeschakeld. Onbeoordeelde kandidaten worden bewust genegeerd.", 410
+        )
 
     @app.patch("/api/detection-review/<source_id>/manual/<annotation_id>")
     def detection_review_update_manual_api(source_id: str, annotation_id: str):
-        payload = request.get_json(silent=True) or {}
+        payload = json_body(request)
         box_payload = payload.get("box")
         if not isinstance(box_payload, list) or len(box_payload) != 4:
-            return jsonify({"ok": False, "error": "box moet vier coördinaten bevatten"}), 400
+            return json_error("box moet vier coördinaten bevatten", 400)
         try:
             box = tuple(int(round(float(value))) for value in box_payload)
             if canonical_table_gt_mode():
@@ -496,11 +483,11 @@ def register_detection_review_routes(
             else:
                 item = database.update_manual_detection_annotation(annotation_id, box=box)
                 if str(item.get("source_id") or "") != source_id:
-                    return jsonify({"ok": False, "error": "Handmatige annotatie hoort bij een andere bron"}), 409
+                    return json_error("Handmatige annotatie hoort bij een andere bron", 409)
         except KeyError:
-            return jsonify({"ok": False, "error": "Handmatige annotatie niet gevonden"}), 404
+            return json_error("Handmatige annotatie niet gevonden", 404)
         except (TypeError, ValueError) as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return json_error(str(exc), 400)
         return jsonify({
             "ok": True,
             "annotation": item,
@@ -515,5 +502,5 @@ def register_detection_review_routes(
             else:
                 database.delete_manual_detection_annotation(annotation_id)
         except KeyError:
-            return jsonify({"ok": False, "error": "Ground Truth-cel niet gevonden" if canonical_table_gt_mode() else "Handmatige annotatie niet gevonden"}), 404
+            return json_error("Ground Truth-cel niet gevonden" if canonical_table_gt_mode() else "Handmatige annotatie niet gevonden", 404)
         return jsonify({"ok": True, "counts": step4_review_counts(source_id)})

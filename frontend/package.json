@@ -4,7 +4,7 @@
   "version": "3.14.0",
   "description": "Incremental React/TypeScript frontend migration for IsalaOCR",
   "scripts": {
-    "build:embedded": "tsc -p tsconfig.json && tsc -p tsconfig.quality.json && tsc -p tsconfig.artifacts.json && tsc -p tsconfig.gt-studio.json",
+    "build:embedded": "tsc -p tsconfig.json && tsc -p tsconfig.quality.json && tsc -p tsconfig.artifacts.json",
     "build:quality": "tsc -p tsconfig.quality.json",
     "build:artifacts": "tsc -p tsconfig.artifacts.json"
   },

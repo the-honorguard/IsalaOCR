@@ -10,12 +10,18 @@ def test_step7_review_flow_is_loaded_globally():
     assert "step7-review-flow.js" in base
 
 
-def test_step7_reviews_hide_optimistically_and_rollback_on_error():
+def test_step7_reviews_hide_optimistically_and_queue_the_save():
+    # No more rollback on the first network hiccup: the save is queued through
+    # the shared IsalaReviewQueue (review-queue.js), which retries with backoff
+    # and only surfaces a definitive failure + "Opnieuw" after 3 attempts --
+    # see refactor-phase2-remaining-plan.md, punt 1.
     script = _read("application/src/isala_ocr/training/static/step7-review-flow.js")
     assert "event.stopImmediatePropagation()" in script
     assert "hideOptimistically(row, optimisticDecision)" in script
     assert "row.style.display = decision === 'clear' || decision === 'deferred' ? '' : 'none'" in script
-    assert "restoreOptimisticState(row, snapshot)" in script
+    assert "IsalaReviewQueue.createTaskQueue" in script
+    assert "issueQueue.enqueue(" in script
+    assert "setStatusRetryable(" in script
     assert "applyServerCounts(payload)" in script
 
 

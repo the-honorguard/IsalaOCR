@@ -7,7 +7,7 @@ import logging
 import sys
 from pathlib import Path
 
-from .config import ConfigError, load_config
+from .config import AppConfig, ConfigError, load_config
 from .logging_utils import configure_logging
 from .model_prep import download_models
 from .ocr import create_engine
@@ -20,7 +20,7 @@ from .training.source_preview import prepare_source_renders
 from .training.dataset import build_dataset
 from .training.db import TrainingDatabase, utc_now
 from .training.evaluator import compare_evaluations, evaluate_model
-from .training.registry import activate_model, register_model
+from .training.model_registry import activate_model, register_model
 from .training.mapping import (
     auto_confirm_mapping_suggestions, materialize_confirmed_mappings,
     recognize_approved_mapped_samples,
@@ -39,7 +39,7 @@ from .training.table_cell_training import (
     activate_table_cell_model, active_table_cell_model, build_table_cell_dataset, evaluate_table_cell_predictions,
     register_table_cell_model, table_cell_model_history, validate_table_cell_dataset,
 )
-from .training.table_region_training import build_table_region_dataset
+from .training.table_region_training import activate_table_region_model, build_table_region_dataset
 
 LOGGER = logging.getLogger(__name__)
 
@@ -164,6 +164,27 @@ def _mapping_workspace(config, workspace_override: str | None = None) -> Path:
     return _training_workspace(config, workspace_override)
 
 
+def _locator_settings(config: AppConfig) -> dict:
+    """Build PaddleEngine settings for the neutral screen-label locator.
+
+    Shared by ``_collect_training()``, ``_collect_mapping()`` and
+    ``_run_application_pipeline()`` below, and by ``mapping_gt_cli.py``'s own
+    ``_collect_mapping()`` (CODE_REVIEW_v3.16.0.md, sectie Middel:
+    "Locator-engine-constructie 4x gekopieerd"). Label localization must keep
+    the official general-purpose recognition model: a custom value-only model
+    may recognize digits well but degrade screen-label text such as
+    "Stroke Volume".
+    """
+    locator_settings = dict(config.ocr)
+    locator_settings.pop("active_recognition_model_dir", None)
+    locator_settings["recognition_model"] = str(
+        config.raw.get("training", {}).get("collection", {}).get(
+            "locator_recognition_model", "PP-OCRv6_small_rec"
+        )
+    )
+    return locator_settings
+
+
 def _collect_training(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     workspace = _training_workspace(config, args.workspace)
@@ -195,17 +216,7 @@ def _collect_training(args: argparse.Namespace) -> int:
     else:
         engine = PaddleRecognitionEngine(config.ocr)
         if locator_mode != "fixed":
-            # Label localization must keep the official general-purpose
-            # recognition model. A custom value-only model may recognize
-            # digits well but degrade screen-label text such as "Stroke Volume".
-            locator_settings = dict(config.ocr)
-            locator_settings.pop("active_recognition_model_dir", None)
-            locator_settings["recognition_model"] = str(
-                config.raw.get("training", {})
-                .get("collection", {})
-                .get("locator_recognition_model", "PP-OCRv6_small_rec")
-            )
-            locator_engine = PaddleEngine(locator_settings)
+            locator_engine = PaddleEngine(_locator_settings(config))
     manifest = collect_samples(
         args.input,
         workspace,
@@ -228,12 +239,7 @@ def _collect_mapping(args: argparse.Namespace) -> int:
     if args.device:
         config.raw.setdefault("ocr", {})["device"] = args.device
     recognition_engine = PaddleRecognitionEngine(config.ocr)
-    locator_settings = dict(config.ocr)
-    locator_settings.pop("active_recognition_model_dir", None)
-    locator_settings["recognition_model"] = str(
-        config.raw.get("training", {}).get("collection", {}).get("locator_recognition_model", "PP-OCRv6_small_rec")
-    )
-    locator_engine = PaddleEngine(locator_settings)
+    locator_engine = PaddleEngine(_locator_settings(config))
     manifest = collect_mapping_detections(
         args.input,
         _training_workspace(config, args.workspace),
@@ -273,18 +279,11 @@ def _run_application_pipeline(args: argparse.Namespace) -> int:
         raise ValueError("Aangeboden source-id hoort niet bij het geselecteerde DICOM-bestand")
 
     engine = PaddleRecognitionEngine(config.ocr)
-    locator_settings = dict(config.ocr)
-    locator_settings.pop("active_recognition_model_dir", None)
-    locator_settings["recognition_model"] = str(
-        config.raw.get("training", {}).get("collection", {}).get(
-            "locator_recognition_model", "PP-OCRv6_small_rec"
-        )
-    )
     # The generic_mapping dispatcher requires a locator engine even in
     # table-first mode.  Table-first keeps it out of Pipeline-A geometry, but
     # the same neutral OCR locator is still needed for the semantic mapping
     # stage that follows.
-    locator_engine = PaddleEngine(locator_settings)
+    locator_engine = PaddleEngine(_locator_settings(config))
     detection = collect_samples(
         input_path, workspace, config, engine,
         locator_engine=locator_engine, locator_mode="fixed",
@@ -419,7 +418,7 @@ def _validate_localization_dataset_cmd(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     result = validate_localization_dataset(_localization_workspace(config, args.workspace), args.dataset)
     print(json.dumps(result, indent=2, ensure_ascii=False))
-    return 0 if result.get("status") == "ok" else 2
+    return 0 if result.get("status") == "ok" else 1
 
 
 def _build_table_cell_dataset_cmd(args: argparse.Namespace) -> int:
@@ -436,11 +435,18 @@ def _build_table_region_dataset_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+def _activate_table_region_model_cmd(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    result = activate_table_region_model(_localization_workspace(config, args.workspace))
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
 def _validate_table_cell_dataset_cmd(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     result = validate_table_cell_dataset(_localization_workspace(config, args.workspace), args.dataset)
     print(json.dumps(result, indent=2, ensure_ascii=False))
-    return 0 if result.get("valid") else 2
+    return 0 if result.get("valid") else 1
 
 
 def _parse_threshold_list(raw: str | None) -> list[float] | None:
@@ -921,6 +927,11 @@ def build_parser() -> argparse.ArgumentParser:
     region_build.add_argument("--config", default="/app/config/app.yaml")
     region_build.set_defaults(func=_build_table_region_dataset_cmd)
 
+    region_activate = subparsers.add_parser("activate-table-region-model", help="Activate the most recently trained full-page table-region detector")
+    region_activate.add_argument("--workspace")
+    region_activate.add_argument("--config", default="/app/config/app.yaml")
+    region_activate.set_defaults(func=_activate_table_region_model_cmd)
+
     table_eval = subparsers.add_parser("evaluate-table-cell-predictions", help="Evaluate a trained wireless table-cell detector on a fixed dataset split")
     table_eval.add_argument("--workspace")
     table_eval.add_argument("--config", default="/app/config/app.yaml")
@@ -1122,6 +1133,32 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Dispatch to one of the ~30 subcommands' `_xxx(args) -> int` handlers.
+
+    Exit-code contract, documented here rather than per-subcommand
+    (CODE_REVIEW_v3.16.0.md, sectie Middel: "Inconsistente exit-codes ...
+    geen gedocumenteerd contract"; zie ook
+    documentation/architecture/refactor-phase2-remaining-plan.md, punt 2,
+    voor de volledige audit tegen elk `automation/powershell/*.ps1`-script
+    dat een subcommand aanroept):
+
+    - **0** = success.
+    - **1** = the subcommand ran to completion, but some items/validation
+      failed (a data-quality outcome to look at, not a bug) -- e.g.
+      `process`'s "some inputs failed" batch summary, `collect-training`'s
+      "some detections failed", or `validate-localization-dataset`'s
+      "dataset is not valid yet".
+    - **2** = the subcommand could not run at all: a configuration/argument
+      problem (`_process`'s "no input files found"), or an unhandled
+      `ConfigError`/`FileNotFoundError`/`KeyError`/`ValueError`/
+      `RuntimeError` propagating from below (caught here).
+
+    Every `automation/powershell/*.ps1` script that checks `$LASTEXITCODE`
+    only ever checks it against 0 (never a specific 1-vs-2 value) --
+    verified across every script in the repo before relying on that when
+    normalizing a couple of subcommands to this contract, so this is safe
+    to keep clarifying/tightening without touching PowerShell.
+    """
     parser = build_parser()
     args = parser.parse_args(argv)
     configure_logging(args.log_level)

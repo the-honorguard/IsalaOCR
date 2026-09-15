@@ -5,6 +5,10 @@ WEBUI = ROOT / "application/src/isala_ocr/training/webui.py"
 WORKBENCH = ROOT / "frontend/src/localization-workbench.ts"
 QUALITY = ROOT / "frontend/src/localization-quality.ts"
 ARTIFACTS = ROOT / "frontend/src/localization-artifacts.ts"
+# Shared by all three pages (see documentation/architecture/refactor-phase2-plan.md,
+# item 10): the Dutch-locale date format and the "Niet beschikbaar: ..." action-control
+# wrapper live here now, not duplicated in each page's own source.
+FORMAT_LIB = ROOT / "frontend/src/lib/format.ts"
 
 
 def _text(path: Path) -> str:
@@ -15,10 +19,10 @@ def test_dataset_and_model_labels_include_project_date_and_time() -> None:
     workbench = _text(WORKBENCH)
     quality = _text(QUALITY)
     artifacts = _text(ARTIFACTS)
-    for source in (workbench, quality, artifacts):
-        assert 'month: "short"' in source
-        assert 'hour: "2-digit"' in source
-        assert 'minute: "2-digit"' in source
+    format_lib = _text(FORMAT_LIB)
+    assert 'month: "short"' in format_lib
+    assert 'hour: "2-digit"' in format_lib
+    assert 'minute: "2-digit"' in format_lib
     assert "veld-dataset" in workbench
     assert "qdatasetName" in quality
     assert "qmodelName" in quality
@@ -43,8 +47,8 @@ def test_workbench_exposes_actionable_training_blockers() -> None:
 def test_quality_and_artifact_buttons_explain_why_they_are_disabled() -> None:
     quality = _text(QUALITY)
     artifacts = _text(ARTIFACTS)
+    assert "Niet beschikbaar:" in _text(FORMAT_LIB)
     for source in (quality, artifacts):
-        assert "Niet beschikbaar:" in source
         assert "achtergrondworker is offline" in source
     assert "Voer eerst een baseline- én een getrainde evaluatie uit" in quality
     assert "detection gate" in quality.lower()

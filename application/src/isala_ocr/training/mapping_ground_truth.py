@@ -6,6 +6,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Sequence
 
+from ..geometry import intersection_area as _intersection_area
+from ..geometry import union as _union
 from ..models import Box, OCRToken
 from ..ocr.table_structure import TableCell, TableRegion
 from .generic_detection import GenericBlock
@@ -28,12 +30,6 @@ def _files(path: Path) -> list[Path]:
         and not any(part.startswith(".") for part in item.relative_to(path).parts)
         and item.suffix.lower() not in ignored_suffixes
     )
-
-
-def _intersection_area(left: Box, right: Box) -> int:
-    width = max(0, min(left.x2, right.x2) - max(left.x1, right.x1))
-    height = max(0, min(left.y2, right.y2) - max(left.y1, right.y1))
-    return width * height
 
 
 def _center(box: Box) -> tuple[float, float]:
@@ -108,15 +104,6 @@ def _cluster_rows(boxes: Sequence[Box]) -> list[list[int]]:
         sorted(row, key=lambda index: boxes[index].x1)
         for _, row in sorted(zip(centers, rows), key=lambda item: item[0])
     ]
-
-
-def _union(boxes: Sequence[Box]) -> Box:
-    return Box(
-        min(box.x1 for box in boxes),
-        min(box.y1 for box in boxes),
-        max(box.x2 for box in boxes),
-        max(box.y2 for box in boxes),
-    )
 
 
 def canonical_table_regions(

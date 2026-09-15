@@ -105,6 +105,13 @@ class DocumentResult:
     fields: list[FieldResult]
     consistency: list[ConsistencyResult] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Reserved for future hard-failure reporting (as opposed to `warnings`,
+    # used for review-worthy-but-non-fatal issues). pipeline.py always sets
+    # this to [] today -- nothing appends to it yet -- so every result.json
+    # currently serializes "errors": [] (CODE_REVIEW_v3.16.0.md, sectie Laag).
+    # Kept rather than removed: result.json is an external output schema and
+    # removing a key from it is a schema change this refactor cannot verify
+    # is safe for every downstream consumer.
     errors: list[str] = field(default_factory=list)
     timings_ms: dict[str, float] = field(default_factory=dict)
     study_info: Any | None = None

@@ -6,6 +6,7 @@ from typing import Any
 from flask import Flask, jsonify, request
 
 from .comparison_review_queue import PersistentComparisonReviewQueue
+from .json_api import json_error
 from .projects import ProjectManager
 from .table_model_comparison import review_comparison_issue
 
@@ -258,7 +259,7 @@ def install_comparison_review_queue(app: Flask, workspace_root: str | Path) -> P
     def comparison_review_queue_enqueue():
         action = str(request.form.get("comparison_action") or "review_issue").strip().lower()
         if action != "review_issue":
-            return jsonify({"ok": False, "error": "Alleen reviewbeslissingen horen in deze wachtrij"}), 400
+            return json_error("Alleen reviewbeslissingen horen in deze wachtrij", 400)
         run_id = str(request.form.get("run_id") or "").strip()[:180]
         issue_id = str(request.form.get("issue_id") or "").strip()[:120]
         decision = str(request.form.get("decision") or "").strip().lower()
@@ -272,7 +273,7 @@ def install_comparison_review_queue(app: Flask, workspace_root: str | Path) -> P
                 decision=decision,
             )
         except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
+            return json_error(str(exc), 400)
 
         effective_decision = "" if decision == "clear" else decision
         labels = {

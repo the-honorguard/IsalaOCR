@@ -46,3 +46,51 @@ def test_single_channel_and_alpha_images_become_three_channel_uint8():
 def test_invalid_image_shape_is_rejected():
     with pytest.raises(ValueError, match="Unsupported OCR image shape"):
         PaddleEngine._prepare_image(np.zeros((2, 3, 4, 5), dtype=np.uint8))
+
+
+class ScriptedPipeline:
+    """Returns fixed rec_texts/rec_scores/rec_boxes regardless of input images."""
+
+    def __init__(self, results):
+        self._results = results
+
+    def predict(self, images):
+        return self._results
+
+
+def test_whitelist_strips_disallowed_characters_from_recognized_text():
+    # PaddleOCR has no runtime API to constrain its trained character
+    # dictionary (CODE_REVIEW_v3.16.0.md, sectie Middel: "FieldSpec.whitelist
+    # is een no-op in productie"), so the whitelist is applied post-hoc.
+    engine = PaddleEngine({})
+    engine._pipeline = ScriptedPipeline([
+        {"rec_texts": ["12O.5"], "rec_scores": [0.9], "rec_boxes": [[0, 0, 10, 10]]},
+    ])
+
+    result = engine.recognize_many(
+        [np.zeros((12, 24), dtype=np.uint8)],
+        ["0123456789.,"],
+    )
+
+    assert [token.text for token in result[0]] == ["12.5"]
+
+
+def test_no_whitelist_leaves_recognized_text_unchanged():
+    engine = PaddleEngine({})
+    engine._pipeline = ScriptedPipeline([
+        {"rec_texts": ["12O.5"], "rec_scores": [0.9], "rec_boxes": [[0, 0, 10, 10]]},
+    ])
+
+    result = engine.recognize_many([np.zeros((12, 24), dtype=np.uint8)])
+
+    assert [token.text for token in result[0]] == ["12O.5"]
+
+
+def test_whitelists_length_must_match_images():
+    engine = PaddleEngine({})
+    engine._pipeline = ScriptedPipeline([
+        {"rec_texts": [], "rec_scores": [], "rec_boxes": []},
+    ])
+
+    with pytest.raises(ValueError, match="whitelists must have the same length"):
+        engine.recognize_many([np.zeros((12, 24), dtype=np.uint8)], [])

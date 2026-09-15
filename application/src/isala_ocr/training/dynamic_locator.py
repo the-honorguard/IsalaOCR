@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from statistics import median
-from typing import Iterable, Sequence
+from typing import Sequence
 import re
 import unicodedata
 
 from ..config import FieldSpec, Profile
 from ..geometry import scale_box
+from ..geometry import union as _union
 from ..models import Box, OCRToken
 
 LOCATOR_VERSION = "label-row-v2-normalized"
@@ -48,18 +49,6 @@ def _center_y(box: Box) -> float:
     return (box.y1 + box.y2) / 2.0
 
 
-def _union(boxes: Iterable[Box]) -> Box:
-    values = list(boxes)
-    if not values:
-        raise ValueError("Cannot union an empty box sequence")
-    return Box(
-        min(box.x1 for box in values),
-        min(box.y1 for box in values),
-        max(box.x2 for box in values),
-        max(box.y2 for box in values),
-    )
-
-
 def normalize_for_matching(value: str) -> str:
     """Normalize only locator labels, never the OCR training transcript."""
     normalized = unicodedata.normalize("NFKD", value).casefold()
@@ -69,6 +58,21 @@ def normalize_for_matching(value: str) -> str:
 
 
 def _similarity(expected: str, observed: str) -> float:
+    """Fuzzy-match a locator's expected label text against OCR-observed text.
+
+    NOTE: ``mapping.py`` has its own, differently-tuned ``_similarity()`` for
+    a different problem (schema-candidate label matching during Mapping,
+    normalized with ``normalize_text()`` instead of this module's
+    ``normalize_for_matching()``, with a containment bonus this one doesn't
+    have). They are NOT merged (CODE_REVIEW_v3.16.0.md, sectie Hoog:
+    "Twee onafhankelijk getunede fuzzy-matchfuncties, beide _similarity
+    genoemd"; zie ook documentation/architecture/refactor-phase2-plan.md,
+    item 4): forcing one shape onto both would shift real field/label
+    matches in production with no way to verify the shift is safe across the
+    full range of real reports. If you fix an ED/ES or BSA confusion here,
+    check whether ``mapping.py``'s ``_similarity()`` needs the same guard --
+    it currently has none.
+    """
     left = normalize_for_matching(expected)
     right = normalize_for_matching(observed)
     if not left or not right:

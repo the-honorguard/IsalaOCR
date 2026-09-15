@@ -32,7 +32,14 @@ def evaluate_consistency(
             )
             continue
 
-        assert target.value is not None and left.value is not None and right.value is not None
+        if target.value is None or left.value is None or right.value is None:
+            # Unreachable given the any(...) check above, which already
+            # `continue`s past this point for any None value. A real
+            # exception (not `assert`, which `python -O` strips) so a future
+            # change to that guard fails loudly here instead of turning into
+            # an unguarded TypeError in the arithmetic below
+            # (CODE_REVIEW_v3.16.0.md, sectie "Losse correctheids-signalen").
+            raise AssertionError("target/left/right value should already be non-None here")
         if rule.kind == "sum":
             expected = left.value + right.value
         elif rule.kind == "difference":
