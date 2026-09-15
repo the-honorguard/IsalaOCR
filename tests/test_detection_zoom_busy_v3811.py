@@ -20,7 +20,7 @@ def test_detection_review_has_zoom_pan_and_fullscreen_controls() -> None:
     assert "function naturalZoom" in template
     assert "function focusSelection" in template
     assert "viewport.addEventListener('wheel'" in template
-    assert "spaceDown" in template and "panState" in template
+    assert "spaceDown" in template and "IsalaViewportPan.createDragPan" in template
     assert ".detection-review-viewport" in css
     assert ":fullscreen" in css
 

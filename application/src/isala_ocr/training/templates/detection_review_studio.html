@@ -131,7 +131,7 @@
   const candidateList=document.getElementById('candidate-list'), selectionCount=document.getElementById('selection-count');
   const byId=new Map(boxes.map(el=>[el.dataset.id,el])), manualById=new Map(manualBoxes.map(el=>[el.dataset.manualId,el])), rowById=new Map(rows.map(el=>[el.dataset.id,el]));
   const selectedIds=new Set(), previewIds=new Set(), manualSelectedIds=new Set();
-  let selected=null, selectionAnchorId=null, interaction=null, marquee=null, drawStart=null, drawMode=false, gridDrawMode=false, pendingRasterBox=null, rasterWidths=[], rasterResize=null, rasterBoxResize=null, editMode=false, manualBatchDirty=false, busy=false, zoom=1, spaceDown=false, panState=null;
+  let selected=null, selectionAnchorId=null, interaction=null, marquee=null, drawStart=null, drawMode=false, gridDrawMode=false, pendingRasterBox=null, rasterWidths=[], rasterResize=null, rasterBoxResize=null, editMode=false, manualBatchDirty=false, busy=false, zoom=1, spaceDown=false;
   const inputs=['x1','y1','x2','y2'].map(k=>document.getElementById('box-'+k));
   const msg=document.getElementById('review-message');
   const sourceQueue={{ sources|tojson }};
@@ -158,10 +158,7 @@
   const zoomFullscreen=document.getElementById('zoom-fullscreen'), focusTopToggle=document.getElementById('review-focus-toggle');
   document.addEventListener('fullscreenchange',()=>setTimeout(()=>applyZoom(zoom),0));
   viewport.addEventListener('wheel',e=>{if(drawMode||editMode)return;e.preventDefault();zoomBy(e.deltaY<0?1.12:.89,e);},{passive:false});
-  viewport.addEventListener('pointerdown',e=>{if(!(e.button===1||(spaceDown&&e.button===0)))return;e.preventDefault();e.stopPropagation();panState={x:e.clientX,y:e.clientY,left:viewport.scrollLeft,top:viewport.scrollTop};viewport.classList.add('is-panning');viewport.setPointerCapture(e.pointerId);},true);
-  viewport.addEventListener('pointermove',e=>{if(!panState)return;e.preventDefault();viewport.scrollLeft=panState.left-(e.clientX-panState.x);viewport.scrollTop=panState.top-(e.clientY-panState.y);},true);
-  viewport.addEventListener('pointerup',e=>{if(!panState)return;panState=null;viewport.classList.remove('is-panning');try{viewport.releasePointerCapture(e.pointerId);}catch(_){ }},true);
-  viewport.addEventListener('pointercancel',()=>{panState=null;viewport.classList.remove('is-panning');},true);
+  IsalaViewportPan.createDragPan(viewport,{capture:true,stopPropagationOnStart:true,panningClass:'is-panning',shouldStart:e=>e.button===1||(spaceDown&&e.button===0)});
   function coords(el){return [Number(el.dataset.x1),Number(el.dataset.y1),Number(el.dataset.x2),Number(el.dataset.y2)];}
   function setCoords(el,b){let [x1,y1,x2,y2]=b;x1=clamp(Math.round(x1),0,W-1);y1=clamp(Math.round(y1),0,H-1);x2=clamp(Math.round(x2),x1+1,W);y2=clamp(Math.round(y2),y1+1,H);Object.assign(el.dataset,{x1,y1,x2,y2});el.style.left=(x1/W*100)+'%';el.style.top=(y1/H*100)+'%';el.style.width=((x2-x1)/W*100)+'%';el.style.height=((y2-y1)/H*100)+'%';syncMarker(el);if(el===selected){inputs.forEach((i,n)=>i.value=[x1,y1,x2,y2][n]);drawCrop([x1,y1,x2,y2]);}}
   function drawCrop(b){if(!img.complete)return;const [x1,y1,x2,y2]=b,sw=Math.max(1,x2-x1),sh=Math.max(1,y2-y1),ratio=Math.min(canvas.width/sw,canvas.height/sh),dw=sw*ratio,dh=sh*ratio;ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#071019';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,x1,y1,sw,sh,(canvas.width-dw)/2,(canvas.height-dh)/2,dw,dh);}

@@ -175,8 +175,6 @@
   let zoom = 1;
   let panMode = false;
   let spaceDown = false;
-  let panning = false;
-  let panStart = null;
   let autoAdvanceAfterReject = false;
   const studioStateKey = 'isala-mapping-review-studio-state';
 
@@ -647,27 +645,11 @@
     applyZoom(true);
   }, {passive: false});
 
-  viewport.addEventListener('pointerdown', (event) => {
-    if (!(panMode || spaceDown) || event.button !== 0) return;
-    panning = true;
-    panStart = {x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop};
-    viewport.classList.add('panning');
-    viewport.setPointerCapture?.(event.pointerId);
-    event.preventDefault();
+  const dragPan = IsalaViewportPan.createDragPan(viewport, {
+    panningClass: 'panning',
+    shouldStart: (event) => (panMode || spaceDown) && event.button === 0,
   });
-  viewport.addEventListener('pointermove', (event) => {
-    if (!panning || !panStart) return;
-    viewport.scrollLeft = panStart.left - (event.clientX - panStart.x);
-    viewport.scrollTop = panStart.top - (event.clientY - panStart.y);
-  });
-  const endPan = () => {
-    panning = false;
-    panStart = null;
-    viewport.classList.remove('panning');
-  };
-  viewport.addEventListener('pointerup', endPan);
-  viewport.addEventListener('pointercancel', endPan);
-  viewport.addEventListener('lostpointercapture', endPan);
+  const endPan = () => dragPan.cancel();
 
   const observer = new MutationObserver((mutations) => {
     if (studio.hidden || !currentRow) return;
