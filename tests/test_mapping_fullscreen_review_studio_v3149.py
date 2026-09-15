@@ -72,8 +72,8 @@ def test_fullscreen_approval_posts_only_the_current_relation():
 
     assert "const body = new FormData();" in js
     assert "body.append('mapping_action', 'save');" in js
-    assert "body.append('relation_id', relationId);" in js
-    assert "body.append(`field_${relationId}`, sourceSelect.value);" in js
+    assert "body.append('relation_id', task.relationId);" in js
+    assert "body.append(`field_${task.relationId}`, task.fieldKey);" in js
     assert "new FormData(form)" not in js
 
 
