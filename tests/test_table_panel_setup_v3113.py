@@ -185,3 +185,53 @@ def test_bootstrap_panel_suggestions_keep_second_table_from_nonwinning_variant()
     assert ys[0][0] <= 20 and ys[0][1] >= 190
     assert ys[1][0] <= 260 and ys[1][1] >= 450
     assert any("original" in item["variants"] for item in suggestions)
+
+
+def test_merged_benchmark_regions_keep_table_only_found_by_a_losing_variant():
+    """Regression test for Probeer 1 / detect_with_forced_full_benchmark
+    silently dropping a whole table: when each preprocessing variant only
+    renders one of two tables cleanly, the final detected regions must still
+    contain both, not just the regions of whichever variant scored highest
+    overall (see _merge_variant_table_regions).
+    """
+    from isala_ocr.ocr.table_structure import TableCell, TableRegion, _merge_variant_table_regions
+
+    def region(table_id: str, box: Box, rows: int = 4, cell_confidence: float = 0.9) -> TableRegion:
+        cells = []
+        row_h = max(8, box.height // rows)
+        col_w = max(12, box.width // 2)
+        for r in range(rows):
+            for c in range(2):
+                x1 = box.x1 + c * col_w
+                y1 = box.y1 + r * row_h
+                cells.append(TableCell(
+                    table_id, f"{table_id}-{r}-{c}", r, c,
+                    Box(x1, y1, min(box.x2, x1 + col_w), min(box.y2, y1 + row_h)), "", 0.9,
+                ))
+        return TableRegion(table_id, box, cell_confidence, tuple(cells))
+
+    upper = region("upper", Box(20, 20, 250, 190))
+    lower_weak = region("lower-weak", Box(20, 260, 250, 450), rows=2, cell_confidence=0.4)
+    lower_strong = region("lower-strong", Box(20, 260, 250, 450), cell_confidence=0.9)
+    # "original" only finds the upper table; "invert_clahe" wins the global
+    # benchmark on the strength of a cleaner lower table, but never sees the
+    # upper one at all. The old wholesale-replace selection would keep only
+    # invert_clahe's single table and drop "upper" entirely.
+    regions, groups, sources = _merge_variant_table_regions(
+        {"original": [upper, lower_weak], "invert_clahe": [lower_strong]}, 600, 500,
+    )
+    assert len(regions) == 2
+    kept_ids = {region.table_id for region in regions}
+    assert kept_ids == {"upper", "lower-strong"}
+    assert any(source["variant"] == "original" for source in sources)
+    assert any(source["variant"] == "invert_clahe" for source in sources)
+
+    # A later panel-cropped retry pass must extend the existing groups
+    # (via seed_groups) rather than replacing them wholesale either.
+    panel_variant_upper = region("upper-panel", Box(20, 20, 250, 190), cell_confidence=0.95)
+    regions2, _, sources2 = _merge_variant_table_regions(
+        {"original": [panel_variant_upper]}, 600, 500, seed_groups=groups,
+    )
+    assert len(regions2) == 2
+    assert {region.table_id for region in regions2} == {"upper-panel", "lower-strong"}
+    assert len(sources2) == 2

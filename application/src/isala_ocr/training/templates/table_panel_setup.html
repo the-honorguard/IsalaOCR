@@ -16,7 +16,7 @@
     <form method="get" action="/process/panel-setup">
       <label>Lezing
         <select name="source_id" onchange="this.form.submit()">
-          {% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id == source_id %}selected{% endif %}>{{ item.source_id }}</option>{% endfor %}
+          {% for item in sources %}<option value="{{ item.source_id }}" {% if item.source_id == source_id %}selected{% endif %}>{{ item.display_name|default('Afbeelding') }}</option>{% endfor %}
         </select>
       </label>
     </form>
@@ -50,7 +50,7 @@
     <div class="source-list">
       {% for item in table_review_sources %}
       <a class="source-row{% if item.source_id == source_id %} active{% endif %}" href="/process/panel-setup?source_id={{ item.source_id|urlencode }}">
-        <span class="mono">{{ item.source_id }}</span>
+        <span>{{ item.display_name|default('Afbeelding') }}</span>
         <span class="pill {{ 'ok' if item.review_completed else 'warn' }}">{{ item.region_count or 0 }} · {{ 'klaar' if item.review_completed else 'open' }}</span>
       </a>
       {% endfor %}

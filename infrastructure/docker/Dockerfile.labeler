@@ -30,7 +30,9 @@ COPY application/src/isala_ocr/models.py /app/src/isala_ocr/models.py
 COPY application/src/isala_ocr/geometry.py /app/src/isala_ocr/geometry.py
 COPY application/src/isala_ocr/image_io.py /app/src/isala_ocr/image_io.py
 COPY application/src/isala_ocr/dicom.py /app/src/isala_ocr/dicom.py
+COPY application/src/isala_ocr/study_info.py /app/src/isala_ocr/study_info.py
 COPY application/src/isala_ocr/application_processing /app/src/isala_ocr/application_processing
+COPY application/src/isala_ocr/ocr /app/src/isala_ocr/ocr
 COPY application/src/isala_ocr/training /app/src/isala_ocr/training
 
 # Catch packaging/import regressions during docker build rather than after the

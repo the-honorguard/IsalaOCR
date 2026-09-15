@@ -135,18 +135,29 @@ def _box_iou(left: Box, right: Box) -> float:
     return intersection / max(1, union)
 
 
-def _panel_suggestions_from_variant_results(
-    results: dict[str, list[TableRegion]], image_width: int, image_height: int
+def _group_variant_table_candidates(
+    results: dict[str, Sequence[TableRegion]] | Sequence[tuple[str, Sequence[TableRegion]]],
+    image_width: int,
+    image_height: int,
+    *,
+    seed_groups: Sequence[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Keep plausible table regions from *all* preprocessing variants.
+    """Cluster table regions from different preprocessing variants that plausibly
+    represent the same physical table, keeping the best-scoring rendition of each.
 
-    The structurally best full-image run is still used as detector output, but Panel
-    Setup must not lose a second table merely because another contrast variant won
-    the global benchmark. Suggestions are therefore deduplicated across variants.
+    Shared by ``_panel_suggestions_from_variant_results`` (the manual Panel Setup
+    bootstrap flow) and ``_merge_variant_table_regions`` (the actual detection
+    output) so both treat a table dropped by the single globally-best-scoring
+    variant the same way: recovered from whichever variant did find it, instead
+    of silently discarded because a *different* variant scored higher overall.
+    Pass ``seed_groups`` (a prior call's return value) to extend an existing
+    grouping with another pass's candidates, e.g. a panel-cropped retry refining
+    the full-image stage's groups.
     """
+    items = results.items() if isinstance(results, dict) else results
     candidates: list[dict[str, Any]] = []
     image_area = max(1, image_width * image_height)
-    for variant, regions in results.items():
+    for variant, regions in items:
         for region in regions:
             box = region.box.clamp(image_width, image_height)
             area_fraction = (box.width * box.height) / image_area
@@ -156,12 +167,12 @@ def _panel_suggestions_from_variant_results(
             metrics = score_table_structure([region])
             score = float(metrics.get("score") or 0.0) + min(12.0, cell_count * 0.35)
             candidates.append({
-                "box": box, "variant": variant, "score": score,
+                "region": region, "box": box, "variant": variant, "score": score,
                 "cell_count": cell_count, "confidence": float(region.confidence or 0.0),
                 "excluded_boxes": tuple(region.excluded_boxes),
             })
 
-    groups: list[dict[str, Any]] = []
+    groups: list[dict[str, Any]] = [dict(group, variants=set(group["variants"])) for group in (seed_groups or ())]
     for item in sorted(candidates, key=lambda value: float(value["score"]), reverse=True):
         box = item["box"]
         matched = None
@@ -181,7 +192,19 @@ def _panel_suggestions_from_variant_results(
             if float(item["score"]) > float(matched["best"]["score"]):
                 matched["box"] = box
                 matched["best"] = item
+    return groups
 
+
+def _panel_suggestions_from_variant_results(
+    results: dict[str, list[TableRegion]], image_width: int, image_height: int
+) -> list[dict[str, Any]]:
+    """Keep plausible table regions from *all* preprocessing variants.
+
+    The structurally best full-image run is still used as detector output, but Panel
+    Setup must not lose a second table merely because another contrast variant won
+    the global benchmark. Suggestions are therefore deduplicated across variants.
+    """
+    groups = _group_variant_table_candidates(results, image_width, image_height)
     suggestions: list[dict[str, Any]] = []
     for index, group in enumerate(groups[:12], start=1):
         box = group["box"]
@@ -203,6 +226,49 @@ def _panel_suggestions_from_variant_results(
             "excluded_boxes": [item.to_list() for item in excluded],
         })
     return suggestions
+
+
+def _merge_variant_table_regions(
+    results: dict[str, Sequence[TableRegion]] | Sequence[tuple[str, Sequence[TableRegion]]],
+    image_width: int,
+    image_height: int,
+    *,
+    seed_groups: Sequence[dict[str, Any]] | None = None,
+) -> tuple[list[TableRegion], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Union distinct tables found across preprocessing variants instead of
+    keeping only the single globally-best-scoring variant's full result.
+
+    A screenshot's tables do not always need the same preprocessing to render
+    cleanly: one variant's contrast/threshold pass can reveal one table clearly
+    while hiding another that only a *different* variant's pass detects.
+    Previously the benchmark picked one globally-best-scoring variant and used
+    that variant's regions wholesale, which silently dropped any table only
+    visible under a losing variant - even though ``_panel_suggestions_from_
+    variant_results`` already proved (for the manual Panel Setup bootstrap
+    flow) that the losing variant's table could be recovered. This applies the
+    same recovery to the actual detected regions: group overlapping candidates
+    across every variant and keep the best-scoring rendition of each distinct
+    table, so a table only one variant found is folded in rather than
+    discarded because a different variant "won" overall.
+
+    Returns ``(regions, groups, sources)`` where ``groups`` can be passed back
+    in as ``seed_groups`` to extend the merge with another pass (e.g. a
+    panel-cropped retry), and ``sources`` is a diagnostics-friendly summary of
+    which variant contributed each kept table.
+    """
+    groups = _group_variant_table_candidates(results, image_width, image_height, seed_groups=seed_groups)
+    regions = [group["best"]["region"] for group in groups]
+    sources = [
+        {
+            "box": group["box"].to_list(),
+            "variant": str(group["best"]["variant"]),
+            "score": round(float(group["best"]["score"]), 2),
+            "support": int(group["support"]),
+            "variants": sorted(group["variants"]),
+        }
+        for group in groups
+    ]
+    return regions, groups, sources
 
 
 def _assign_tokens_to_cells(tokens: Sequence[OCRToken], cell_boxes: Sequence[Box]) -> dict[int, list[OCRToken]]:
@@ -553,14 +619,32 @@ def _detect_soft_row_boundaries(gray: np.ndarray, box: Box, *, min_gap: int = 10
     distribution are ignored too (already an obvious edge the detector would
     have found on its own) - this targets exactly the "too faint to notice"
     middle ground.
+
+    Text inside a row is the main source of false positives: a handful of
+    dark glyph pixels shift the row *mean* noticeably even though they only
+    cover a small fraction of the row's width, whereas a genuine row-to-row
+    background shift changes the color of (most of) the entire row. Using the
+    row *median* instead of the mean already filters almost all of that out
+    on its own - a minority-coverage glyph cannot move a robust midpoint
+    statistic the way it moves an average - and comparing the median of a
+    short window immediately before each candidate y to the window
+    immediately after (instead of a single-scanline derivative, even after
+    smoothing) additionally requires the shift to hold for multiple
+    scanlines. On real screenshots the old mean+derivative version fired a
+    "boundary" at nearly every glyph instead of just the real row edges.
     """
     region = gray[box.y1:box.y2, box.x1:box.x2]
-    if region.size == 0 or region.shape[0] < 6:
+    height = region.shape[0]
+    if region.size == 0 or height < 6:
         return []
-    row_means = region.astype(np.float32).mean(axis=1)
-    kernel = np.ones(3, dtype=np.float32) / 3.0
-    smoothed = np.convolve(row_means, kernel, mode="same")
-    diffs = np.abs(np.diff(smoothed))
+    row_profile = np.median(region.astype(np.float32), axis=1)
+    span = max(3, min(8, height // 6))
+    if height < span * 2 + 1:
+        return []
+    diffs = np.array([
+        abs(float(row_profile[index:index + span].mean()) - float(row_profile[index - span:index].mean()))
+        for index in range(span, height - span)
+    ], dtype=np.float32)
     if diffs.size == 0:
         return []
     noise_floor = float(diffs.std()) * 1.5
@@ -569,15 +653,22 @@ def _detect_soft_row_boundaries(gray: np.ndarray, box: Box, *, min_gap: int = 10
         return []
     boundaries: list[int] = []
     last_index = -min_gap
-    for index, value in enumerate(diffs):
-        if noise_floor < value < hard_edge and (index - last_index) >= min_gap:
-            boundaries.append(index + box.y1)
+    for offset, value in enumerate(diffs):
+        index = offset + span
+        absolute_y = index + box.y1
+        if (
+            noise_floor < value < hard_edge
+            and (index - last_index) >= min_gap
+            and absolute_y >= box.y1 + min_gap
+            and absolute_y <= box.y2 - min_gap
+        ):
+            boundaries.append(absolute_y)
             last_index = index
     return boundaries
 
 
 def _draw_row_separator_lines(image: np.ndarray, boundary_ys: Sequence[int], box: Box) -> np.ndarray:
-    """Draw a 1px line at each detected row boundary, inside ``box`` only."""
+    """Draw hard separator lines used as input for the second detection pass."""
     import cv2
 
     canvas = image.copy()
@@ -588,7 +679,10 @@ def _draw_row_separator_lines(image: np.ndarray, boundary_ys: Sequence[int], box
     # gridline rather than noise regardless of the screenshot's theme.
     color = (255, 255, 255) if float(gray.mean()) < 128 else (0, 0, 0)
     for y in boundary_ys:
-        cv2.line(canvas, (box.x1, y), (box.x2, y), color, 1, cv2.LINE_AA)
+        # A crisp two-pixel rule survives the detector's own preprocessing
+        # better than a one-pixel anti-aliased hint and is still narrow enough
+        # not to become a cell in its own right.
+        cv2.line(canvas, (box.x1, y), (box.x2, y), color, 2, cv2.LINE_8)
     return canvas
 
 
@@ -604,12 +698,13 @@ def score_table_structure(regions: Sequence[TableRegion]) -> dict[str, float | i
         return {
             "score": 0.0, "table_count": 0, "cell_count": 0, "row_count": 0,
             "multi_cell_rows": 0, "row_regularity": 0.0, "column_alignment": 0.0,
-            "overlap_penalty": 0.0,
+            "column_width_consistency": 0.0, "overlap_penalty": 0.0,
         }
     row_count = 0
     multi_rows = 0
     row_regularity_parts: list[float] = []
     column_alignment_parts: list[float] = []
+    column_width_consistency_parts: list[float] = []
     overlap_pairs = 0
     overlap_bad = 0
     for region in regions:
@@ -635,6 +730,11 @@ def score_table_structure(regions: Sequence[TableRegion]) -> dict[str, float | i
             mean = sum(centers) / len(centers)
             deviation = sum(abs(value - mean) for value in centers) / len(centers)
             column_alignment_parts.append(max(0.0, 1.0 - min(1.0, deviation / span)))
+            width_mean = sum(widths) / len(widths)
+            width_deviation = sum(abs(value - width_mean) for value in widths) / len(widths)
+            column_width_consistency_parts.append(
+                max(0.0, 1.0 - min(1.0, width_deviation / max(1.0, width_mean)))
+            )
         region_cells = list(region.cells)
         for i, left in enumerate(region_cells):
             for right in region_cells[i + 1:]:
@@ -645,6 +745,10 @@ def score_table_structure(regions: Sequence[TableRegion]) -> dict[str, float | i
                     overlap_bad += 1
     row_regularity = sum(row_regularity_parts) / len(row_regularity_parts) if row_regularity_parts else 0.0
     column_alignment = sum(column_alignment_parts) / len(column_alignment_parts) if column_alignment_parts else 0.0
+    column_width_consistency = (
+        sum(column_width_consistency_parts) / len(column_width_consistency_parts)
+        if column_width_consistency_parts else 0.0
+    )
     overlap_penalty = overlap_bad / overlap_pairs if overlap_pairs else 0.0
     row_density = min(1.0, multi_rows / max(1.0, row_count * 0.75))
     cell_density = min(1.0, len(cells) / 30.0)
@@ -665,9 +769,28 @@ def score_table_structure(regions: Sequence[TableRegion]) -> dict[str, float | i
         "multi_cell_rows": multi_rows,
         "row_regularity": round(row_regularity, 4),
         "column_alignment": round(column_alignment, 4),
+        "column_width_consistency": round(column_width_consistency, 4),
         "overlap_penalty": round(overlap_penalty, 4),
     }
 
+
+def draw_cell_overlay(image: np.ndarray, regions: Sequence[Any]) -> np.ndarray:
+    """Draw table-region and cell boxes on a copy of ``image`` for visual review.
+
+    Shared between the Detectie-lab CLI runner and anything else that needs to
+    render the same overlay, so the drawing logic (colors, line widths) stays
+    in one place instead of being duplicated per caller.
+    """
+    import cv2
+
+    canvas = image.copy()
+    for region in regions:
+        box = region.box
+        cv2.rectangle(canvas, (box.x1, box.y1), (box.x2, box.y2), (0, 140, 255), 2)
+        for cell in region.cells:
+            cbox = cell.box
+            cv2.rectangle(canvas, (cbox.x1, cbox.y1), (cbox.x2, cbox.y2), (0, 220, 0), 1)
+    return canvas
 
 
 class PPStructureTableEngine:
@@ -897,7 +1020,14 @@ class PPStructureTableEngine:
         if panel_box is None:
             panel_box = Box(0, 0, width, height)
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
-        boundary_ys = _detect_soft_row_boundaries(gray, panel_box)
+        # Detect within each existing table region, not across the union of
+        # the whole screenshot.  The gap between tables and adjacent echo/
+        # graph content otherwise creates convincing-looking but false lines.
+        scan_boxes = [region.box.clamp(width, height) for region in baseline_regions] or [panel_box]
+        boundary_ys = sorted({
+            y for scan_box in scan_boxes
+            for y in _detect_soft_row_boundaries(gray, scan_box)
+        })
         augmented = _draw_row_separator_lines(image, boundary_ys, panel_box)
         regions = self._detect_once(augmented, source_id=source_id, fallback_tokens=fallback_tokens)
         metrics = score_table_structure(regions)
@@ -905,9 +1035,66 @@ class PPStructureTableEngine:
             "enabled": True,
             "mode": "contrast_row_lines",
             "panel_box": panel_box.to_list(),
+            "scan_boxes": [scan_box.to_list() for scan_box in scan_boxes],
             "lines_drawn": len(boundary_ys),
             "line_positions": boundary_ys,
             **metrics,
+        }
+
+    def detect_with_hybrid_benchmark(
+        self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = (),
+        base_regions: Sequence[TableRegion] | None = None,
+        alternate_regions: Sequence[TableRegion] | None = None,
+        allow_cross_column: bool = False,
+    ) -> tuple[list[TableRegion], dict[str, Any]]:
+        """Keep full-benchmark geometry, borrowing only clear splits from regions.
+
+        The full benchmark is the authority for column widths.  A trained-region
+        pass may replace one unusually tall cell only when two or more of its
+        cells fit inside that cell and together cover most of its height.
+        """
+        base_meta: dict[str, Any] = {"selection_rule": "cached full benchmark"}
+        if base_regions is None:
+            base, base_meta = self.detect_with_forced_full_benchmark(
+                image, source_id=source_id, fallback_tokens=fallback_tokens
+            )
+        else:
+            base = list(base_regions)
+        if alternate_regions is None:
+            alternate, _ = self.detect_with_trained_regions_benchmark(
+                image, source_id=source_id, fallback_tokens=fallback_tokens
+            )
+        else:
+            alternate = list(alternate_regions)
+        replacements = 0
+        merged: list[TableRegion] = []
+        for region in base:
+            candidates = [item for item in alternate if _box_iou(region.box, item.box) >= 0.35]
+            alt_cells = [cell for item in candidates for cell in item.cells]
+            cells: list[TableCell] = []
+            for cell in region.cells:
+                splits = [
+                    other for other in alt_cells
+                    if (allow_cross_column or other.column_index == cell.column_index)
+                    and _inside(_center(other.box), cell.box, guard=3)
+                    and _intersection_area(cell.box, other.box) / max(1, cell.box.height * other.box.height) >= 0.65
+                    and _intersection_area(cell.box, other.box) / max(1, other.box.width * other.box.height) >= 0.65
+                ]
+                if len(splits) < 2:
+                    cells.append(cell)
+                    continue
+                splits.sort(key=lambda item: item.box.y1)
+                covered = _box_union([item.box for item in splits])
+                coverage = _intersection_area(cell.box, covered) / max(1, cell.box.width * cell.box.height)
+                if coverage < 0.65 or covered.height < cell.box.height * 0.75:
+                    cells.append(cell)
+                    continue
+                cells.extend(splits)
+                replacements += 1
+            merged.append(TableRegion(region.table_id, region.box, region.confidence, tuple(cells), region.html, region.excluded_boxes))
+        return merged, {
+            "enabled": True, "mode": "hybrid_full_benchmark_with_region_splits",
+            "split_replacements": replacements, **base_meta,
         }
 
     def _detect_once(self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()) -> list[TableRegion]:
@@ -972,10 +1159,7 @@ class PPStructureTableEngine:
         if "original" not in variants:
             variants.insert(0, "original")
         runs: list[dict[str, Any]] = []
-        best_regions: list[TableRegion] = []
-        best_score = -1.0
-        best_variant = "original"
-        best_scope = "full"
+        height, width = image.shape[:2]
 
         # Benchmark every preprocessing variant on the full screenshot first.
         # This lets a contrast variant discover a table that the untouched image
@@ -987,45 +1171,54 @@ class PPStructureTableEngine:
             full_results[variant] = regions
             metrics = score_table_structure(regions)
             runs.append({"variant": variant, "scope": "full", **metrics})
-            numeric_score = float(metrics.get("score") or 0.0)
-            if numeric_score > best_score:
-                best_regions = regions
-                best_score = numeric_score
-                best_variant = variant
-                best_scope = "full"
+
+        # Union tables across variants instead of keeping only the single
+        # globally-best-scoring variant's full result: a table only a losing
+        # variant found must not be discarded (see _merge_variant_table_regions).
+        merged_regions, merged_groups, table_sources = _merge_variant_table_regions(full_results, width, height)
+        contributing_variants = list(dict.fromkeys(source["variant"] for source in table_sources))
+        best_variant = contributing_variants[0] if contributing_variants else "original"
+        best_scope = "full"
 
         # A second pass on only the likely table/result panel removes MRI images,
         # charts and other GUI noise. To keep runtime bounded we only retry the
-        # structurally best full-image variant (plus original when different).
-        height, width = image.shape[:2]
-        panel_box = _panel_crop_from_regions(best_regions, width, height) if bool(self.table_settings.get("auto_panel_crop", True)) else None
+        # variants that actually contributed a kept table (plus original when
+        # different), and merge those candidates into the existing groups the
+        # same way rather than replacing the full-image result wholesale.
+        panel_box = _panel_crop_from_regions(merged_regions, width, height) if bool(self.table_settings.get("auto_panel_crop", True)) else None
         if panel_box is not None:
             panel_image = image[panel_box.y1:panel_box.y2, panel_box.x1:panel_box.x2]
-            panel_variants = [best_variant]
-            if best_variant != "original":
-                panel_variants.append("original")
+            panel_variants = list(dict.fromkeys([*contributing_variants[:2], "original"]))
+            panel_results: dict[str, list[TableRegion]] = {}
             for variant in panel_variants:
                 prepared = _preprocess_table_image(panel_image, variant)
                 local_regions = self._detect_once(prepared, source_id=source_id, fallback_tokens=())
                 regions = _translate_table_regions(local_regions, panel_box.x1, panel_box.y1)
+                panel_results[variant] = regions
                 metrics = score_table_structure(regions)
                 runs.append({"variant": variant, "scope": "panel", **metrics})
-                numeric_score = float(metrics.get("score") or 0.0)
-                if numeric_score > best_score:
-                    best_regions = regions
-                    best_score = numeric_score
-                    best_variant = variant
-                    best_scope = "panel"
+            merged_regions, merged_groups, table_sources = _merge_variant_table_regions(
+                panel_results, width, height, seed_groups=merged_groups,
+            )
+            contributing_variants = list(dict.fromkeys(source["variant"] for source in table_sources))
+            best_variant = contributing_variants[0] if contributing_variants else best_variant
+            best_scope = "panel"
+        final_metrics = score_table_structure(merged_regions)
         panel_suggestions = _panel_suggestions_from_variant_results(full_results, width, height)
-        return best_regions, {
+        return merged_regions, {
             "enabled": True,
             "selected_variant": best_variant,
             "selected_scope": best_scope,
-            "selected_score": round(max(0.0, best_score), 2),
+            "selected_score": final_metrics.get("score", 0.0),
             "panel_crop": panel_box.to_list() if panel_box is not None else None,
             "panel_suggestions": panel_suggestions,
+            "table_sources": table_sources,
             "runs": runs,
-            "selection_rule": "row regularity + column alignment + usable cell density - overlap penalty",
+            "selection_rule": (
+                "union of tables across preprocessing variants (best-scoring rendition kept per "
+                "table via row regularity + column alignment + usable cell density - overlap penalty), "
+                "not one globally-best variant"
+            ),
         }
 
     def detect_panels_with_benchmark(

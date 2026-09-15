@@ -37,7 +37,7 @@ from .training.localization_dataset import (
 )
 from .training.table_cell_training import (
     activate_table_cell_model, active_table_cell_model, build_table_cell_dataset, evaluate_table_cell_predictions,
-    register_table_cell_model, validate_table_cell_dataset,
+    register_table_cell_model, table_cell_model_history, validate_table_cell_dataset,
 )
 from .training.table_region_training import activate_table_region_model, build_table_region_dataset
 
@@ -449,17 +449,32 @@ def _validate_table_cell_dataset_cmd(args: argparse.Namespace) -> int:
     return 0 if result.get("valid") else 1
 
 
+def _parse_threshold_list(raw: str | None) -> list[float] | None:
+    if not raw or not str(raw).strip():
+        return None
+    return [float(value) for value in str(raw).split(",") if str(value).strip()]
+
+
 def _evaluate_table_cell_predictions_cmd(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     result = evaluate_table_cell_predictions(
         _localization_workspace(config, args.workspace), args.predictions,
         dataset_id=args.dataset_id, split=args.split, confidence=float(args.minimum_confidence),
         iou_threshold=float(args.iou_threshold),
+        confidence_thresholds=_parse_threshold_list(args.confidence_thresholds),
+        iou_thresholds=_parse_threshold_list(args.iou_thresholds),
     )
     output = Path(args.output) if args.output else None
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _table_cell_model_history_cmd(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    result = table_cell_model_history(_localization_workspace(config, args.workspace))
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
@@ -925,8 +940,26 @@ def build_parser() -> argparse.ArgumentParser:
     table_eval.add_argument("--split", choices=["train", "val", "test"], default="val")
     table_eval.add_argument("--minimum-confidence", type=float, default=0.25)
     table_eval.add_argument("--iou-threshold", type=float, default=0.50)
+    table_eval.add_argument(
+        "--confidence-thresholds",
+        help="Comma-separated confidence thresholds for the sweep grid, replacing the built-in default grid "
+             "(--minimum-confidence is always folded in)",
+    )
+    table_eval.add_argument(
+        "--iou-thresholds",
+        help="Comma-separated IoU thresholds for the sweep grid, replacing the built-in default grid "
+             "(--iou-threshold is always folded in)",
+    )
     table_eval.add_argument("--output")
     table_eval.set_defaults(func=_evaluate_table_cell_predictions_cmd)
+
+    table_history = subparsers.add_parser(
+        "table-cell-model-history",
+        help="Show the chronological evaluation trend across every registered wireless table-cell model",
+    )
+    table_history.add_argument("--workspace")
+    table_history.add_argument("--config", default="/app/config/app.yaml")
+    table_history.set_defaults(func=_table_cell_model_history_cmd)
 
     table_register = subparsers.add_parser("register-table-cell-model", help="Register a trained wireless table-cell detector in the active project")
     table_register.add_argument("--workspace")

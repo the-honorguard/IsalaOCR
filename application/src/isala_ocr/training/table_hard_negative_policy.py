@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -16,9 +17,41 @@ from . import table_cell_training as training
 # to 1. A 150% replay budget is deliberate for the small, highly specific table
 # datasets used here: recurrent/high-confidence failures must be allowed to use
 # their full requested weight instead of being flattened to one extra draw.
+#
+# Both knobs are overridable per training run via environment variables so an
+# operator can dial replay pressure down (or up) without editing source:
+#   ISALA_TABLE_REPLAY_MAX_WEIGHT     - overrides MAX_REPLAY_WEIGHT (integer >= 1)
+#   ISALA_TABLE_REPLAY_BUDGET_RATIO   - overrides REPLAY_BUDGET_RATIO (float >= 0)
+# An invalid or unset value silently falls back to the module default below.
+# `build-table-cell-dataset.ps1` forwards -ReplayBudgetRatio/-ReplayMaxWeight
+# into these variables for the dataset-builder container.
 MAX_REPLAY_WEIGHT = 3
 REPLAY_BUDGET_RATIO = 1.50
 HISTORY_LIMIT = 8
+
+
+def _configured_max_replay_weight() -> int:
+    """Effective MAX_REPLAY_WEIGHT for this process, honouring the env override."""
+    raw = str(os.environ.get("ISALA_TABLE_REPLAY_MAX_WEIGHT") or "").strip()
+    if not raw:
+        return MAX_REPLAY_WEIGHT
+    try:
+        value = int(float(raw))
+    except (TypeError, ValueError):
+        return MAX_REPLAY_WEIGHT
+    return value if value >= 1 else MAX_REPLAY_WEIGHT
+
+
+def _configured_replay_budget_ratio() -> float:
+    """Effective REPLAY_BUDGET_RATIO for this process, honouring the env override."""
+    raw = str(os.environ.get("ISALA_TABLE_REPLAY_BUDGET_RATIO") or "").strip()
+    if not raw:
+        return REPLAY_BUDGET_RATIO
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return REPLAY_BUDGET_RATIO
+    return value if value >= 0 else REPLAY_BUDGET_RATIO
 
 _ORIGINAL_LATEST_FEEDBACK = comparison.latest_completed_training_feedback
 _ORIGINAL_BUILD_DATASET = training.build_table_cell_dataset
@@ -145,7 +178,7 @@ def _feedback_from_completed_runs(completed: list[dict[str, Any]]) -> dict[str, 
             elif still_consecutive:
                 still_consecutive = False
 
-        requested_weight = min(MAX_REPLAY_WEIGHT, 1 + max(1, streak))
+        requested_weight = min(_configured_max_replay_weight(), 1 + max(1, streak))
         replay_panel_weights[key] = requested_weight
         source_id, panel_id = key.split("::", 1)
         error_types = sorted({str(item.get("type") or "") for item in latest_items if isinstance(item, dict)})
@@ -202,7 +235,8 @@ def _feedback_from_completed_runs(completed: list[dict[str, Any]]) -> dict[str, 
         "history_run_count": len(completed),
         "policy": (
             "dynamic panel hard-example replay; newest model_error panel -> weight 2; "
-            "consecutive recurrence -> weight 3 max; recurrent/high-confidence panels get replay priority; "
+            f"consecutive recurrence -> weight {_configured_max_replay_weight()} max; "
+            "recurrent/high-confidence panels get replay priority; "
             "a clean newer review resets to weight 1; train split only; no negative-only crops and no physical image copies"
         ),
     }
@@ -228,8 +262,10 @@ def _plan_replay(manifest: dict[str, Any], feedback: dict[str, Any]) -> dict[str
         for item in (feedback.get("hard_example_registry") or [])
         if isinstance(item, dict)
     }
+    max_replay_weight = _configured_max_replay_weight()
+    replay_budget_ratio = _configured_replay_budget_ratio()
     requested_weights = {
-        str(key): max(1, min(MAX_REPLAY_WEIGHT, int(value or 1)))
+        str(key): max(1, min(max_replay_weight, int(value or 1)))
         for key, value in dict(feedback.get("replay_panel_weights") or {}).items()
         if str(key) in by_key
     }
@@ -237,7 +273,7 @@ def _plan_replay(manifest: dict[str, Any], feedback: dict[str, Any]) -> dict[str
     requested_extra = sum(max(0, weight - 1) for weight in requested_weights.values())
     budget = 0
     if requested_extra and train_panels:
-        budget = max(1, int(len(train_panels) * REPLAY_BUDGET_RATIO))
+        budget = max(1, int(len(train_panels) * replay_budget_ratio))
         budget = min(budget, requested_extra)
 
     fingerprint = str(feedback.get("fingerprint") or "")
@@ -301,14 +337,16 @@ def _plan_replay(manifest: dict[str, Any], feedback: dict[str, Any]) -> dict[str
     return {
         "schema_version": 1,
         "strategy": "dynamic_panel_weighted_replay",
-        "budget_ratio": REPLAY_BUDGET_RATIO,
+        "budget_ratio": replay_budget_ratio,
+        "budget_ratio_default": REPLAY_BUDGET_RATIO,
         "base_train_panels": len(train_panels),
         "candidate_panel_count": len(requested_weights),
         "requested_extra_draws": requested_extra,
         "budget_extra_draws": budget,
         "selected_extra_draws": sum(counts.values()),
         "effective_train_draws": len(train_panels) + sum(counts.values()),
-        "max_replay_weight": MAX_REPLAY_WEIGHT,
+        "max_replay_weight": max_replay_weight,
+        "max_replay_weight_default": MAX_REPLAY_WEIGHT,
         "panels": panels,
     }
 
@@ -328,7 +366,8 @@ def _build_dataset_with_replay_plan(workspace: str | Path) -> dict[str, Any]:
         "hard_example_registry_count": int(feedback.get("hard_example_registry_count") or 0),
         "replay_candidate_panel_count": int(replay["candidate_panel_count"]),
         "replay_selected_extra_draws": int(replay["selected_extra_draws"]),
-        "replay_budget_ratio": REPLAY_BUDGET_RATIO,
+        "replay_budget_ratio": replay["budget_ratio"],
+        "replay_max_weight": replay["max_replay_weight"],
         "policy": str(feedback.get("policy") or ""),
     })
     manifest["training_feedback"] = feedback_meta

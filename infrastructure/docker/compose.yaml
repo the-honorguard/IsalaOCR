@@ -146,7 +146,7 @@ services:
       # active project's input namespace before the worker processes them.
       - ../../input:/input
       - ../../output:/output:ro
-      - ../../models:/models:ro
+      - ../../models:/models
       - ../../training:/training
       - ../../project:/project:ro
       - ../../application/config:/app/config:ro
@@ -172,6 +172,13 @@ services:
     environment:
       ISALA_PROJECT_ID: ${ISALA_PROJECT_ID:-}
       HOME: /tmp
+      # Optional overrides for the table-cell hard-example replay policy
+      # (see table_hard_negative_policy.py). Set on the host shell before
+      # `docker compose run`, e.g. via build-table-cell-dataset.ps1's
+      # -ReplayBudgetRatio / -ReplayMaxWeight parameters. Empty means
+      # "use the built-in default".
+      ISALA_TABLE_REPLAY_BUDGET_RATIO: ${ISALA_TABLE_REPLAY_BUDGET_RATIO:-}
+      ISALA_TABLE_REPLAY_MAX_WEIGHT: ${ISALA_TABLE_REPLAY_MAX_WEIGHT:-}
     volumes:
       - ../../training:/training
       - ../../models:/models
