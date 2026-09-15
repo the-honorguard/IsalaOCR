@@ -3,17 +3,19 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from .db import TrainingDatabase
 from .localization_dataset import resolve_localization_splits
 from .projects import resolve_project_workspace
 from .table_region_ground_truth import list_table_region_sources
-from .json_store import read_json, write_json_atomic
+from .json_store import read_json, read_json_object, write_json_atomic
 
 
 DATASET_DIRNAME = "table_region_datasets"
+RUNS_DIRNAME = "table_region_runs"
+MODELS_DIRNAME = "table_region_models"
 SPLITS = ("train", "val", "test")
 
 
@@ -112,3 +114,60 @@ def build_table_region_dataset(workspace: str | Path) -> dict[str, Any]:
     pointer_root.mkdir(parents=True, exist_ok=True)
     (pointer_root / "latest.txt").write_text(dataset_id + "\n", encoding="ascii")
     return manifest
+
+
+def activate_table_region_model(workspace: str | Path) -> dict[str, Any]:
+    """Activate the most recently trained full-page table-region detector.
+
+    A 1:1 transfer of the raw-PowerShell logic previously embedded in
+    ``activate-table-region-model.ps1``: pick the most recently modified run
+    directory under ``table_region_runs`` that has a ``model.json``, require
+    a passing independent test evaluation, and write
+    ``table_region_models/active.json``.
+    """
+    root = resolve_project_workspace(workspace)
+    runs_root = root / RUNS_DIRNAME
+    candidates = sorted(
+        (item for item in runs_root.iterdir() if item.is_dir() and (item / "model.json").is_file()),
+        key=lambda item: item.stat().st_mtime,
+        reverse=True,
+    ) if runs_root.is_dir() else []
+    if not candidates:
+        raise FileNotFoundError("Geen getraind tabelregio-model gevonden.")
+    run_dir = candidates[0]
+    model = read_json_object(run_dir / "model.json")
+    evaluation_path = run_dir / "evaluation_artifacts" / "test_evaluation.json"
+    if not evaluation_path.is_file():
+        raise FileNotFoundError(
+            "Model heeft geen onafhankelijke test-evaluatie. Train de tabelregio opnieuw voordat je activeert."
+        )
+    evaluation = read_json_object(evaluation_path)
+    if not bool(evaluation.get("passed")):
+        raise ValueError(
+            "Model faalt de onafhankelijke tabelregio-test "
+            f"(recall={evaluation.get('recall_at_iou_0_50')}, precision={evaluation.get('precision_at_iou_0_50')})."
+        )
+    relative_inference = str(model.get("inference_dir") or "").strip()
+    if not relative_inference:
+        raise ValueError("Training metadata heeft geen inference_dir.")
+    # Checked against both path flavors (not just the host OS's own `Path`) because
+    # this subcommand runs inside a Linux training container in production while
+    # `model.json` can, for legacy/manually-trained runs, still carry a raw Windows
+    # host path from before training itself started relativizing `inference_dir`.
+    # `PurePosixPath("C:/x").is_absolute()` is False, so relying on the platform
+    # `Path` alone would silently treat such a value as already-relative and write
+    # a bogus path into `active.json` instead of failing loudly.
+    if PureWindowsPath(relative_inference).is_absolute() or PurePosixPath(relative_inference).is_absolute():
+        workspace_full = root.resolve()
+        inference_full = Path(relative_inference).resolve()
+        try:
+            relative_inference = inference_full.relative_to(workspace_full).as_posix()
+        except ValueError as exc:
+            raise ValueError(
+                f"Tabelregio-model staat buiten de projectworkspace: {inference_full}"
+            ) from exc
+    model["inference_dir"] = relative_inference
+    model["test_evaluation"] = evaluation
+    model["active"] = True
+    write_json_atomic(root / MODELS_DIRNAME / "active.json", model)
+    return model

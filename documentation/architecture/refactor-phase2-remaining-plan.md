@@ -361,20 +361,87 @@ van het script om daarheen te delegeren.
   end-to-end te draaien vóór het wordt gecommit.
 
 ### Stappen (uit te voeren zodra Docker/GPU-toegang beschikbaar is)
-1. De huidige raw-PowerShell-logica (paden-validatie, evaluatie-check,
-   `active.json`-formaat) 1-op-1 overzetten naar een nieuwe
-   `activate-table-region-model`-subcommand in `cli.py`/`model_registry.py`,
-   met dezelfde host-vs-containerpad-vertaling als de bestaande
-   `register-localization-model`/`activate-table-cell-model`-subcommands
-   al doen.
-2. `activate-table-region-model.ps1` herschrijven naar het `docker compose
-   --profile training run --rm --build model-manager ...`-patroon van de
-   andere drie `activate-*.ps1`-scripts.
-3. Tegen een echt getraind tabelregio-model draaien (zowel het oude script
-   als het nieuwe, op dezelfde modelmap) en de resulterende `active.json`
-   byte-voor-byte vergelijken.
-4. Pas als dat gelijk is: committen, en de oude host-pad-validatielogica
-   verwijderen.
+1. ✅ **Afgerond.** De huidige raw-PowerShell-logica (paden-validatie,
+   evaluatie-check, `active.json`-formaat) 1-op-1 overgezet naar een nieuwe
+   `activate_table_region_model()`-functie in `table_region_training.py`,
+   ontsloten als CLI-subcommand `activate-table-region-model` in `cli.py`
+   (zelfde `_localization_workspace()`-host-vs-containerpad-patroon als
+   `activate_table_cell_model`/`register_localization_model`). Zelfde
+   run-selectie (nieuwste `table_region_runs/<run>`-map met een
+   `model.json`, op mtime), dezelfde evaluatiepoort
+   (`evaluation_artifacts/test_evaluation.json` moet bestaan en `passed`
+   zijn) en hetzelfde `active.json`-veldformaat (bestaande `model.json`-
+   velden behouden hun volgorde, `test_evaluation` en `active` worden
+   toegevoegd/overschreven — identiek aan hoe `ConvertTo-Json` een
+   `PSCustomObject` met nieuwe properties zou serialiseren).
+
+   **Bevinding tijdens het overzetten (relevant voor de container-migratie
+   zelf)**: de oorspronkelijke `[IO.Path]::IsPathRooted(...)`-check in raw
+   PowerShell draait op de host (Windows) en herkent dus alleen
+   Windows-achtige absolute paden correct. Zodra deze logica in de
+   Linux-trainingscontainer draait, kan `model.json` (bij een niet volledig
+   gecontaineriseerde of oudere trainingsrun) nog een absoluut Windows-
+   hostpad bevatten (`C:/Users/...`) — en Pythons eigen `Path(...).is_absolute()`
+   op Linux herkent zo'n string niet als absoluut (POSIX kent geen
+   schijfletters), waardoor die string stilzwijgend als "al relatief" zou
+   worden behandeld en er een onbruikbaar pad in `active.json` terecht zou
+   komen. Opgelost door de absoluut-check platformonafhankelijk te maken
+   (`PureWindowsPath(...).is_absolute() of PurePosixPath(...).is_absolute()`,
+   ongeacht het OS waarop de code daadwerkelijk draait) — een pad dat zo
+   wordt herkend maar niet onder de (container-)workspace valt, laat de
+   functie nu hard falen met dezelfde "buiten de projectworkspace"-fout
+   i.p.v. stil verkeerde data weg te schrijven. 7 nieuwe tests in
+   `tests/test_table_region_model_activation.py` (happy path, relatief pad
+   ongewijzigd, run-selectie op mtime, ontbrekend model, ontbrekende/falende
+   evaluatie, pad buiten de workspace).
+2. ✅ **Afgerond.** `activate-table-region-model.ps1` herschreven naar het
+   `docker compose --profile training run --rm --build training-collector
+   activate-table-region-model --workspace ... --config ...`-patroon —
+   zelfde service (`training-collector`, niet `model-manager`; dat laatste
+   is uitsluitend voor de aparte recognition-model-registry) en dezelfde
+   opbouw als het zusterscript `activate-table-cell-model.ps1`. De oude
+   host-pad-validatielogica (`Get-IsalaHostProjectWorkspace`,
+   `Get-ChildItem`/`ConvertFrom-Json`/`ConvertTo-Json` rechtstreeks op de
+   hostbestandssysteem) is volledig verwijderd uit het script.
+3. ✅ **Afgerond — end-to-end getest tegen een echt getraind model.** Er
+   bleek al een echt getraind tabelregio-model in deze werkomgeving te staan
+   (`table_region_runs/table-region-run-20260907T161011-PicoDet-S`, met een
+   geslaagde `test_evaluation.json`) — precies wat hiervoor nodig was.
+
+   **Onverwachte bevinding (het oude script bleek al kapot)**: het *oude*
+   raw-PowerShell-script bleek te crashen op een verse activatie op deze
+   PowerShell-versie (7.6.6): `$model.test_evaluation = $evaluation` faalt
+   met "The property 'test_evaluation' cannot be found on this object" —
+   `ConvertFrom-Json` levert in PowerShell 7 een `PSCustomObject` waarop je
+   via kale dot-assignment geen *nieuwe* property kunt zetten (dat werkte
+   wel op de oudere Windows PowerShell 5.1; hier reproduceerbaar met een
+   losstaand 2-regelig voorbeeld). Geverifieerd dat het oude script hierdoor
+   nooit een `active.json` wegschreef (crashte vóór de `New-Item`/
+   `Set-Content`-regels) — de reeds aanwezige `active.json` in deze
+   werkomgeving moet dus via een ander mechanisme zijn ontstaan, niet via
+   een succesvolle run van dit specifieke script op deze PowerShell-versie.
+   Dit was dus geen regressie door de migratie, maar een al bestaand,
+   latent kapot pad in het te vervangen script.
+
+   Voor de daadwerkelijke vergelijking: het gevonden model's `model.json`
+   bevatte zelf nog een absoluut Windows-hostpad in `inference_dir` (zie de
+   bevinding bij stap 1) — dat is precies het scenario waarin de nieuwe
+   subcommand terecht weigert (`buiten de projectworkspace`, want een
+   hostpad heeft geen betekenis in de container), bevestigd met een echte
+   run tegen `training-collector`. Om de eigenlijke activatielogica end-to-
+   end te toetsen is het veld tijdelijk gecorrigeerd naar het
+   werkspace-relatieve pad dat een correct gecontaineriseerde trainingsrun
+   zou hebben weggeschreven (met een backup, en na de test teruggezet — dit
+   bestand is gitignored, lokale trainingsdata). Daarna: de nieuwe
+   subcommand succesvol gedraaid via `docker compose --profile training run
+   training-collector activate-table-region-model`, en de resulterende
+   `active.json` inhoudelijk vergeleken met de al aanwezige `active.json`
+   (die als referentie diende voor "correct" gedrag) — **identiek**, inclusief
+   exact dezelfde sleutelvolgorde. `model.json` en `active.json` na de test
+   teruggezet naar hun oorspronkelijke staat.
+4. ✅ **Afgerond.** Code gecommit; de oude host-pad-validatielogica bestaat
+   niet meer (volledig vervangen door de subcommand + het herschreven
+   script uit stap 1-2).
 
 ---
 
@@ -385,4 +452,4 @@ van het script om daarheen te delegeren.
 | 1. Frontend review-studio's | — | **Afgerond** (stap 1-5): nulmeting, gedeelde pan-, box-overlay- en retry-queue-primitives voor alle 3 schermen, inclusief een tijdens het werk gevonden en gefixte race condition in de retry-queue-engine zelf |
 | 2. CLI exit-codes | — | **Afgerond**: audit gedaan, contract gedocumenteerd, 2 subcommands rechtgetrokken |
 | 2b. `table_first_cli.py` argv-scanner | — | **Afgerond**: `--name=waarde`-syntax toegevoegd, `--name waarde` bleef werken |
-| 3. `activate-table-region-model.ps1` | Docker/GPU-trainingsomgeving | Moet wachten tot die beschikbaar is |
+| 3. `activate-table-region-model.ps1` | — | **Afgerond**: nieuwe `activate-table-region-model`-subcommand, script herschreven naar het `training-collector`-containerpatroon, end-to-end geverifieerd tegen een echt getraind model (en een pre-existent kapot pad in het oude script + een cross-platform padrisico in de nieuwe subcommand gevonden en gefixt onderweg) |

@@ -39,7 +39,7 @@ from .training.table_cell_training import (
     activate_table_cell_model, active_table_cell_model, build_table_cell_dataset, evaluate_table_cell_predictions,
     register_table_cell_model, validate_table_cell_dataset,
 )
-from .training.table_region_training import build_table_region_dataset
+from .training.table_region_training import activate_table_region_model, build_table_region_dataset
 
 LOGGER = logging.getLogger(__name__)
 
@@ -431,6 +431,13 @@ def _build_table_cell_dataset_cmd(args: argparse.Namespace) -> int:
 def _build_table_region_dataset_cmd(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     result = build_table_region_dataset(_localization_workspace(config, args.workspace))
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _activate_table_region_model_cmd(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    result = activate_table_region_model(_localization_workspace(config, args.workspace))
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0
 
@@ -904,6 +911,11 @@ def build_parser() -> argparse.ArgumentParser:
     region_build.add_argument("--workspace")
     region_build.add_argument("--config", default="/app/config/app.yaml")
     region_build.set_defaults(func=_build_table_region_dataset_cmd)
+
+    region_activate = subparsers.add_parser("activate-table-region-model", help="Activate the most recently trained full-page table-region detector")
+    region_activate.add_argument("--workspace")
+    region_activate.add_argument("--config", default="/app/config/app.yaml")
+    region_activate.set_defaults(func=_activate_table_region_model_cmd)
 
     table_eval = subparsers.add_parser("evaluate-table-cell-predictions", help="Evaluate a trained wireless table-cell detector on a fixed dataset split")
     table_eval.add_argument("--workspace")
