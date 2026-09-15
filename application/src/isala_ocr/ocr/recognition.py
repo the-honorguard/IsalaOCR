@@ -7,7 +7,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from ..models import OCRToken
-from .base import OCREngine
+from .base import OCREngine, apply_character_whitelist
 from .paddle import PaddleEngine
 from .paddlex_runtime import prepare_paddlex_runtime
 
@@ -193,9 +193,10 @@ class PaddleRecognitionEngine(OCREngine):
         images: Sequence[np.ndarray],
         whitelists: Sequence[str | None] | None = None,
     ) -> list[list[OCRToken]]:
-        del whitelists
         if not images:
             return []
+        if whitelists is not None and len(whitelists) != len(images):
+            raise ValueError("whitelists must have the same length as images")
         prepared = [PaddleEngine._prepare_image(image) for image in images]
         model = self._load()
         batch_size = int(self.settings.get("recognition_batch_size", 16))
@@ -204,13 +205,17 @@ class PaddleRecognitionEngine(OCREngine):
         except TypeError:
             results = list(model.predict(prepared, batch_size=batch_size))
         output: list[list[OCRToken]] = []
-        for result in results:
+        for image_index, result in enumerate(results):
+            # See apply_character_whitelist()'s docstring: PaddleOCR has no
+            # runtime API to constrain recognition to a whitelist, so it is
+            # applied post-hoc to the recognized text instead.
+            whitelist = whitelists[image_index] if whitelists is not None else None
             data = self._result_data(result)
-            text = data.get("rec_text", data.get("text", ""))
+            text = apply_character_whitelist(str(data.get("rec_text", data.get("text", ""))), whitelist)
             score = data.get("rec_score", data.get("score", 0.0))
             output.append(
-                [OCRToken(text=str(text), confidence=float(score or 0.0))]
-                if str(text)
+                [OCRToken(text=text, confidence=float(score or 0.0))]
+                if text
                 else []
             )
         if len(output) != len(prepared):

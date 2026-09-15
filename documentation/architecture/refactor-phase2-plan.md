@@ -161,11 +161,51 @@ risico dat het reviewrapport benoemt. Dat vraagt een bewuste
 product-beslissing, geen stille eenwording; niet uitgevoerd zonder die
 beslissing.
 
+## Item 3: FieldSpec.whitelist-onderzoek
+
+PaddleOCR 3.7.0 (`application/requirements/runtime.txt`) is niet geïnstalleerd
+in deze sessie-omgeving, dus de publieke `predict()`/`TextRecognition`-API kon
+niet empirisch geverifieerd worden op een runtime-mechanisme om het
+karakterdictionary per aanroep te beperken (het zit gebakken in het getrainde
+model). Zonder dat te kunnen bevestigen is geen blinde productie-
+gedragswijziging doorgevoerd; in plaats daarvan is de gebruiker gevraagd hoe
+dit aangepakt moest worden (zie AskUserQuestion in de sessie-transcript).
+Gekozen: **post-hoc tekstfilter**.
+
+Nieuw: `ocr/base.py`'s `apply_character_whitelist(text, whitelist)` — strip
+tekens buiten de whitelist uit de herkende tekst, met dezelfde intentie als
+Tesseract's `-c tessedit_char_whitelist=...` maar toegepast ná herkenning
+i.p.v. tijdens decodering (expliciet gedocumenteerd afwijkend gedrag: een
+losse verkeerd-herkende 'O' in "12O.5" wordt "12.5", niet de "125" die een
+echte cijfer-only-decoder had kunnen gokken).
+
+`ocr/paddle.py` (`PaddleEngine.recognize_many`) en `ocr/recognition.py`
+(`PaddleRecognitionEngine.recognize_many`) pasten de `whitelists`-parameter
+voorheen weg (`del whitelists`); passen 'm nu toe per input-image via
+`apply_character_whitelist()`. `ocr/tesseract.py` blijft ongewijzigd (past
+al toe via de tesseract-CLI zelf).
+
+**Dit is een echte productiegedragswijziging**, niet alleen een refactor:
+`extraction.py:146` (`_extract_field_values`, de hoofdpijplijn voor vaste-ROI-
+velden) geeft `spec.whitelist` al door aan `engine.recognize_many(...)` als
+tweede argument — dat werd tot nu toe altijd genegeerd door de
+productie-engine. Nieuwe tests toegevoegd:
+`tests/test_paddle_input.py::test_whitelist_strips_disallowed_characters_from_recognized_text`
+(+ 2 andere) en
+`tests/test_recognition_engine.py::test_whitelist_strips_disallowed_characters_from_recognized_text`
+(+ 1 andere), die vaststellen dat: (a) een whitelist tekens buiten de set
+strip, (b) geen whitelist het gedrag ongewijzigd laat (exacte pariteit met
+vóór deze wijziging), (c) `whitelists`/`images` van ongelijke lengte een
+duidelijke `ValueError` geeft i.p.v. stilzwijgend fout gedrag.
+
+Volledige testsuite: 723 passed (5 nieuw), 6 failed — de bekende,
+onafhankelijke baseline, ongewijzigd.
+
 ## Status per item
 
 - [x] 1. Raw-SQL-plekken (zie inventaris hierboven)
 - [x] 2. Geometrie/IoU-module (zie hieronder)
-- [ ] 3. FieldSpec.whitelist-onderzoek
+- [x] 3. FieldSpec.whitelist-onderzoek (zie hieronder)
 - [ ] 4. `_similarity`-functies
 - [ ] 5. CLI-duplicatie
 - [ ] 6. PowerShell-scripts

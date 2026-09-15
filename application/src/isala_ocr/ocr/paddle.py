@@ -6,7 +6,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from ..models import Box, OCRToken
-from .base import OCREngine
+from .base import OCREngine, apply_character_whitelist
 from .paddlex_runtime import prepare_paddlex_runtime
 
 
@@ -139,14 +139,21 @@ class PaddleEngine(OCREngine):
         images: Sequence[np.ndarray],
         whitelists: Sequence[str | None] | None = None,
     ) -> list[list[OCRToken]]:
-        del whitelists  # PaddleOCR uses its trained character dictionary.
         if not images:
             return []
+        if whitelists is not None and len(whitelists) != len(images):
+            raise ValueError("whitelists must have the same length as images")
         pipeline = self._load()
         prepared_images = [self._prepare_image(image) for image in images]
         results = list(pipeline.predict(prepared_images))
         output: list[list[OCRToken]] = []
-        for result in results:
+        for image_index, result in enumerate(results):
+            # PaddleOCR has no runtime API to constrain its trained character
+            # dictionary per call (unlike tesseract.py's -c
+            # tessedit_char_whitelist=...), so the whitelist is applied
+            # post-hoc to the recognized text instead. See
+            # apply_character_whitelist()'s docstring for the trade-off.
+            whitelist = whitelists[image_index] if whitelists is not None else None
             data = self._data_from_result(result)
             texts = list(data.get("rec_texts", []) or [])
             scores = list(data.get("rec_scores", []) or [])
@@ -158,7 +165,8 @@ class PaddleEngine(OCREngine):
                 if index < len(boxes) and len(boxes[index]) == 4:
                     coords = [int(value) for value in boxes[index]]
                     box = Box(*coords)
-                tokens.append(OCRToken(text=str(text), confidence=confidence, box=box))
+                token_text = apply_character_whitelist(str(text), whitelist)
+                tokens.append(OCRToken(text=token_text, confidence=confidence, box=box))
             output.append(tokens)
 
         if len(output) != len(prepared_images):

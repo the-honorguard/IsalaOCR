@@ -51,3 +51,37 @@ def test_offline_recognition_fails_before_runtime_download(tmp_path):
     )
     with pytest.raises(RuntimeError, match="Offline recognition model is missing"):
         engine._load()
+
+
+class ScriptedModel:
+    """Returns fixed rec_text/rec_score regardless of input images."""
+
+    def __init__(self, results):
+        self._results = results
+
+    def predict(self, input, batch_size=None):
+        return self._results
+
+
+def test_whitelist_strips_disallowed_characters_from_recognized_text():
+    # PaddleOCR has no runtime API to constrain its trained character
+    # dictionary (CODE_REVIEW_v3.16.0.md, sectie Middel: "FieldSpec.whitelist
+    # is een no-op in productie"), so the whitelist is applied post-hoc.
+    engine = PaddleRecognitionEngine({})
+    engine._model = ScriptedModel([{"rec_text": "12O.5", "rec_score": 0.9}])
+
+    result = engine.recognize_many(
+        [np.zeros((12, 24), dtype=np.uint8)],
+        ["0123456789.,"],
+    )
+
+    assert [token.text for token in result[0]] == ["12.5"]
+
+
+def test_no_whitelist_leaves_recognized_text_unchanged():
+    engine = PaddleRecognitionEngine({})
+    engine._model = ScriptedModel([{"rec_text": "12O.5", "rec_score": 0.9}])
+
+    result = engine.recognize_many([np.zeros((12, 24), dtype=np.uint8)])
+
+    assert [token.text for token in result[0]] == ["12O.5"]
