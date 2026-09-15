@@ -395,6 +395,39 @@ toegevoegd in `models.py`/`pipeline.py` in plaats daarvan.
 Volledige testsuite blijft op de 6 bekende, onafhankelijke faalpunten
 (723 passed, 6 failed).
 
+## Item 9: losse correctheids-signalen
+
+- **`consistency.py:35`'s `assert`** (verdwijnt onder `python -O`): vervangen
+  door een echte `if ... : raise AssertionError(...)`. Onbereikbaar in de
+  praktijk (de `any(...)`-check erboven filtert elk `None`-geval al via
+  `continue`), maar nu een gegarandeerde, niet-optimaliseerbare vangnet i.p.v.
+  een die onder `-O` zou verdwijnen en dieper een ongeleide `TypeError` zou
+  veroorzaken.
+- **`recognition_ground_truth_web.py`'s fire-and-forget `ThreadPoolExecutor`**:
+  een fout binnen `_rebuild_format_profile()` was nergens zichtbaar (niemand
+  riep `.result()`/`.exception()` op de `Future` op). Toegevoegd:
+  `future.add_done_callback(...)` die een gefaalde rebuild logt. Blijft
+  bewust fire-and-forget (de aanroeper mag niet blokkeren op een
+  profielherbouw); alleen de stilte bij een fout is opgelost.
+- **`routes_jobs.py`'s `retry_job()` dupliceerde de job-queue-schrijflogica**
+  i.p.v. de bestaande `enqueue_job`-closure te hergebruiken. Onderzocht of
+  `retry_job` gewoon `enqueue_job()`/`enqueue_artifact_delete_job()` kon
+  aanroepen: dat bleek niet zonder gedragswijziging mogelijk, want beide
+  stempelen altijd het *huidige actieve project*, terwijl een retry-taak
+  onder het project van de oorspronkelijke taak moet blijven draaien (`old.get("project_id")
+  or ...`) — bij een projectwissel tussen origineel en retry zou hergebruik
+  de taak stilzwijgend naar het verkeerde project verplaatsen. Daarom alleen
+  de daadwerkelijk gedupliceerde schrijfmechaniek (atomically naar
+  `pending/` schrijven + spiegelen naar `status/`) geëxtraheerd naar
+  `routes_jobs.py`'s nieuwe `write_job_payload(jobs_root, payload)`, gebruikt
+  door zowel `retry_job()` als webui.py's `enqueue_job()`/
+  `enqueue_artifact_delete_job()`. De job-vorm/project-associatielogica, die
+  wél verschilt, bleef ongewijzigd op elke plek.
+
+Volledige testsuite blijft op de 6 bekende, onafhankelijke faalpunten
+(723 passed, 6 failed); job-/consistency-/recognition_ground_truth-tests
+apart nogmaals gedraaid (27 passed).
+
 ## Status per item
 
 - [x] 1. Raw-SQL-plekken (zie inventaris hierboven)
@@ -405,7 +438,7 @@ Volledige testsuite blijft op de 6 bekende, onafhankelijke faalpunten
 - [x] 6. PowerShell-scripts (zie hieronder)
 - [x] 7. JSON-foutrespons-helper (zie hieronder)
 - [x] 8. Overige lage-risico opruimpunten (zie hieronder)
-- [ ] 9. Losse correctheids-signalen
+- [x] 9. Losse correctheids-signalen (zie hieronder)
 - [ ] 10. Frontend review-studio-unificatie
 
 ## Validatieprotocol per stap

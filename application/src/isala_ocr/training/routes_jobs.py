@@ -59,6 +59,29 @@ def re_job_id(value: str) -> bool:
     return value.startswith("job-") and all(c.isalnum() or c in "-_" for c in value)
 
 
+def write_job_payload(jobs_root: Path, payload: dict[str, Any]) -> None:
+    """Atomically write a job payload to pending/ and mirror it to status/.
+
+    Shared by webui.py's ``enqueue_job()``/``enqueue_artifact_delete_job()``
+    and this module's ``retry_job()`` below, which used to duplicate this
+    exact write by hand instead of reusing ``enqueue_job``
+    (CODE_REVIEW_v3.16.0.md, sectie "Losse correctheids-signalen"). Kept as
+    a standalone helper rather than making ``retry_job`` call ``enqueue_job``
+    directly: ``enqueue_job`` always stamps the *currently active* project,
+    while a retried job must keep running under the project it originally
+    belonged to -- only the file-write mechanics were truly duplicated, not
+    the job-shape/project-association logic, so only that part is shared.
+    """
+    job_id = str(payload["job_id"])
+    temporary = jobs_root / "pending" / f"{job_id}.json.tmp"
+    final = jobs_root / "pending" / f"{job_id}.json"
+    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(final)
+    (jobs_root / "status" / f"{job_id}.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
 def register_job_routes(
     app: Flask,
     *,
@@ -181,11 +204,7 @@ def register_job_routes(
                      "options":options,"status":"pending","progress_percent":0,"progress_mode":"indeterminate",
                      "progress_label":"In wachtrij","created_at":utcnow(),"updated_at":utcnow(),
                      "retried_from":job_id}
-        temp=jobs_root/"pending"/(new_job_id+".json.tmp")
-        final=jobs_root/"pending"/(new_job_id+".json")
-        temp.write_text(json.dumps(payload,indent=2,ensure_ascii=False),encoding="utf-8"); temp.replace(final)
-        (jobs_root/"status"/(new_job_id+".json")).write_text(
-            json.dumps(payload,indent=2,ensure_ascii=False),encoding="utf-8")
+        write_job_payload(jobs_root, payload)
         flash(f"Taak opnieuw in wachtrij geplaatst: {actions[action_id]}", "success")
         return redirect(url_for("manage_jobs", job_id=new_job_id))
 

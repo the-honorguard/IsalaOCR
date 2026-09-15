@@ -48,7 +48,7 @@ from .routes_detection_candidate import register_detection_candidate_routes
 from .routes_detection_lab import register_detection_lab_routes
 from .routes_detection_review import register_detection_review_routes
 from .routes_home import register_home_routes
-from .routes_jobs import register_job_routes
+from .routes_jobs import register_job_routes, write_job_payload
 from .routes_localization_v2 import register_localization_v2_routes
 from .routes_documents import register_document_routes
 from .routes_field_mapping_config import register_field_mapping_config_routes
@@ -825,13 +825,7 @@ def create_web_app(
             "created_at": _utcnow(),
             "updated_at": _utcnow(),
         }
-        temporary = jobs_root / "pending" / f"{job_id}.json.tmp"
-        final = jobs_root / "pending" / f"{job_id}.json"
-        temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        temporary.replace(final)
-        (jobs_root / "status" / f"{job_id}.json").write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        write_job_payload(jobs_root, payload)
         return payload
 
     def enqueue_artifact_delete_job(
@@ -873,13 +867,7 @@ def create_web_app(
             "created_at": _utcnow(),
             "updated_at": _utcnow(),
         }
-        temporary = jobs_root / "pending" / f"{job_id}.json.tmp"
-        final = jobs_root / "pending" / f"{job_id}.json"
-        temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        temporary.replace(final)
-        (jobs_root / "status" / f"{job_id}.json").write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        write_job_payload(jobs_root, payload)
         return payload
 
     def safe_workspace_file(relative: str | Path) -> Path:

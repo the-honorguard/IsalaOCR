@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+import logging
+from concurrent.futures import Future, ThreadPoolExecutor
 from collections import defaultdict
 from pathlib import Path
 
@@ -20,6 +21,8 @@ from .recognition_ground_truth import (
 )
 
 
+LOGGER = logging.getLogger(__name__)
+
 _FORMAT_PROFILE_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="recognition-format")
 
 
@@ -28,8 +31,24 @@ def _rebuild_format_profile(project_root: Path) -> None:
     save_profile(project_root, build_profile(database.accepted_exact_labels(EXTRACTION_METHOD)))
 
 
+def _log_format_profile_rebuild_failure(future: Future) -> None:
+    """Surface a failed background rebuild instead of letting it vanish silently.
+
+    _schedule_format_profile_rebuild() is intentionally fire-and-forget (the
+    caller must not block on a format-profile rebuild), but nothing was ever
+    retrieving the Future's result/exception, so a failure inside
+    _rebuild_format_profile() was invisible anywhere except a
+    "Future exception was never retrieved" warning at garbage-collection time
+    (CODE_REVIEW_v3.16.0.md, sectie "Losse correctheids-signalen").
+    """
+    exc = future.exception()
+    if exc is not None:
+        LOGGER.error("Recognition-format-profile rebuild failed", exc_info=exc)
+
+
 def _schedule_format_profile_rebuild(project_root: Path) -> None:
-    _FORMAT_PROFILE_EXECUTOR.submit(_rebuild_format_profile, project_root)
+    future = _FORMAT_PROFILE_EXECUTOR.submit(_rebuild_format_profile, project_root)
+    future.add_done_callback(_log_format_profile_rebuild_failure)
 
 
 def install_recognition_ground_truth_review(app, workspace: str | Path) -> None:
