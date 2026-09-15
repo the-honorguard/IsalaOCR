@@ -92,6 +92,37 @@ aanname:
 
 (Zie `refactor-phase2-plan.md`, item 5, "Bewust NIET aangepakt".)
 
+### Status: exit-codes uitgevoerd; argv-scanner nog open
+
+**De audit is uitgevoerd** (alle 30 subcommands' `return`-paden
+geëxtraheerd met `ast`, gekruist tegen elk `automation/powershell/*.ps1`-
+script dat `$LASTEXITCODE` controleert). Belangrijkste bevinding:
+**geen enkel script controleert ooit een specifieke waarde (1 vs. 2) — elk
+script checkt uitsluitend `-ne 0`.** Dat maakt normaliseren van de
+exit-codes zelf risicoloos voor de bestaande automatisering.
+
+Gevonden contract (nu ook dat consistent, en dat is ook zo gedocumenteerd in
+`cli.py`'s `main()`-docstring):
+- **0** = success.
+- **1** = draaide volledig, maar met een data-kwaliteitsprobleem (niet een
+  bug) — al zo bij `process`, `collect-training`, `collect-mapping`,
+  `apply-mappings`, `read-mapped-values`.
+- **2** = kon niet eens draaien (configuratie/argumentfout, of een
+  onbehandelde `ConfigError`/`FileNotFoundError`/`KeyError`/`ValueError`/
+  `RuntimeError` die naar `main()`'s catch-all doorstroomt).
+
+Twee subcommands weken hiervan af en zijn rechtgetrokken:
+`validate-localization-dataset`/`validate-table-cell-dataset` gaven bij een
+niet-valide dataset exit-code **2** (hergebruikte de "kon niet draaien"-code
+voor een normale, verwachte uitkomst) i.p.v. **1** (zoals de andere
+data-kwaliteit-uitkomsten). Beide scripts die deze subcommands aanroepen
+(`validate-localization-dataset.ps1`/`validate-table-cell-dataset.ps1`)
+checken ook hier alleen `-ne 0`, dus geen enkel automatiseringspad
+verandert van gedrag.
+
+`table_first_cli.py`'s argv-scanner (stap 4 hieronder) is nog niet
+aangepakt — dat blijft een aparte, grotere herstructurering.
+
 ### Waarom opengelaten
 `table_first_cli.py`'s eigen argv-scanner herstructureren naar echte
 argparse raakt hoe elke subcommand wordt aangeroepen; de exit-codes over
@@ -181,5 +212,6 @@ van het script om daarheen te delegeren.
 | Punt | Blokkerende afhankelijkheid | Status |
 |---|---|---|
 | 1. Frontend review-studio's | Productbeslissing (retry-strategie) + expliciet akkoord voor browsertests | Kan technisch al starten (nulmeting, laagrisico-stappen 3-4); stap 5 wacht op productbeslissing |
-| 2. CLI argv-scanner/exit-codes | Niets — alleen tijd voor een grondige audit | Kan volledig nu al |
+| 2. CLI exit-codes | — | **Afgerond**: audit gedaan, contract gedocumenteerd, 2 subcommands rechtgetrokken |
+| 2b. `table_first_cli.py` argv-scanner | Niets — losstaand van de exit-codes | Kan nu al |
 | 3. `activate-table-region-model.ps1` | Docker/GPU-trainingsomgeving | Moet wachten tot die beschikbaar is |

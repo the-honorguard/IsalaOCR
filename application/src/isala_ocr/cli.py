@@ -418,7 +418,7 @@ def _validate_localization_dataset_cmd(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     result = validate_localization_dataset(_localization_workspace(config, args.workspace), args.dataset)
     print(json.dumps(result, indent=2, ensure_ascii=False))
-    return 0 if result.get("status") == "ok" else 2
+    return 0 if result.get("status") == "ok" else 1
 
 
 def _build_table_cell_dataset_cmd(args: argparse.Namespace) -> int:
@@ -439,7 +439,7 @@ def _validate_table_cell_dataset_cmd(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     result = validate_table_cell_dataset(_localization_workspace(config, args.workspace), args.dataset)
     print(json.dumps(result, indent=2, ensure_ascii=False))
-    return 0 if result.get("valid") else 2
+    return 0 if result.get("valid") else 1
 
 
 def _evaluate_table_cell_predictions_cmd(args: argparse.Namespace) -> int:
@@ -1088,6 +1088,32 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Dispatch to one of the ~30 subcommands' `_xxx(args) -> int` handlers.
+
+    Exit-code contract, documented here rather than per-subcommand
+    (CODE_REVIEW_v3.16.0.md, sectie Middel: "Inconsistente exit-codes ...
+    geen gedocumenteerd contract"; zie ook
+    documentation/architecture/refactor-phase2-remaining-plan.md, punt 2,
+    voor de volledige audit tegen elk `automation/powershell/*.ps1`-script
+    dat een subcommand aanroept):
+
+    - **0** = success.
+    - **1** = the subcommand ran to completion, but some items/validation
+      failed (a data-quality outcome to look at, not a bug) -- e.g.
+      `process`'s "some inputs failed" batch summary, `collect-training`'s
+      "some detections failed", or `validate-localization-dataset`'s
+      "dataset is not valid yet".
+    - **2** = the subcommand could not run at all: a configuration/argument
+      problem (`_process`'s "no input files found"), or an unhandled
+      `ConfigError`/`FileNotFoundError`/`KeyError`/`ValueError`/
+      `RuntimeError` propagating from below (caught here).
+
+    Every `automation/powershell/*.ps1` script that checks `$LASTEXITCODE`
+    only ever checks it against 0 (never a specific 1-vs-2 value) --
+    verified across every script in the repo before relying on that when
+    normalizing a couple of subcommands to this contract, so this is safe
+    to keep clarifying/tightening without touching PowerShell.
+    """
     parser = build_parser()
     args = parser.parse_args(argv)
     configure_logging(args.log_level)
