@@ -44,18 +44,20 @@ aanname:
   `tests/test_*review*.py`-fixtures dit ook doen.
 
 ### Wat ik NIET heb en moet vragen zodra het zover is
-- **Productbeslissing**: welke van de vier retry/rollback-strategieën wordt
-  de gedeelde standaard? Mijn aanbeveling (zie item 10 in het plan) is de
-  `localStorage`-queue van `detection_review_studio.html` (rijkste
-  retry/backoff/dedup-semantiek), maar dat betekent dat
-  `mapping-review-studio.js` en `step7-*.js` een zichtbaar andere
-  foutafhandeling krijgen dan nu (geen automatische rollback meer, wel een
-  "Opnieuw"-knop bij een mislukte poging). Dat leg ik voor voordat ik het
-  bouw, niet erna.
-- **Akkoord om screenshots/opnames van de webapp te maken en te bewaren**
-  voor before/after-vergelijking (bevat geen patiëntdata — dit is de
-  trainings-webapp met synthetische fixture-data, niet de productie-app met
-  echte DICOM's, maar ik vraag dit toch expliciet voordat ik het doe).
+- ✅ **Productbeslissing genomen**: de `localStorage`-queue van
+  `detection_review_studio.html` (rijkste retry/backoff/dedup-semantiek)
+  wordt de gedeelde standaard. `mapping-review-studio.js` en `step7-*.js`
+  krijgen daardoor bewust zichtbaar ander foutgedrag dan nu (geen
+  automatische rollback meer, wel een "Opnieuw"-knop bij een definitief
+  mislukte poging) — dit is akkoord, dus stap 5 hoeft niet meer te wachten.
+- ✅ **Akkoord op screenshots/opnames** van de trainings-webapp met
+  synthetische fixture-data — al gebruikt voor de nulmeting hierboven.
+- ✅ **Route-beslissing genomen**: `mapping-review-studio.js` wordt
+  gerefactored op zijn bestaande, bereikbare route (`/mapping/<source_id>`,
+  `mapping_studio.html`) zoals gepland; het feit dat de hoofdflow er niet
+  naartoe wijst wordt in dit traject niet apart gerepareerd (dat is een
+  eigen, ongerelateerd product/UX-besluit over routing, geen
+  studio-infrastructuur).
 
 ### Stappen (per stap: bouwen → in de browser testen → pas dan committen)
 1. ✅ **Afgerond.** Fixture-workspace + minimale config geschreven als
@@ -137,12 +139,9 @@ aanname:
    alleen bereikbaar via de oudere `/mapping/<source_id>`-route
    (`mapping_studio.html`, via `generic_detection.html`'s "Naar
    mappingstudio"-link vanaf `/detections`), niet via de huidige hoofdroute.
-   Voor de unificatiestap hieronder betekent dit: de vraag is niet alleen
-   "hoe worden de 3 implementaties één primitive-laag", maar ook of
-   `mapping-review-studio.js` op dit moment sowieso nog een actief pad in de
-   hoofdflow is — dat is een product/UX-vraag (welke route is de bedoelde
-   ingang?) die apart voorgelegd moet worden voordat er in dit onderdeel
-   wordt gerefactored, los van de al genoemde retry-strategie-vraag.
+   Voorgelegd en beantwoord: unificeren op de bestaande `/mapping/<id>`-route
+   (zie hierboven); de hoofdflow-routing wordt in dit traject niet apart
+   aangepast.
 3. Eerst de laagste-risico primitive extraheren: de
    zoom/pan-schaal-en-scroll-wiskunde (al bijna identiek tussen
    `mapping-review-studio.js` en de inline detection-review-script). Bouwen,
@@ -150,8 +149,8 @@ aanname:
    screenshots), pas dan committen.
 4. Dan de percentage-box-overlay-positionering (pixelcoördinaten + natuurlijke
    afbeeldingsgrootte → CSS-percentages) — zelfde aanpak.
-5. Pas na productakkoord op de retry-strategie: de gedeelde retry-queue-
-   primitive, gemodelleerd naar de `localStorage`-queue, met URL-opbouwer en
+5. De gedeelde retry-queue-primitive, gemodelleerd naar de
+   `localStorage`-queue (akkoord, zie hierboven), met URL-opbouwer en
    optimistic-apply/-rollback-callbacks als expliciete parameters per scherm.
 6. Wat bewust NIET wordt aangeraakt: elk scherm's eigen datamodel ("wat is
    een box") en backend-routevorm — dat hoort bij het domeinobject van dat
@@ -288,7 +287,7 @@ van het script om daarheen te delegeren.
 
 | Punt | Blokkerende afhankelijkheid | Status |
 |---|---|---|
-| 1. Frontend review-studio's | Productbeslissing (retry-strategie) + expliciet akkoord voor browsertests | Kan technisch al starten (nulmeting, laagrisico-stappen 3-4); stap 5 wacht op productbeslissing |
+| 1. Frontend review-studio's | — | Nulmeting (stap 1-2) **afgerond**; retry-strategie- en route-beslissing **genomen** (localStorage-queue, `/mapping/<id>`); stap 3-5 kunnen door |
 | 2. CLI exit-codes | — | **Afgerond**: audit gedaan, contract gedocumenteerd, 2 subcommands rechtgetrokken |
 | 2b. `table_first_cli.py` argv-scanner | — | **Afgerond**: `--name=waarde`-syntax toegevoegd, `--name waarde` bleef werken |
 | 3. `activate-table-region-model.ps1` | Docker/GPU-trainingsomgeving | Moet wachten tot die beschikbaar is |
