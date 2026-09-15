@@ -276,18 +276,6 @@ def register_detection_review_routes(
                 cb = (assist.get("column_bounds") or {}).get(item["column_index"])
                 item["smart_box"] = [cb[0], rb[0], cb[1], rb[1]] if rb and cb else None
         counts = step4_review_counts(source_id)
-        # The canonical GT Studio is the full source-review editor. Keep the
-        # compact React page available only as an explicit compatibility view.
-        if request.args.get("view", "legacy").strip().lower() != "legacy":
-            studio_sources = [
-                {"source_id": str(item["source_id"]), "review_completed": bool(item.get("review_completed"))}
-                for item in database.list_detection_sources()
-            ]
-            return render_template(
-                "gt_studio.html", source=source, source_id=source_id,
-                candidates=candidates, manual_annotations=manual_annotations,
-                sources=studio_sources, gt_mode=gt_mode,
-            )
         return render_template(
             "detection_review_studio.html",
             source=source, source_id=source_id, candidates=candidates, gt_mode=gt_mode,

@@ -345,6 +345,56 @@ bestaand, werkend pad te veranderen.
 Geen gedragswijziging voor bestaande paden. Volledige testsuite blijft op
 de 6 bekende, onafhankelijke faalpunten (723 passed, 6 failed).
 
+## Item 8: overige lage-risico opruimpunten
+
+Verwijderd (bevestigd onbereikbaar, geverifieerd door alle sjablonen/JS te
+doorzoeken op een `?view=`-waarde anders dan `legacy`/afwezig — die bestaat
+nergens in de app):
+
+- `templates/gt_studio.html`, `static/react/gt-studio.js`/`.css`,
+  `frontend/src/gt-studio.ts`, `frontend/tsconfig.gt-studio.json`, en de
+  bijbehorende `build:embedded`-stap in `frontend/package.json`.
+- `routes_detection_review.py`'s `if request.args.get("view", "legacy")
+  != "legacy":`-tak die naar `gt_studio.html` rendert (dode tak na
+  bovenstaande verwijdering).
+- Bevestigd dat de vele andere `gt-studio`/`gt_studio`-treffers elders in de
+  repo (`recognition-gt-studio` stepkey, `detection_gt_studio`/
+  `recognition_gt_studio` workflow-ids) een naamcoïncidentie zijn met een
+  andere, wél actief gebruikte feature — niet aangeraakt.
+
+Gedocumenteerd i.p.v. verwijderd (`DocumentResult.errors`): staat in elke
+`result.json` als altijd-lege lijst (`pipeline.py` vult 'm nooit). Niet
+verwijderd: `result.json` is een extern outputschema en het verwijderen van
+een sleutel daaruit is een schemawijziging die niet vanuit deze sessie te
+verifiëren is voor elke downstream-consument. Een verklarend commentaar
+toegevoegd in `models.py`/`pipeline.py` in plaats daarvan.
+
+**Bewust NIET aangepakt (opnieuw bevestigd, niet opnieuw geforceerd):**
+
+- **`table_structure.py`'s "Probeer 1/2/3"-labmethoden**
+  (`detect_with_forced_full_benchmark`/`detect_with_trained_regions_benchmark`/
+  `detect_with_contrast_lines`) blijven permanent in de productie-
+  `PPStructureTableEngine`-klasse, maar zijn niet dood: ze worden nog steeds
+  gebruikt door het eveneens expliciet tijdelijke `routes_detection_lab.py`
+  ("Detectie-lab", cel-samenvoeg-regressieonderzoek). Verwijderen zou die
+  actieve tool breken; isoleren (bijv. naar een subklasse) zou een niet-
+  triviale refactor zijn van gedeelde interne staat (`_detect_once`,
+  `_trained_region_boxes`, `self.table_settings`) voor puur organisatorische
+  winst. Al eerder beoordeeld in fase 1 (commit 52b3c2f) en hier herbevestigd
+  — geen actie zonder dat de labtool zelf wordt opgeruimd.
+- **`routes_detection_review.py`'s twee `410 Gone`-endpoints**
+  (`detection_review_accept_unreviewed_api`/
+  `detection_review_accept_all_unreviewed_api`) blijken bij nader inzien
+  geen dode code om te verwijderen: `410 Gone` is de correcte HTTP-semantiek
+  voor "dit endpoint bestond, is permanent verwijderd" — beter dan een kale
+  `404` voor een eventuele nog-cachede oude pagina/externe caller.
+  Geverifieerd dat geen huidige JS/template deze URLs meer aanroept
+  (bevestigt dat ze puur als deprecation-stub dienen). Behouden zoals ze
+  zijn; geen wijziging nodig.
+
+Volledige testsuite blijft op de 6 bekende, onafhankelijke faalpunten
+(723 passed, 6 failed).
+
 ## Status per item
 
 - [x] 1. Raw-SQL-plekken (zie inventaris hierboven)
@@ -354,7 +404,7 @@ de 6 bekende, onafhankelijke faalpunten (723 passed, 6 failed).
 - [x] 5. CLI-duplicatie (zie hieronder)
 - [x] 6. PowerShell-scripts (zie hieronder)
 - [x] 7. JSON-foutrespons-helper (zie hieronder)
-- [ ] 8. Overige lage-risico opruimpunten
+- [x] 8. Overige lage-risico opruimpunten (zie hieronder)
 - [ ] 9. Losse correctheids-signalen
 - [ ] 10. Frontend review-studio-unificatie
 

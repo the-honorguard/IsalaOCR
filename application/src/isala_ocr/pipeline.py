@@ -79,6 +79,7 @@ def process_file(
     warnings.extend(study_info.warnings)
     if study_info_error:
         warnings.append(f"study_info_extraction_failed:{study_info_error}")
+    # Always empty today -- see DocumentResult.errors' docstring in models.py.
     errors: list[str] = []
     failed_anchors = [anchor.name for anchor in anchors if not anchor.passed]
     invalid_fields = [field.key for field in fields if not field.valid]
