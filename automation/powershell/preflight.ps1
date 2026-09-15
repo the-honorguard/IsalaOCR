@@ -1,4 +1,4 @@
-if (-not (Get-Command Get-TrainingImageVersion -ErrorAction SilentlyContinue)) {
+﻿if (-not (Get-Command Get-TrainingImageVersion -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "training-common.ps1")
 }
 

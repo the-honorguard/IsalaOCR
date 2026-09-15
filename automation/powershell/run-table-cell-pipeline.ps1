@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("auto", "cpu", "gpu")]
     [string]$ExecutionDevice = "auto",
     [ValidateSet("standard","active")][string]$StartFrom = "standard",

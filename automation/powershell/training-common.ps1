@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $ProjectMetadataRoot = Join-Path $ProjectRoot "project"
 $ComposeFile = Join-Path $ProjectRoot "infrastructure\docker\compose.yaml"
