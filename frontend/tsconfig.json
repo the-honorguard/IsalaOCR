@@ -8,5 +8,5 @@
     "removeComments": false,
     "outFile": "../application/src/isala_ocr/training/static/react/localization-workbench.js"
   },
-  "files": ["src/localization-workbench.ts"]
+  "files": ["src/lib/format.ts", "src/localization-workbench.ts"]
 }

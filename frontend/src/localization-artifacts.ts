@@ -1,5 +1,3 @@
-declare const React: any;
-declare const ReactDOM: any;
 const ha = React.createElement;
 const ArtifactComponent = React.Component;
 
@@ -24,30 +22,16 @@ function bytes(value: any): string {
   let i = 0; while (n >= 1024 && i < units.length - 1) { n /= 1024; i += 1; }
   return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
-function text(value: any, fallback = "—"): string { return value === null || value === undefined || value === "" ? fallback : String(value); }
-function artifactWhen(value: any): string {
-  if (!value) return "onbekende datum";
-  const parsed = new Date(String(value));
-  if (Number.isNaN(parsed.getTime())) return String(value);
-  return parsed.toLocaleString("nl-NL", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(",", "");
-}
-function datasetName(item: any, projectName: string): string {
-  return `${text(projectName, "Project")} · veld-dataset · ${artifactWhen(item && item.created_at)}`;
-}
-function modelName(item: any, projectName: string): string {
-  const model = text(item && item.model_name, "veld-detector");
-  const device = item && item.device ? ` · ${String(item.device).toUpperCase()}` : "";
-  return `${text(projectName, "Project")} · ${model}${device} · ${artifactWhen((item && (item.registered_at || item.created_at)) || "")}`;
-}
-function evaluationName(item: any): string {
-  const kind = String((item && item.kind) || "evaluatie").toLowerCase() === "baseline" ? "Baseline" : "Getraind";
-  return `${kind} · ${artifactWhen(item && item.created_at)}`;
-}
+const text = sharedText;
+const artifactWhen = sharedFriendlyWhen;
+const datasetName = sharedDatasetName;
+const modelName = sharedModelName;
+const evaluationName = sharedEvaluationName;
 function runName(item: any, projectName: string): string {
   return `${text(projectName, "Project")} · trainingsrun · ${artifactWhen(item && item.created_at)}`;
 }
 function artifactAction(button: any, reason = "") {
-  return ha("div", { className: "artifact-action-control" }, button, reason ? ha("small", { className: "action-disabled-reason", role: "note" }, `Niet beschikbaar: ${reason}`) : null);
+  return sharedActionControl("artifact-action-control", button, reason);
 }
 function splitText(item: any): string {
   const s = item && item.splits ? item.splits : {};

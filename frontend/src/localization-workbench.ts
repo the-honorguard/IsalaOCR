@@ -1,8 +1,5 @@
 /* Dataset & detector training workbench. */
 
-declare const React: any;
-declare const ReactDOM: any;
-
 const h = React.createElement;
 const Component = React.Component;
 
@@ -125,25 +122,14 @@ function numberValue(value: any): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function safeText(value: any, fallback = "—"): string {
-  if (value === null || value === undefined || value === "") return fallback;
-  return String(value);
-}
+const safeText = sharedText;
+const artifactWhen = sharedFriendlyWhen;
 
 function formatWhen(value?: string): string {
   if (!value) return "—";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString("nl-NL");
-}
-
-function artifactWhen(value?: string): string {
-  if (!value) return "onbekende datum";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString("nl-NL", {
-    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
-  }).replace(",", "");
 }
 
 function datasetFriendlyName(projectName: string, readiness: LocalizationReadiness): string {
@@ -153,10 +139,7 @@ function datasetFriendlyName(projectName: string, readiness: LocalizationReadine
 }
 
 function actionControl(button: any, reason = "") {
-  return h("div", { className: "react-action-control" },
-    button,
-    reason ? h("small", { className: "action-disabled-reason", role: "note" }, `Niet beschikbaar: ${reason}`) : null
-  );
+  return sharedActionControl("react-action-control", button, reason);
 }
 
 function phaseClass(ok: boolean, warning = false): string {

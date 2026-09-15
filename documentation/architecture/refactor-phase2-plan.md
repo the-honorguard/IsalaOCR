@@ -1,12 +1,17 @@
 # Vervolgrefactor — uitvoeringsplan (fase 2)
 
-Status: bezig. Vervolg op `documentation/architecture/db-webui-split-plan.md`
-(afgerond) en `documentation/CODE_REVIEW_v3.16.0.md` (oorspronkelijke
-bevindingen). Dekt alle nog openstaande punten uit dat rapport die niet al in
-fase 1 zijn afgehandeld. Elke stap is een eigen commit op
-`claude/code-review-calls-jc8xyn` (PR #38), alleen gepusht nadat de volledige
-testsuite groen is (op de 6 vooraf-bestaande, onafhankelijke falende tests
-na — zie validatieprotocol onderaan).
+Status: **afgerond, op één bewust uitgesteld deeltraject na.** Items 1 t/m 9
+zijn volledig uitgevoerd. Item 10 (frontend review-studio-unificatie) is
+deels uitgevoerd (de React-familie's echt-gedupliceerde format-helpers) en
+voor de rest bewust niet uitgevoerd — zie dat item voor de reden en het
+voorgestelde vervolgtraject. Vervolg op
+`documentation/architecture/db-webui-split-plan.md` (afgerond) en
+`documentation/CODE_REVIEW_v3.16.0.md` (oorspronkelijke bevindingen). Dekt
+alle nog openstaande punten uit dat rapport die niet al in fase 1 zijn
+afgehandeld. Elke stap is een eigen commit op `claude/code-review-calls-jc8xyn`
+(PR #38), alleen gepusht nadat de volledige testsuite groen is (op de 6
+vooraf-bestaande, onafhankelijke falende tests na — zie validatieprotocol
+onderaan).
 
 ## Volgorde (naar risico/omvang, kleinste/veiligste eerst binnen elk blok)
 
@@ -439,7 +444,103 @@ apart nogmaals gedraaid (27 passed).
 - [x] 7. JSON-foutrespons-helper (zie hieronder)
 - [x] 8. Overige lage-risico opruimpunten (zie hieronder)
 - [x] 9. Losse correctheids-signalen (zie hieronder)
-- [ ] 10. Frontend review-studio-unificatie
+- [~] 10. Frontend review-studio-unificatie — deels afgerond (zie hieronder)
+
+## Item 10: frontend review-studio-unificatie
+
+Een subagent heeft eerst alle vier implementaties gelezen en vergeleken
+(`mapping-review-studio.js`, `step7-review-flow.js`+`step7-single-panel.js`,
+de React-familie, en de inline `<script>` in `detection_review_studio.html`)
+voordat hier iets werd gewijzigd — precies omdat dit item, anders dan alle
+voorgaande, geen geautomatiseerde testdekking heeft zoals de Python-kant
+(723 pytest-tests) om een refactor tegen te verifiëren.
+
+**Belangrijke correctie op het reviewrapport**: de React-familie
+(`localization-artifacts.ts`/`-quality.ts`/`-workbench.ts`) hoort NIET bij
+"4x hetzelfde patroon" — die drie hebben geen zoom/pan en geen
+keyboardshortcuts, en implementeren geen "optimistic UI met rollback"
+(ze zetten een `busy`/`mutation`-vlag, wachten op de JSON-response en laden
+daarna opnieuw vanaf de server; er wordt nergens lokaal gespeculeerd en
+teruggedraaid). Alleen `mapping-review-studio.js`, `step7-review-flow.js`+
+`step7-single-panel.js` en de inline `detection_review_studio.html`-script
+implementeren echt hetzelfde patroon (afbeelding+boxen+zoom/pan+shortcuts+
+optimistic-UI-met-rollback), elk met een eigen, écht verschillende
+persistentiestrategie:
+
+| Implementatie | Persistentiestrategie |
+|---|---|
+| `mapping-review-studio.js` | FormData + HTML-scraping van de serverresponse |
+| `step7-review-flow.js` | JSON + headers, eigen optimistic-hide-en-rollback |
+| `step7-single-panel.js` | globale `fetch`-monkeypatch + geserialiseerde retry-queue (tot 6 pogingen, backoff) — wrapt óm de laag van `step7-review-flow.js` heen |
+| `detection_review_studio.html` (inline, ~77,6 KB) | `localStorage`-gepersisteerde retry-queue, concurrency 3, tot 3 pogingen, laat bij falen de optimistic state staan met een handmatige "Opnieuw"-knop i.p.v. terug te rollen |
+
+**Uitgevoerd (laag risico, wél geverifieerd)**: de React-familie's
+écht-gedupliceerde stuk — niet de "review studio"-vorm, maar
+format-helpers/action-wrapper (`text`/`qtext`/`safeText`,
+`artifactWhen`/`qwhen`, `datasetName`/`qdatasetName`,
+`modelName`/`qmodelName`, `evaluationName`/`qevalName`,
+`artifactAction`/`qAction`/`actionControl`) — gecontroleerd
+byte-voor-byte identiek te zijn tussen de bestanden, en samengevoegd in
+nieuw `frontend/src/lib/format.ts`. Elke pagina behield haar eigen lokale
+naam als alias (`const text = sharedText;`, enz.), dus geen enkele
+aanroepplek hoefde te wijzigen. `frontend/tsconfig{,.quality,.artifacts}.json`
+zetten `src/lib/format.ts` vóór hun eigen bestand in `files` (dit
+`module:"none"`+`outFile`-project compileert meerdere bestanden tot één
+gedeelde-scope-programma per pagina), dus alle drie de gecompileerde
+`static/react/*.js`-bestanden bevatten de code nog steeds volledig zelf
+(geen extra netwerkaanvraag per pagina). Elke `.ts` en de resulterende
+`.js` opnieuw gecompileerd met de project-gepinde `tsc` (5.9.3, via
+`npm install` in `frontend/`) en de diff geïnspecteerd: uitsluitend
+functies eenmaal gedefinieerd en overal onder hun oude naam ge-aliased,
+verder niets veranderd. Twee letterlijke-source-string-tests
+(`test_artifact_names_and_prerequisites_v3104.py`) controleerden het
+datumformaat en de "Niet beschikbaar:"-tekst per los bestand; aangepast om
+die in het nieuwe gedeelde `frontend/src/lib/format.ts` te controleren
+(zelfde patroon als eerder toegepast in fase 1/2 op Python-bestanden).
+**Bewust NIET aangepakt**: elke pagina's eigen Boundary-class (verschillen
+echt in render-opmaak/state per pagina) en poll/refresh-scaffolding
+(verschillende "is er nog een taak actief"-predicaten en extra
+per-pagina-hooks) — samenvoegen zou ofwel zichtbaar gedrag veranderen, ofwel
+een echte abstractie-ontwerp-beslissing vergen; geen van beide blind
+genomen zonder in een browser te kunnen verifiëren.
+
+**Niet uitgevoerd (bewust, groot en apart traject)**: de daadwerkelijke
+unificatie van de drie "echte" review-studio's
+(`mapping-review-studio.js`, `step7-review-flow.js`+`step7-single-panel.js`,
+de inline `detection_review_studio.html`-script). Reden: dit vraagt om
+productbeslissingen die niet blind genomen kunnen worden vanuit deze sessie
+— bijvoorbeeld welke van de vier retry/rollback-strategieën (met duidelijk
+de meest volwassen semantiek in de `localStorage`-queue van
+`detection_review_studio.html`) de gedeelde standaard wordt, en of
+gebruikers een zichtbaar andere foutafhandeling mogen zien op een scherm
+waar ze al aan gewend zijn. Bovendien ontbreekt hier — anders dan bij elke
+voorgaande stap in dit hele plan — een geautomatiseerde regressietest: elke
+wijziging zou alleen interactief in een browser (klikken, slepen,
+sneltoetsen, een opzettelijke netwerkfout forceren om de retry/rollback te
+zien) te verifiëren zijn, niet met `pytest`. Een voorgestelde
+vervolgaanpak, voor een toegewijde sessie met browser-gebaseerde verificatie
+en productbeslissingen van de eigenaar:
+
+1. Eén gedeelde "zoomable/pannable image stage"-primitive extraheren (de
+   scroll-behoudende schaal-wiskunde is in `mapping-review-studio.js` en de
+   inline detection-review-script al bijna identiek in opzet).
+2. Eén gedeelde percentage-box-overlay-positioneringshelper (pixelcoördinaten
+   + natuurlijke afbeeldingsgrootte → CSS-percentages).
+3. Eén gedeelde, parametriseerbare retry-queue-primitive, gemodelleerd naar
+   de `localStorage`-queue van `detection_review_studio.html` (de meest
+   volledige retry/backoff/dedup-semantiek van de vier), met de
+   URL-opbouwer en de optimistic-apply/-rollback-callbacks als expliciete
+   parameters.
+4. Wat NIET zomaar samen te voegen is: elk scherm zijn eigen datamodel voor
+   "wat is een box" (relatie-label/waarde-paar vs. vergelijkingsissue-rij
+   vs. detectiekandidaat/handmatige annotatie) en de bijbehorende
+   backend-routevormen — dat is inherent aan het onderliggende domeinobject
+   van elk scherm, geen historisch toeval.
+
+Volledige testsuite (Python-kant): terug op de 6 bekende, onafhankelijke
+faalpunten (723 passed, 6 failed) na de test-aanpassing hierboven.
+TypeScript-kant: alle drie `tsconfig*.json`-varianten compileren
+foutloos met de project-gepinde `tsc` (5.9.3).
 
 ## Validatieprotocol per stap
 
