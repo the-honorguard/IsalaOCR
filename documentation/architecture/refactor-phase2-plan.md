@@ -272,6 +272,47 @@ Aangepakt (mechanisch, veilig, geen gedragswijziging):
   op een van de huidige (inconsistente) exit-codes vertrouwen voor een
   specifiek subcommand — niet zonder die audit uitgevoerd.
 
+## Item 6: PowerShell-scriptinconsistenties
+
+Aangepakt (mechanisch, geverifieerd tegen het patroon van vergelijkbare,
+al-werkende scripts — kon niet empirisch tegen echte Docker draaien in deze
+sessie-omgeving):
+
+- **`training-status.ps1` miste de gebruikelijke `$LASTEXITCODE`-check**:
+  bevestigd door alle 21 scripts die `docker compose --profile training run`
+  aanroepen te controleren — dit was het enige zonder de check. Toegevoegd,
+  zelfde patroon als de andere 20 (`if ($LASTEXITCODE -ne 0) { throw ... }`).
+- **`--build` vs `--pull never`-inconsistentie**: eerst uitgezocht of dit
+  daadwerkelijk willekeurig is of een bewust patroon (`--pull never` na een
+  eerdere expliciete `docker compose build` verderop in hetzelfde script, om
+  een dubbele rebuild-check te vermijden — dat patroon bestaat wel degelijk,
+  bijv. in `train-localization-model.ps1`). Voor 3 plekken bleek het **geen**
+  bewust patroon: `build-table-cell-dataset.ps1`/`build-table-region-dataset.ps1`
+  (roepen dezelfde `dataset-builder`-service aan als `build-localization-dataset.ps1`,
+  dat wél `--build` gebruikt) en `activate-table-cell-model.ps1` (roept
+  dezelfde `training-collector`-service aan als `activate-localization-model.ps1`,
+  dat wél `--build` gebruikt) — geen van deze drie bouwt die service ergens
+  anders expliciet. Dat betekent: een codewijziging zou hier stilzwijgend een
+  verouderd gecached image kunnen laten draaien. Rechtgetrokken naar
+  `--build`, in lijn met de al-werkende zusterscripts voor dezelfde service.
+
+**Bewust NIET aangepakt (gedocumenteerd, niet geforceerd):**
+
+- **`activate-table-region-model.ps1` implementeert zijn eigen activatielogica
+  volledig in raw PowerShell** (leest `model.json`/
+  `evaluation_artifacts/test_evaluation.json` rechtstreeks van het
+  hostbestandssysteem, schrijft `active.json` rechtstreeks weg) i.p.v. te
+  delegeren naar de gecontaineriseerde `model-manager`-tool zoals de andere
+  drie `activate-*.ps1`-scripts. Dit is de architectonisch grootste
+  inconsistentie uit het rapport en betekent dat een gate-beleidswijziging in
+  de containerlogica niet doorwerkt voor table-region-modellen. Een correcte
+  fix vereist een nieuwe Python-CLI-subcommand die dezelfde logica binnen de
+  container uitvoert plus herschrijving van dit script om daarheen te
+  delegeren — een echte productiefunctie-migratie die niet zonder een
+  werkende Docker-trainingsomgeving (GPU-modellen, containers) te verifiëren
+  is, wat in deze sessie-omgeving niet beschikbaar is. Niet uitgevoerd zonder
+  die verificatiemogelijkheid.
+
 ## Status per item
 
 - [x] 1. Raw-SQL-plekken (zie inventaris hierboven)
@@ -279,7 +320,7 @@ Aangepakt (mechanisch, veilig, geen gedragswijziging):
 - [x] 3. FieldSpec.whitelist-onderzoek (zie hieronder)
 - [x] 4. `_similarity`-functies (zie hieronder)
 - [x] 5. CLI-duplicatie (zie hieronder)
-- [ ] 6. PowerShell-scripts
+- [x] 6. PowerShell-scripts (zie hieronder)
 - [ ] 7. JSON-foutrespons-helper
 - [ ] 8. Overige lage-risico opruimpunten
 - [ ] 9. Losse correctheids-signalen

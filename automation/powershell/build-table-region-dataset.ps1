@@ -5,6 +5,6 @@ Assert-Docker
 Assert-IsalaRuntimePrepared | Out-Null
 $ContainerWorkspace = Get-IsalaContainerWorkspace
 Write-Host "Building full-page table-region COCO dataset from Step-2 GT..." -ForegroundColor Cyan
-docker compose --profile training run --rm --pull never dataset-builder `
+docker compose --profile training run --rm --build dataset-builder `
     build-table-region-dataset --workspace $ContainerWorkspace --config /app/config/app.yaml
 if ($LASTEXITCODE -ne 0) { throw "Table-region dataset build failed." }
