@@ -174,8 +174,21 @@ aanname:
    nulmeting en de overige 3 (wheel-zoom-stappen in detection-review) visueel
    ononderscheidbaar (muispositie-/timingjitter tussen losse browserruns,
    geen DOM-verschil).
-4. Dan de percentage-box-overlay-positionering (pixelcoördinaten + natuurlijke
-   afbeeldingsgrootte → CSS-percentages) — zelfde aanpak.
+4. ✅ **Afgerond.** De percentage-box-overlay-positionering
+   (pixelcoördinaten + natuurlijke afbeeldingsgrootte → CSS-percentages) was
+   niet alleen tussen de twee bestanden gedupliceerd, maar ook *binnen*
+   `detection_review_studio.html` zelf op 4 plekken (`setCoords`,
+   `syncMarker`, `renderRasterPreview`, `appendManualAnnotation`) naast
+   `mapping-review-studio.js`'s `setBox`. Geëxtraheerd naar
+   `static/box-overlay.js` (`IsalaBoxOverlay.applyBoxRect`/
+   `applyPointPosition`), zelfde laadplek als `viewport-pan.js`. Elk
+   call-site behield zijn eigen validatie/clamping/hide-on-invalid-gedrag
+   (dat verschilt bewust per plek); alleen de coördinatenwiskunde en de
+   uiteindelijke style-toewijzing zijn gedeeld. Geverifieerd: pytest blijft
+   op dezelfde 6 bekende faalpunten (geen enkele literal-string-test brak
+   deze keer), en de nulmeting-rerun leverde 18/19 screenshots
+   byte-identiek op (de 19e verschilt 1 byte, consistent met
+   render-jitter, geen DOM-verschil).
 5. De gedeelde retry-queue-primitive, gemodelleerd naar de
    `localStorage`-queue (akkoord, zie hierboven), met URL-opbouwer en
    optimistic-apply/-rollback-callbacks als expliciete parameters per scherm.
