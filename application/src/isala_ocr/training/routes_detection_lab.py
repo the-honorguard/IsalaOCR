@@ -36,6 +36,7 @@ from flask import Flask, abort, jsonify, render_template, request, send_file
 from ..config import AppConfig
 from ..ocr.table_structure import PPStructureTableEngine, score_table_structure
 from .collector import _table_settings_with_active_region_model
+from .json_api import json_body
 
 _SOURCE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}")
 _FILENAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\.png")
@@ -87,7 +88,7 @@ def register_detection_lab_routes(
 
     @app.post("/api/detection-lab/run")
     def detection_lab_run():
-        payload = request.get_json(silent=True) or {}
+        payload = json_body(request)
         source_id = str(payload.get("source_id") or "").strip()
         approach = str(payload.get("approach") or "").strip()
         if approach not in _APPROACHES:
