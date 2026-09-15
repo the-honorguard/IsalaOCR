@@ -313,6 +313,38 @@ sessie-omgeving):
   is, wat in deze sessie-omgeving niet beschikbaar is. Niet uitgevoerd zonder
   die verificatiemogelijkheid.
 
+## Item 7: JSON-foutrespons-helper
+
+Nieuw: `training/json_api.py` met `json_error(message, status, **extra)` en
+`json_body(request)`. Bewust géén `@json_api`-decorator die hele
+route-handlers wrapt — elke early-return-validatieguard draagt een eigen
+boodschap/statuscode/soms extra velden en is bedrijfslogica om ter plekke te
+lezen, geen boilerplate om achter een decorator te verstoppen (zie de
+docstring in `json_api.py` voor de volledige motivatie).
+
+Gemigreerd (repo-breed, alle plekken die exact het `{"ok": False, "error":
+...}, status`- of `request.get_json(silent=True) or {}`-patroon volgden):
+`routes_detection_review.py` (29), `routes_localization_v2.py` (23),
+`routes_table_panel_config.py` (6), `routes_mapping_studio.py` (4),
+`comparison_review_queue_web.py` (2), `routes_table_region_detect.py` (2),
+`routes_detection_lab.py`/`recognition_ground_truth_web.py` (deels — zie
+hieronder)/`stale_job_reconciliation.py`/`webui.py` (elk 1).
+
+**Bewust ongemoeid gelaten** (andere vorm, past niet in het gedeelde
+contract): `recognition_ground_truth_web.py:301`'s `{"ok": False,
+"redirect": ...}, 409` (geen `"error"`-sleutel) en
+`routes_mapping_studio.py:99`'s `request.get_json(silent=True) or
+request.form` (valt terug op formdata, niet op `{}`).
+
+`json_body()` coerces elke non-dict JSON-body (i.p.v. alleen falsy) naar
+`{}` — elke bestaande call site verwachtte al impliciet een dict (roept
+altijd `.get(...)` aan), dus een niet-dict body zou al hebben gecrasht;
+dit voorkomt die latente crash i.p.v. 'm te reproduceren, zonder enig
+bestaand, werkend pad te veranderen.
+
+Geen gedragswijziging voor bestaande paden. Volledige testsuite blijft op
+de 6 bekende, onafhankelijke faalpunten (723 passed, 6 failed).
+
 ## Status per item
 
 - [x] 1. Raw-SQL-plekken (zie inventaris hierboven)
@@ -321,7 +353,7 @@ sessie-omgeving):
 - [x] 4. `_similarity`-functies (zie hieronder)
 - [x] 5. CLI-duplicatie (zie hieronder)
 - [x] 6. PowerShell-scripts (zie hieronder)
-- [ ] 7. JSON-foutrespons-helper
+- [x] 7. JSON-foutrespons-helper (zie hieronder)
 - [ ] 8. Overige lage-risico opruimpunten
 - [ ] 9. Losse correctheids-signalen
 - [ ] 10. Frontend review-studio-unificatie

@@ -19,6 +19,7 @@ from typing import Any, Callable
 
 from flask import Flask, jsonify, request
 
+from .json_api import json_body
 from .source_preview import prepare_source_renders
 
 _SOURCE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}")
@@ -34,7 +35,7 @@ def register_table_region_detect_routes(
 ) -> None:
     @app.post("/api/table-region-redetect")
     def table_region_redetect_api():
-        source_id = str((request.get_json(silent=True) or {}).get("source_id") or "").strip()
+        source_id = str(json_body(request).get("source_id") or "").strip()
         if not source_id:
             return jsonify({"error": "source_id is verplicht"}), 400
         payload = enqueue_job("59", action_name="Tabelregio’s opnieuw detecteren voor beoordeling")
@@ -56,7 +57,7 @@ def register_table_region_detect_routes(
     def table_region_detect_source_api():
         if loaded_config is None:
             return jsonify({"error": "De actieve configuratie ontbreekt"}), 409
-        source_id = str((request.get_json(silent=True) or {}).get("source_id") or "").strip()
+        source_id = str(json_body(request).get("source_id") or "").strip()
         if not _SOURCE_ID_RE.fullmatch(source_id):
             return jsonify({"error": "Ongeldig source_id"}), 400
         try:

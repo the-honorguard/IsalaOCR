@@ -66,6 +66,7 @@ from .routes_test_pipeline import register_test_pipeline_routes
 from .routes_table_region_detect import register_table_region_detect_routes
 from .routes_value_review import register_value_review_routes
 from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
+from .json_api import json_error
 from .json_store import read_json as _read_json, write_json_atomic as _write_json_atomic
 from .table_cell_ground_truth import (
     ensure_table_cell_ground_truth, ground_truth_counts, ground_truth_review_state,
@@ -3592,7 +3593,7 @@ def create_web_app(
 
         if wants_json:
             if error_message:
-                return jsonify({"ok": False, "error": error_message}), 409
+                return json_error(error_message, 409)
             state = table_cell_comparison_state(
                 workspace_root(),
                 reference_run_id=reference or None,
