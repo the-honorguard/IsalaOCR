@@ -58,16 +58,91 @@ aanname:
   echte DICOM's, maar ik vraag dit toch expliciet voordat ik het doe).
 
 ### Stappen (per stap: bouwen → in de browser testen → pas dan committen)
-1. Fixture-workspace + minimale config schrijven (herbruikbaar script in
-   `application/scratch/` of vergelijkbaar, niet meegecommit) die elk van de
-   drie schermen vult met genoeg data om te tonen en te bewerken.
-   `webui_server.py` (of rechtstreeks `create_web_app()` + `waitress.serve`)
-   lokaal starten.
-2. **Nulmeting**: van elk van de drie schermen, vóór enige wijziging,
-   Playwright-screenshots + een vaste interactiesequentie vastleggen (zoom
-   in/uit, pannen, een sneltoets, een save die expres laten mislukken om de
-   rollback/retry te zien). Dit is de referentie waar elke volgende stap
-   tegen wordt vergeleken.
+1. ✅ **Afgerond.** Fixture-workspace + minimale config geschreven als
+   scratchpad-script (niet meegecommit, zoals gepland — leeft alleen in de
+   sessie-omgeving onder `/tmp/.../scratchpad/studio_baseline/`), dat elk
+   van de drie schermen vult met genoeg data om te tonen en te bewerken:
+   - `detection-review/source-detect`: 8 `table_cell`-kandidaten +
+     1 handmatige annotatie via `replace_localization_detection()` /
+     `add_detection_annotation()`.
+   - `mapping/source-map`: 1 veld (`lv_ef`) + 1 label/waarde-relatie via
+     `seed_field_definitions()` / `replace_generic_detection()`, plus een
+     reviewed detection-annotation die exact het waardeblok dekt — nodig
+     omdat `routes_roi_mapping_studio.py` een relatie alleen toont als
+     `pipeline_a_roi_ready` waar is (elke relatie zonder een corresponderende
+     Pipeline-A-annotatie/kandidaat wordt **stil weggefilterd**, geen fout).
+   - `process/table-compare`: een volledige baseline-vs-current-run opzet
+     (canonieke dataset + `detection_reviews`-rij als bevroren Stap-4-GT +
+     `localization_detections/<source>.json` als "huidige" Stap-8-run +
+     `table_cell_models/active.json`), 1-op-1 naar het patroon van
+     `tests/test_table_model_comparison_v3130.py::_seed_dataset`/
+     `_seed_baseline_and_current` — zonder dat opzet toont deze pagina geen
+     enkel comparison-panel (`open.count == 0` → `display:none`).
+   `create_web_app()` + `waitress.serve` lokaal gestart op
+   `127.0.0.1:8099`.
+
+   **Onverwachte bevinding tijdens het opzetten** (geen actie nodig, wel
+   relevant voor toekomstig werk aan deze schermen): een workspace-pad van de
+   vorm `<root>/training/workspace` wordt door zowel `webui.py`'s
+   `workspace_root()` als door `table_model_comparison.py`/
+   `table_cell_training.py` (via `resolve_project_workspace()`) herschreven
+   naar `<root>/training/workspace/projects/<actief-project-id>/` —
+   `TrainingDatabase` zelf doet dat niet. Bij een verse workspace migreert
+   `ProjectManager._initialize()` bestaande data (o.a. `samples.sqlite3`,
+   `source_renders/`, `localization_detections/`) automatisch naar die
+   project-map zodra hij voor het eerst wordt aangemaakt, maar **niet**
+   `table_cell_datasets/` en `table_cell_models/` — die twee ontbraken in de
+   migratie-lijst. Voor deze nulmeting opgelost door alle fixture-data direct
+   in het al-opgeloste projectpad te schrijven (`resolve_project_workspace()`
+   zelf aanroepen vóór het seeden). Geen fix nodig aan de productiecode
+   hiervoor — dit is een scratchpad-only workaround — maar de ontbrekende
+   paden in de migratielijst zijn wel een reëel klein risico voor een echte
+   platform-upgrade-migratie en zijn het vermelden waard als los, apart
+   op te pakken puntje (niet in scope van dit unificatietraject).
+2. ✅ **Afgerond — nulmeting vastgelegd.** Playwright (Python sync API,
+   headless Chromium) heeft alle drie schermen bezocht en 19 screenshots +
+   een vaste interactiesequentie vastgelegd:
+   - **detection-review**: initiële staat, muiswiel-zoom in/uit, spatie+
+     slepen pannen, `F` (fullscreen review-mode — nodig omdat de kandidatenlijst
+     en de zoom-/view-knoppen in de "quick review"-inline-laag altijd
+     `display:none` staan via een unconditionele `<style>`-regel in
+     `detection_review_studio.html` totdat focus-mode actief is), een
+     kandidaatbox selecteren, en een geforceerd mislukte save (`page.route`
+     abort op `/api/detection-review/**`, sneltoets `C` = "Includeren") —
+     de reviewqueue-retry-UI is zichtbaar in het resultaat.
+   - **mapping ROI-studio**: bevestigd dat dit scherm alleen via
+     `/mapping/<source_id>` (niet `/mapping-labels/<source_id>`, zie de
+     bevinding hieronder) een werkende `mapping-review-studio.js`-overlay
+     toont; `F` opent 'm, muiswiel/knoppen zoomen, `P` + slepen pant,
+     pijltjestoets navigeert, `Enter` probeert goed te keuren (blokkeert
+     hier op "kies eerst een functioneel veld" — geen save-call, dus de
+     geforceerde route-abort had in dit specifieke geval geen zichtbaar
+     effect; voor een volgende nulmeting eerst een functioneel veld
+     selecteren voordat Enter wordt gebruikt).
+   - **table-compare**: initiële staat met een echt zichtbaar
+     comparison-panel en 1 open afwijking (FP), paneelnavigatie via
+     `J`/`K`.
+   - Screenshots + het seed-/serve-script zijn scratchpad-only (niet
+     meegecommit, zoals gepland) en dus niet blijvend beschikbaar na deze
+     sessie; de bevindingen hierboven en de aanpak zijn hier vastgelegd zodat
+     een volgende sessie de nulmeting in enkele minuten kan reproduceren.
+
+   **Onverwachte bevinding (relevant voor de scope van dit traject)**:
+   `mapping-review-studio.js`'s activatie-guard (`if (!rows.length || ...)
+   return;`) faalt stil op `/mapping-labels/<source_id>` — de pagina die de
+   hoofdflow (stap-voor-stap-wizard, `/mapping`- en
+   `/mapping-labels`-index-redirects) daadwerkelijk aanstuurt — omdat
+   `mapping_labels_studio.html` de vereiste `.mapping-relation-row`-DOM niet
+   rendert. De derde "echte" studio-implementatie is dus in de praktijk
+   alleen bereikbaar via de oudere `/mapping/<source_id>`-route
+   (`mapping_studio.html`, via `generic_detection.html`'s "Naar
+   mappingstudio"-link vanaf `/detections`), niet via de huidige hoofdroute.
+   Voor de unificatiestap hieronder betekent dit: de vraag is niet alleen
+   "hoe worden de 3 implementaties één primitive-laag", maar ook of
+   `mapping-review-studio.js` op dit moment sowieso nog een actief pad in de
+   hoofdflow is — dat is een product/UX-vraag (welke route is de bedoelde
+   ingang?) die apart voorgelegd moet worden voordat er in dit onderdeel
+   wordt gerefactored, los van de al genoemde retry-strategie-vraag.
 3. Eerst de laagste-risico primitive extraheren: de
    zoom/pan-schaal-en-scroll-wiskunde (al bijna identiek tussen
    `mapping-review-studio.js` en de inline detection-review-script). Bouwen,
