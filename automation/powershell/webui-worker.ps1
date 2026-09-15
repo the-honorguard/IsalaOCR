@@ -191,13 +191,9 @@ try{
                     $safeProfile=([string]$data.options.mapping_profile_id).Replace('"','""')
                     if(-not [string]::IsNullOrWhiteSpace($safeProfile)){$powerShellCommand += ' "{0}"' -f $safeProfile}
                 }
-                elseif([string]$data.action_id -in @("20","21","22","58","62")){
+                elseif([string]$data.action_id -in @("20","21","22","58")){
                     $safeSource=([string]$data.options.source_id).Replace('"','""')
                     if(-not [string]::IsNullOrWhiteSpace($safeSource)){$powerShellCommand += ' "{0}"' -f $safeSource}
-                    if([string]$data.action_id -eq "62"){
-                        $safeTableModel=([string]$data.options.table_model_id).Replace('"','""')
-                        if(-not [string]::IsNullOrWhiteSpace($safeTableModel)){$powerShellCommand += ' -TableModelId "{0}"' -f $safeTableModel}
-                    }
                 }
                 elseif([string]$data.action_id -in @("2","59")){
                     $safeTableModel=([string]$data.options.table_model_id).Replace('"','""')
