@@ -157,6 +157,126 @@ def _enrich_relations_with_panel_context(
     return enriched, context_by_table
 
 
+def _redetect_source_from_canonical_gt(
+    source_path: Path,
+    root: Path,
+    config: AppConfig,
+    locator_engine: OCREngine,
+    database: TrainingDatabase,
+    diagnostics_root: Path,
+    source_renders_root: Path,
+) -> tuple[int, int]:
+    """Run one real Detection/Recognition OCR pass for a single source.
+
+    ``collect_mapping_from_canonical_gt`` normally only rebuilds suggestions
+    from Detection/Recognition output that already exists (see its
+    docstring); it never runs OCR itself. That makes a source permanently
+    unrecoverable if the one and only run that ever populated its
+    detection/detected_relations rows produced nothing: nothing else in this
+    pipeline ever revisits it. This is the narrow escape hatch: it performs
+    the same OCR/table-structure pass ``collector.py`` would have, for this
+    one source only, and persists it exactly like a normal detection run
+    would, so a source stuck at zero relations gets one real second chance
+    before Mapping preparation gives up on it.
+
+    Returns ``(ocr_token_count, relation_count)`` after persisting.
+    """
+    decoded = load_input(source_path, config.dicom)
+    height, width = decoded.image.shape[:2]
+    batches = locator_engine.recognize_many([decoded.image])
+    if len(batches) != 1:
+        raise RuntimeError("Generic detector did not return one OCR result for one source")
+    tokens = batches[0]
+    blocks, relations, detector_diagnostics = detect_generic_structure(
+        decoded.source_id, decoded.image.shape, tokens
+    )
+    table_regions = canonical_table_regions(
+        root, decoded.source_id, tokens, image_width=width, image_height=height,
+    )
+    blocks, relations, structural = integrate_table_regions(
+        decoded.source_id, blocks, relations, table_regions
+    )
+    blocks = mark_canonical_geometry(blocks)
+    detector_diagnostics["table_structure"] = {
+        "enabled": True,
+        "provider": "canonical_table_cell_ground_truth",
+        "engine_version": CANONICAL_MAPPING_GEOMETRY_VERSION,
+        "model_inference": False,
+        "active_table_model_loaded": False,
+        "error": "",
+        **structural,
+    }
+    detector_diagnostics["block_count"] = len(blocks)
+    detector_diagnostics["relation_count"] = len(relations)
+
+    source_renders_root.mkdir(parents=True, exist_ok=True)
+    render_relative = Path("source_renders") / f"{decoded.source_id}.png"
+    if not cv2.imwrite(str(root / render_relative), decoded.image):
+        raise RuntimeError(f"Could not save local source render: {root / render_relative}")
+
+    block_by_id = {block.block_id: block for block in blocks}
+    label_crop_ids = {
+        str(relation.label_block_id)
+        for relation in relations
+        if relation.label_block_id and str(relation.label_block_id) in block_by_id
+    }
+    crop_paths: dict[str, str] = {}
+    if label_crop_ids:
+        source_block_dir = root / "detected_blocks" / decoded.source_id
+        source_block_dir.mkdir(parents=True, exist_ok=True)
+        for block_id in sorted(label_crop_ids):
+            block = block_by_id[block_id]
+            box = block.box.clamp(width, height)
+            crop = decoded.image[box.y1:box.y2, box.x1:box.x2]
+            if not crop.size:
+                continue
+            destination = source_block_dir / f"{block.block_id}.png"
+            if cv2.imwrite(str(destination), crop):
+                crop_paths[block_id] = destination.relative_to(root).as_posix()
+
+    block_payloads: list[dict[str, object]] = []
+    for block in blocks:
+        payload = block.as_dict()
+        payload["crop_path"] = crop_paths.get(block.block_id, "")
+        block_payloads.append(payload)
+    relation_payloads = [relation.as_dict() for relation in relations]
+
+    database.replace_generic_detection(
+        {
+            "source_id": decoded.source_id,
+            "image_width": width,
+            "image_height": height,
+            "render_path": render_relative.as_posix(),
+            "detector_version": GENERIC_DETECTOR_VERSION,
+            "token_count": detector_diagnostics.get("ocr_token_count", 0),
+        },
+        block_payloads,
+        relation_payloads,
+    )
+
+    study_info = extract_study_info(tokens)
+    diagnostics_root.mkdir(parents=True, exist_ok=True)
+    (diagnostics_root / f"{decoded.source_id}.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "2.3-canonical-gt-mapping-panel-aware",
+                "source_id": decoded.source_id,
+                "detector": detector_diagnostics,
+                "study_info": study_info.as_dict(),
+                "blocks": block_payloads,
+                "relations": relation_payloads,
+                "tables": [table.as_dict() for table in table_regions],
+                "geometry_authority": "canonical_table_cell_ground_truth",
+                "materialized_label_crops": len(crop_paths),
+            },
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return int(detector_diagnostics.get("ocr_token_count", 0)), len(relations)
+
+
 def collect_mapping_from_canonical_gt(
     input_path: str | Path,
     workspace: str | Path,
@@ -174,7 +294,10 @@ def collect_mapping_from_canonical_gt(
     # Pipeline B must consume the outputs of the preceding Detection and
     # Recognition stages.  It is a semantic mapping rebuild, not another
     # image/OCR run.  The existing detected_blocks/detected_relations rows are
-    # the canonical input here; only field_mappings are regenerated.
+    # the canonical input here; only field_mappings are regenerated. The one
+    # exception is _redetect_source_from_canonical_gt() below: a source stuck
+    # at zero relations gets one real OCR pass, because nothing else in this
+    # pipeline ever revisits a source once canonical GT exists for it.
     database = TrainingDatabase(root / "samples.sqlite3")
     ensure_default_field_definitions(database, config.profile)
     existing_sources = database.list_detection_sources()
@@ -188,18 +311,59 @@ def collect_mapping_from_canonical_gt(
     processed_sources = 0
     sources_without_ocr_tokens = 0
     sources_with_tokens_but_no_relations = 0
+    redetected_sources = 0
+    diagnostics_root = root / "generic_detections"
+    source_renders_root = root / "source_renders"
+    source_paths_by_id: dict[str, Path] | None = None
     for source in existing_sources:
         source_id = str(source.get("source_id") or "").strip()
         if not source_id:
             continue
         relations = database.list_detected_relations(source_id)
         relation_count = len(relations)
+        redetection_attempted = False
+        if relation_count <= 0 and locator_engine is not None:
+            # This fast path normally never runs OCR (see the module
+            # docstring); a source whose one and only Detection/Recognition
+            # run produced zero relations would otherwise be stuck that way
+            # forever. Give it one real, narrowly-scoped OCR pass before
+            # reporting it as broken.
+            if source_paths_by_id is None:
+                source_paths_by_id = {
+                    hash_file(candidate)[:24]: candidate
+                    for candidate in _files(Path(input_path))
+                }
+            source_path = source_paths_by_id.get(source_id)
+            if source_path is not None:
+                redetection_attempted = True
+                try:
+                    _, relation_count = _redetect_source_from_canonical_gt(
+                        source_path, root, config, locator_engine, database,
+                        diagnostics_root, source_renders_root,
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        "Mapping source [%s]: re-running Detection/Recognition after zero "
+                        "stored relations failed; keeping the previous stored output.",
+                        source_id,
+                    )
+                    relation_count = len(database.list_detected_relations(source_id))
+                else:
+                    redetected_sources += 1
+                    source = database.get_detection_source(source_id) or source
+                relations = database.list_detected_relations(source_id)
         if relation_count <= 0:
             token_count = int(source.get("token_count") or 0)
             block_count = int(source.get("block_count") or 0)
             if token_count <= 0:
                 sources_without_ocr_tokens += 1
-                hint = "de Detectie/Recognition-OCR vond geen tekst voor deze bron; voer die stap opnieuw uit."
+                if redetection_attempted:
+                    hint = (
+                        "de Detectie/Recognition-stap is voor deze bron opnieuw uitgevoerd, maar "
+                        "vond nog steeds geen tekst; controleer de brondafbeelding zelf."
+                    )
+                else:
+                    hint = "de Detectie/Recognition-OCR vond geen tekst voor deze bron; voer die stap opnieuw uit."
             else:
                 sources_with_tokens_but_no_relations += 1
                 hint = (
@@ -261,7 +425,8 @@ def collect_mapping_from_canonical_gt(
         "processed_sources": processed_sources,
         "available_sources": len(existing_sources),
         "automatic_mapping_suggestions": total_suggestions,
-        "ocr_performed": False,
+        "redetected_sources": redetected_sources,
+        "ocr_performed": redetected_sources > 0,
         "dicom_reprocessed": False,
         "mappings_reset": True,
     }
