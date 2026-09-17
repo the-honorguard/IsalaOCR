@@ -675,7 +675,7 @@ def _collect_mapping_detections(
                     # labels (for example ED Volume) without binding a rule to
                     # this source image.
                     relations, panel_context_by_table = _enrich_relations_with_panel_context(
-                        root, decoded.source_id, list(table_regions), list(relations)
+                        root, width, height, list(table_regions), list(relations)
                     )
                     blocks = mark_canonical_geometry(blocks)
                     table_diagnostics.update({
