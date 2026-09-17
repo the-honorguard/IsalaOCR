@@ -387,9 +387,25 @@ def _run_paddlex(
     )
     try:
         assert process.stdout is not None
+        stopped_early = False
         for line in process.stdout:
             progress.feed(line)
-        return_code = process.wait()
+            if progress.stop_requested:
+                stopped_early = True
+                break
+        if stopped_early:
+            # The best checkpoint is already flushed to disk by the time
+            # validation reports it (export reads it by filename later), so
+            # terminating here does not lose the trained model.
+            process.terminate()
+            try:
+                process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            return_code = 0
+        else:
+            return_code = process.wait()
         progress.finish(return_code)
     except BaseException:
         process.kill()
@@ -761,6 +777,7 @@ def train(args: argparse.Namespace) -> int:
         # on the same logical namespace used by the WebUI job cards.
         device="gpu" if str(args.device).lower().startswith("gpu") else "cpu",
         verbose=args.detailed_output,
+        early_stop_patience=args.early_stop_patience,
     )
     _run_paddlex(main, config, args.model, overrides, progress=progress)
     return 0
@@ -851,6 +868,15 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--pretrain-root", default="/models/training")
     train_parser.add_argument("--resume")
     train_parser.add_argument("--log-interval", type=int, default=10)
+    train_parser.add_argument(
+        "--early-stop-patience",
+        type=int,
+        default=10,
+        help=(
+            "Stop training once the best validation accuracy has not improved for this "
+            "many epochs. 0 disables early stopping and always runs the full --epochs."
+        ),
+    )
     train_parser.add_argument("--dy2st", action="store_true")
     train_parser.add_argument(
         "--detailed-output",

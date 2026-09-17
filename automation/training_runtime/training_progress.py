@@ -97,6 +97,7 @@ class TrainingProgressRenderer:
         verbose: bool = False,
         stream: TextIO | None = None,
         bar_width: int = 28,
+        early_stop_patience: int | None = None,
     ) -> None:
         self.output_directory = Path(output_directory)
         self.output_directory.mkdir(parents=True, exist_ok=True)
@@ -105,6 +106,9 @@ class TrainingProgressRenderer:
         self.verbose = bool(verbose)
         self.stream = stream or sys.stdout
         self.bar_width = max(10, int(bar_width))
+        self.early_stop_patience = int(early_stop_patience) if early_stop_patience else 0
+        self.stop_requested = False
+        self.stop_reason: str | None = None
         self.raw_log_path = self.output_directory / "training-console.log"
         self.progress_path = self.output_directory / "training-progress.json"
         self.started_monotonic = time.monotonic()
@@ -216,6 +220,7 @@ class TrainingProgressRenderer:
             self.best_epoch = _int(best.group("epoch"))
             self._emit_epoch(self.current_epoch)
             self._write_status("running")
+            self._check_early_stop()
             return
 
         if self.verbose:
@@ -235,8 +240,9 @@ class TrainingProgressRenderer:
         elapsed_seconds = max(0.0, time.monotonic() - self.started_monotonic)
         if return_code == 0:
             self._print("[4/4] Finalizing model artifacts")
+            label = "Stopped early" if self.stop_requested else "Completed"
             self._print(
-                "Completed: "
+                f"{label}: "
                 f"{self.current_epoch or self.total_epochs}/{self.reported_total or self.total_epochs} epochs | "
                 f"best validation accuracy {_format_float(self.best_accuracy, 6)}"
                 + (f" at epoch {self.best_epoch}" if self.best_epoch is not None else "")
@@ -254,6 +260,32 @@ class TrainingProgressRenderer:
     def close(self) -> None:
         if not self._raw_handle.closed:
             self._raw_handle.close()
+
+    def _check_early_stop(self) -> None:
+        """Flag early stopping once best validation accuracy stalls.
+
+        A PP-OCRv6 recognition run keeps its checkpoints of the best epoch on
+        disk as soon as validation improves, so stopping the subprocess here
+        never loses the best model; export reads the `best_accuracy`
+        checkpoint regardless of when the run was interrupted.
+        """
+        if self.stop_requested or self.early_stop_patience <= 0:
+            return
+        if self.best_epoch is None or self.current_epoch <= 0:
+            return
+        total = self.reported_total or self.total_epochs
+        if self.current_epoch >= total:
+            return
+        epochs_since_best = self.current_epoch - self.best_epoch
+        if epochs_since_best < self.early_stop_patience:
+            return
+        self.stop_requested = True
+        self.stop_reason = (
+            f"no improvement in best validation accuracy for {epochs_since_best} epochs "
+            f"(patience {self.early_stop_patience}); best "
+            f"{_format_float(self.best_accuracy, 6)} at epoch {self.best_epoch}"
+        )
+        self._print(f"Early stopping: {self.stop_reason}.")
 
     def _announce_dataset_phase_if_ready(self) -> None:
         if self._dataset_phase_announced:
@@ -319,6 +351,7 @@ class TrainingProgressRenderer:
             "validation_batches_per_epoch": self.validation_batches,
             "raw_log": str(self.raw_log_path),
             "compact_console": not self.verbose,
+            "stopped_early": self.stop_requested,
         }
         if return_code is not None:
             snapshot["return_code"] = int(return_code)

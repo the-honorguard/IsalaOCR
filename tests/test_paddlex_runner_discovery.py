@@ -207,3 +207,48 @@ def test_missing_dictionary_error_names_deterministic_image_path(tmp_path, monke
 
     with pytest.raises(FileNotFoundError, match=str(missing).replace("\\", "\\\\")):
         runner._resolve_dictionary(high_config, "PP-OCRv6_medium_rec")
+
+
+def test_run_paddlex_stops_early_when_validation_plateaus(tmp_path, monkeypatch):
+    import io
+    import sys
+    import time
+
+    runner = _load_runner()
+    main = tmp_path / "main.py"
+    config = tmp_path / "model.yaml"
+    config.write_text("Global: {}\n", encoding="utf-8")
+    main.write_text("# test main\n", encoding="utf-8")
+
+    # Simulate 20 epochs whose best validation accuracy stops improving after
+    # epoch 2, so a patience of 3 should stop the subprocess around epoch 5
+    # instead of running all 20 epochs.
+    fake_script = tmp_path / "fake_train.py"
+    fake_script.write_text(
+        "import time\n"
+        "for e in range(1, 21):\n"
+        "    best_epoch = min(e, 2)\n"
+        "    print(f'epoch: [{e}/20], global_step: {e * 10}, lr: 0.000100, acc: 0.9, "
+        "norm_edit_dis: 0.9, loss: 1.0, eta: 0:00:10, max_mem_allocated: 100 MB', flush=True)\n"
+        "    print(f'best metric, acc: 0.99, norm_edit_dis: 0.99, fps: 100.0, "
+        "best_epoch: {best_epoch}', flush=True)\n"
+        "    time.sleep(0.3)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        runner, "_build_paddlex_command", lambda *args, **kwargs: [sys.executable, str(fake_script)]
+    )
+
+    progress = runner.TrainingProgressRenderer(
+        tmp_path / "run", 20, early_stop_patience=3, stream=io.StringIO()
+    )
+    started = time.monotonic()
+    runner._run_paddlex(main, config, "PP-OCRv6_medium_rec", [], progress=progress)
+    elapsed = time.monotonic() - started
+
+    assert progress.stop_requested is True
+    assert progress.best_epoch == 2
+    assert progress.current_epoch <= 6
+    # The full 20-epoch script would take roughly 6s (20 * 0.3s); stopping at
+    # epoch ~5 should finish well under that.
+    assert elapsed < 4.0

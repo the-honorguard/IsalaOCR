@@ -7,6 +7,8 @@ param(
     [double]$LearningRate = 0.0001,
     [string]$Resume = "",
     [switch]$DetailedOutput,
+    [int]$EarlyStopPatience = 10,
+    [switch]$SkipTestEvaluation,
     [string]$PreflightActionId = "26"
 )
 . (Join-Path $PSScriptRoot "training-common.ps1")
@@ -29,7 +31,8 @@ $argsList = @(
     "--device", $PaddleDevice,
     "--epochs", $Epochs,
     "--batch-size", $BatchSize,
-    "--learning-rate", $LearningRate
+    "--learning-rate", $LearningRate,
+    "--early-stop-patience", $EarlyStopPatience
 )
 if ($Resume) { $argsList += @("--resume", $Resume) }
 if ($DetailedOutput) { $argsList += "--detailed-output" }
@@ -43,3 +46,60 @@ if ($LASTEXITCODE -ne 0) { throw "Training failed. Output retained under project
 $HostWorkspace = Get-IsalaHostProjectWorkspace
 Set-Content -Path (Join-Path $HostWorkspace "runs\latest-run.txt") -Value $RunId -NoNewline
 Write-Host ("Training output: {0}" -f (Join-Path $HostWorkspace "runs\$RunId"))
+
+$ProgressPath = Join-Path $RunDirectory "training-progress.json"
+$BestValidationAccuracy = $null
+if (Test-Path -LiteralPath $ProgressPath) {
+    $BestValidationAccuracy = (Get-Content -LiteralPath $ProgressPath -Raw | ConvertFrom-Json).best_accuracy
+}
+
+if ($SkipTestEvaluation) {
+    Write-Host "Skipping automatic held-out test evaluation (-SkipTestEvaluation)."
+    return
+}
+
+# A small validation split can report 100% accuracy for most of a run while
+# still failing on unseen data. Always score the trained model against the
+# held-out test.txt split instead of trusting the validation curve alone.
+Write-Host "Evaluating the trained model against the held-out test split..."
+# Use the "evaluation-custom-*" naming convention that Get-LatestEvaluationFile
+# (training-common.ps1), register-recognition-model.ps1 and compare-models.ps1
+# rely on to discover the latest custom evaluation.
+$TestEvalName = "evaluation-custom-$RunId"
+$ExportedModelDirectory = Join-Path $RunDirectory "exported"
+$env:ISALA_NESTED_PREFLIGHT_APPROVED = "1"
+try {
+    & (Join-Path $PSScriptRoot "export-recognition-model.ps1") -RunDirectory $RunDirectory -Model $Model -Device $Device
+    # Pass the just-exported directory explicitly instead of letting
+    # evaluate-recognition-model.ps1 resolve it via Get-LatestRunDirectory:
+    # a concurrent training run could update latest-run.txt between the
+    # export above and this call, which would otherwise evaluate (and
+    # mislabel) a different run's model.
+    & (Join-Path $PSScriptRoot "evaluate-recognition-model.ps1") -Kind custom -Dataset $Dataset -ModelDirectory $ExportedModelDirectory -OutputName $TestEvalName
+}
+catch {
+    Write-Warning "Automatic held-out test evaluation failed; the trained model itself is unaffected. $($_.Exception.Message)"
+    Write-Warning ("Run it manually with: evaluate-recognition-model.ps1 -Kind custom -Dataset {0}" -f $Dataset)
+    return
+}
+finally {
+    Remove-Item Env:ISALA_NESTED_PREFLIGHT_APPROVED -ErrorAction SilentlyContinue
+}
+
+$EvaluationPath = Join-Path $HostWorkspace "runs\$TestEvalName\evaluation.json"
+if (-not (Test-Path -LiteralPath $EvaluationPath)) {
+    Write-Warning "Test evaluation completed but evaluation.json was not found at $EvaluationPath"
+    return
+}
+$Evaluation = Get-Content -LiteralPath $EvaluationPath -Raw | ConvertFrom-Json
+$TestAccuracy = $Evaluation.metrics.exact_match_accuracy
+$TestCer = $Evaluation.metrics.character_error_rate
+Write-Host ("Held-out test accuracy: {0:P2} (exact match) | CER: {1:P2} | samples: {2}" -f $TestAccuracy, $TestCer, $Evaluation.metrics.samples)
+Write-Host ("Full report: {0}" -f (Join-Path $HostWorkspace "runs\$TestEvalName\evaluation.md"))
+if ($null -ne $BestValidationAccuracy) {
+    Write-Host ("Best validation accuracy during training: {0:P2}" -f $BestValidationAccuracy)
+    $Gap = $BestValidationAccuracy - $TestAccuracy
+    if ($Gap -gt 0.05) {
+        Write-Warning ("Validation accuracy ({0:P2}) is notably higher than the held-out test accuracy ({1:P2}). This usually means the validation split is too small or not representative; trust the test result over the validation curve." -f $BestValidationAccuracy, $TestAccuracy)
+    }
+}
