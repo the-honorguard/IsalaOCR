@@ -635,6 +635,7 @@ def _collect_mapping_detections(
     total_blocks = 0
     total_relations = 0
     total_suggestions = 0
+    sources_without_ocr_tokens = 0
 
     for source_index, source in enumerate(sources, start=1):
         try:
@@ -705,6 +706,16 @@ def _collect_mapping_detections(
             detector_diagnostics["table_structure"] = table_diagnostics
             detector_diagnostics["block_count"] = len(blocks)
             detector_diagnostics["relation_count"] = len(relations)
+            ocr_token_count = int(detector_diagnostics.get("ocr_token_count", 0))
+            if ocr_token_count <= 0:
+                sources_without_ocr_tokens += 1
+                LOGGER.warning(
+                    "Detection source %d/%d [%s]: full-page OCR found no text token(s) "
+                    "(block_count=%d, table structure geometry may still be present from "
+                    "canonical Ground Truth); Mapping preparation will skip this source "
+                    "until OCR is re-run or the input image is checked.",
+                    source_index, len(sources), decoded.source_id, len(blocks),
+                )
             recognition_results = _recognize_table_value_cells(decoded.image, blocks, recognition_engine)
             render_relative = Path("source_renders") / f"{decoded.source_id}.png"
             render_path = root / render_relative
@@ -766,6 +777,14 @@ def _collect_mapping_detections(
             failed_sources += 1
             LOGGER.exception("Could not perform generic detection for input item %d", source_index)
 
+    if sources_without_ocr_tokens:
+        LOGGER.warning(
+            "Detection/Recognition: %d/%d source(s) had zero OCR tokens; Mapping preparation "
+            "will skip these sources until this OCR step is re-run for them or the input images "
+            "are checked.",
+            sources_without_ocr_tokens, detected_sources,
+        )
+
     manifest = {
         "created_at": utc_now(),
         "flow": "generic_mapping",
@@ -773,6 +792,7 @@ def _collect_mapping_detections(
         "input_items": len(sources),
         "detected_sources": detected_sources,
         "failed_items": failed_sources,
+        "sources_without_ocr_tokens": sources_without_ocr_tokens,
         "detected_blocks": total_blocks,
         "proposed_relations": total_relations,
         "automatic_mapping_suggestions": total_suggestions,
