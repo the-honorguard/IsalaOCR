@@ -33,6 +33,7 @@ from .mapping_lateral import field_lateral_side, field_lateral_suffix, relation_
 from .relation_feedback import RELATION_FEEDBACK_REASONS
 from .recognition_ground_truth import relation_panel_id, table_studio_roles, table_studio_rows
 from .table_panels import load_panel_profile
+from .table_semantics import load_assignments as load_table_semantic_assignments
 
 
 def register_mapping_studio_routes(
@@ -149,6 +150,15 @@ def register_mapping_studio_routes(
         column_roles = table_studio_roles(workspace_root())
         active_rows = table_studio_rows(workspace_root())
         panel_profile = load_panel_profile(workspace_root())
+        # Stap 6 ("Tabelregio selecteren") is where an operator explicitly
+        # assigns each table region a semantic name (typically left/right).
+        # That name is the authoritative left/right signal - the Panel
+        # config from Stap 1 is a separate, purely geometric feature and its
+        # panel_name is often generic ("Panel 1"). Without this, ambiguous
+        # bilateral fields (e.g. Ejectiefractie for LV and RV) can never be
+        # told apart by relation_lateral_side() even though the operator
+        # already resolved that ambiguity in Stap 6.
+        table_semantic_names = load_table_semantic_assignments(workspace_root())
         panel_by_id = {
             str(panel.get("panel_id") or ""): panel
             for panel in panel_profile.get("panels") or []
@@ -202,10 +212,14 @@ def register_mapping_studio_routes(
             if panel_id in active_rows and raster_row not in set(active_rows[panel_id]):
                 continue
             panel = panel_by_id.get(panel_id) or {}
+            semantic_name = str(
+                table_semantic_names.get(str(relation.get("table_id") or ""), {}).get("table_name") or ""
+            )
             relations.append({
                 **relation,
                 "panel_id": panel_id,
                 "panel_name": str(panel.get("name") or panel_id or "Tabel"),
+                "table_name": semantic_name,
                 "raster_row_index": raster_row,
                 "table_configured": configured,
             })
