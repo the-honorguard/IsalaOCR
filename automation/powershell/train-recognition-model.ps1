@@ -62,11 +62,20 @@ if ($SkipTestEvaluation) {
 # still failing on unseen data. Always score the trained model against the
 # held-out test.txt split instead of trusting the validation curve alone.
 Write-Host "Evaluating the trained model against the held-out test split..."
-$TestEvalName = "test-eval-$RunId"
+# Use the "evaluation-custom-*" naming convention that Get-LatestEvaluationFile
+# (training-common.ps1), register-recognition-model.ps1 and compare-models.ps1
+# rely on to discover the latest custom evaluation.
+$TestEvalName = "evaluation-custom-$RunId"
+$ExportedModelDirectory = Join-Path $RunDirectory "exported"
 $env:ISALA_NESTED_PREFLIGHT_APPROVED = "1"
 try {
     & (Join-Path $PSScriptRoot "export-recognition-model.ps1") -RunDirectory $RunDirectory -Model $Model -Device $Device
-    & (Join-Path $PSScriptRoot "evaluate-recognition-model.ps1") -Kind custom -Dataset $Dataset -OutputName $TestEvalName
+    # Pass the just-exported directory explicitly instead of letting
+    # evaluate-recognition-model.ps1 resolve it via Get-LatestRunDirectory:
+    # a concurrent training run could update latest-run.txt between the
+    # export above and this call, which would otherwise evaluate (and
+    # mislabel) a different run's model.
+    & (Join-Path $PSScriptRoot "evaluate-recognition-model.ps1") -Kind custom -Dataset $Dataset -ModelDirectory $ExportedModelDirectory -OutputName $TestEvalName
 }
 catch {
     Write-Warning "Automatic held-out test evaluation failed; the trained model itself is unaffected. $($_.Exception.Message)"
