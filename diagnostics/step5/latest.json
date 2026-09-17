@@ -2,14 +2,14 @@
     "schema_version":  1,
     "project_id":  "cmr_testcase_01",
     "status":  "completed",
-    "started_at":  "2026-09-14T09:46:03.6908870+02:00",
-    "completed_at":  "2026-09-14T10:01:39.6872687+02:00",
+    "started_at":  "2026-09-15T16:41:47.0007061+02:00",
+    "completed_at":  "2026-09-15T16:56:33.8083873+02:00",
     "requested_device":  "auto",
     "resolved_device":  "gpu",
     "training_backend":  "gpu",
     "inference_backend":  "gpu",
     "gpu_name":  "NVIDIA GeForce RTX 3070",
-    "dataset_id":  "table-cells-20260914T074621976309Z-e7f63322",
+    "dataset_id":  "table-cells-20260915T144157002911Z-e7f63322",
     "dataset":  {
                     "source_count":  31,
                     "panel_count":  62,
@@ -34,18 +34,19 @@
                                             }
                                },
                     "training_feedback":  {
-                                              "run_id":  "detect-20260911T141248Z-26c485d842",
-                                              "model_id":  "table-RTDETR-L-table-run-20260911T160040-RTDETR-L",
-                                              "model_error_count":  1039,
+                                              "run_id":  "detect-20260915T141651Z-22d8368f9a",
+                                              "model_id":  "table-RTDETR-L-table-run-20260915T155628-RTDETR-L",
+                                              "model_error_count":  77,
                                               "decision_counts":  {
-                                                                      "functional_ok":  124,
-                                                                      "model_error":  1039
+                                                                      "functional_ok":  549,
+                                                                      "model_error":  77
                                                                   },
                                               "policy":  "dynamic panel hard-example replay; newest model_error panel -\u003e weight 2; consecutive recurrence -\u003e weight 3 max; recurrent/high-confidence panels get replay priority; a clean newer review resets to weight 1; train split only; no negative-only crops and no physical image copies",
-                                              "hard_example_registry_count":  55,
-                                              "replay_candidate_panel_count":  37,
+                                              "hard_example_registry_count":  47,
+                                              "replay_candidate_panel_count":  33,
                                               "replay_selected_extra_draws":  63,
-                                              "replay_budget_ratio":  1.5
+                                              "replay_budget_ratio":  1.5,
+                                              "replay_max_weight":  3
                                           }
                 },
     "validation":  {
@@ -98,32 +99,32 @@
                                 "schema_version":  1,
                                 "strategy":  "dynamic_panel_weighted_replay",
                                 "budget_ratio":  1.5,
+                                "budget_ratio_default":  1.5,
                                 "base_train_panels":  42,
-                                "candidate_panel_count":  37,
-                                "requested_extra_draws":  74,
+                                "candidate_panel_count":  33,
+                                "requested_extra_draws":  63,
                                 "budget_extra_draws":  63,
                                 "selected_extra_draws":  63,
                                 "effective_train_draws":  105,
                                 "max_replay_weight":  3,
+                                "max_replay_weight_default":  3,
                                 "panels":  [
                                                {
-                                                   "panel_key":  "195bbccacd4d2ed5babc0874::left",
+                                                   "panel_key":  "195bbccacd4d2ed5babc0874::right",
                                                    "source_id":  "195bbccacd4d2ed5babc0874",
-                                                   "panel_id":  "left",
-                                                   "panel_name":  "left",
-                                                   "file_name":  "195bbccacd4d2ed5babc0874__left.png",
-                                                   "replay_count":  2,
-                                                   "effective_weight":  3,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  4,
-                                                   "latest_error_count":  25,
+                                                   "panel_id":  "right",
+                                                   "panel_name":  "right",
+                                                   "file_name":  "195bbccacd4d2ed5babc0874__right.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  2,
+                                                   "error_streak":  1,
+                                                   "total_error_runs":  2,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9988595843315125
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "1b2a8090f649d32f97a3ad44::left",
@@ -134,15 +135,14 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  24,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  3,
                                                    "latest_error_types":  [
                                                                               "fn",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9991300702095032
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "2ded7c62ebf9453e70edc3b1::left",
@@ -153,16 +153,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  20,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9990240070554945
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "2ded7c62ebf9453e70edc3b1::right",
@@ -173,16 +170,16 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  15,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  7,
                                                    "latest_error_types":  [
                                                                               "fn",
                                                                               "fp",
                                                                               "geometry",
                                                                               "merged"
                                                                           ],
-                                                   "max_confidence":  0.9968020873410361
+                                                   "max_confidence":  0.9836183190345764
                                                },
                                                {
                                                    "panel_key":  "4254f4cafedeab601827471b::left",
@@ -193,16 +190,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  4,
-                                                   "latest_error_count":  25,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9996829032897949
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "4254f4cafedeab601827471b::right",
@@ -213,56 +207,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  4,
-                                                   "latest_error_count":  18,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.99206241656994
-                                               },
-                                               {
-                                                   "panel_key":  "4d0230ea33b69a122297b2c9::left",
-                                                   "source_id":  "4d0230ea33b69a122297b2c9",
-                                                   "panel_id":  "left",
-                                                   "panel_name":  "left",
-                                                   "file_name":  "4d0230ea33b69a122297b2c9__left.png",
-                                                   "replay_count":  2,
-                                                   "effective_weight":  3,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  27,
-                                                   "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
-                                                                          ],
-                                                   "max_confidence":  0.9990145961443583
-                                               },
-                                               {
-                                                   "panel_key":  "4d0230ea33b69a122297b2c9::right",
-                                                   "source_id":  "4d0230ea33b69a122297b2c9",
-                                                   "panel_id":  "right",
-                                                   "panel_name":  "right",
-                                                   "file_name":  "4d0230ea33b69a122297b2c9__right.png",
-                                                   "replay_count":  2,
-                                                   "effective_weight":  3,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  18,
-                                                   "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
-                                                                          ],
-                                                   "max_confidence":  0.9997509121894836
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "53ac0715a39fbbcefe46e400::left",
@@ -273,16 +224,31 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  4,
-                                                   "latest_error_count":  21,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  4,
                                                    "latest_error_types":  [
                                                                               "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9980770945549011
+                                                   "max_confidence":  0.85
+                                               },
+                                               {
+                                                   "panel_key":  "53ac0715a39fbbcefe46e400::right",
+                                                   "source_id":  "53ac0715a39fbbcefe46e400",
+                                                   "panel_id":  "right",
+                                                   "panel_name":  "right",
+                                                   "file_name":  "53ac0715a39fbbcefe46e400__right.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  2,
+                                                   "error_streak":  1,
+                                                   "total_error_runs":  1,
+                                                   "latest_error_count":  1,
+                                                   "latest_error_types":  [
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "5a3c4f03a115b51a237dab35::left",
@@ -293,15 +259,30 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  4,
-                                                   "latest_error_count":  23,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9907858896255494
+                                                   "max_confidence":  0.85
+                                               },
+                                               {
+                                                   "panel_key":  "5a3c4f03a115b51a237dab35::right",
+                                                   "source_id":  "5a3c4f03a115b51a237dab35",
+                                                   "panel_id":  "right",
+                                                   "panel_name":  "right",
+                                                   "file_name":  "5a3c4f03a115b51a237dab35__right.png",
+                                                   "replay_count":  1,
+                                                   "effective_weight":  2,
+                                                   "requested_weight":  2,
+                                                   "error_streak":  1,
+                                                   "total_error_runs":  1,
+                                                   "latest_error_count":  1,
+                                                   "latest_error_types":  [
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "7b3a7fadddd66faabe24951a::left",
@@ -312,15 +293,14 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  25,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  3,
                                                    "latest_error_types":  [
                                                                               "fn",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9984562993049622
+                                                   "max_confidence":  0.940119743347168
                                                },
                                                {
                                                    "panel_key":  "7b3a7fadddd66faabe24951a::right",
@@ -331,16 +311,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  26,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9976880733783429
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "7c7605dfecbae20b5e53d89e::left",
@@ -351,16 +328,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  24,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9997417330741882
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "7c7605dfecbae20b5e53d89e::right",
@@ -371,16 +345,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  22,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9978736639022827
+                                                   "max_confidence":  0.9757132530212402
                                                },
                                                {
                                                    "panel_key":  "90adbab8ddca838fc2163289::left",
@@ -391,16 +362,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  20,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.99953293800354
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "90adbab8ddca838fc2163289::right",
@@ -411,16 +379,14 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  20,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  9,
                                                    "latest_error_types":  [
                                                                               "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9923015311360359
+                                                   "max_confidence":  0.9501185904849659
                                                },
                                                {
                                                    "panel_key":  "9ba7adaed5cce84c3c9e9904::left",
@@ -431,16 +397,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  22,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9987145662307739
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "9ba7adaed5cce84c3c9e9904::right",
@@ -448,17 +411,16 @@
                                                    "panel_id":  "right",
                                                    "panel_name":  "right",
                                                    "file_name":  "9ba7adaed5cce84c3c9e9904__right.png",
-                                                   "replay_count":  0,
-                                                   "effective_weight":  1,
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  2,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fp",
-                                                                              "geometry"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9483115077018738
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "a5cde2747384aac10cdcf2a0::left",
@@ -469,36 +431,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  21,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9983443575245994
-                                               },
-                                               {
-                                                   "panel_key":  "a5cde2747384aac10cdcf2a0::right",
-                                                   "source_id":  "a5cde2747384aac10cdcf2a0",
-                                                   "panel_id":  "right",
-                                                   "panel_name":  "right",
-                                                   "file_name":  "a5cde2747384aac10cdcf2a0__right.png",
-                                                   "replay_count":  0,
-                                                   "effective_weight":  1,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  11,
-                                                   "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
-                                                                          ],
-                                                   "max_confidence":  0.9994609951972961
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "b27419ec769898da105ee58e::left",
@@ -509,16 +448,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  4,
-                                                   "latest_error_count":  22,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  3,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.999755859375
+                                                   "max_confidence":  0.9814586043357849
                                                },
                                                {
                                                    "panel_key":  "b27419ec769898da105ee58e::right",
@@ -529,15 +465,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  4,
-                                                   "latest_error_count":  16,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  4,
                                                    "latest_error_types":  [
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9980101585388184
+                                                   "max_confidence":  0.9846481680870056
                                                },
                                                {
                                                    "panel_key":  "bacd002e7dbfe3d9677c794d::left",
@@ -548,16 +482,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  4,
-                                                   "latest_error_count":  18,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9998024702072144
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "bc9abaca5d0ce24769d25f8d::left",
@@ -565,17 +496,16 @@
                                                    "panel_id":  "left",
                                                    "panel_name":  "left",
                                                    "file_name":  "bc9abaca5d0ce24769d25f8d__left.png",
-                                                   "replay_count":  0,
-                                                   "effective_weight":  1,
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  2,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fp",
-                                                                              "geometry"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9786454248428345
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "bc9abaca5d0ce24769d25f8d::right",
@@ -586,16 +516,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  15,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9971067508061727
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "c7b1cdd552c9b6ba2e36e9b0::left",
@@ -606,16 +533,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  21,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9993444383144379
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "c7b1cdd552c9b6ba2e36e9b0::right",
@@ -626,16 +550,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  16,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9963049292564392
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "d0e45679764746a024898bb7::left",
@@ -646,36 +567,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  26,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9973384737968445
-                                               },
-                                               {
-                                                   "panel_key":  "d0e45679764746a024898bb7::right",
-                                                   "source_id":  "d0e45679764746a024898bb7",
-                                                   "panel_id":  "right",
-                                                   "panel_name":  "right",
-                                                   "file_name":  "d0e45679764746a024898bb7__right.png",
-                                                   "replay_count":  2,
-                                                   "effective_weight":  3,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  15,
-                                                   "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
-                                                                          ],
-                                                   "max_confidence":  0.999466598033905
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "da1e696d005d137d7fa22f7d::left",
@@ -686,36 +584,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  23,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.999498188495636
-                                               },
-                                               {
-                                                   "panel_key":  "da1e696d005d137d7fa22f7d::right",
-                                                   "source_id":  "da1e696d005d137d7fa22f7d",
-                                                   "panel_id":  "right",
-                                                   "panel_name":  "right",
-                                                   "file_name":  "da1e696d005d137d7fa22f7d__right.png",
-                                                   "replay_count":  2,
-                                                   "effective_weight":  3,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  15,
-                                                   "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
-                                                                          ],
-                                                   "max_confidence":  0.9963606662220426
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "db2be0bdefb73932df36d991::left",
@@ -723,17 +598,16 @@
                                                    "panel_id":  "left",
                                                    "panel_name":  "left",
                                                    "file_name":  "db2be0bdefb73932df36d991__left.png",
-                                                   "replay_count":  0,
-                                                   "effective_weight":  1,
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  2,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fp",
-                                                                              "geometry"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9792071771621704
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "db2be0bdefb73932df36d991::right",
@@ -741,18 +615,16 @@
                                                    "panel_id":  "right",
                                                    "panel_name":  "right",
                                                    "file_name":  "db2be0bdefb73932df36d991__right.png",
-                                                   "replay_count":  1,
-                                                   "effective_weight":  2,
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  13,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9926171004772186
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "df10cd3bd193d33eb0d99ccc::left",
@@ -763,36 +635,13 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  29,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9997377991676331
-                                               },
-                                               {
-                                                   "panel_key":  "df10cd3bd193d33eb0d99ccc::right",
-                                                   "source_id":  "df10cd3bd193d33eb0d99ccc",
-                                                   "panel_id":  "right",
-                                                   "panel_name":  "right",
-                                                   "file_name":  "df10cd3bd193d33eb0d99ccc__right.png",
-                                                   "replay_count":  2,
-                                                   "effective_weight":  3,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
-                                                   "latest_error_count":  16,
-                                                   "latest_error_types":  [
-                                                                              "fn",
-                                                                              "fp",
-                                                                              "geometry",
-                                                                              "merged"
-                                                                          ],
-                                                   "max_confidence":  0.9977765083312988
+                                                   "max_confidence":  0.85
                                                },
                                                {
                                                    "panel_key":  "e0e11f8c6673ba0724a6750c::left",
@@ -800,11 +649,11 @@
                                                    "panel_id":  "left",
                                                    "panel_name":  "left",
                                                    "file_name":  "e0e11f8c6673ba0724a6750c__left.png",
-                                                   "replay_count":  0,
-                                                   "effective_weight":  1,
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  2,
-                                                   "total_error_runs":  2,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
                                                    "latest_error_count":  2,
                                                    "latest_error_types":  [
                                                                               "fp"
@@ -820,46 +669,44 @@
                                                    "replay_count":  2,
                                                    "effective_weight":  3,
                                                    "requested_weight":  3,
-                                                   "error_streak":  4,
-                                                   "total_error_runs":  4,
-                                                   "latest_error_count":  16,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  1,
                                                    "latest_error_types":  [
-                                                                              "fn",
-                                                                              "geometry",
-                                                                              "merged"
+                                                                              "fp"
                                                                           ],
-                                                   "max_confidence":  0.9933464303612709
+                                                   "max_confidence":  0.85
                                                }
                                            ]
                             },
-    "model_id":  "table-RTDETR-L-table-run-20260914T094721-RTDETR-L",
-    "run_id":  "table-run-20260914T094721-RTDETR-L",
+    "model_id":  "table-RTDETR-L-table-run-20260915T164224-RTDETR-L",
+    "run_id":  "table-run-20260915T164224-RTDETR-L",
     "training_run":  {
                          "training_mode":  "continue",
-                         "parent_model_id":  "table-RTDETR-L-table-run-20260911T160040-RTDETR-L",
+                         "parent_model_id":  "table-RTDETR-L-table-run-20260915T155628-RTDETR-L",
                          "epochs":  40,
                          "batch_size":  3,
                          "learning_rate":  3E-05,
                          "base_train_images":  42,
                          "hard_example_replay_draws":  63,
-                         "hard_example_replay_panels":  37,
+                         "hard_example_replay_panels":  33,
                          "hard_example_replay_runtime":  {
                                                              "strategy":  "dynamic_panel_weighted_replay",
                                                              "base_records":  42,
                                                              "extra_draws":  63,
                                                              "effective_records":  105,
-                                                             "panel_count":  32,
+                                                             "panel_count":  33,
                                                              "budget_ratio":  1.5,
-                                                             "candidate_panel_count":  37,
-                                                             "requested_extra_draws":  74,
-                                                             "dataset":  "/training/workspace/projects/cmr_testcase_01/table_cell_datasets/table-cells-20260914T074621976309Z-e7f63322",
+                                                             "candidate_panel_count":  33,
+                                                             "requested_extra_draws":  63,
+                                                             "dataset":  "/training/workspace/projects/cmr_testcase_01/table_cell_datasets/table-cells-20260915T144157002911Z-e7f63322",
                                                              "annotation":  "annotations/instance_train.json"
                                                          },
-                         "started_at":  "2026-09-14T07:47:25.033747+00:00",
-                         "completed_at":  "2026-09-14T07:56:39.978273+00:00"
+                         "started_at":  "2026-09-15T14:42:27.345973+00:00",
+                         "completed_at":  "2026-09-15T14:51:24.118662+00:00"
                      },
     "model_validation":  {
-                             "dataset_id":  "table-cells-20260914T074621976309Z-e7f63322",
+                             "dataset_id":  "table-cells-20260915T144157002911Z-e7f63322",
                              "split":  "val",
                              "confidence":  0.25,
                              "iou_threshold":  0.5,
@@ -871,7 +718,7 @@
                              "f1":  1.0,
                              "false_positives_per_panel":  0.0,
                              "panel_count":  10,
-                             "evaluated_at":  "2026-09-14T07:58:21.998906+00:00",
+                             "evaluated_at":  "2026-09-15T14:53:00.132940+00:00",
                              "images":  [
                                             {
                                                 "file_name":  "028e57a7081d876bde821abc__right.png",
@@ -933,7 +780,287 @@
                                                 "fp":  0,
                                                 "fn":  0
                                             }
-                                        ]
+                                        ],
+                             "saturated":  true,
+                             "strictest_clean_iou_threshold":  0.65,
+                             "sweep":  [
+                                           {
+                                               "confidence":  0.1,
+                                               "iou_threshold":  0.5,
+                                               "tp":  300,
+                                               "fp":  4,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  0.9868421052631579,
+                                               "f1":  0.9933774834437086,
+                                               "false_positives_per_panel":  0.4
+                                           },
+                                           {
+                                               "confidence":  0.1,
+                                               "iou_threshold":  0.65,
+                                               "tp":  300,
+                                               "fp":  4,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  0.9868421052631579,
+                                               "f1":  0.9933774834437086,
+                                               "false_positives_per_panel":  0.4
+                                           },
+                                           {
+                                               "confidence":  0.1,
+                                               "iou_threshold":  0.75,
+                                               "tp":  297,
+                                               "fp":  7,
+                                               "fn":  3,
+                                               "recall":  0.99,
+                                               "precision":  0.9769736842105263,
+                                               "f1":  0.9834437086092715,
+                                               "false_positives_per_panel":  0.7
+                                           },
+                                           {
+                                               "confidence":  0.1,
+                                               "iou_threshold":  0.85,
+                                               "tp":  281,
+                                               "fp":  23,
+                                               "fn":  19,
+                                               "recall":  0.9366666666666666,
+                                               "precision":  0.9243421052631579,
+                                               "f1":  0.9304635761589404,
+                                               "false_positives_per_panel":  2.3
+                                           },
+                                           {
+                                               "confidence":  0.1,
+                                               "iou_threshold":  0.95,
+                                               "tp":  93,
+                                               "fp":  211,
+                                               "fn":  207,
+                                               "recall":  0.31,
+                                               "precision":  0.3059210526315789,
+                                               "f1":  0.3079470198675497,
+                                               "false_positives_per_panel":  21.1
+                                           },
+                                           {
+                                               "confidence":  0.25,
+                                               "iou_threshold":  0.5,
+                                               "tp":  300,
+                                               "fp":  0,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  1.0,
+                                               "f1":  1.0,
+                                               "false_positives_per_panel":  0.0
+                                           },
+                                           {
+                                               "confidence":  0.25,
+                                               "iou_threshold":  0.65,
+                                               "tp":  300,
+                                               "fp":  0,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  1.0,
+                                               "f1":  1.0,
+                                               "false_positives_per_panel":  0.0
+                                           },
+                                           {
+                                               "confidence":  0.25,
+                                               "iou_threshold":  0.75,
+                                               "tp":  297,
+                                               "fp":  3,
+                                               "fn":  3,
+                                               "recall":  0.99,
+                                               "precision":  0.99,
+                                               "f1":  0.99,
+                                               "false_positives_per_panel":  0.3
+                                           },
+                                           {
+                                               "confidence":  0.25,
+                                               "iou_threshold":  0.85,
+                                               "tp":  281,
+                                               "fp":  19,
+                                               "fn":  19,
+                                               "recall":  0.9366666666666666,
+                                               "precision":  0.9366666666666666,
+                                               "f1":  0.9366666666666666,
+                                               "false_positives_per_panel":  1.9
+                                           },
+                                           {
+                                               "confidence":  0.25,
+                                               "iou_threshold":  0.95,
+                                               "tp":  93,
+                                               "fp":  207,
+                                               "fn":  207,
+                                               "recall":  0.31,
+                                               "precision":  0.31,
+                                               "f1":  0.31,
+                                               "false_positives_per_panel":  20.7
+                                           },
+                                           {
+                                               "confidence":  0.5,
+                                               "iou_threshold":  0.5,
+                                               "tp":  300,
+                                               "fp":  0,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  1.0,
+                                               "f1":  1.0,
+                                               "false_positives_per_panel":  0.0
+                                           },
+                                           {
+                                               "confidence":  0.5,
+                                               "iou_threshold":  0.65,
+                                               "tp":  300,
+                                               "fp":  0,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  1.0,
+                                               "f1":  1.0,
+                                               "false_positives_per_panel":  0.0
+                                           },
+                                           {
+                                               "confidence":  0.5,
+                                               "iou_threshold":  0.75,
+                                               "tp":  297,
+                                               "fp":  3,
+                                               "fn":  3,
+                                               "recall":  0.99,
+                                               "precision":  0.99,
+                                               "f1":  0.99,
+                                               "false_positives_per_panel":  0.3
+                                           },
+                                           {
+                                               "confidence":  0.5,
+                                               "iou_threshold":  0.85,
+                                               "tp":  281,
+                                               "fp":  19,
+                                               "fn":  19,
+                                               "recall":  0.9366666666666666,
+                                               "precision":  0.9366666666666666,
+                                               "f1":  0.9366666666666666,
+                                               "false_positives_per_panel":  1.9
+                                           },
+                                           {
+                                               "confidence":  0.5,
+                                               "iou_threshold":  0.95,
+                                               "tp":  93,
+                                               "fp":  207,
+                                               "fn":  207,
+                                               "recall":  0.31,
+                                               "precision":  0.31,
+                                               "f1":  0.31,
+                                               "false_positives_per_panel":  20.7
+                                           },
+                                           {
+                                               "confidence":  0.75,
+                                               "iou_threshold":  0.5,
+                                               "tp":  300,
+                                               "fp":  0,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  1.0,
+                                               "f1":  1.0,
+                                               "false_positives_per_panel":  0.0
+                                           },
+                                           {
+                                               "confidence":  0.75,
+                                               "iou_threshold":  0.65,
+                                               "tp":  300,
+                                               "fp":  0,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  1.0,
+                                               "f1":  1.0,
+                                               "false_positives_per_panel":  0.0
+                                           },
+                                           {
+                                               "confidence":  0.75,
+                                               "iou_threshold":  0.75,
+                                               "tp":  297,
+                                               "fp":  3,
+                                               "fn":  3,
+                                               "recall":  0.99,
+                                               "precision":  0.99,
+                                               "f1":  0.99,
+                                               "false_positives_per_panel":  0.3
+                                           },
+                                           {
+                                               "confidence":  0.75,
+                                               "iou_threshold":  0.85,
+                                               "tp":  281,
+                                               "fp":  19,
+                                               "fn":  19,
+                                               "recall":  0.9366666666666666,
+                                               "precision":  0.9366666666666666,
+                                               "f1":  0.9366666666666666,
+                                               "false_positives_per_panel":  1.9
+                                           },
+                                           {
+                                               "confidence":  0.75,
+                                               "iou_threshold":  0.95,
+                                               "tp":  93,
+                                               "fp":  207,
+                                               "fn":  207,
+                                               "recall":  0.31,
+                                               "precision":  0.31,
+                                               "f1":  0.31,
+                                               "false_positives_per_panel":  20.7
+                                           },
+                                           {
+                                               "confidence":  0.9,
+                                               "iou_threshold":  0.5,
+                                               "tp":  103,
+                                               "fp":  0,
+                                               "fn":  197,
+                                               "recall":  0.3433333333333333,
+                                               "precision":  1.0,
+                                               "f1":  0.511166253101737,
+                                               "false_positives_per_panel":  0.0
+                                           },
+                                           {
+                                               "confidence":  0.9,
+                                               "iou_threshold":  0.65,
+                                               "tp":  103,
+                                               "fp":  0,
+                                               "fn":  197,
+                                               "recall":  0.3433333333333333,
+                                               "precision":  1.0,
+                                               "f1":  0.511166253101737,
+                                               "false_positives_per_panel":  0.0
+                                           },
+                                           {
+                                               "confidence":  0.9,
+                                               "iou_threshold":  0.75,
+                                               "tp":  100,
+                                               "fp":  3,
+                                               "fn":  200,
+                                               "recall":  0.3333333333333333,
+                                               "precision":  0.970873786407767,
+                                               "f1":  0.49627791563275436,
+                                               "false_positives_per_panel":  0.3
+                                           },
+                                           {
+                                               "confidence":  0.9,
+                                               "iou_threshold":  0.85,
+                                               "tp":  88,
+                                               "fp":  15,
+                                               "fn":  212,
+                                               "recall":  0.29333333333333333,
+                                               "precision":  0.8543689320388349,
+                                               "f1":  0.43672456575682383,
+                                               "false_positives_per_panel":  1.5
+                                           },
+                                           {
+                                               "confidence":  0.9,
+                                               "iou_threshold":  0.95,
+                                               "tp":  23,
+                                               "fp":  80,
+                                               "fn":  277,
+                                               "recall":  0.07666666666666666,
+                                               "precision":  0.22330097087378642,
+                                               "f1":  0.11414392059553351,
+                                               "false_positives_per_panel":  8.0
+                                           }
+                                       ],
+                             "note":  "Precisie/recall/F1 zijn 1.0 bij confidence=0.25/IoU=0.5 op maar 10 panelen -- dat is het zachtste punt in de sweep en verzadigt makkelijk op een kleine, vaste validatieset. Het zegt dat dit meetpunt hier niet meer onderscheidt, niet dat het model foutloos is. Vergelijk \u0027strictest_clean_iou_threshold\u0027 en \u0027sweep\u0027 tussen trainingsronden om een echt verschil te zien."
                          },
     "error":  ""
 }
