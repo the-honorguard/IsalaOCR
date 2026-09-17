@@ -409,6 +409,7 @@ def apply_mapping_profile(
     source_id: str,
     *,
     minimum_score: float = 0.62,
+    auto_confirm_score: float = 0.90,
 ) -> list[dict[str, Any]]:
     profile = database.get_mapping_profile(profile_id)
     if profile is None:
@@ -452,6 +453,7 @@ def apply_mapping_profile(
         field_key = str(rule["field_key"])
         if field_key in used_fields or relation["relation_id"] in used_relations:
             continue
+        auto_confirmed = score >= auto_confirm_score
         stored.append(
             database.upsert_mapping(
                 source_id=source_id,
@@ -460,9 +462,13 @@ def apply_mapping_profile(
                 label_block_id=str(relation.get("label_block_id") or ""),
                 value_block_id=str(relation["value_block_id"]),
                 unit_block_id=str(relation.get("unit_block_id") or ""),
-                status="suggested",
+                status="confirmed" if auto_confirmed else "suggested",
                 mapping_confidence=score,
-                notes=f"suggested from mapping profile {profile_id}",
+                notes=(
+                    f"auto-confirmed from mapping profile {profile_id} (score={score:.2f})"
+                    if auto_confirmed
+                    else f"suggested from mapping profile {profile_id}"
+                ),
                 profile_id=profile_id,
             )
         )
