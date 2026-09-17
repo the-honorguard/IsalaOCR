@@ -12,6 +12,7 @@ from ..models import Box, OCRToken
 from ..ocr.table_structure import TableCell, TableRegion
 from .generic_detection import GenericBlock
 from .table_cell_ground_truth import list_ground_truth_cells
+from .table_panels import load_panel_profile, panel_boxes_for_image
 
 LOGGER = logging.getLogger(__name__)
 CANONICAL_MAPPING_GEOMETRY_VERSION = "canonical-table-cell-gt-v1"
@@ -124,9 +125,37 @@ def canonical_table_regions(
     if not raw_cells:
         raise RuntimeError(f"Canonical table-cell GT has no cells for source {source_id}")
 
+    # GT Studio review never records panel_id/panel_name on a cell (see
+    # mapping_ground_truth_fast._configured_panel_regions()'s docstring), so
+    # grouping by that field alone put every cell from every panel into one
+    # "unassigned" bucket - one merged TableRegion (and table_id) spanning,
+    # say, both the LV and RV tables. Row/column clustering then ran across
+    # both panels' cells together, and any later per-table panel-context
+    # match (there is only one table_id to match) could only ever pick one
+    # side for every relation in the merged region. Partition by Table/Panel
+    # Setup's own configured geometry first when it exists; a cell's own
+    # panel_id remains the fallback for a project with no configured panels.
+    configured_panels = panel_boxes_for_image(
+        load_panel_profile(workspace), image_width, image_height
+    )
+
+    def _panel_id_for_cell(item: dict[str, Any]) -> str:
+        if configured_panels:
+            try:
+                center_x = (int(item["x1"]) + int(item["x2"])) / 2
+                center_y = (int(item["y1"]) + int(item["y2"])) / 2
+            except (KeyError, TypeError, ValueError):
+                pass
+            else:
+                for panel in configured_panels:
+                    box = panel["box"]
+                    if box.x1 <= center_x <= box.x2 and box.y1 <= center_y <= box.y2:
+                        return str(panel["panel_id"])
+        return str(item.get("panel_id") or "unassigned")
+
     grouped: dict[str, list[dict[str, Any]]] = {}
     for item in raw_cells:
-        panel_id = str(item.get("panel_id") or "unassigned")
+        panel_id = _panel_id_for_cell(item)
         grouped.setdefault(panel_id, []).append(item)
 
     regions: list[TableRegion] = []
