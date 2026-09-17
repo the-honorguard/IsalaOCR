@@ -6,14 +6,12 @@ import shutil
 import time
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import cv2
 
 from ..config import AppConfig
 from ..dicom import hash_file
 from ..image_io import load_input
-from ..models import Box
 from ..ocr.base import OCREngine
 from ..study_info import extract_study_info
 from .db import TrainingDatabase, utc_now
@@ -392,20 +390,23 @@ def collect_mapping_from_canonical_gt(
         # output. Reattach the user-configured table/panel identity to those
         # existing relations so a generic label (for example ``ED Volume``)
         # can resolve to the correct side on any new report layout.
-        geometry = database.list_detection_table_geometry(source_id)
-        table_regions = []
-        for region in geometry.get("regions", []):
-            try:
-                box = Box(
-                    int(region["x1"]), int(region["y1"]),
-                    int(region["x2"]), int(region["y2"]),
-                )
-            except (KeyError, TypeError, ValueError):
-                continue
-            table_regions.append(SimpleNamespace(
-                table_id=str(region.get("table_id") or ""),
-                box=box,
-            ))
+        #
+        # Canonical GT geometry, not Pipeline-A's detection_table_regions, is
+        # the authoritative table_id space here: it's what relations.table_id
+        # was actually stamped from (a per-run "canonical-<hash>" id -
+        # detection_table_regions belongs to an unrelated, older detection
+        # pass and its table ids never match). No OCR runs in this branch
+        # ("no OCR or DICOM processing performed" below is accurate) - empty
+        # tokens still yield correct table_id/box geometry for every cell,
+        # just without per-cell text, which this step doesn't need.
+        try:
+            table_regions = canonical_table_regions(
+                root, source_id, [],
+                image_width=int(source.get("image_width") or 0),
+                image_height=int(source.get("image_height") or 0),
+            )
+        except RuntimeError:
+            table_regions = []
         enriched, _ = _enrich_relations_with_panel_context(
             root, source_id, table_regions, relations
         )
