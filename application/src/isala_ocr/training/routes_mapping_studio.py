@@ -9,7 +9,7 @@ a separate route, split out on its own into routes_roi_mapping_studio.py.
 ``database``, ``workspace_root`` and ``enqueue_job`` are reused by
 other route groups in webui.py and are passed in explicitly.
 Everything else used here (``table_studio_roles``, ``table_studio_rows``,
-``load_panel_profile``, ``normalize_text``, ``field_lateral_suffix``,
+``relation_panel_id``, ``load_panel_profile``, ``field_lateral_suffix``,
 ``field_lateral_side``, ``relation_lateral_side``,
 ``RELATION_FEEDBACK_REASONS``) is a pure function/constant imported
 directly from its own module.
@@ -28,11 +28,10 @@ from typing import Any, Callable
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 
-from .generic_detection import normalize_text
 from .json_api import json_error
 from .mapping_lateral import field_lateral_side, field_lateral_suffix, relation_lateral_side
 from .relation_feedback import RELATION_FEEDBACK_REASONS
-from .recognition_ground_truth import table_studio_roles, table_studio_rows
+from .recognition_ground_truth import relation_panel_id, table_studio_roles, table_studio_rows
 from .table_panels import load_panel_profile
 
 
@@ -182,22 +181,6 @@ def register_mapping_studio_routes(
                 max(y2, previous[1]) if previous else y2,
             )
 
-        def relation_panel_id(relation: dict[str, Any]) -> str:
-            parts = [part.strip() for part in str(relation.get("context_text") or "").split("|")]
-            # Panel context is persisted as human-readable name plus optional
-            # id. Older mapping runs only persisted the name, so do not assume
-            # that the id is always the second token. The selected Table/Panel
-            # remains the semantic disambiguator for generic labels such as
-            # ``ED Volume``; no report-specific label is hardcoded here.
-            normalized_parts = {normalize_text(part) for part in parts if part}
-            for panel_id, panel in panel_by_id.items():
-                panel_name = normalize_text(str(panel.get("name") or ""))
-                if normalize_text(panel_id) in normalized_parts or (
-                    panel_name and panel_name in normalized_parts
-                ):
-                    return panel_id
-            return ""
-
         def relation_raster_row(relation: dict[str, Any], panel_id: str) -> int:
             rows = raster_rows.get(panel_id) or {}
             if not rows:
@@ -210,7 +193,7 @@ def register_mapping_studio_routes(
 
         relations = []
         for relation in all_relations:
-            panel_id = relation_panel_id(relation)
+            panel_id = relation_panel_id(relation, panel_by_id)
             value_column = str(int(relation.get("value_column_index") or 0))
             raster_row = relation_raster_row(relation, panel_id)
             configured = panel_id in column_roles

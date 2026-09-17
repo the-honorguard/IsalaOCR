@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .db import TrainingDatabase
+from .generic_detection import normalize_text
 from .projects import resolve_project_workspace
 from .table_cell_ground_truth import list_ground_truth_cells, list_ground_truth_sources
 
@@ -40,6 +41,33 @@ def table_studio_roles(workspace: str | Path) -> dict[str, dict[str, str]]:
             and str(role) in {"label", "value", "unit", "header", "skip"}
         }
     return result
+
+
+def relation_panel_id(relation: dict[str, Any], panel_by_id: dict[str, dict[str, Any]]) -> str:
+    """Resolve which Table/Panel Setup panel a detected relation belongs to.
+
+    A relation's own ``table_id`` is a per-source, per-detection-run
+    identifier (hashed from canonical GT geometry) - it never matches the
+    identifiers Table/Panel Setup or Table Studio use, which are project-wide
+    ``panel_id`` values. The only bridge between the two is ``context_text``,
+    which ``_enrich_relations_with_panel_context()`` stamps with the panel's
+    name and/or id at detection time. Shared by both Mapping Studio routes
+    (``routes_mapping_studio.py`` and ``routes_roi_mapping_studio.py``) so a
+    column role such as "Overslaan" (skip), set once in Table Studio, hides
+    that column's relations consistently in either one.
+    """
+    parts = [part.strip() for part in str(relation.get("context_text") or "").split("|")]
+    # Panel context is persisted as human-readable name plus optional id.
+    # Older mapping runs only persisted the name, so do not assume the id is
+    # always the second token.
+    normalized_parts = {normalize_text(part) for part in parts if part}
+    for panel_id, panel in panel_by_id.items():
+        panel_name = normalize_text(str(panel.get("name") or ""))
+        if normalize_text(panel_id) in normalized_parts or (
+            panel_name and panel_name in normalized_parts
+        ):
+            return panel_id
+    return ""
 
 
 def table_studio_rows(workspace: str | Path) -> dict[str, list[int]]:
