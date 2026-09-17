@@ -3,10 +3,12 @@
 Covers the older, no-longer-linked-from-nav /mapping/<source_id> route
 (``mapping_studio()``), as flagged as a later pass in
 ``routes_mapping_studio.py``'s docstring (the current, label-first Mapping
-Studio lives there). ``database`` and ``enqueue_job`` are still shared with
-other route groups defined directly in webui.py, so they are passed in
-explicitly; everything else used here (``resolve_value_roi_box``,
-``suggest_mappings``, ``build_mapping_output_preview``,
+Studio lives there). ``database``, ``workspace_root`` and ``enqueue_job``
+are still shared with other route groups defined directly in webui.py, so
+they are passed in explicitly; everything else used here
+(``resolve_value_roi_box``, ``suggest_mappings``,
+``build_mapping_output_preview``, ``table_studio_roles``,
+``relation_panel_id``, ``load_panel_profile``,
 ``RELATION_FEEDBACK_REASONS``) is a pure function/constant imported
 directly from its own module.
 """
@@ -18,16 +20,39 @@ from typing import Any
 from flask import Flask, abort, flash, redirect, render_template, request, url_for
 
 from .mapping import build_mapping_output_preview, resolve_value_roi_box, suggest_mappings
+from .recognition_ground_truth import relation_panel_id, table_studio_roles
 from .relation_feedback import RELATION_FEEDBACK_REASONS
+from .table_panels import load_panel_profile
 
 
-def register_roi_mapping_studio_routes(app: Flask, *, database: Any, enqueue_job: Any) -> None:
+def register_roi_mapping_studio_routes(
+    app: Flask, *, database: Any, workspace_root: Any, enqueue_job: Any
+) -> None:
     @app.route("/mapping/<source_id>", methods=["GET", "POST"])
     def mapping_studio(source_id: str):
         source = database.get_detection_source(source_id)
         if source is None:
             abort(404)
         relations = database.list_detected_relations(source_id)
+        # Table Studio (Stap 8) lets an operator mark a whole column
+        # "Overslaan" (skip) - typically reference/duplicate columns that
+        # were never meant to reach Recognition. Once configured for a
+        # panel, such a column's relations must not appear here at all, not
+        # just be visually hidden: they were never candidates for mapping.
+        column_roles = table_studio_roles(workspace_root())
+        if column_roles:
+            panel_by_id = {
+                str(panel.get("panel_id") or ""): panel
+                for panel in load_panel_profile(workspace_root()).get("panels") or []
+                if str(panel.get("panel_id") or "")
+            }
+            relations = [
+                relation for relation in relations
+                if (panel_id := relation_panel_id(relation, panel_by_id)) not in column_roles
+                or column_roles.get(panel_id, {}).get(
+                    str(int(relation.get("value_column_index") or 0))
+                ) == "value"
+            ]
         relations_by_id = {str(item["relation_id"]): item for item in relations}
         fields = database.list_field_definitions(active_only=True)
         pipeline_a_annotations: list[dict[str, Any]] | None = None

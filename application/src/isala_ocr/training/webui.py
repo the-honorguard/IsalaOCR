@@ -3996,7 +3996,9 @@ def create_web_app(
             "updated_at": saved.get("updated_at", ""),
         }
 
-    register_roi_mapping_studio_routes(app, database=database, enqueue_job=enqueue_job)
+    register_roi_mapping_studio_routes(
+        app, database=database, workspace_root=workspace_root, enqueue_job=enqueue_job
+    )
 
     register_field_mapping_config_routes(app, database=database)
 
