@@ -186,6 +186,8 @@ def collect_mapping_from_canonical_gt(
     database.clear_all_mappings()
     total_suggestions = 0
     processed_sources = 0
+    sources_without_ocr_tokens = 0
+    sources_with_tokens_but_no_relations = 0
     for source in existing_sources:
         source_id = str(source.get("source_id") or "").strip()
         if not source_id:
@@ -193,9 +195,21 @@ def collect_mapping_from_canonical_gt(
         relations = database.list_detected_relations(source_id)
         relation_count = len(relations)
         if relation_count <= 0:
+            token_count = int(source.get("token_count") or 0)
+            block_count = int(source.get("block_count") or 0)
+            if token_count <= 0:
+                sources_without_ocr_tokens += 1
+                hint = "de Detectie/Recognition-OCR vond geen tekst voor deze bron; voer die stap opnieuw uit."
+            else:
+                sources_with_tokens_but_no_relations += 1
+                hint = (
+                    "er was wel OCR-tekst, maar geen enkel label/waarde-paar kon worden gevormd; "
+                    "controleer de canonical GT-celdekking en tabel-/paneelindeling."
+                )
             LOGGER.warning(
-                "Mapping source [%s]: existing Detection/Recognition-output contains no relations; skipped.",
-                source_id,
+                "Mapping source [%s]: existing Detection/Recognition-output contains no relations "
+                "(token_count=%d, block_count=%d); skipped. %s",
+                source_id, token_count, block_count, hint,
             )
             continue
         # The mapping rebuild intentionally reuses Detection/Recognition
@@ -237,7 +251,10 @@ def collect_mapping_from_canonical_gt(
         )
     if not processed_sources:
         raise RuntimeError(
-            "Mapping kan niet worden opgebouwd: de bestaande Detection/Recognition-output bevat geen relaties."
+            "Mapping kan niet worden opgebouwd: de bestaande Detection/Recognition-output bevat geen relaties. "
+            f"{sources_without_ocr_tokens} bron(nen) hadden 0 OCR-tokens (voer de Detectie/Recognition-stap "
+            f"opnieuw uit); {sources_with_tokens_but_no_relations} bron(nen) hadden wel OCR-tekst maar geen "
+            "label/waarde-relatie (controleer canonical GT-celdekking en tabel-/paneelindeling)."
         )
     return {
         "flow": "mapping_only_from_existing_detection_recognition_output",
