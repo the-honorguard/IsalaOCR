@@ -74,8 +74,16 @@ def test_redetection_recovers_a_source_stuck_with_zero_relations(
 
     workspace = tmp_path / "training"
     _write_canonical_gt_shell(workspace, source_id)
-    add_ground_truth_cell(workspace, source_id, (0, 0, 90, 22), panel_id="panel-a")
-    add_ground_truth_cell(workspace, source_id, (100, 0, 160, 22), panel_id="panel-a")
+    # integrate_table_regions() only treats a canonical region as a real
+    # table (and stamps a matching table_id on its relations) once it has at
+    # least 2 rows with at least one multi-cell row; a single-row grid falls
+    # back to a generic, table_id-less relation and never gets panel context
+    # attached. Use a 2x2 grid, like the geometry-reconstruction test in
+    # test_mapping_canonical_gt_v3142.py.
+    add_ground_truth_cell(workspace, source_id, (0, 0, 90, 22), panel_id="panel-a", panel_name="Panel A")
+    add_ground_truth_cell(workspace, source_id, (100, 0, 160, 22), panel_id="panel-a", panel_name="Panel A")
+    add_ground_truth_cell(workspace, source_id, (0, 32, 90, 54), panel_id="panel-a", panel_name="Panel A")
+    add_ground_truth_cell(workspace, source_id, (100, 32, 160, 54), panel_id="panel-a", panel_name="Panel A")
 
     database = TrainingDatabase(workspace / "samples.sqlite3")
     # Seed a broken prior Detection/Recognition run, exactly like the one
@@ -99,6 +107,8 @@ def test_redetection_recovers_a_source_stuck_with_zero_relations(
     tokens = [
         OCRToken("HR", 0.99, Box(10, 3, 35, 19)),
         OCRToken("75", 0.97, Box(110, 3, 140, 19)),
+        OCRToken("SV", 0.98, Box(10, 35, 35, 51)),
+        OCRToken("80", 0.96, Box(110, 35, 140, 51)),
     ]
     engine = FixedTokenLocatorEngine(tokens)
 
@@ -116,6 +126,13 @@ def test_redetection_recovers_a_source_stuck_with_zero_relations(
     assert not any(
         "bevat geen relaties" in record.getMessage() for record in caplog.records
     )
+
+    # Mapping Studio resolves a relation's Table/Panel Setup panel from
+    # context_text alone (table_id is a per-run hash that never matches a
+    # panel_id) - without this, the Table Studio "Overslaan" (skip) column
+    # filter silently stops applying to every relation this redetection path
+    # produces, exactly like collector.py's own detection run already does.
+    assert all("panel a" in relation["context_text"].casefold() for relation in relations)
 
 
 def test_redetection_is_skipped_when_source_file_is_not_in_the_current_input(

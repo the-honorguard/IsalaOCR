@@ -196,6 +196,17 @@ def _redetect_source_from_canonical_gt(
     blocks, relations, structural = integrate_table_regions(
         decoded.source_id, blocks, relations, table_regions
     )
+    # Mapping Studio (both the label-first and ROI-first pages) resolves
+    # which Table/Panel Setup panel a relation belongs to from context_text
+    # alone - a relation's table_id is a per-run canonical-GT hash that
+    # never matches a panel_id. Without this, a freshly redetected relation
+    # has no panel context, relation_panel_id() can't resolve it, and the
+    # Table Studio "Overslaan" (skip) column filter silently stops applying
+    # to it (it was previously getting this from collector.py's own
+    # detection run; this redetection path needs to do the same).
+    relations, panel_context_by_table = _enrich_relations_with_panel_context(
+        root, decoded.source_id, list(table_regions), list(relations)
+    )
     blocks = mark_canonical_geometry(blocks)
     detector_diagnostics["table_structure"] = {
         "enabled": True,
@@ -203,6 +214,7 @@ def _redetect_source_from_canonical_gt(
         "engine_version": CANONICAL_MAPPING_GEOMETRY_VERSION,
         "model_inference": False,
         "active_table_model_loaded": False,
+        "semantic_panel_context": panel_context_by_table,
         "error": "",
         **structural,
     }
