@@ -706,16 +706,6 @@ def _collect_mapping_detections(
             detector_diagnostics["table_structure"] = table_diagnostics
             detector_diagnostics["block_count"] = len(blocks)
             detector_diagnostics["relation_count"] = len(relations)
-            ocr_token_count = int(detector_diagnostics.get("ocr_token_count", 0))
-            if ocr_token_count <= 0:
-                sources_without_ocr_tokens += 1
-                LOGGER.warning(
-                    "Detection source %d/%d [%s]: full-page OCR found no text token(s) "
-                    "(block_count=%d, table structure geometry may still be present from "
-                    "canonical Ground Truth); Mapping preparation will skip this source "
-                    "until OCR is re-run or the input image is checked.",
-                    source_index, len(sources), decoded.source_id, len(blocks),
-                )
             recognition_results = _recognize_table_value_cells(decoded.image, blocks, recognition_engine)
             render_relative = Path("source_renders") / f"{decoded.source_id}.png"
             render_path = root / render_relative
@@ -773,15 +763,32 @@ def _collect_mapping_detections(
             total_blocks += len(blocks)
             total_relations += len(relations)
             total_suggestions += len(suggestions)
+            ocr_token_count = int(detector_diagnostics.get("ocr_token_count", 0))
+            if ocr_token_count <= 0:
+                if relations:
+                    LOGGER.warning(
+                        "Detection source %d/%d [%s]: full-page OCR found no text token(s), "
+                        "but %d relation(s) were still produced from table structure geometry; "
+                        "Mapping preparation will process this source normally.",
+                        source_index, len(sources), decoded.source_id, len(relations),
+                    )
+                else:
+                    sources_without_ocr_tokens += 1
+                    LOGGER.warning(
+                        "Detection source %d/%d [%s]: full-page OCR found no text token(s) and "
+                        "no relations were produced (block_count=%d); Mapping preparation will "
+                        "skip this source until OCR is re-run or the input image is checked.",
+                        source_index, len(sources), decoded.source_id, len(blocks),
+                    )
         except Exception:
             failed_sources += 1
             LOGGER.exception("Could not perform generic detection for input item %d", source_index)
 
     if sources_without_ocr_tokens:
         LOGGER.warning(
-            "Detection/Recognition: %d/%d source(s) had zero OCR tokens; Mapping preparation "
-            "will skip these sources until this OCR step is re-run for them or the input images "
-            "are checked.",
+            "Detection/Recognition: %d/%d source(s) had zero OCR tokens and no relations; "
+            "Mapping preparation will skip these sources until this OCR step is re-run for "
+            "them or the input images are checked.",
             sources_without_ocr_tokens, detected_sources,
         )
 
