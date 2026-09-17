@@ -1,14 +1,19 @@
-import json
 from dataclasses import dataclass
 
 from isala_ocr.models import Box
 from isala_ocr.training.generic_detection import GenericRelation
-from isala_ocr.training.mapping_ground_truth_fast import _enrich_relations_with_panel_context
+from isala_ocr.training.mapping_ground_truth_fast import (
+    _enrich_relations_with_panel_context,
+)
 from isala_ocr.training.mapping_lateral import (
     ambiguous_lateral_suffixes,
     lateral_candidate_allowed,
     relation_lateral_side,
 )
+from isala_ocr.training.table_panels import save_panel_profile
+
+IMAGE_WIDTH = 320
+IMAGE_HEIGHT = 100
 
 
 @dataclass(frozen=True)
@@ -17,61 +22,21 @@ class _Table:
     box: Box
 
 
-def _write_gt(workspace):
-    payload = {
-        "schema_version": 1,
-        "type": "canonical_table_cell_ground_truth",
-        "revision": 1,
-        "sources": {
-            "source-1": {
-                "source_id": "source-1",
-                "review_completed": True,
-                "cells": [
-                    {
-                        "gt_id": "lv-1",
-                        "source_id": "source-1",
-                        "panel_id": "lv",
-                        "panel_name": "Left ventricle",
-                        "x1": 10,
-                        "y1": 10,
-                        "x2": 110,
-                        "y2": 40,
-                    },
-                    {
-                        "gt_id": "lv-2",
-                        "source_id": "source-1",
-                        "panel_id": "lv",
-                        "panel_name": "Left ventricle",
-                        "x1": 10,
-                        "y1": 45,
-                        "x2": 110,
-                        "y2": 75,
-                    },
-                    {
-                        "gt_id": "rv-1",
-                        "source_id": "source-1",
-                        "panel_id": "rv",
-                        "panel_name": "Right ventricle",
-                        "x1": 210,
-                        "y1": 10,
-                        "x2": 310,
-                        "y2": 40,
-                    },
-                    {
-                        "gt_id": "rv-2",
-                        "source_id": "source-1",
-                        "panel_id": "rv",
-                        "panel_name": "Right ventricle",
-                        "x1": 210,
-                        "y1": 45,
-                        "x2": 310,
-                        "y2": 75,
-                    },
-                ],
-            }
-        },
-    }
-    (workspace / "table_cell_ground_truth.json").write_text(json.dumps(payload), encoding="utf-8")
+def _write_panels(workspace):
+    # Panel identity comes from Table/Panel Setup's own profile, not from
+    # canonical GT cells (GT Studio review never records panel_id/panel_name
+    # on a cell - see _configured_panel_regions()'s docstring). Boxes here
+    # cover the same pixel regions the LV/RV table fixtures below occupy.
+    save_panel_profile(
+        workspace,
+        panels=[
+            {"panel_id": "lv", "name": "Left ventricle", "x1": 10 / IMAGE_WIDTH, "y1": 10 / IMAGE_HEIGHT, "x2": 110 / IMAGE_WIDTH, "y2": 75 / IMAGE_HEIGHT},
+            {"panel_id": "rv", "name": "Right ventricle", "x1": 210 / IMAGE_WIDTH, "y1": 10 / IMAGE_HEIGHT, "x2": 310 / IMAGE_WIDTH, "y2": 75 / IMAGE_HEIGHT},
+        ],
+        reference_source_id="source-1",
+        reference_width=IMAGE_WIDTH,
+        reference_height=IMAGE_HEIGHT,
+    )
 
 
 def _relation(relation_id, table_id):
@@ -92,7 +57,7 @@ def _relation(relation_id, table_id):
 
 
 def test_canonical_panel_identity_becomes_mapping_context(tmp_path):
-    _write_gt(tmp_path)
+    _write_panels(tmp_path)
     tables = [
         _Table("table-lv", Box(10, 10, 110, 75)),
         _Table("table-rv", Box(210, 10, 310, 75)),
@@ -103,7 +68,7 @@ def test_canonical_panel_identity_becomes_mapping_context(tmp_path):
     ]
 
     enriched, contexts = _enrich_relations_with_panel_context(
-        tmp_path, "source-1", tables, relations
+        tmp_path, IMAGE_WIDTH, IMAGE_HEIGHT, tables, relations
     )
 
     assert contexts["table-lv"] == "Left ventricle | lv"
@@ -115,11 +80,11 @@ def test_canonical_panel_identity_becomes_mapping_context(tmp_path):
 
 
 def test_panel_context_allows_only_correct_bilateral_target(tmp_path):
-    _write_gt(tmp_path)
+    _write_panels(tmp_path)
     table = _Table("table-lv", Box(10, 10, 110, 75))
     relation = _relation("lv-edv", "table-lv")
     enriched, _ = _enrich_relations_with_panel_context(
-        tmp_path, "source-1", [table], [relation]
+        tmp_path, IMAGE_WIDTH, IMAGE_HEIGHT, [table], [relation]
     )
     relation_payload = enriched[0].as_dict()
 

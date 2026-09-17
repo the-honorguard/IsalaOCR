@@ -16,6 +16,7 @@ from isala_ocr.training.mapping_ground_truth_fast import (
     collect_mapping_from_canonical_gt,
 )
 from isala_ocr.training.table_cell_ground_truth import add_ground_truth_cell
+from isala_ocr.training.table_panels import save_panel_profile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -81,10 +82,21 @@ def test_redetection_recovers_a_source_stuck_with_zero_relations(
     # back to a generic, table_id-less relation and never gets panel context
     # attached. Use a 2x2 grid, like the geometry-reconstruction test in
     # test_mapping_canonical_gt_v3142.py.
-    add_ground_truth_cell(workspace, source_id, (0, 0, 90, 22), panel_id="panel-a", panel_name="Panel A")
-    add_ground_truth_cell(workspace, source_id, (100, 0, 160, 22), panel_id="panel-a", panel_name="Panel A")
-    add_ground_truth_cell(workspace, source_id, (0, 32, 90, 54), panel_id="panel-a", panel_name="Panel A")
-    add_ground_truth_cell(workspace, source_id, (100, 32, 160, 54), panel_id="panel-a", panel_name="Panel A")
+    #
+    # GT cells never carry panel_id/panel_name themselves (GT Studio review
+    # never sets them - see _configured_panel_regions()'s docstring); panel
+    # identity comes from Table/Panel Setup's own profile instead.
+    add_ground_truth_cell(workspace, source_id, (0, 0, 90, 22))
+    add_ground_truth_cell(workspace, source_id, (100, 0, 160, 22))
+    add_ground_truth_cell(workspace, source_id, (0, 32, 90, 54))
+    add_ground_truth_cell(workspace, source_id, (100, 32, 160, 54))
+    save_panel_profile(
+        workspace,
+        panels=[{"name": "Panel A", "x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 1.0}],
+        reference_source_id=source_id,
+        reference_width=200,
+        reference_height=100,
+    )
 
     database = TrainingDatabase(workspace / "samples.sqlite3")
     # Seed a broken prior Detection/Recognition run, exactly like the one
@@ -153,10 +165,17 @@ def test_stale_relations_missing_panel_context_are_backfilled_without_redetectio
     workspace = tmp_path / "training"
     source_id = "source-already-detected"
     _write_canonical_gt_shell(workspace, source_id)
-    add_ground_truth_cell(workspace, source_id, (0, 0, 90, 22), panel_id="panel-a", panel_name="Panel A")
-    add_ground_truth_cell(workspace, source_id, (100, 0, 160, 22), panel_id="panel-a", panel_name="Panel A")
-    add_ground_truth_cell(workspace, source_id, (0, 32, 90, 54), panel_id="panel-a", panel_name="Panel A")
-    add_ground_truth_cell(workspace, source_id, (100, 32, 160, 54), panel_id="panel-a", panel_name="Panel A")
+    add_ground_truth_cell(workspace, source_id, (0, 0, 90, 22))
+    add_ground_truth_cell(workspace, source_id, (100, 0, 160, 22))
+    add_ground_truth_cell(workspace, source_id, (0, 32, 90, 54))
+    add_ground_truth_cell(workspace, source_id, (100, 32, 160, 54))
+    save_panel_profile(
+        workspace,
+        panels=[{"name": "Panel A", "x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 1.0}],
+        reference_source_id=source_id,
+        reference_width=200,
+        reference_height=100,
+    )
 
     # The real table_id canonical_table_regions() will (deterministically)
     # assign to this panel's single table, so the seeded relation below is

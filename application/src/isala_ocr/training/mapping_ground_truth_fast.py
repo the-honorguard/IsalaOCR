@@ -28,52 +28,43 @@ from .projects import resolve_project_workspace
 from .table_cell_ground_truth import (
     ensure_table_cell_ground_truth,
     ground_truth_review_state,
-    list_ground_truth_cells,
 )
+from .table_panels import load_panel_profile, panel_boxes_for_image
 
 LOGGER = logging.getLogger(__name__)
 
 
-def _canonical_panel_regions(workspace: str | Path, source_id: str) -> list[dict[str, object]]:
-    """Return semantic panel identity plus its canonical GT bounding box.
+def _configured_panel_regions(
+    workspace: str | Path, image_width: int, image_height: int
+) -> list[dict[str, object]]:
+    """Return Table/Panel Setup's own named panels, scaled to this image.
 
-    Mapping already knows which canonical panel/table owns every cell. Older
-    Mapping builds dropped that identity after reconstructing the table regions,
-    leaving labels such as ``ED Volume`` or ``Cardiac Output`` ambiguous between
-    LV and RV. Keep the user-defined panel name/id next to the geometry so it can
-    become mapping context without changing the authoritative GT itself.
+    An earlier version of this function grouped canonical GT cells by their
+    own ``panel_id``/``panel_name`` fields. In practice those are always
+    empty: GT Studio review (``routes_detection_review.py``) creates every
+    canonical GT cell via ``add_ground_truth_cell()`` without ever passing
+    ``panel_id``/``panel_name``, so no cell has ever actually carried panel
+    identity - grouping by it silently produced one "unassigned" bucket, so
+    a label like ``Ejection Fraction`` could never resolve to its LV/RV side
+    even with a real Table/Panel Setup ("Links"/"Rechts") configured for the
+    project. Table/Panel Setup's own profile (``table_panel_profile.json``)
+    is the authoritative, geometry-based source of panel identity instead -
+    the same one Mapping Studio's ``relation_panel_id()`` matches
+    ``context_text`` against - so panel_id/name here must come from there,
+    not from GT cells.
     """
-    grouped: dict[str, dict[str, object]] = {}
-    for cell in list_ground_truth_cells(workspace, source_id):
-        panel_id = str(cell.get("panel_id") or "unassigned").strip() or "unassigned"
-        panel_name = str(cell.get("panel_name") or panel_id).strip() or panel_id
-        try:
-            x1 = int(cell["x1"])
-            y1 = int(cell["y1"])
-            x2 = int(cell["x2"])
-            y2 = int(cell["y2"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if x2 <= x1 or y2 <= y1:
-            continue
-        item = grouped.get(panel_id)
-        if item is None:
-            grouped[panel_id] = {
-                "panel_id": panel_id,
-                "panel_name": panel_name,
-                "x1": x1,
-                "y1": y1,
-                "x2": x2,
-                "y2": y2,
-            }
-            continue
-        item["x1"] = min(int(item["x1"]), x1)
-        item["y1"] = min(int(item["y1"]), y1)
-        item["x2"] = max(int(item["x2"]), x2)
-        item["y2"] = max(int(item["y2"]), y2)
-        if panel_name and panel_name != panel_id:
-            item["panel_name"] = panel_name
-    return list(grouped.values())
+    profile = load_panel_profile(workspace)
+    return [
+        {
+            "panel_id": str(item["panel_id"]),
+            "panel_name": str(item["name"]),
+            "x1": item["box"].x1,
+            "y1": item["box"].y1,
+            "x2": item["box"].x2,
+            "y2": item["box"].y2,
+        }
+        for item in panel_boxes_for_image(profile, image_width, image_height)
+    ]
 
 
 def _panel_overlap_ratio(table: object, panel: dict[str, object]) -> float:
@@ -105,7 +96,8 @@ def _semantic_panel_context(panel: dict[str, object]) -> str:
 
 def _enrich_relations_with_panel_context(
     workspace: str | Path,
-    source_id: str,
+    image_width: int,
+    image_height: int,
     table_regions: list[object],
     relations: list[object],
 ) -> tuple[list[object], dict[str, str]]:
@@ -116,7 +108,7 @@ def _enrich_relations_with_panel_context(
     that scorer, so generic labels can be proposed for the correct functional
     field instead of forcing manual selection.
     """
-    panels = _canonical_panel_regions(workspace, source_id)
+    panels = _configured_panel_regions(workspace, image_width, image_height)
     context_by_table: dict[str, str] = {}
     for table in table_regions:
         table_id = str(getattr(table, "table_id", "") or "")
@@ -203,7 +195,7 @@ def _redetect_source_from_canonical_gt(
     # to it (it was previously getting this from collector.py's own
     # detection run; this redetection path needs to do the same).
     relations, panel_context_by_table = _enrich_relations_with_panel_context(
-        root, decoded.source_id, list(table_regions), list(relations)
+        root, width, height, list(table_regions), list(relations)
     )
     blocks = mark_canonical_geometry(blocks)
     detector_diagnostics["table_structure"] = {
@@ -399,16 +391,18 @@ def collect_mapping_from_canonical_gt(
         # ("no OCR or DICOM processing performed" below is accurate) - empty
         # tokens still yield correct table_id/box geometry for every cell,
         # just without per-cell text, which this step doesn't need.
+        image_width = int(source.get("image_width") or 0)
+        image_height = int(source.get("image_height") or 0)
         try:
             table_regions = canonical_table_regions(
                 root, source_id, [],
-                image_width=int(source.get("image_width") or 0),
-                image_height=int(source.get("image_height") or 0),
+                image_width=image_width,
+                image_height=image_height,
             )
         except RuntimeError:
             table_regions = []
         enriched, _ = _enrich_relations_with_panel_context(
-            root, source_id, table_regions, relations
+            root, image_width, image_height, table_regions, relations
         )
         contexts = {
             str(relation.get("relation_id") or ""): str(relation.get("context_text") or "")
@@ -572,7 +566,8 @@ def collect_mapping_from_canonical_gt(
             )
             relations, panel_context_by_table = _enrich_relations_with_panel_context(
                 root,
-                decoded.source_id,
+                width,
+                height,
                 list(table_regions),
                 list(relations),
             )
