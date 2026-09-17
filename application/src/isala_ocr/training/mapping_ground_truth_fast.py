@@ -99,6 +99,28 @@ def _semantic_panel_context(panel: dict[str, object]) -> str:
     return " | ".join(values)
 
 
+def _relation_box_center(relation: object) -> tuple[float, float] | None:
+    """Return the center of a relation's own label (or value) geometry.
+
+    Unlike ``table_id`` (see below), a relation's label/value coordinates are
+    stamped once from OCR/GT geometry and never change, which is what makes
+    them a reliable cross-run join key.
+    """
+
+    def get(key: str) -> object:
+        return relation.get(key) if isinstance(relation, dict) else getattr(relation, key, None)
+
+    for prefix in ("label", "value"):
+        x1, y1, x2, y2 = (get(f"{prefix}_x1"), get(f"{prefix}_y1"), get(f"{prefix}_x2"), get(f"{prefix}_y2"))
+        if x1 is None or y1 is None or x2 is None or y2 is None:
+            continue
+        try:
+            return (float(x1) + float(x2)) / 2.0, (float(y1) + float(y2)) / 2.0
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _enrich_relations_with_panel_context(
     workspace: str | Path,
     image_width: int,
@@ -115,6 +137,7 @@ def _enrich_relations_with_panel_context(
     """
     panels = _configured_panel_regions(workspace, image_width, image_height)
     context_by_table: dict[str, str] = {}
+    region_contexts: list[tuple[object, str]] = []
     for table in table_regions:
         table_id = str(getattr(table, "table_id", "") or "")
         if not table_id or not panels:
@@ -126,6 +149,7 @@ def _enrich_relations_with_panel_context(
         context = _semantic_panel_context(best_panel)
         if context:
             context_by_table[table_id] = context
+            region_contexts.append((table, context))
 
     # Table/Panel Setup geometry can be edited later so a table moves from one
     # configured panel to another while both panels still exist. Without this,
@@ -148,7 +172,31 @@ def _enrich_relations_with_panel_context(
             (relation.get("table_id") if isinstance(relation, dict) else getattr(relation, "table_id", ""))
             or ""
         )
-        panel_context = context_by_table.get(table_id, "")
+        if not table_id:
+            enriched.append(relation)
+            continue
+        # A relation's table_id is a hash of source_id|panel_id|table_box
+        # (see canonical_table_regions()), so it changes whenever Table/Panel
+        # Setup's panels are added, renamed or redrawn - even though the
+        # relation's own position on the source image has not moved. A
+        # relation stamped before panels existed (or before they covered the
+        # right area) keeps its old table_id forever once persisted, so an
+        # exact-match lookup against a freshly recomputed table_regions list
+        # can never find it again and rebuilding repeatedly has no effect.
+        # Match on the relation's own geometry first, which stays valid
+        # across those changes; fall back to the exact table_id match for
+        # relations without usable geometry.
+        panel_context = ""
+        center = _relation_box_center(relation)
+        if center is not None:
+            center_x, center_y = center
+            for table, context in region_contexts:
+                box = getattr(table, "box", None)
+                if box is not None and box.x1 <= center_x <= box.x2 and box.y1 <= center_y <= box.y2:
+                    panel_context = context
+                    break
+        if not panel_context:
+            panel_context = context_by_table.get(table_id, "")
         if not panel_context:
             enriched.append(relation)
             continue
