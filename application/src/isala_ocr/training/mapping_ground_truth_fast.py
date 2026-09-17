@@ -19,7 +19,6 @@ from .generic_detection import (
     GENERIC_DETECTOR_VERSION,
     detect_generic_structure,
     integrate_table_regions,
-    normalize_text,
 )
 from .mapping import ensure_default_field_definitions
 from .mapping_fast import suggest_mappings_fast
@@ -151,21 +150,6 @@ def _enrich_relations_with_panel_context(
             context_by_table[table_id] = context
             region_contexts.append((table, context))
 
-    # Table/Panel Setup geometry can be edited later so a table moves from one
-    # configured panel to another while both panels still exist. Without this,
-    # a relation's previously stamped identity for its *old* panel never gets
-    # removed from context_text - only appended to - so relation_panel_id(),
-    # which just looks for any known panel token anywhere in context_text,
-    # could keep resolving to the stale panel forever if it happens to appear
-    # first. Strip every currently-known panel identity token before
-    # attaching the freshly resolved one, on every enrichment pass.
-    known_panel_tokens = {
-        normalize_text(str(panel.get(key) or ""))
-        for panel in panels
-        for key in ("panel_id", "panel_name")
-        if str(panel.get(key) or "")
-    }
-
     enriched: list[object] = []
     for relation in relations:
         table_id = str(
@@ -200,18 +184,20 @@ def _enrich_relations_with_panel_context(
         if not panel_context:
             enriched.append(relation)
             continue
-        existing = str(
-            (relation.get("context_text") if isinstance(relation, dict) else getattr(relation, "context_text", ""))
-            or ""
-        ).strip()
-        remaining = " | ".join(
-            part for part in (piece.strip() for piece in existing.split("|"))
-            if part and normalize_text(part) not in known_panel_tokens
-        )
-        if panel_context.casefold() in remaining.casefold():
-            merged = remaining
-        else:
-            merged = f"{panel_context} | {remaining}" if remaining else panel_context
+        # A resolved Table/Panel Setup panel is the authoritative left/right
+        # signal (see the module docstring), so it replaces any previously
+        # stamped context_text outright rather than merging with it. Merging
+        # used to only strip tokens matching a *currently configured* panel
+        # name/id, so context stamped under an old, since-renamed panel (for
+        # example the free-text table definitions "Left ventricle Volume
+        # Result" / "Endo Volume Normal Values Chuang" that predate today's
+        # "Links"/"Rechts" panels) lingered forever - untouched by the
+        # known-token strip, since that old name is no longer configured
+        # anywhere to strip. relation_lateral_side() scans this text for any
+        # left/right word, so leftover "left" text on a relation whose panel
+        # had since been resolved as "right" made every bilateral field
+        # unresolvable ("ambiguous") instead of just wrong.
+        merged = panel_context
         if isinstance(relation, dict):
             enriched.append({**relation, "context_text": merged})
         else:
