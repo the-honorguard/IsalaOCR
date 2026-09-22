@@ -39,6 +39,7 @@ from .table_quality import table_first_quality
 from .table_panels import load_panel_profile
 from .table_cell_training import active_table_cell_model, table_cell_training_state
 from .source_preview import prepare_source_renders
+from .test_pipeline_sources import test_pipeline_source_ids
 from .comparison_review_queue_web import install_comparison_review_queue
 from .job_cancellation import install_job_cancellation
 from .recognition_ground_truth_web import install_recognition_ground_truth_review
@@ -131,6 +132,7 @@ ACTIONS = {
     "56": "Tabelregio-detector trainen op CPU",
     "57": "Tabelregio-detector activeren",
     "60": "Stap 4 volledig uitvoeren (dataset, training en activatie)",
+    "61": "Volledige actieve DICOM-applicatiepipeline draaien",
     "59": "Alleen tabelregio’s detecteren voor beoordeling",
     "20": "Mappinggegevens voorbereiden na detectiepoort",
     "21": "Nieuwe raster/celkaders toepassen op de bevestigde mappings",
@@ -214,6 +216,7 @@ ACTION_DURATION_ESTIMATES = {
     "57": {"label": "± 10–30 sec", "detail": "Een bestaand tabelregio-model als voorste detectorlaag activeren."},
     "59": {"label": "± 1–5 min", "detail": "Alleen tabelregio-detectie; afhankelijk van het aantal bronnen."},
     "60": {"label": "± 5–20 min", "detail": "Tabelregio-dataset bouwen → GPU-trainen → activeren."},
+    "61": {"label": "± 1–10 min", "detail": "Volledige pipeline met de actieve modellen; geen training."},
     # Legacy aliases remain annotated because older queued/retry jobs can surface in the UI.
     "107": {"label": "± 10–60 sec", "detail": "Legacy recognition-dataset bouwen."},
     "108": {"label": "± 10–30 sec", "detail": "Legacy recognition-dataset valideren."},
@@ -997,12 +1000,23 @@ def create_web_app(
         return rows
 
     def value_review_counts() -> dict[str, int]:
-        """Return value-review counts for the current mapped application output."""
-        return database.mapped_value_review_status_counts()
+        """Return value-review counts for the current mapped application output.
+
+        Excludes proefpagina test uploads: the training workflow's own
+        Application output review must not mix in one-off /test-pipeline runs.
+        """
+        return database.mapped_value_review_status_counts(
+            exclude_source_ids=test_pipeline_source_ids(workspace_root())
+        )
 
     def value_source_rows() -> list[dict[str, Any]]:
-        """Group only current mapped samples for the value-review step."""
-        return database.mapped_value_review_source_rows()
+        """Group only current mapped samples for the value-review step.
+
+        Excludes proefpagina test uploads (see ``value_review_counts()``).
+        """
+        return database.mapped_value_review_source_rows(
+            exclude_source_ids=test_pipeline_source_ids(workspace_root())
+        )
 
     def value_source_samples(source_id: str) -> list[dict[str, Any]]:
         return database.mapped_value_review_source_samples(source_id)
@@ -2923,8 +2937,11 @@ def create_web_app(
     def _process_step_state_value_review() -> tuple[dict[str, Any], dict[str, Any] | None]:
         value = value_review_counts()
         outputs = []
+        excluded_sources = test_pipeline_source_ids(workspace_root())
         for source in database.list_detection_sources():
             current_source = str(source.get("source_id") or "")
+            if current_source in excluded_sources:
+                continue
             output_path = workspace_root() / "extracted_output" / f"{current_source}.json"
             payload = _read_json(output_path, {}) if output_path.is_file() else {}
             measurements = payload.get("measurements") if isinstance(payload, dict) else {}

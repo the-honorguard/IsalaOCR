@@ -580,3 +580,40 @@
 
   pollStatus();
 })();
+
+// Server-rendered timestamps are UTC ("...+00:00"), which reads as stale to
+// a viewer in any other timezone (a job started seconds ago can show a time
+// that looks hours old). Mark a timestamp up as <time datetime="ISO-UTC">ISO-UTC</time>
+// and this converts its display text to the viewer's own local time/date,
+// leaving the machine-readable datetime attribute untouched. Runs once on
+// load and again for any timestamps added later (job-queue polling, live
+// job status, etc.) via MutationObserver, so it never depends on knowing
+// every place that injects new rows.
+(() => {
+  function localizeTime(el) {
+    if (el.dataset.localized === '1') return;
+    const iso = el.getAttribute('datetime');
+    if (!iso) return;
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return;
+    el.textContent = date.toLocaleString(undefined, {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    el.dataset.localized = '1';
+  }
+  function localizeAll(root) {
+    root.querySelectorAll('time[datetime]').forEach(localizeTime);
+  }
+  document.addEventListener('DOMContentLoaded', () => localizeAll(document));
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType !== 1) return;
+        if (node.matches && node.matches('time[datetime]')) localizeTime(node);
+        if (node.querySelectorAll) localizeAll(node);
+      });
+    }
+  });
+  observer.observe(document.documentElement, {childList: true, subtree: true});
+})();

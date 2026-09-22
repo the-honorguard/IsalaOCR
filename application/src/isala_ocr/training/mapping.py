@@ -206,8 +206,8 @@ def _context_score(group_name: str, context_text: str) -> float:
     context = normalize_text(context_text)
     if not group or not context:
         return 0.0
-    left_terms = {"left", "linker", "linkerventrikel", "lv"}
-    right_terms = {"right", "rechter", "rechterventrikel", "rv"}
+    left_terms = {"left", "links", "linker", "linkerventrikel", "lv"}
+    right_terms = {"right", "rechts", "rechter", "rechterventrikel", "rv"}
     group_tokens = set(group.split())
     context_tokens = set(context.split())
     if group_tokens & left_terms:
