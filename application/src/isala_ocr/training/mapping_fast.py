@@ -17,6 +17,7 @@ def suggest_mappings_fast(
     source_id: str,
     *,
     minimum_score: float = 0.68,
+    auto_confirm_score: float = 0.90,
     profile_id: str = "",
 ) -> list[dict[str, Any]]:
     """Suggest mappings without N+1 SQLite geometry lookups.
@@ -32,6 +33,11 @@ def suggest_mappings_fast(
     Bilateral measurements remain conservative: when both lateral targets exist
     for the same metric, a generic relation needs explicit left/right evidence
     before it may become an automatic suggestion.
+
+    A candidate scoring at or above ``auto_confirm_score`` is stored already
+    ``confirmed`` instead of ``suggested``: correctness is checked again when
+    the mapped value is delivered downstream, so a near-certain schema match
+    does not need to wait on a manual click in Mapping Studio as well.
     """
     # Suggestions are generated from the current label/table graph only.
     database.clear_suggested_mappings(source_id)
@@ -188,6 +194,7 @@ def suggest_mappings_fast(
                 evidence_notes.append("unit_match")
             if evidence.get("missing_value"):
                 evidence_notes.append("missing_value")
+            auto_confirmed = score >= auto_confirm_score
             mapping_id = database._upsert_mapping_in_connection(
                 db,
                 source_id=source_id,
@@ -196,7 +203,7 @@ def suggest_mappings_fast(
                 label_block_id=str(relation.get("label_block_id") or ""),
                 value_block_id=str(relation["value_block_id"]),
                 unit_block_id=str(relation.get("unit_block_id") or ""),
-                status="suggested",
+                status="confirmed" if auto_confirmed else "suggested",
                 mapping_confidence=score,
                 notes=(
                     "automatic schema suggestion"
@@ -206,6 +213,7 @@ def suggest_mappings_fast(
                         if int(relation.get("feedback_matched_examples") or 0)
                         else ""
                     )
+                    + (f"; auto_confirmed(score={score:.2f})" if auto_confirmed else "")
                 ),
                 profile_id=profile_id,
             )
