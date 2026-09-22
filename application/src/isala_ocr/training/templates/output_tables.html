@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block title %}Tabelherkenning · {{ source_id }}{% endblock %}
+{% block heading %}Tabelherkenning{% endblock %}
+{% block subtitle %}<span class="mono">{{ source_id }}</span> · welke tabel, en welk label krijgt de tabel{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div class="actions"><a class="button" href="{{ back_url }}">{{ back_label }}</a></div>
+  <div class="actions">{% if cells_exists %}<a class="button" href="/output-review/{{ source_id }}/cellen">Volgende fase: Celdetectie →</a>{% endif %}</div>
+</div>
+<section class="card">
+  <div class="toolbar"><h3>Vensters en toegewezen tabelnaam</h3></div>
+  <p class="muted">Elk gevonden venster tegen de geconfigureerde tabelnamen (Table/Panel Setup) gelegd — verder niets.</p>
+  {% if render_exists %}
+  <div class="output-image-stage">
+    <div class="output-image-frame" style="aspect-ratio:{{ image_width }}/{{ image_height }}">
+      <img src="/source-render/{{ source_id }}.png" alt="DICOM-bron" width="{{ image_width }}" height="{{ image_height }}">
+      {% for table in located_tables %}
+      <span class="table-box"
+        style="left:{{ table.x1/image_width*100 }}%;top:{{ table.y1/image_height*100 }}%;width:{{ (table.x2-table.x1)/image_width*100 }}%;height:{{ (table.y2-table.y1)/image_height*100 }}%">
+        <span class="table-label">Venster {{ table.window_index }} — {{ table.table_label }}</span>
+      </span>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">Bronrender ontbreekt.</p>
+  {% endif %}
+  <table class="raw-window-table" style="margin-top:14px">
+    <thead><tr><th>Venster</th><th>Toegewezen tabelnaam</th><th>Regio</th></tr></thead>
+    <tbody>
+      {% for table in located_tables %}
+      <tr><td>{{ table.window_index }}</td><td><strong>{{ table.table_label }}</strong></td><td class="mono">{{ table.x1 }}, {{ table.y1 }}, {{ table.x2 }}, {{ table.y2 }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+<style>
+.output-image-stage{overflow:auto;max-height:calc(100vh - 300px);background:#081017;border:1px solid var(--line);border-radius:8px}
+.output-image-frame{position:relative;width:100%}
+.output-image-frame img{display:block;width:100%;height:100%;position:absolute;inset:0}
+.table-box{position:absolute;border:2px solid #4ec18a;background:rgba(78,193,138,.12)}
+.table-label{position:absolute;left:2px;top:2px;width:max-content;max-width:340px;padding:4px 8px;border-radius:4px;font-size:12px;font-weight:600;line-height:1.3;background:#1e5b41;color:#8ff0bd;box-shadow:0 2px 8px rgba(0,0,0,.55);z-index:5}
+.raw-window-table{width:100%;border-collapse:collapse;font-size:13px}
+.raw-window-table th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase}
+.raw-window-table td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.06)}
+</style>
+{% endblock %}

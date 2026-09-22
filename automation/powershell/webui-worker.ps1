@@ -187,7 +187,7 @@ try{
                 $safeLauncher=$launcherPath.Replace('"','""')
                 $safeAction=([string]$data.action_id).Replace('"','""')
                 $powerShellCommand='powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" action "{1}"' -f $safeLauncher,$safeAction
-                if([string]$data.action_id -eq "60"){
+                if([string]$data.action_id -in @("60","61")){
                     $safeProfile=([string]$data.options.mapping_profile_id).Replace('"','""')
                     if(-not [string]::IsNullOrWhiteSpace($safeProfile)){$powerShellCommand += ' "{0}"' -f $safeProfile}
                 }

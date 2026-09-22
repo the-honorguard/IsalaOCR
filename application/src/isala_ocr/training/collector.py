@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
@@ -12,15 +13,19 @@ import numpy as np
 from ..config import AppConfig
 from ..geometry import scale_box
 from ..image_io import load_input
+from ..models import Box
 from ..study_info import extract_study_info
-from ..ocr.table_structure import PPStructureTableEngine, TABLE_ENGINE_VERSION, TableRegion
+from ..ocr.table_structure import PPStructureTableEngine, TABLE_ENGINE_VERSION, TableCell, TableRegion
 from ..ocr.base import OCREngine
 from .projects import resolve_project_workspace
 from .input_selection import selected_input_files
 from .db import TrainingDatabase, utc_now
 from .dynamic_locator import LOCATOR_VERSION, LocatedField, locate_fields
 from .header_normalization import load_header_aliases
-from .generic_detection import GENERIC_DETECTOR_VERSION, detect_generic_structure, integrate_table_regions
+from .generic_detection import (
+    GENERIC_DETECTOR_VERSION, GenericBlock, GenericRelation,
+    detect_generic_structure, integrate_table_regions,
+)
 from .localization import (
     LOCALIZATION_CANDIDATE_VERSION, fuse_candidates, table_cell_candidates,
     text_geometry_candidates, write_candidate_crops,
@@ -28,7 +33,7 @@ from .localization import (
 from .mapping import ensure_default_field_definitions, suggest_mappings
 from .mapping_fast import suggest_mappings_fast
 from .mapping_ground_truth import canonical_table_regions, mark_canonical_geometry
-from .mapping_ground_truth_fast import _enrich_relations_with_panel_context
+from .mapping_ground_truth_fast import _configured_panel_regions, _enrich_relations_with_panel_context
 from .table_quality import table_first_quality
 from .table_panels import load_panel_profile
 from .table_cell_training import active_table_cell_model, list_table_cell_models
@@ -550,6 +555,170 @@ def _collect_localization_detections(
     return manifest
 
 
+def _table_regions_from_located_cells(
+    root: Path,
+    source_id: str,
+    blocks: list[GenericBlock],
+) -> list[TableRegion]:
+    """Build table structure from Pipeline A's own, reliably symmetric cells.
+
+    Fusion mode's own table *structure* recognition (``table_engine.detect()``,
+    PP-StructureV3's generic, non-project-specific model) has been observed to
+    merge adjacent physical rows into one logical cell for some regions while
+    leaving otherwise-identical regions on the same page correct -- for
+    example combining the "Stroke Volume" and "Ejection Fraction" rows'
+    labels into one cell, and their values into another, so downstream
+    mapping can no longer tell which value belongs to which field. That
+    garbled structure then *replaces* the cleaner generic OCR relations for
+    the same area (see ``integrate_table_regions()``'s docstring: "overlapping
+    generic relations are replaced by explicit table-cell relations"), so the
+    row-merging bug actively destroys otherwise-working data instead of just
+    failing to add to it.
+
+    Pipeline A's active, trained table-cell detector (the same one GT Studio
+    and Tabelstudio treat as ground-truth-quality, see the "Celdetectie" page)
+    already produced correct, one-physical-row-per-row cell geometry for this
+    source in ``localization_detections/<source_id>.json``, written earlier
+    in the same ``_run_application_pipeline`` call. This reads that geometry
+    and fills in each cell's text from the already-computed OCR blocks (by
+    center-point containment), building the same ``TableRegion``/``TableCell``
+    shape ``integrate_table_regions()`` expects from ``table_engine.detect()``,
+    so the rest of that function's logic (label/value pairing per row,
+    relation replacement) runs unchanged -- just against correct rows.
+    """
+    localization_path = root / "localization_detections" / f"{source_id}.json"
+    if not localization_path.is_file():
+        return []
+    try:
+        localization = json.loads(localization_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        LOGGER.warning("Could not read localization_detections for table structure: %s", localization_path)
+        return []
+    semantic_blocks = [block for block in blocks if block.block_type == "semantic" and block.text.strip()]
+    regions: list[TableRegion] = []
+    for table in localization.get("tables") or []:
+        if not isinstance(table, dict):
+            continue
+        cells: list[TableCell] = []
+        for cell in table.get("cells") or []:
+            if not isinstance(cell, dict):
+                continue
+            cx1, cy1 = int(cell.get("x1") or 0), int(cell.get("y1") or 0)
+            cx2, cy2 = int(cell.get("x2") or 0), int(cell.get("y2") or 0)
+            texts = [
+                block.text.strip() for block in semantic_blocks
+                if cx1 <= (block.box.x1 + block.box.x2) / 2 <= cx2
+                and cy1 <= (block.box.y1 + block.box.y2) / 2 <= cy2
+            ]
+            cells.append(TableCell(
+                table_id=str(table.get("table_id") or ""),
+                cell_id=str(cell.get("cell_id") or ""),
+                row_index=int(cell.get("row_index") or 0),
+                column_index=int(cell.get("column_index") or 0),
+                box=Box(cx1, cy1, cx2, cy2),
+                text=" ".join(texts),
+                confidence=float(cell.get("confidence") or 0.0),
+                row_span=int(cell.get("row_span") or 1),
+                column_span=int(cell.get("column_span") or 1),
+            ))
+        if not cells:
+            continue
+        regions.append(TableRegion(
+            table_id=str(table.get("table_id") or ""),
+            box=Box(int(table.get("x1") or 0), int(table.get("y1") or 0), int(table.get("x2") or 0), int(table.get("y2") or 0)),
+            confidence=float(table.get("confidence") or 0.0),
+            cells=tuple(cells),
+        ))
+    return regions
+
+
+def _apply_panel_identity_from_located_regions(
+    root: Path,
+    source_id: str,
+    image_width: int,
+    image_height: int,
+    blocks: list[GenericBlock],
+    relations: list[GenericRelation],
+) -> list[GenericRelation]:
+    """Resolve each relation's left/right identity from Pipeline A's regions.
+
+    Fusion mode's own table *structure* recognition (``table_engine.detect()``,
+    just above this call) has been observed to recognize otherwise-symmetric
+    regions on the same page inconsistently -- for example finding "Right
+    ventricle Volume Result" as a coherent table while completely missing an
+    identically laid-out "Left ventricle Volume Result" table right above it,
+    even though both were correctly located as separate regions by Pipeline A's
+    active, trained table-region detector. Relations belonging to the missed
+    region then have no ``table_id`` and fall back to a much weaker per-relation
+    "nearest heading text" context guess.
+
+    This uses the already-computed, reliably symmetric region geometry from
+    Pipeline A (``localization_detections/<source_id>.json``, written earlier
+    in the same ``_run_application_pipeline`` call) together with Table/Panel
+    Setup's own configured zones (``table_panel_profile.json``). Both are
+    image-independent (normalized panel coordinates; a region detector that
+    does not depend on canonical per-image Ground Truth), so both apply
+    equally well to a brand-new deployment DICOM -- unlike
+    ``canonical_table_regions()``, which table-first mode uses and which does
+    require a reviewed training image.
+
+    Every relation whose value block falls inside a region that resolves to a
+    configured panel gets that panel's name written to ``context_text``,
+    replacing (not merging with) whatever context it already had -- the same
+    "authoritative signal replaces, never merges" rule table-first mode's own
+    ``_enrich_relations_with_panel_context()`` follows, for the same reason
+    (a stale opposite-side word must not linger).
+    """
+    localization_path = root / "localization_detections" / f"{source_id}.json"
+    if not localization_path.is_file():
+        return relations
+    try:
+        localization = json.loads(localization_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        LOGGER.warning("Could not read localization_detections for panel identity: %s", localization_path)
+        return relations
+    located_regions = [item for item in (localization.get("tables") or []) if isinstance(item, dict)]
+    if not located_regions:
+        return relations
+    panels = _configured_panel_regions(root, image_width, image_height)
+    if not panels:
+        return relations
+
+    def _overlap_ratio(rx1: int, ry1: int, rx2: int, ry2: int, panel: dict[str, object]) -> float:
+        px1, py1, px2, py2 = int(panel["x1"]), int(panel["y1"]), int(panel["x2"]), int(panel["y2"])
+        intersection = max(0, min(rx2, px2) - max(rx1, px1)) * max(0, min(ry2, py2) - max(ry1, py1))
+        if intersection <= 0:
+            return 0.0
+        region_area = max(1, (rx2 - rx1) * (ry2 - ry1))
+        return intersection / region_area
+
+    region_panels: list[tuple[int, int, int, int, str]] = []
+    for region in located_regions:
+        rx1, ry1 = int(region.get("x1") or 0), int(region.get("y1") or 0)
+        rx2, ry2 = int(region.get("x2") or 0), int(region.get("y2") or 0)
+        best_panel = max(panels, key=lambda panel: _overlap_ratio(rx1, ry1, rx2, ry2, panel))
+        if _overlap_ratio(rx1, ry1, rx2, ry2, best_panel) >= 0.50:
+            region_panels.append((rx1, ry1, rx2, ry2, str(best_panel["panel_name"])))
+    if not region_panels:
+        return relations
+
+    blocks_by_id = {block.block_id: block for block in blocks}
+    enriched: list[GenericRelation] = []
+    for relation in relations:
+        value_block = blocks_by_id.get(relation.value_block_id or "")
+        if value_block is None:
+            enriched.append(relation)
+            continue
+        center_x = (value_block.box.x1 + value_block.box.x2) / 2
+        center_y = (value_block.box.y1 + value_block.box.y2) / 2
+        panel_name = next(
+            (name for rx1, ry1, rx2, ry2, name in region_panels if rx1 <= center_x <= rx2 and ry1 <= center_y <= ry2),
+            "",
+        )
+        enriched.append(replace(relation, context_text=panel_name) if panel_name else relation)
+    return enriched
+
+
 def collect_mapping_detections(
     input_path: str | Path,
     workspace: str | Path,
@@ -691,18 +860,37 @@ def _collect_mapping_detections(
                     raise
             elif table_engine is not None:
                 try:
-                    table_regions = table_engine.detect(
-                        decoded.image, source_id=decoded.source_id, fallback_tokens=tokens
-                    )
+                    # Prefer Pipeline A's own, reliably symmetric cell geometry
+                    # (active trained table-cell detector) over this pass's own
+                    # table-structure recognition, which has been observed to
+                    # merge adjacent physical rows for some regions -- see
+                    # ``_table_regions_from_located_cells()``'s docstring.
+                    table_regions = _table_regions_from_located_cells(root, decoded.source_id, blocks)
+                    table_region_source = "located_cells"
+                    if not table_regions:
+                        table_regions = table_engine.detect(
+                            decoded.image, source_id=decoded.source_id, fallback_tokens=tokens
+                        )
+                        table_region_source = "table_engine_fallback"
                     blocks, relations, structural = integrate_table_regions(
                         decoded.source_id, blocks, relations, table_regions
                     )
                     table_diagnostics.update(structural)
+                    table_diagnostics["table_region_source"] = table_region_source
                 except Exception as exc:
                     table_diagnostics["error"] = f"{type(exc).__name__}: {exc}"
                     LOGGER.exception("Table structure recognition failed for input item %d", source_index)
                     if not bool(table_settings.get("fail_open", True)):
                         raise
+                try:
+                    relations = _apply_panel_identity_from_located_regions(
+                        root, decoded.source_id, width, height, blocks, relations
+                    )
+                except Exception:
+                    # Best-effort enrichment on top of whatever table-structure
+                    # recognition already produced above; never turn a working
+                    # detection run into a failure over this extra signal.
+                    LOGGER.exception("Panel-identity enrichment from located regions failed for input item %d", source_index)
             detector_diagnostics["table_structure"] = table_diagnostics
             detector_diagnostics["block_count"] = len(blocks)
             detector_diagnostics["relation_count"] = len(relations)

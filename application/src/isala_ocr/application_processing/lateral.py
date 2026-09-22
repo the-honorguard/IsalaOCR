@@ -6,10 +6,10 @@ from typing import Any, Iterable
 from ..training.generic_detection import normalize_text
 
 _LEFT_TERMS = {
-    "left", "linker", "linkerventrikel", "lv", "lvef", "lvsv", "lvedv", "lvesv", "lvco",
+    "left", "links", "linker", "linkerventrikel", "lv", "lvef", "lvsv", "lvedv", "lvesv", "lvco",
 }
 _RIGHT_TERMS = {
-    "right", "rechter", "rechterventrikel", "rv", "rvef", "rvsv", "rvedv", "rvesv", "rvco",
+    "right", "rechts", "rechter", "rechterventrikel", "rv", "rvef", "rvsv", "rvedv", "rvesv", "rvco",
 }
 _LEFT_PHRASES = ("left ventricle", "linker ventrikel")
 _RIGHT_PHRASES = ("right ventricle", "rechter ventrikel")

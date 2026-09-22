@@ -352,7 +352,7 @@
   <div class="toolbar"><div><span class="eyebrow">EINDRESULTAAT</span><h3>Datablokken uit deze workflow</h3><p class="muted">De actuele raster/celkaders zijn toegepast en de waarden zijn met het actieve Recognition-model uitgelezen.</p></div><span class="pill {{ 'ok' if outputs else 'warn' }}">{{ 'GEREED' if outputs else 'NOG GEEN OUTPUT' }}</span></div>
   {% if outputs %}
   <div class="table-wrap"><table><thead><tr><th>DICOM-bron</th><th>Metingen</th><th>Aangemaakt</th><th></th></tr></thead><tbody>
-    {% for output in outputs %}<tr><td class="mono">{{ output.source_id }}</td><td>{{ output.measurement_count }}</td><td class="muted">{{ output.generated_at }}</td><td><a class="button primary" href="/output-review/{{ output.source_id }}">Naast DICOM vergelijken</a> <a class="button" href="/extracted-output/{{ output.source_id }}.json" target="_blank">JSON</a></td></tr>{% endfor %}
+    {% for output in outputs %}<tr><td class="mono">{{ output.source_id }}</td><td>{{ output.measurement_count }}</td><td class="muted">{% if output.generated_at %}<time datetime="{{ output.generated_at }}">{{ output.generated_at }}</time>{% endif %}</td><td><a class="button primary" href="/output-review/{{ output.source_id }}">Naast DICOM vergelijken</a> <a class="button" href="/extracted-output/{{ output.source_id }}.json" target="_blank">JSON</a></td></tr>{% endfor %}
   </tbody></table></div>
   <p class="muted compact">Dit is het eindresultaat. Handmatige OCR-beoordeling is geen verplichte vervolgstap in de hoofdworkflow.</p>
   {% else %}<p class="muted">Er is nog geen actueel datablok. Voer eerst de gecombineerde applicatieactie uit.</p>{% endif %}

@@ -564,21 +564,27 @@ class SamplesMixin:
         counts["reviewed"] = counts["total"] - counts["pending"]
         return counts
 
-    def mapped_value_review_status_counts(self) -> dict[str, int]:
+    def mapped_value_review_status_counts(self, *, exclude_source_ids: set[str] = frozenset()) -> dict[str, int]:
         """Value-review status counts for the currently mapped application output.
 
-        Split out of ``webui.py``'s ``value_review_counts()``.
+        Split out of ``webui.py``'s ``value_review_counts()``. ``exclude_source_ids``
+        keeps proefpagina test uploads (see ``test_pipeline_sources.py``) out of
+        this training-workflow review count.
         """
+        exclude = tuple(exclude_source_ids)
+        exclude_clause = f"AND source_id NOT IN ({','.join('?' * len(exclude))})" if exclude else ""
         with self.connect() as db:
             rows = db.execute(
-                """
+                f"""
                 SELECT status, COUNT(*) AS amount
                 FROM samples
                 WHERE extraction_method='mapped_generic'
                   AND roi_review_status='correct'
                   AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
+                  {exclude_clause}
                 GROUP BY status
-                """
+                """,
+                exclude,
             ).fetchall()
         counts = {
             "pending": 0, "accepted": 0, "no_value": 0,
@@ -593,14 +599,18 @@ class SamplesMixin:
         counts["problems"] = counts["unreadable"] + counts["excluded"]
         return counts
 
-    def mapped_value_review_source_rows(self) -> list[dict[str, Any]]:
+    def mapped_value_review_source_rows(self, *, exclude_source_ids: set[str] = frozenset()) -> list[dict[str, Any]]:
         """Group only current mapped samples for the value-review step, by source.
 
-        Split out of ``webui.py``'s ``value_source_rows()``.
+        Split out of ``webui.py``'s ``value_source_rows()``. ``exclude_source_ids``
+        keeps proefpagina test uploads (see ``test_pipeline_sources.py``) out of
+        this training-workflow review list.
         """
+        exclude = tuple(exclude_source_ids)
+        exclude_clause = f"AND source_id NOT IN ({','.join('?' * len(exclude))})" if exclude else ""
         with self.connect() as db:
             rows = db.execute(
-                """
+                f"""
                 SELECT source_id, COUNT(*) sample_count,
                        SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) pending,
                        SUM(CASE WHEN status='accepted' THEN 1 ELSE 0 END) accepted,
@@ -612,9 +622,11 @@ class SamplesMixin:
                 WHERE extraction_method='mapped_generic'
                   AND roi_review_status='correct'
                   AND NOT (extraction_method='mapped_generic' AND raw_variant='awaiting_value_recognition')
+                  {exclude_clause}
                 GROUP BY source_id
                 ORDER BY updated_at DESC, source_id
-                """
+                """,
+                exclude,
             ).fetchall()
         return [dict(row) for row in rows]
 

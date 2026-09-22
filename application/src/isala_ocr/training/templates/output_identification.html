@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block title %}Kaders & herkenningstekst · {{ source_id }}{% endblock %}
+{% block heading %}Kaders & herkenningstekst{% endblock %}
+{% block subtitle %}<span class="mono">{{ source_id }}</span> · elk gevonden kader met de tekst die is gebruikt om tabel/kant te bepalen{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div class="actions"><a class="button" href="{{ back_url }}">{{ back_label }}</a></div>
+  <div class="actions ident-legend">
+    <span class="ident-key"><span class="ident-swatch ident-swatch-left"></span>Links herkend</span>
+    <span class="ident-key"><span class="ident-swatch ident-swatch-right"></span>Rechts herkend</span>
+    <span class="ident-key"><span class="ident-swatch ident-swatch-unknown"></span>Kant onbekend</span>
+  </div>
+</div>
+<section class="card">
+  <div class="toolbar"><h3>Kaders binnen de gevonden tabellen</h3><span class="pill">{{ boxes|length }} kaders</span></div>
+  <p class="muted">Alleen kaders die binnen een gevonden tabelvenster vallen (Tabelherkenning) — scanparameters, patiëntgegevens en viewer-chrome buiten die vensters zijn hier weggelaten. Beweeg over een kader voor de uitgelezen tekst en de identificatietekst (context) die bepaalt bij welke tabel/kant het hoort. Kaders zonder herkende kant kregen om die reden geen meting in het datablok.</p>
+  {% if render_exists %}
+  <div class="output-image-stage">
+    <div class="output-image-frame" style="aspect-ratio:{{ image_width }}/{{ image_height }}">
+      <img src="/source-render/{{ source_id }}.png" alt="DICOM-bron" width="{{ image_width }}" height="{{ image_height }}">
+      {% for box in boxes %}
+      <span class="ident-box ident-box-{{ box.side }}"
+        style="left:{{ box.x1/image_width*100 }}%;top:{{ box.y1/image_height*100 }}%;width:{{ (box.x2-box.x1)/image_width*100 }}%;height:{{ (box.y2-box.y1)/image_height*100 }}%"
+        title="Waarde: {{ box.value_text or '—' }}&#10;Label: {{ box.label_text or '—' }}&#10;Identificatietekst: {{ box.context_text or '(leeg)' }}&#10;Tabelstructuur herkend: {{ 'ja' if box.has_table_id else 'nee' }}&#10;Kant: {{ box.side }}"></span>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">Bronrender ontbreekt.</p>
+  {% endif %}
+</section>
+<style>
+.ident-legend{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.ident-key{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.ident-swatch{display:inline-block;width:12px;height:12px;border-radius:3px}
+.ident-swatch-left{background:rgba(78,140,255,.35);border:2px solid #4e8cff}
+.ident-swatch-right{background:rgba(255,144,64,.35);border:2px solid #ff9040}
+.ident-swatch-unknown{background:rgba(230,70,70,.30);border:2px solid #e64646}
+.output-image-stage{overflow:auto;max-height:calc(100vh - 220px);background:#081017;border:1px solid var(--line);border-radius:8px}
+.output-image-frame{position:relative;width:100%}
+.output-image-frame img{display:block;width:100%;height:100%;position:absolute;inset:0}
+.ident-box{position:absolute;cursor:help}
+.ident-box-left{border:2px solid #4e8cff;background:rgba(78,140,255,.12)}
+.ident-box-right{border:2px solid #ff9040;background:rgba(255,144,64,.12)}
+.ident-box-unknown{border:2px solid #e64646;background:rgba(230,70,70,.14)}
+</style>
+{% endblock %}

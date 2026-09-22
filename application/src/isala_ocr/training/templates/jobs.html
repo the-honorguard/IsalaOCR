@@ -30,7 +30,7 @@
     <tr>
       <td><span class="job-status {{ job.status }}">{{ {'pending':'In wachtrij','running':'Bezig','completed':'Voltooid','failed':'Mislukt','cancelled':'Geannuleerd'}.get(job.status,job.status) }}</span></td>
       <td><strong>{{ job.action_name }}</strong></td>
-      <td>{{ job.created_at or '-' }}</td>
+      <td>{% if job.created_at %}<time datetime="{{ job.created_at }}">{{ job.created_at }}</time>{% else %}-{% endif %}</td>
       <td style="min-width:220px">
         <div class="progress {% if job.progress_mode == 'indeterminate' %}indeterminate{% endif %}"><span style="--value:{{ job.progress_percent or 0 }}%"></span></div>
         <small class="muted">{% if job.progress_mode == 'determinate' %}{{ '%.0f'|format(job.progress_percent or 0) }}% · {% endif %}{{ job.progress_label or '' }}</small>

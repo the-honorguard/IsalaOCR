@@ -23,12 +23,16 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from flask import Flask, render_template, request
+from flask import Flask, redirect, render_template, request, url_for
 
 from .input_selection import selection_payload
 from .json_store import read_json
 from .projects import ProjectManager
 from .table_cell_training import active_table_cell_model, table_cell_training_state
+from .test_pipeline_sources import (
+    forget_test_pipeline_source, most_recent_test_pipeline_source,
+    record_test_pipeline_source, test_pipeline_source_ids,
+)
 
 
 def register_test_pipeline_routes(
@@ -57,6 +61,15 @@ def register_test_pipeline_routes(
         allowed_extensions = {".dcm"}
         source_id = str(request.args.get("source_id") or "").strip()[:80]
         job_id = str(request.args.get("job_id") or "").strip()[:80]
+        # No source_id in the URL and no new upload in progress: fall back to
+        # the last proefpagina run instead of resetting to a blank page. See
+        # most_recent_test_pipeline_source()'s docstring for why this is
+        # needed -- any navigation away that doesn't go through the redirect
+        # URL (sidebar link, another page's own "back" link, browser history)
+        # would otherwise silently lose the phases/JSON for a run that is
+        # still sitting on disk.
+        if not source_id and request.method != "POST":
+            source_id = most_recent_test_pipeline_source(workspace_root()) or ""
         error = ""
         uploaded_name = ""
         active_table_model = active_table_cell_model(workspace_root()) or {}
@@ -98,11 +111,12 @@ def register_test_pipeline_routes(
                         relative_key = destination.relative_to(allowed_root).as_posix()
                         file_bytes = destination.read_bytes()
                         source_id = hashlib.sha256(file_bytes).hexdigest()[:24]
+                        record_test_pipeline_source(workspace_root(), source_id)
                         input_selection_path().parent.mkdir(parents=True, exist_ok=True)
                         payload = selection_payload({relative_key}, reason="test-pipeline-upload")
                         payload["updated_at"] = utcnow()
                         input_selection_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
-                        job = enqueue_job("60", {
+                        job = enqueue_job("61", {
                             "table_model_id": "active" if active_table_model else "generic-ppstructure",
                             "mapping_profile_id": str(request.form.get("mapping_profile_id") or "").strip(),
                         })
@@ -116,6 +130,65 @@ def register_test_pipeline_routes(
             output_path = safe_workspace_file(Path("extracted_output") / f"{source_id}.json")
             if output_path.is_file():
                 output = read_json(output_path, None)
+
+        # One entry per real pipeline stage, each pointing at the viewer that
+        # shows that stage's own output -- so a run can be inspected stage by
+        # stage instead of only as a pass/fail end result.
+        phases = []
+        if source_id:
+            localization_exists = safe_workspace_file(Path("localization_detections") / f"{source_id}.json").is_file()
+            generic_exists = safe_workspace_file(Path("generic_detections") / f"{source_id}.json").is_file()
+            # Ordered by data dependency, not by which Docker pass computes it:
+            # table/cell *geometry* both come from Pipeline A in one go, but the
+            # cell grid only gets its readable text once Pipeline B's OCR has
+            # run -- the same data "Identificatie & mapping" reads. So the cell
+            # grid is only fully meaningful to look at after that stage, even
+            # though its geometry technically exists earlier.
+            phases = [
+                {
+                    "name": "1 · Tabelherkenning", "available": localization_exists,
+                    "url": f"/output-review/{source_id}/tabellen",
+                    "detail": "Welke tabellen zijn gevonden, en welk label krijgen ze.",
+                },
+                {
+                    "name": "2 · Identificatie & mapping", "available": generic_exists,
+                    "url": f"/output-review/{source_id}/identificatie",
+                    "detail": "Elk gelezen kader met de tekst waarmee kant/veld bepaald is.",
+                },
+                {
+                    "name": "3 · Celdetectie", "available": generic_exists,
+                    "url": f"/output-review/{source_id}/cellen",
+                    "detail": "Rij/kolom-grid per venster, met de uitgelezen tekst per cel.",
+                },
+                {
+                    "name": "4 · Datablok", "available": bool(output),
+                    "url": f"/output-review/{source_id}",
+                    "detail": "De uiteindelijke, uitgelezen metingen.",
+                },
+            ]
+
+        # Proefpagina runs are deliberately excluded from the training
+        # workflow's Application output review (they must not mix with real
+        # training results), so this is the only place they remain visible --
+        # otherwise a past run becomes unreachable once its source_id is
+        # forgotten.
+        previous_runs = []
+        for previous_id in test_pipeline_source_ids(workspace_root()):
+            if previous_id == source_id:
+                continue
+            previous_path = safe_workspace_file(Path("extracted_output") / f"{previous_id}.json")
+            if not previous_path.is_file():
+                continue
+            previous_payload = read_json(previous_path, {}) or {}
+            measurements = previous_payload.get("measurements") if isinstance(previous_payload, dict) else {}
+            previous_runs.append({
+                "source_id": previous_id,
+                "measurement_count": len(measurements) if isinstance(measurements, dict) else 0,
+                "generated_at": previous_payload.get("generated_at") or "",
+            })
+        previous_runs.sort(key=lambda item: item["generated_at"], reverse=True)
+        previous_runs = previous_runs[:10]
+
         jobs = job_statuses(20)
         current_job = next((item for item in jobs if str(item.get("job_id") or "") == job_id), None)
         mapping_profiles = database.list_mapping_profiles()
@@ -127,7 +200,7 @@ def register_test_pipeline_routes(
                 active_table_model=active_table_model,
                 active_recognition_model=active_recognition_model or {},
                 latest_table_dataset=latest_table_dataset,
-                mapping_profiles=mapping_profiles,
+                mapping_profiles=mapping_profiles, previous_runs=previous_runs, phases=phases,
             ), 400
         return render_template(
             "test_pipeline.html", source_id=source_id, job_id=job_id,
@@ -136,5 +209,16 @@ def register_test_pipeline_routes(
             active_table_model=active_table_model,
             active_recognition_model=active_recognition_model or {},
             latest_table_dataset=latest_table_dataset,
-            mapping_profiles=mapping_profiles,
+            mapping_profiles=mapping_profiles, previous_runs=previous_runs, phases=phases,
         )
+
+    @app.post("/test-pipeline/verwijderen/<source_id>")
+    def test_pipeline_forget(source_id: str):
+        """Delete one proefpagina run's tracking entry and output artifacts.
+
+        Scoped deliberately to the proefpagina's own disposable output (see
+        ``forget_test_pipeline_source()``'s docstring) -- never the shared
+        samples database other training-review pages depend on.
+        """
+        forget_test_pipeline_source(workspace_root(), source_id)
+        return redirect(url_for("test_pipeline"))
