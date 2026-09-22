@@ -40,14 +40,26 @@ def _marker_path(workspace: str | Path) -> Path:
     return resolve_project_workspace(workspace) / MARKER_NAME
 
 
-def record_test_pipeline_source(workspace: str | Path, source_id: str) -> None:
+def record_test_pipeline_source(
+    workspace: str | Path, source_id: str, *, origin_source_id: str | None = None, job_id: str | None = None
+) -> None:
     """Mark ``source_id`` as having come from a proefpagina upload.
 
     Order is preserved (oldest first, most recent last) -- a re-upload of the
-    same source moves it to the end -- so ``most_recent_test_pipeline_source()``
-    can tell which run to fall back to when the proefpagina is opened without
-    a ``source_id`` in the URL (see that function's docstring for why that
-    matters).
+    same source moves it to the end -- so ``latest_rerun_of_source()`` can
+    tell which rerun is the current one for a given origin when an image was
+    retested more than once.
+
+    ``origin_source_id``, when given, records that this run started from an
+    already-processed training-pipeline image (see
+    ``test_pipeline_rerun.py``) rather than a fresh upload, so the proefpagina
+    can offer a "vergelijk met trainingspipeline" link back to that source's
+    own, separately computed output.
+
+    ``job_id``, when given, records which worker job is processing this
+    source, so the "Beoordeelde afbeeldingen" list on the proefpagina can show
+    a live status per image (``job_of_test_pipeline_source``) instead of only
+    knowing about the single run named in the current page's URL.
     """
     source_id = str(source_id or "").strip()
     if not source_id:
@@ -56,7 +68,19 @@ def record_test_pipeline_source(workspace: str | Path, source_id: str) -> None:
     payload = read_json_object(path, {})
     ids = [str(item) for item in (payload.get("source_ids") or []) if str(item).strip() and str(item) != source_id]
     ids.append(source_id)
-    write_json_atomic(path, {"source_ids": ids})
+    origins = {
+        str(key): str(value) for key, value in (payload.get("origins") or {}).items()
+        if str(key).strip() and str(value).strip()
+    }
+    if origin_source_id and str(origin_source_id).strip():
+        origins[source_id] = str(origin_source_id).strip()
+    jobs = {
+        str(key): str(value) for key, value in (payload.get("jobs") or {}).items()
+        if str(key).strip() and str(value).strip()
+    }
+    if job_id and str(job_id).strip():
+        jobs[source_id] = str(job_id).strip()
+    write_json_atomic(path, {"source_ids": ids, "origins": origins, "jobs": jobs})
 
 
 def test_pipeline_source_ids(workspace: str | Path) -> set[str]:
@@ -65,23 +89,57 @@ def test_pipeline_source_ids(workspace: str | Path) -> set[str]:
     return {str(item) for item in (payload.get("source_ids") or []) if str(item).strip()}
 
 
-def most_recent_test_pipeline_source(workspace: str | Path) -> str | None:
-    """Return the most recently uploaded proefpagina source_id, if any.
+def origin_of_test_pipeline_source(workspace: str | Path, source_id: str) -> str | None:
+    """Return the training-pipeline source_id ``source_id`` was rerun from, if any.
 
-    The proefpagina's "which run am I looking at" state lives entirely in the
-    ``?source_id=`` URL query string, with nothing persisted server-side. That
-    is fine while a job is running and redirecting through that URL, but the
-    moment the user navigates away by any other route (the sidebar link,
-    another page's "back" link, browser history) and returns to a bare
-    ``/test-pipeline``, that query string is gone and the whole page resets
-    to "klaar voor test" -- phases, JSON output, all of it -- even though the
-    run's data is still sitting on disk. This lets the route fall back to
-    "the last thing I actually tested" instead of a blank slate whenever the
-    URL doesn't say otherwise.
+    Only set for runs started via "Opnieuw testen" on an already-used image
+    (``test_pipeline_rerun.py``); a plain DICOM upload has no origin.
+
+    Deliberately not named ``test_pipeline_source_origin``: this module's
+    filename already matches pytest's default ``test_*.py`` collection glob
+    (see ``test_pipeline_source_ids`` below, a pre-existing instance of the
+    same issue), and a *function* additionally starting with ``test_`` gets
+    collected and run as a test itself, erroring on the required arguments
+    pytest can't supply.
     """
+    source_id = str(source_id or "").strip()
+    if not source_id:
+        return None
+    payload = read_json_object(_marker_path(workspace), {})
+    origins = payload.get("origins") or {}
+    origin = str(origins.get(source_id) or "").strip()
+    return origin or None
+
+
+def latest_rerun_of_source(workspace: str | Path, origin_source_id: str) -> str | None:
+    """Return the most recent proefpagina rerun of ``origin_source_id``, if any.
+
+    The reverse of ``origin_of_test_pipeline_source``: given a training-pipeline
+    source, find the proefpagina run it was last retested as, so the
+    "Beoordeelde afbeeldingen" list can show that image's current test status
+    (untested / bezig / getest) and link straight to its compare view.
+    """
+    origin_source_id = str(origin_source_id or "").strip()
+    if not origin_source_id:
+        return None
     payload = read_json_object(_marker_path(workspace), {})
     ids = [str(item) for item in (payload.get("source_ids") or []) if str(item).strip()]
-    return ids[-1] if ids else None
+    origins = payload.get("origins") or {}
+    for candidate in reversed(ids):
+        if str(origins.get(candidate) or "") == origin_source_id:
+            return candidate
+    return None
+
+
+def job_of_test_pipeline_source(workspace: str | Path, source_id: str) -> str | None:
+    """Return the worker job_id last recorded for ``source_id``, if any."""
+    source_id = str(source_id or "").strip()
+    if not source_id:
+        return None
+    payload = read_json_object(_marker_path(workspace), {})
+    jobs = payload.get("jobs") or {}
+    job_id = str(jobs.get(source_id) or "").strip()
+    return job_id or None
 
 
 def forget_test_pipeline_source(workspace: str | Path, source_id: str) -> None:
@@ -100,7 +158,15 @@ def forget_test_pipeline_source(workspace: str | Path, source_id: str) -> None:
     path = _marker_path(workspace)
     payload = read_json_object(path, {})
     ids = [str(item) for item in (payload.get("source_ids") or []) if str(item).strip() and str(item) != source_id]
-    write_json_atomic(path, {"source_ids": ids})
+    origins = {
+        str(key): str(value) for key, value in (payload.get("origins") or {}).items()
+        if str(key).strip() and str(value).strip() and str(key) != source_id
+    }
+    jobs = {
+        str(key): str(value) for key, value in (payload.get("jobs") or {}).items()
+        if str(key).strip() and str(value).strip() and str(key) != source_id
+    }
+    write_json_atomic(path, {"source_ids": ids, "origins": origins, "jobs": jobs})
     for pattern in _PER_SOURCE_FILES:
         target = root / pattern.format(id=source_id)
         target.unlink(missing_ok=True)

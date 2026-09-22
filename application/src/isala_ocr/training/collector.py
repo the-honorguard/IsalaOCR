@@ -15,7 +15,9 @@ from ..geometry import scale_box
 from ..image_io import load_input
 from ..models import Box
 from ..study_info import extract_study_info
-from ..ocr.table_structure import PPStructureTableEngine, TABLE_ENGINE_VERSION, TableCell, TableRegion
+from ..ocr.table_structure import (
+    PPStructureTableEngine, TABLE_ENGINE_VERSION, TableCell, TableRegion, rasterize_table_columns,
+)
 from ..ocr.base import OCREngine
 from .projects import resolve_project_workspace
 from .input_selection import selected_input_files
@@ -481,7 +483,7 @@ def _collect_localization_detections(
                         "table_id": table["table_id"], "confidence": table.get("confidence", 0),
                         "x1": table["x1"], "y1": table["y1"], "x2": table["x2"], "y2": table["y2"],
                         "cells": [
-                            {k: cell[k] for k in ("cell_id","row_index","column_index","confidence","x1","y1","x2","y2")}
+                            {k: cell[k] for k in ("cell_id","row_index","column_index","column_span","confidence","x1","y1","x2","y2")}
                             for cell in (table.get("cells") or [])
                         ],
                     }
@@ -579,12 +581,17 @@ def _table_regions_from_located_cells(
     and Tabelstudio treat as ground-truth-quality, see the "Celdetectie" page)
     already produced correct, one-physical-row-per-row cell geometry for this
     source in ``localization_detections/<source_id>.json``, written earlier
-    in the same ``_run_application_pipeline`` call. This reads that geometry
-    and fills in each cell's text from the already-computed OCR blocks (by
-    center-point containment), building the same ``TableRegion``/``TableCell``
-    shape ``integrate_table_regions()`` expects from ``table_engine.detect()``,
-    so the rest of that function's logic (label/value pairing per row,
-    relation replacement) runs unchanged -- just against correct rows.
+    in the same ``_run_application_pipeline`` call. This reads that geometry,
+    consolidates every column to its widest detected variant
+    (``rasterize_table_columns()`` -- Pipeline A's own persisted boxes stay
+    loose/ragged, this is the explicit "Rasterisering" step applied on top so
+    a too-narrow detected box never clips a real token's assignment), and
+    fills in each cell's text from the already-computed OCR blocks (by
+    center-point containment against the *rasterized* box), building the same
+    ``TableRegion``/``TableCell`` shape ``integrate_table_regions()`` expects
+    from ``table_engine.detect()``, so the rest of that function's logic
+    (label/value pairing per row, relation replacement) runs unchanged --
+    just against correct, rasterized rows.
     """
     localization_path = root / "localization_detections" / f"{source_id}.json"
     if not localization_path.is_file():
@@ -599,30 +606,33 @@ def _table_regions_from_located_cells(
     for table in localization.get("tables") or []:
         if not isinstance(table, dict):
             continue
-        cells: list[TableCell] = []
+        raw_cells: list[TableCell] = []
         for cell in table.get("cells") or []:
             if not isinstance(cell, dict):
                 continue
-            cx1, cy1 = int(cell.get("x1") or 0), int(cell.get("y1") or 0)
-            cx2, cy2 = int(cell.get("x2") or 0), int(cell.get("y2") or 0)
-            texts = [
-                block.text.strip() for block in semantic_blocks
-                if cx1 <= (block.box.x1 + block.box.x2) / 2 <= cx2
-                and cy1 <= (block.box.y1 + block.box.y2) / 2 <= cy2
-            ]
-            cells.append(TableCell(
+            raw_cells.append(TableCell(
                 table_id=str(table.get("table_id") or ""),
                 cell_id=str(cell.get("cell_id") or ""),
                 row_index=int(cell.get("row_index") or 0),
                 column_index=int(cell.get("column_index") or 0),
-                box=Box(cx1, cy1, cx2, cy2),
-                text=" ".join(texts),
-                confidence=float(cell.get("confidence") or 0.0),
+                box=Box(
+                    int(cell.get("x1") or 0), int(cell.get("y1") or 0),
+                    int(cell.get("x2") or 0), int(cell.get("y2") or 0),
+                ),
+                text="", confidence=float(cell.get("confidence") or 0.0),
                 row_span=int(cell.get("row_span") or 1),
                 column_span=int(cell.get("column_span") or 1),
             ))
-        if not cells:
+        if not raw_cells:
             continue
+        cells: list[TableCell] = []
+        for cell in rasterize_table_columns(raw_cells):
+            texts = [
+                block.text.strip() for block in semantic_blocks
+                if cell.box.x1 <= (block.box.x1 + block.box.x2) / 2 <= cell.box.x2
+                and cell.box.y1 <= (block.box.y1 + block.box.y2) / 2 <= cell.box.y2
+            ]
+            cells.append(replace(cell, text=" ".join(texts)))
         regions.append(TableRegion(
             table_id=str(table.get("table_id") or ""),
             box=Box(int(table.get("x1") or 0), int(table.get("y1") or 0), int(table.get("x2") or 0), int(table.get("y2") or 0)),
@@ -929,9 +939,9 @@ def _collect_mapping_detections(
                 relation_payloads,
             )
             suggestions = (
-                suggest_mappings_fast(database, decoded.source_id)
+                suggest_mappings_fast(database, decoded.source_id, workspace=root)
                 if strategy == "table_first"
-                else suggest_mappings(database, decoded.source_id)
+                else suggest_mappings(database, decoded.source_id, workspace=root)
             )
             study_info = extract_study_info(tokens)
             payload = {

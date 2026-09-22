@@ -31,7 +31,9 @@ from flask import Flask, abort, flash, jsonify, redirect, render_template, reque
 from .json_api import json_error
 from .mapping_lateral import field_lateral_side, field_lateral_suffix, relation_lateral_side
 from .relation_feedback import RELATION_FEEDBACK_REASONS
-from .recognition_ground_truth import relation_panel_id, table_studio_roles, table_studio_rows
+from .recognition_ground_truth import (
+    relation_column_eligible, relation_panel_id, table_studio_roles, table_studio_rows,
+)
 from .table_panels import load_panel_profile
 from .table_semantics import load_assignments as load_table_semantic_assignments
 
@@ -204,10 +206,9 @@ def register_mapping_studio_routes(
         relations = []
         for relation in all_relations:
             panel_id = relation_panel_id(relation, panel_by_id)
-            value_column = str(int(relation.get("value_column_index") or 0))
             raster_row = relation_raster_row(relation, panel_id)
             configured = panel_id in column_roles
-            if configured and column_roles.get(panel_id, {}).get(value_column) != "value":
+            if not relation_column_eligible(relation, panel_by_id=panel_by_id, column_roles=column_roles):
                 continue
             if panel_id in active_rows and raster_row not in set(active_rows[panel_id]):
                 continue

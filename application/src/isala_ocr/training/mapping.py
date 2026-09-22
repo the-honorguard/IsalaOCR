@@ -20,7 +20,9 @@ from .generic_detection import normalize_text
 from .projects import resolve_project_workspace
 from .mapping_lateral import ambiguous_lateral_suffixes, lateral_candidate_allowed
 from .mapping_semantics import is_missing_value_text, schema_candidate_score
+from .recognition_ground_truth import relation_column_eligible, table_studio_roles
 from .relation_feedback import evaluate_feedback, relation_snapshot
+from .table_panels import load_panel_profile
 
 LOGGER = logging.getLogger(__name__)
 MAPPING_ENGINE_VERSION = "generic-mapping-v4-schema-evidence"
@@ -229,13 +231,34 @@ def suggest_mappings(
     *,
     minimum_score: float = 0.68,
     profile_id: str = "",
+    workspace: str | Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Create non-destructive suggestions from neutral relations and schema metadata."""
+    """Create non-destructive suggestions from neutral relations and schema metadata.
+
+    ``workspace``, when given, applies Table Studio's per-panel column-role
+    configuration (``table_studio_roles`` -- label/value/unit/header/skip, set
+    once by an operator) as a hard eligibility gate before scoring: a relation
+    whose value column is configured as anything other than "value" for its
+    panel is never considered as a mapping candidate, the same rule Mapping
+    Studio's review list already applies. Panels with no Table Studio
+    configuration are unaffected. Without ``workspace``, behaviour is
+    unchanged (score-only, as before).
+    """
     database.clear_suggested_mappings(source_id)
     relations = database.list_detected_relations(source_id)
     source = database.get_detection_source(source_id) or {"source_id": source_id}
     source_width = int(source.get("image_width") or 0)
     source_height = int(source.get("image_height") or 0)
+    panel_by_id: dict[str, dict[str, Any]] = {}
+    column_roles: dict[str, dict[str, str]] = {}
+    if workspace is not None:
+        panel_profile = load_panel_profile(workspace)
+        panel_by_id = {
+            str(panel.get("panel_id") or ""): panel
+            for panel in panel_profile.get("panels") or []
+            if str(panel.get("panel_id") or "")
+        }
+        column_roles = table_studio_roles(workspace)
     feedback_examples = database.list_relation_feedback()
     feedback_by_relation = {
         str(relation["relation_id"]): evaluate_feedback(
@@ -280,6 +303,10 @@ def suggest_mappings(
         ) is None:
             continue
         if not str(relation.get("label_text") or ""):
+            continue
+        if workspace is not None and not relation_column_eligible(
+            relation, panel_by_id=panel_by_id, column_roles=column_roles
+        ):
             continue
         eligible_relations.append(relation)
 

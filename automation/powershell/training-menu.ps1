@@ -6,7 +6,12 @@
     # positional $ActionValue slot above (action 50/51 pass a
     # source-agnostic StartFrom choice this way). launcher.ps1 forwards this
     # through untouched via its own ValueFromRemainingArguments parameter.
-    [ValidateSet("standard","active","")][string]$StartFrom = ""
+    [ValidateSet("standard","active","")][string]$StartFrom = "",
+    # Same mechanism as $StartFrom, for action 61 (a proefpagina rerun's
+    # specific target file, relative to /input) -- see
+    # run-application-pipeline.ps1's -InputFile for why this bypasses the
+    # shared input_selection.json instead of reusing it.
+    [string]$InputFile = ""
 )
 
 if (-not (Get-Command Invoke-IsalaPreflight -ErrorAction SilentlyContinue)) {
@@ -251,6 +256,9 @@ if ($RunAction) {
     # regardless of which branch above matched.
     if ($RunAction -in @("50","51") -and $StartFrom) {
         $extra.StartFrom = $StartFrom
+    }
+    if ($RunAction -eq "61" -and $InputFile) {
+        $extra.InputFile = $InputFile
     }
     Invoke-IsalaMenuAction -ActionId $RunAction -AdditionalArguments $extra
     return

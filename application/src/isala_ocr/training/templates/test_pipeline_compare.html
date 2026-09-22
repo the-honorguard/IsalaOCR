@@ -1,0 +1,201 @@
+{% extends 'base.html' %}
+{% block title %}Naast elkaar vergelijken · {{ source_id }}{% endblock %}
+{% block heading %}Volledige pipeline naast elkaar{% endblock %}
+{% block subtitle %}Links: proefpagina (nieuw) <span class="mono">{{ source_id }}</span> · Rechts: trainingspipeline (bekend) <span class="mono">{{ origin_source_id }}</span>{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div class="actions"><a class="button" href="{{ url_for('test_pipeline') }}">← Proefpagina</a></div>
+  <div class="actions"><span class="pill {% if differing_count %}warn{% else %}ok{% endif %}">{% if measurement_rows %}{% if differing_count %}{{ differing_count }} veld(en) verschillen in datablok{% else %}Geen verschillen in datablok{% endif %}{% else %}Datablok nog niet compleet aan beide kanten{% endif %}</span></div>
+</div>
+
+<section class="card section-gap">
+  <div class="toolbar"><div><span class="eyebrow">STAP 2</span><h3>Tabelherkenning (links/rechts)</h3><p class="muted">Welk venster gevonden is, en welk label het kreeg.</p></div></div>
+  <div class="compare-columns">
+    <div class="compare-column">
+      <h4>Proefpagina (nieuw)</h4>
+      {% if new_tables %}
+        {% if new_tables.render_exists %}
+        <div class="output-image-stage"><div class="output-image-frame" style="aspect-ratio:{{ new_tables.image_width }}/{{ new_tables.image_height }}">
+          <img src="/source-render/{{ new_tables.source_id }}.png" alt="" width="{{ new_tables.image_width }}" height="{{ new_tables.image_height }}">
+          {% for table in new_tables.located_tables %}<span class="table-box" style="left:{{ table.x1/new_tables.image_width*100 }}%;top:{{ table.y1/new_tables.image_height*100 }}%;width:{{ (table.x2-table.x1)/new_tables.image_width*100 }}%;height:{{ (table.y2-table.y1)/new_tables.image_height*100 }}%"><span class="table-label">V{{ table.window_index }} — {{ table.table_label }}</span></span>{% endfor %}
+        </div></div>
+        <ul class="preprocessing-summary">
+          {% for table in new_tables.located_tables %}<li>V{{ table.window_index }} — gekozen bewerking: <strong>{{ table.preprocessing_variant or '—' }}</strong>{% if table.preprocessing_score is not none %} <span class="muted">(score {{ '%.2f'|format(table.preprocessing_score) }})</span>{% endif %}</li>{% endfor %}
+        </ul>
+        {% else %}<p class="muted">Bronrender ontbreekt.</p>{% endif %}
+      {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
+    </div>
+    <div class="compare-column">
+      <h4>Trainingspipeline (bekend) <a class="button-link" href="{{ url_for('output_review_tables', source_id=origin_source_id) }}">→ open in trainingspipeline</a></h4>
+      {% if old_tables %}
+        {% if old_tables.render_exists %}
+        <div class="output-image-stage"><div class="output-image-frame" style="aspect-ratio:{{ old_tables.image_width }}/{{ old_tables.image_height }}">
+          <img src="/source-render/{{ old_tables.source_id }}.png" alt="" width="{{ old_tables.image_width }}" height="{{ old_tables.image_height }}">
+          {% for table in old_tables.located_tables %}<span class="table-box" style="left:{{ table.x1/old_tables.image_width*100 }}%;top:{{ table.y1/old_tables.image_height*100 }}%;width:{{ (table.x2-table.x1)/old_tables.image_width*100 }}%;height:{{ (table.y2-table.y1)/old_tables.image_height*100 }}%"><span class="table-label">V{{ table.window_index }} — {{ table.table_label }}</span></span>{% endfor %}
+        </div></div>
+        <ul class="preprocessing-summary">
+          {% for table in old_tables.located_tables %}<li>V{{ table.window_index }} — gekozen bewerking: <strong>{{ table.preprocessing_variant or '—' }}</strong>{% if table.preprocessing_score is not none %} <span class="muted">(score {{ '%.2f'|format(table.preprocessing_score) }})</span>{% endif %}</li>{% endfor %}
+        </ul>
+        {% else %}<p class="muted">Bronrender ontbreekt.</p>{% endif %}
+      {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="card section-gap">
+  <div class="toolbar"><div><span class="eyebrow">STAP 3</span><h3>Celdetectie</h3><p class="muted">Elk gedetecteerd celkader, los van rij/kolom-structuur.</p></div></div>
+  <div class="compare-columns">
+    <div class="compare-column">
+      <h4>Proefpagina (nieuw)</h4>
+      {% if new_cells %}
+        {% if new_cells.render_exists %}
+        <div class="output-image-stage"><div class="output-image-frame" style="aspect-ratio:{{ new_cells.image_width }}/{{ new_cells.image_height }}">
+          <img src="/source-render/{{ new_cells.source_id }}.png" alt="" width="{{ new_cells.image_width }}" height="{{ new_cells.image_height }}">
+          {% for window in new_cells.windows %}{% for row in window.grid %}{% for cell in row %}{% if cell %}<span class="cell-box" style="left:{{ cell.x1/new_cells.image_width*100 }}%;top:{{ cell.y1/new_cells.image_height*100 }}%;width:{{ (cell.x2-cell.x1)/new_cells.image_width*100 }}%;height:{{ (cell.y2-cell.y1)/new_cells.image_height*100 }}%"></span>{% endif %}{% endfor %}{% endfor %}{% endfor %}
+        </div></div>
+        {% else %}<p class="muted">Bronrender ontbreekt.</p>{% endif %}
+      {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
+    </div>
+    <div class="compare-column">
+      <h4>Trainingspipeline (bekend) <a class="button-link" href="{{ url_for('output_review_cells', source_id=origin_source_id) }}">→ open in trainingspipeline</a></h4>
+      {% if old_cells %}
+        {% if old_cells.render_exists %}
+        <div class="output-image-stage"><div class="output-image-frame" style="aspect-ratio:{{ old_cells.image_width }}/{{ old_cells.image_height }}">
+          <img src="/source-render/{{ old_cells.source_id }}.png" alt="" width="{{ old_cells.image_width }}" height="{{ old_cells.image_height }}">
+          {% for window in old_cells.windows %}{% for row in window.grid %}{% for cell in row %}{% if cell %}<span class="cell-box" style="left:{{ cell.x1/old_cells.image_width*100 }}%;top:{{ cell.y1/old_cells.image_height*100 }}%;width:{{ (cell.x2-cell.x1)/old_cells.image_width*100 }}%;height:{{ (cell.y2-cell.y1)/old_cells.image_height*100 }}%"></span>{% endif %}{% endfor %}{% endfor %}{% endfor %}
+        </div></div>
+        {% else %}<p class="muted">Bronrender ontbreekt.</p>{% endif %}
+      {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="card section-gap">
+  <div class="toolbar"><div><span class="eyebrow">STAP 4</span><h3>Rasterisering</h3><p class="muted">Dezelfde cellen, hervormd tot een rij/kolom-raster per venster (post-processing bovenop de losse celdetectie).</p></div></div>
+  <div class="compare-columns">
+    <div class="compare-column">
+      <h4>Proefpagina (nieuw)</h4>
+      {% if new_rasterized_cells %}
+        {% if new_rasterized_cells.render_exists %}
+        <div class="output-image-stage"><div class="output-image-frame" style="aspect-ratio:{{ new_rasterized_cells.image_width }}/{{ new_rasterized_cells.image_height }}">
+          <img src="/source-render/{{ new_rasterized_cells.source_id }}.png" alt="" width="{{ new_rasterized_cells.image_width }}" height="{{ new_rasterized_cells.image_height }}">
+          {% for window in new_rasterized_cells.windows %}{% for box in window.boxes %}<span class="raster-box" style="left:{{ box.x1/new_rasterized_cells.image_width*100 }}%;top:{{ box.y1/new_rasterized_cells.image_height*100 }}%;width:{{ (box.x2-box.x1)/new_rasterized_cells.image_width*100 }}%;height:{{ (box.y2-box.y1)/new_rasterized_cells.image_height*100 }}%"></span>{% endfor %}{% endfor %}
+        </div></div>
+        {% else %}<p class="muted">Bronrender ontbreekt.</p>{% endif %}
+      {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
+    </div>
+    <div class="compare-column">
+      <h4>Trainingspipeline (bekend) <a class="button-link" href="{{ url_for('output_review_cells', source_id=origin_source_id) }}">→ open in trainingspipeline</a></h4>
+      {% if old_rasterized_cells %}
+        {% if old_rasterized_cells.render_exists %}
+        <div class="output-image-stage"><div class="output-image-frame" style="aspect-ratio:{{ old_rasterized_cells.image_width }}/{{ old_rasterized_cells.image_height }}">
+          <img src="/source-render/{{ old_rasterized_cells.source_id }}.png" alt="" width="{{ old_rasterized_cells.image_width }}" height="{{ old_rasterized_cells.image_height }}">
+          {% for window in old_rasterized_cells.windows %}{% for box in window.boxes %}<span class="raster-box" style="left:{{ box.x1/old_rasterized_cells.image_width*100 }}%;top:{{ box.y1/old_rasterized_cells.image_height*100 }}%;width:{{ (box.x2-box.x1)/old_rasterized_cells.image_width*100 }}%;height:{{ (box.y2-box.y1)/old_rasterized_cells.image_height*100 }}%"></span>{% endfor %}{% endfor %}
+        </div></div>
+        {% else %}<p class="muted">Bronrender ontbreekt.</p>{% endif %}
+      {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="card section-gap">
+  <div class="toolbar"><div><span class="eyebrow">STAP 5</span><h3>Welke kolommen en rijen naar Recognition gaan</h3><p class="muted">Gerasterde cellen die dit keer een bevestigde mapping kregen (groen) tegenover cellen die wel gedetecteerd maar niet gebruikt zijn (grijs).</p></div></div>
+  <div class="compare-columns">
+    <div class="compare-column">
+      <h4>Proefpagina (nieuw)</h4>
+      {% if new_mapping_scope %}
+        {% for window in new_mapping_scope.windows %}
+        <div class="cell-grid-wrap section-gap"><strong>V{{ window.window_index }} — {{ window.table_label }}</strong>
+          <table class="cell-grid"><tbody>
+            {% for row in window.grid %}<tr>{% for cell in row %}{% if cell %}<td class="{{ 'cell-included' if cell.included else 'cell-excluded' }}" title="{{ cell.field_label }}">{{ cell.text or '—' }}</td>{% else %}<td class="cell-missing"></td>{% endif %}{% endfor %}</tr>{% else %}<tr><td class="muted">Geen cellen.</td></tr>{% endfor %}
+          </tbody></table>
+        </div>
+        {% else %}<p class="muted">Geen vensters.</p>{% endfor %}
+      {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
+    </div>
+    <div class="compare-column">
+      <h4>Trainingspipeline (bekend) <a class="button-link" href="{{ url_for('output_review_cells', source_id=origin_source_id) }}">→ open in trainingspipeline</a></h4>
+      {% if old_mapping_scope %}
+        {% for window in old_mapping_scope.windows %}
+        <div class="cell-grid-wrap section-gap"><strong>V{{ window.window_index }} — {{ window.table_label }}</strong>
+          <table class="cell-grid"><tbody>
+            {% for row in window.grid %}<tr>{% for cell in row %}{% if cell %}<td class="{{ 'cell-included' if cell.included else 'cell-excluded' }}" title="{{ cell.field_label }}">{{ cell.text or '—' }}</td>{% else %}<td class="cell-missing"></td>{% endif %}{% endfor %}</tr>{% else %}<tr><td class="muted">Geen cellen.</td></tr>{% endfor %}
+          </tbody></table>
+        </div>
+        {% else %}<p class="muted">Geen vensters.</p>{% endfor %}
+      {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="card section-gap">
+  <div class="toolbar"><div><span class="eyebrow">STAP 6</span><h3>Uitlezen</h3><p class="muted">De ruwe Recognition-tekst per veld, vóór toewijzing aan het einddatablok.</p></div></div>
+  <div class="compare-columns">
+    <div class="compare-column">
+      <h4>Proefpagina (nieuw)</h4>
+      {% if new_readout %}
+      <div class="table-wrap"><table class="compare-table">
+        <tr><th>Veld</th><th>Ruwe tekst</th><th>Confidence</th></tr>
+        {% for sample in new_readout.samples %}<tr><td>{{ sample.field_label }}</td><td class="mono">{{ sample.raw_ocr or '—' }}</td><td>{{ '%.0f%%'|format(sample.raw_confidence*100) }}</td></tr>{% endfor %}
+      </table></div>
+      {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
+    </div>
+    <div class="compare-column">
+      <h4>Trainingspipeline (bekend)</h4>
+      {% if old_readout %}
+      <div class="table-wrap"><table class="compare-table">
+        <tr><th>Veld</th><th>Ruwe tekst</th><th>Confidence</th></tr>
+        {% for sample in old_readout.samples %}<tr><td>{{ sample.field_label }}</td><td class="mono">{{ sample.raw_ocr or '—' }}</td><td>{{ '%.0f%%'|format(sample.raw_confidence*100) }}</td></tr>{% endfor %}
+      </table></div>
+      {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="card section-gap">
+  <div class="toolbar"><div><span class="eyebrow">STAP 7</span><h3>Mapping resultaten (Datablok)</h3><p class="muted">De uiteindelijke, uitgelezen metingen. Afwijkende velden zijn gemarkeerd.</p></div></div>
+  {% if measurement_rows %}
+  <div class="table-wrap"><table class="compare-table">
+    <tr><th>Veld</th><th>Proefpagina (nieuw)</th><th>Trainingspipeline (bekend) <a class="button-link" href="{{ url_for('output_review', source_id=origin_source_id) }}">→ open in trainingspipeline</a></th></tr>
+    {% for row in measurement_rows %}
+    <tr class="{% if row.differs %}compare-diff{% endif %}">
+      <td><strong>{{ row.display_name }}</strong><br><small class="mono muted">{{ row.field_key }}</small></td>
+      <td class="mono">{{ row.left or '—' }}</td>
+      <td class="mono">{{ row.right or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% else %}<p class="muted">{% if not new_datablok %}Proefpagina heeft nog geen datablok.{% elif not old_datablok %}Trainingspipeline heeft nog geen datablok voor deze bron.{% endif %}</p>{% endif %}
+</section>
+
+<style>
+.compare-columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.compare-column h4{margin:0 0 8px;font-size:13px;color:var(--muted);display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.button-link{font-size:11px;font-weight:600;text-transform:none;color:#6fb3ff;text-decoration:none;white-space:nowrap}
+.button-link:hover{text-decoration:underline}
+.compare-table th .button-link{margin-left:8px}
+.output-image-stage{overflow:auto;max-height:420px;background:#081017;border:1px solid var(--line);border-radius:8px}
+.output-image-frame{position:relative;width:100%}
+.output-image-frame img{display:block;width:100%;height:100%;position:absolute;inset:0}
+.table-box{position:absolute;border:2px solid #4ec18a;background:rgba(78,193,138,.12)}
+.table-label{position:absolute;left:2px;top:2px;width:max-content;max-width:280px;padding:3px 6px;border-radius:4px;font-size:11px;font-weight:600;line-height:1.3;background:#1e5b41;color:#8ff0bd;box-shadow:0 2px 8px rgba(0,0,0,.55);z-index:5}
+.preprocessing-summary{list-style:none;margin:8px 0 0;padding:0;font-size:12px}
+.preprocessing-summary li{padding:2px 0}
+.cell-box{position:absolute;border:2px solid #4e8cff;background:rgba(78,140,255,.10)}
+.raster-box{position:absolute;border:2px solid #e0a030;background:rgba(224,160,48,.08)}
+.cell-grid-wrap{overflow-x:auto}
+.cell-grid-wrap strong{display:block;margin-bottom:6px;font-size:12px}
+.cell-grid{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+.cell-grid td{padding:6px 8px;border:1px solid var(--line);background:#0d151e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
+.cell-grid td.cell-empty{color:var(--muted);font-style:italic}
+.cell-grid td.cell-missing{background:transparent;border-color:transparent}
+.cell-grid td.cell-included{background:rgba(78,193,138,.12)}
+.cell-grid td.cell-excluded{background:transparent;color:var(--muted)}
+.compare-table{width:100%;border-collapse:collapse;font-size:13px}
+.compare-table th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase}
+.compare-table td{padding:8px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:top}
+.compare-diff td{background:rgba(215,120,60,.10)}
+.compare-diff td:first-child{border-left:3px solid #d7783c}
+@media(max-width:900px){.compare-columns{grid-template-columns:1fr}}
+</style>
+{% endblock %}

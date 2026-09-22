@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Sequence
 
 import numpy as np
@@ -441,6 +441,78 @@ def _global_column_layout(
     return result
 
 
+def rasterize_table_columns(cells: Sequence[TableCell]) -> list[TableCell]:
+    """Rebuild every column's cell boundaries from its widest detected variant.
+
+    ``_global_column_layout`` only decides which shared column a cell belongs
+    to; it leaves each cell's own box exactly as PP-Structure detected it, so
+    two cells in the same column can still end up with slightly different
+    left/right edges from one row to the next. This mirrors the consolidation
+    Tabelstudio applies for manual review (``axis_groups()`` in webui.py):
+    for every column, the union of every non-spanning cell detected in it
+    (its widest variant) becomes that column's boundaries, and each pair of
+    adjacent columns is snapped to one shared edge so a detector's few pixels
+    of row-to-row jitter or inter-column overlap never reach token-to-cell
+    text assignment downstream. Spanning cells (``column_span`` != 1) are
+    left untouched since they already cover more than one shared column.
+
+    A single-span cell whose width is much larger than its column's typical
+    width (more than 1.6x the column's median) is excluded from that
+    column's own bounds, and left untouched itself: this is very likely a
+    genuinely spanning cell (e.g. a full-width table title) that a caller's
+    ``column_span`` never recorded as such -- notably, ``localization_
+    detections/<source_id>.json`` never persists ``column_span`` at all
+    (only geometry + row/column_index), so any consumer reading that file
+    back always sees ``column_span`` default to 1 regardless of what
+    ``_global_column_layout`` originally computed. Without this guard, one
+    such cell would stretch every other row in its column to its own width.
+
+    Deliberately NOT called from ``parse_ppstructure_tables`` itself: Pipeline
+    A's persisted geometry stays exactly as detected (the "Celdetectie" stage
+    -- loose, possibly ragged per-row boxes), and this is applied explicitly
+    by a consumer that wants the reshaped raster instead (``collector.py``'s
+    ``_table_regions_from_located_cells``, for real token-to-cell text
+    assignment during mapping, and the proefpagina's "Rasterisering" stage,
+    for display) -- so the two stages can show genuinely different geometry.
+    """
+    by_column: dict[int, list[TableCell]] = {}
+    for cell in cells:
+        if cell.column_span == 1:
+            by_column.setdefault(cell.column_index, []).append(cell)
+    if not by_column:
+        return list(cells)
+    outlier_ids: set[str] = set()
+    filtered_by_column: dict[int, list[TableCell]] = {}
+    for column_index, items in by_column.items():
+        widths = sorted(cell.box.width for cell in items)
+        median_width = widths[len(widths) // 2]
+        keep = [cell for cell in items if median_width <= 0 or cell.box.width <= median_width * 1.6]
+        if not keep:
+            keep = items
+        filtered_by_column[column_index] = keep
+        outlier_ids.update(cell.cell_id for cell in items if cell not in keep)
+    bounds = {
+        column_index: [min(cell.box.x1 for cell in items), max(cell.box.x2 for cell in items)]
+        for column_index, items in filtered_by_column.items()
+    }
+    ordered_columns = sorted(bounds)
+    for left_index, right_index in zip(ordered_columns, ordered_columns[1:]):
+        left_x1, left_x2 = bounds[left_index]
+        right_x1, right_x2 = bounds[right_index]
+        boundary = round(((left_x1 + left_x2) / 2 + (right_x1 + right_x2) / 2) / 2)
+        boundary = max(left_x1 + 1, min(boundary, right_x2 - 1))
+        bounds[left_index][1] = boundary
+        bounds[right_index][0] = boundary
+    result: list[TableCell] = []
+    for cell in cells:
+        column_bounds = bounds.get(cell.column_index) if cell.column_span == 1 else None
+        if column_bounds is None or column_bounds[1] <= column_bounds[0] or cell.cell_id in outlier_ids:
+            result.append(cell)
+            continue
+        result.append(replace(cell, box=Box(column_bounds[0], cell.box.y1, column_bounds[1], cell.box.y2)))
+    return result
+
+
 def parse_ppstructure_tables(
     data: dict[str, Any],
     *,
@@ -828,8 +900,6 @@ class PPStructureTableEngine:
         ]
         allowed = {"original", "grayscale", "clahe", "invert_clahe", "adaptive"}
         variants = [str(item) for item in variants if str(item) in allowed]
-        if "original" not in variants:
-            variants.insert(0, "original")
 
         all_regions: list[TableRegion] = []
         region_results: list[dict[str, Any]] = []
@@ -910,11 +980,18 @@ class PPStructureTableEngine:
     def detect_with_benchmark(
         self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()
     ) -> tuple[list[TableRegion], dict[str, Any]]:
-        """Run several geometry-preserving preprocessing variants and select the best.
+        """Run the configured geometry-preserving preprocessing variant(s) and select the best.
 
         Selection uses only structural geometry, so OCR text cannot accidentally
-        bias localization. The original image always participates and therefore
-        remains the safe fallback when contrast preprocessing hurts.
+        bias localization. Which variants are tried is entirely driven by
+        ``table_settings["preprocessing_variants"]`` -- nothing is forced into
+        the list -- so a single-variant config (e.g. just ``invert_clahe``)
+        skips the benchmark race and its run-to-run variant-selection jitter
+        (see ``app.yaml``'s ``training.localization.table_first.preprocessing_variants``:
+        production data showed ``invert_clahe`` never loses badly to ``clahe``
+        while occasionally winning by a wide margin, and the un-contrasted
+        ``original``/``grayscale`` variants are the ones whose scores can swing
+        enough between two otherwise-identical runs to flip which variant wins).
         """
         if str(self.table_settings.get("table_region_model_dir") or "").strip():
             return self.detect_with_trained_regions_benchmark(image, source_id=source_id, fallback_tokens=fallback_tokens)
@@ -928,8 +1005,6 @@ class PPStructureTableEngine:
         ]
         allowed = {"original", "grayscale", "clahe", "invert_clahe", "adaptive"}
         variants = [str(item) for item in variants if str(item) in allowed]
-        if "original" not in variants:
-            variants.insert(0, "original")
         runs: list[dict[str, Any]] = []
         height, width = image.shape[:2]
 
@@ -954,13 +1029,13 @@ class PPStructureTableEngine:
 
         # A second pass on only the likely table/result panel removes MRI images,
         # charts and other GUI noise. To keep runtime bounded we only retry the
-        # variants that actually contributed a kept table (plus original when
-        # different), and merge those candidates into the existing groups the
-        # same way rather than replacing the full-image result wholesale.
+        # variants that actually contributed a kept table, and merge those
+        # candidates into the existing groups the same way rather than
+        # replacing the full-image result wholesale.
         panel_box = _panel_crop_from_regions(merged_regions, width, height) if bool(self.table_settings.get("auto_panel_crop", True)) else None
         if panel_box is not None:
             panel_image = image[panel_box.y1:panel_box.y2, panel_box.x1:panel_box.x2]
-            panel_variants = list(dict.fromkeys([*contributing_variants[:2], "original"]))
+            panel_variants = list(dict.fromkeys(contributing_variants[:2]))
             panel_results: dict[str, list[TableRegion]] = {}
             for variant in panel_variants:
                 prepared = _preprocess_table_image(panel_image, variant)
@@ -1012,8 +1087,6 @@ class PPStructureTableEngine:
         ]
         allowed = {"original", "grayscale", "clahe", "invert_clahe", "adaptive"}
         variants = [str(item) for item in variants if str(item) in allowed]
-        if "original" not in variants:
-            variants.insert(0, "original")
 
         all_regions: list[TableRegion] = []
         panel_results: list[dict[str, Any]] = []

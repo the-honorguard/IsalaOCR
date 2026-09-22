@@ -67,7 +67,13 @@ training:
       preprocessing_benchmark: true
       panel_mode: manual
       auto_panel_crop: false  # only bootstrap/suggestion logic; saved user panels are authoritative
-      preprocessing_variants: [original, grayscale, clahe, invert_clahe, adaptive]
+      # Only invert_clahe: production stats showed it never loses badly to
+      # clahe (its next-best rival) while occasionally winning by a wide
+      # margin, and it removes the run-to-run jitter a multi-variant
+      # benchmark race can have on a close score (original/grayscale were
+      # the variants whose scores could swing enough between two otherwise-
+      # identical runs to flip the winner and change the resulting cell grid).
+      preprocessing_variants: [invert_clahe]
       enable_active_field_detector_fallback: false
       minimum_direct_coverage: 0.95
       maximum_false_candidate_rate: 0.10

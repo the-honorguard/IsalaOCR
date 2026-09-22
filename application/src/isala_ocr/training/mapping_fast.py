@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from .db import TrainingDatabase
@@ -9,7 +10,9 @@ from .mapping import (
 )
 from .mapping_lateral import ambiguous_lateral_suffixes, lateral_candidate_allowed
 from .mapping_semantics import schema_candidate_score
+from .recognition_ground_truth import relation_column_eligible, table_studio_roles
 from .relation_feedback import evaluate_feedback, relation_snapshot
+from .table_panels import load_panel_profile
 
 
 def suggest_mappings_fast(
@@ -19,6 +22,7 @@ def suggest_mappings_fast(
     minimum_score: float = 0.68,
     auto_confirm_score: float = 0.90,
     profile_id: str = "",
+    workspace: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     """Suggest mappings without N+1 SQLite geometry lookups.
 
@@ -38,6 +42,13 @@ def suggest_mappings_fast(
     ``confirmed`` instead of ``suggested``: correctness is checked again when
     the mapped value is delivered downstream, so a near-certain schema match
     does not need to wait on a manual click in Mapping Studio as well.
+
+    ``workspace``, when given, applies Table Studio's per-panel column-role
+    configuration as a hard eligibility gate before scoring -- see
+    ``mapping.suggest_mappings``'s docstring for the same rule; both functions
+    share ``recognition_ground_truth.relation_column_eligible`` so a column an
+    operator marked "Overslaan" is excluded consistently regardless of which
+    of the two suggestion engines a given run uses.
     """
     # Suggestions are generated from the current label/table graph only.
     database.clear_suggested_mappings(source_id)
@@ -47,6 +58,16 @@ def suggest_mappings_fast(
     source_height = int(source.get("image_height") or 0)
     if source_width <= 0 or source_height <= 0:
         return []
+    panel_by_id: dict[str, dict[str, Any]] = {}
+    column_roles: dict[str, dict[str, str]] = {}
+    if workspace is not None:
+        panel_profile = load_panel_profile(workspace)
+        panel_by_id = {
+            str(panel.get("panel_id") or ""): panel
+            for panel in panel_profile.get("panels") or []
+            if str(panel.get("panel_id") or "")
+        }
+        column_roles = table_studio_roles(workspace)
 
     feedback_examples = database.list_relation_feedback()
     feedback_by_relation = {
@@ -93,6 +114,10 @@ def suggest_mappings_fast(
         value_block_id = str(relation.get("value_block_id") or "")
         value_block = blocks_by_id.get(value_block_id)
         if value_block is None:
+            continue
+        if workspace is not None and not relation_column_eligible(
+            relation, panel_by_id=panel_by_id, column_roles=column_roles
+        ):
             continue
         # The value cell is selected by the table relation (same row and
         # value column). Pipeline-A ROI validation belongs to materialization,

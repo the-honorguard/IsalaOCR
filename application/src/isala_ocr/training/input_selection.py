@@ -54,7 +54,21 @@ def selected_keys(workspace: Path) -> set[str] | None:
 
 
 def selected_input_files(path: Path, workspace: Path) -> list[Path]:
+    """Every processable file under ``path``, filtered by Inputselectie's manifest.
+
+    When ``path`` already names a single file (e.g. a proefpagina rerun's own
+    target, passed straight through instead of the whole input directory --
+    see routes_test_pipeline.py's ``_start_rerun()``), that file itself *is*
+    the selection: there is nothing left to filter against the manifest, and
+    ``item.relative_to(path)`` would be nonsensical here anyway (``path``
+    equals its only ``item``, so it always resolves to ``"."``, which can
+    never appear in a manifest -- silently discarding the one file every
+    time a manifest happens to exist). Only a directory ``path`` still goes
+    through manifest filtering, matching Step 1A's own semantics.
+    """
     files = input_files(path)
+    if path.is_file():
+        return files
     selected = selected_keys(workspace)
     if selected is None:
         return files

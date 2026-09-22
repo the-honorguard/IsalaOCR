@@ -1,5 +1,13 @@
 param(
     [string]$InputPath = "",
+    # A single file's path relative to /input (e.g. from a proefpagina
+    # rerun). When set, this job processes exactly this file instead of
+    # whatever the shared input_selection.json happens to say at the moment
+    # this container starts -- several reruns queued close together would
+    # otherwise race on that one mutable file (an earlier still-queued job
+    # could pick up a later click's target, silently processing the wrong
+    # image). Takes precedence over $InputPath.
+    [string]$InputFile = "",
     [string]$TableModelId = "active",
     [string]$MappingProfileId = "",
     [string]$MinimumMappingConfidence = "0.90"
@@ -13,7 +21,13 @@ try {
     Assert-IsalaActionPreflight -ActionId "61"
     Assert-Docker
     Assert-IsalaRuntimePrepared | Out-Null
-    if ([string]::IsNullOrWhiteSpace($InputPath)) { $InputPath = Get-IsalaContainerProjectInput }
+    if (-not [string]::IsNullOrWhiteSpace($InputFile)) {
+        if ($InputFile -match '(^|[\\/])\.\.([\\/]|$)' -or $InputFile.StartsWith("/") -or $InputFile -match '^[A-Za-z]:') {
+            throw "Invalid input file selection: $InputFile"
+        }
+        $InputPath = "$(Get-IsalaContainerProjectInput)/$($InputFile.Replace('\','/'))"
+    }
+    elseif ([string]::IsNullOrWhiteSpace($InputPath)) { $InputPath = Get-IsalaContainerProjectInput }
     $dockerArguments = @(
         "compose", "--profile", "training", "run", "--rm", "--pull", "never",
         "--entrypoint", "python", "training-collector",

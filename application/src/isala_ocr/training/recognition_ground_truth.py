@@ -70,6 +70,32 @@ def relation_panel_id(relation: dict[str, Any], panel_by_id: dict[str, dict[str,
     return ""
 
 
+def relation_column_eligible(
+    relation: dict[str, Any], *, panel_by_id: dict[str, dict[str, Any]], column_roles: dict[str, dict[str, str]],
+) -> bool:
+    """Whether Table Studio's column-role configuration allows this relation as a value.
+
+    A panel with no Table Studio configuration is left alone (``True``) --
+    only panels an operator has explicitly configured gate anything, so an
+    unconfigured table's relations keep flowing through the existing
+    schema-similarity scoring unchanged. For a configured panel, only a
+    column explicitly marked "value" may become a mapping candidate at all;
+    columns marked label/unit/header/skip are structural noise for mapping
+    purposes and are excluded before scoring even starts -- the same rule
+    Mapping Studio's own review list already applies (``routes_mapping_studio.py``),
+    now shared so the automatic deployment pipeline (``suggest_mappings``/
+    ``suggest_mappings_fast``) treats a column an operator marked "Overslaan"
+    the same way a human reviewer would, instead of only the text-similarity
+    score deciding.
+    """
+    panel_id = relation_panel_id(relation, panel_by_id)
+    roles = column_roles.get(panel_id)
+    if not roles:
+        return True
+    value_column = str(int(relation.get("value_column_index") or 0))
+    return roles.get(value_column) == "value"
+
+
 def table_studio_rows(workspace: str | Path) -> dict[str, list[int]]:
     root = resolve_project_workspace(workspace)
     path = root / TABLE_STUDIO_FILENAME

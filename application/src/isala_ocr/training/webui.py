@@ -4113,14 +4113,12 @@ def create_web_app(
     register_test_pipeline_routes(
         app,
         workspace_root=workspace_root,
-        registry_state=registry_state,
         project_manager=project_manager,
-        input_selection_path=input_selection_path,
         safe_workspace_file=safe_workspace_file,
         job_statuses=job_statuses,
         database=database,
         enqueue_job=enqueue_job,
-        utcnow=_utcnow,
+        source_rows=source_rows,
     )
 
     # These attach their own routes/hooks on top of the ones registered above.

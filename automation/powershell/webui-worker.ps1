@@ -4,7 +4,7 @@ $ErrorActionPreference="Stop"
 $JobsRoot=Join-Path $ProjectRoot "training\workspace\webui\jobs"
 foreach($name in @("pending","running","completed","failed","cancelled","cancel","status","logs")){New-Item -ItemType Directory -Force -Path (Join-Path $JobsRoot $name)|Out-Null}
 $lock=Join-Path $JobsRoot "worker.json"
-$WorkerVersion=(Get-Content (Join-Path $ProjectRoot "project\VERSION") -Raw).Trim()
+$WorkerVersion=Get-IsalaWorkerVersionFingerprint
 
 function Set-JobProperty {
     param([Parameter(Mandatory=$true)]$Object,[Parameter(Mandatory=$true)][string]$Name,$Value)
@@ -190,6 +190,10 @@ try{
                 if([string]$data.action_id -in @("60","61")){
                     $safeProfile=([string]$data.options.mapping_profile_id).Replace('"','""')
                     if(-not [string]::IsNullOrWhiteSpace($safeProfile)){$powerShellCommand += ' "{0}"' -f $safeProfile}
+                    if([string]$data.action_id -eq "61"){
+                        $safeInputFile=([string]$data.options.input_file).Replace('"','""')
+                        if(-not [string]::IsNullOrWhiteSpace($safeInputFile)){$powerShellCommand += ' -InputFile "{0}"' -f $safeInputFile}
+                    }
                 }
                 elseif([string]$data.action_id -in @("20","21","22","58")){
                     $safeSource=([string]$data.options.source_id).Replace('"','""')

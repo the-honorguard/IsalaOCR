@@ -8,6 +8,46 @@ $env:DOCKER_BUILDKIT = "1"
 Set-Location $ProjectRoot
 
 
+function Get-IsalaWorkerVersionFingerprint {
+    <#
+    .SYNOPSIS
+    A worker "version" that changes whenever an automation script the worker
+    depends on changes, not just when a human remembers to bump project\VERSION.
+
+    .DESCRIPTION
+    webui-worker.ps1 is a long-running background process: it loads its own
+    script (and everything it dispatches to, e.g. launcher.ps1,
+    training-menu.ps1, run-application-pipeline.ps1) into memory once at
+    startup and never re-reads those files while running, so editing a
+    .ps1 under automation\powershell has no effect on an already-running
+    worker. The existing auto-recovery in label-training-data.ps1/
+    webui-worker.ps1 (Test-IsalaWorkerState's worker_version comparison,
+    which stops a stale worker and starts a fresh one) previously only
+    tracked project\VERSION, so a script-only change -- like the proefpagina
+    rerun input-file fix -- left a stale worker running indefinitely until
+    someone remembered to stop it by hand. Folding a hash of every
+    automation\powershell\*.ps1 file into the version string that
+    Test-IsalaWorkerState compares means any such edit is picked up
+    automatically the next time run.cmd/START.cmd starts the app, without
+    changing what a "healthy, current" worker means on an ordinary run
+    where nothing changed.
+    #>
+    $version = (Get-Content (Join-Path $ProjectMetadataRoot "VERSION") -Raw).Trim()
+    $scriptsRoot = Join-Path $PSScriptRoot ""
+    $hashes = Get-ChildItem -LiteralPath $scriptsRoot -Filter "*.ps1" -File |
+        Sort-Object Name |
+        ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+    $combined = [string]::Join("|", $hashes)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($combined))
+    } finally {
+        $sha256.Dispose()
+    }
+    $fingerprint = ([System.BitConverter]::ToString($digest) -replace '-', '').Substring(0, 12).ToLowerInvariant()
+    return "$version+scripts.$fingerprint"
+}
+
 function Get-TrainingImageVersion {
     $versionFile = Join-Path $ProjectMetadataRoot "TRAINING_IMAGE_VERSION"
     if (-not (Test-Path -LiteralPath $versionFile -PathType Leaf)) {

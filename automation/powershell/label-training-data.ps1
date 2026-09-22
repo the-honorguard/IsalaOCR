@@ -59,7 +59,7 @@ $jobsRoot = Join-Path $ProjectRoot "training\workspace\webui\jobs"
 $workerStateFile = Join-Path $jobsRoot "worker.json"
 $workerStartupLog = Join-Path $jobsRoot "worker-startup.log"
 $workerStartupErrorLog = Join-Path $jobsRoot "worker-startup.err.log"
-$expectedWorkerVersion = (Get-Content (Join-Path $ProjectRoot "project\VERSION") -Raw).Trim()
+$expectedWorkerVersion = Get-IsalaWorkerVersionFingerprint
 New-Item -ItemType Directory -Path $jobsRoot -Force | Out-Null
 
 function Test-IsalaWorkerState {

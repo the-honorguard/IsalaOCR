@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from isala_ocr.models import Box, OCRToken
-from isala_ocr.ocr.table_structure import parse_ppstructure_tables
+from isala_ocr.ocr.table_structure import TableCell, parse_ppstructure_tables, rasterize_table_columns
 from isala_ocr.training.db import TrainingDatabase
 from isala_ocr.training.generic_detection import detect_generic_structure, integrate_table_regions
 from isala_ocr.training.mapping import build_mapping_output_preview, resolve_value_roi_box
@@ -90,6 +90,86 @@ def test_ppstructure_assigns_one_global_column_grid_across_rows() -> None:
         (1, 0, 1), (1, 2, 1),
         (2, 0, 2), (2, 2, 1),
     ]
+
+
+def test_ppstructure_leaves_raw_per_row_cell_boxes_undisturbed() -> None:
+    """Celdetectie (Pipeline A's persisted geometry) must stay the loose,
+    un-rasterized boxes exactly as detected -- rasterization is an explicit,
+    separate step (``rasterize_table_columns``), not something
+    ``parse_ppstructure_tables`` does automatically, so the proefpagina's
+    "Celdetectie" and "Rasterisering" stages can show genuinely different
+    geometry.
+    """
+    data = {
+        "table_res_list": [{
+            "cell_box_list": [
+                [10, 10, 110, 35], [120, 10, 220, 35],
+                [8, 40, 105, 65], [122, 40, 218, 65],
+            ]
+        }]
+    }
+    tables = parse_ppstructure_tables(data, source_id="source")
+    boxes = {(cell.column_index, cell.box.x1, cell.box.x2) for cell in tables[0].cells}
+    assert boxes == {(0, 10, 110), (1, 120, 220), (0, 8, 105), (1, 122, 218)}
+
+
+def test_rasterize_table_columns_widens_to_the_widest_detected_variant() -> None:
+    """Row-to-row detection jitter within one column must not survive into the raster.
+
+    Column 0's boxes are a few pixels narrower/wider/shifted from row to row
+    (detection noise); column 1's are similarly ragged. Every cell in a
+    column must end up sharing that column's widest observed left/right
+    edge, and the two columns must snap to one shared boundary instead of
+    keeping their few pixels of detected overlap.
+    """
+    data = {
+        "table_res_list": [{
+            "cell_box_list": [
+                [10, 10, 110, 35], [120, 10, 220, 35],
+                [8, 40, 105, 65], [122, 40, 218, 65],
+                [10, 70, 115, 95], [125, 70, 225, 95],
+            ]
+        }]
+    }
+    tables = parse_ppstructure_tables(data, source_id="source")
+    cells = sorted(rasterize_table_columns(tables[0].cells), key=lambda cell: (cell.column_index, cell.row_index))
+
+    column_0 = [cell for cell in cells if cell.column_index == 0]
+    column_1 = [cell for cell in cells if cell.column_index == 1]
+    assert {(cell.box.x1, cell.box.x2) for cell in column_0} == {(8, 117)}
+    assert {(cell.box.x1, cell.box.x2) for cell in column_1} == {(117, 225)}
+    # y-boundaries stay per-row -- only the shared column edges are rebuilt.
+    assert [cell.box.y1 for cell in column_0] == [10, 40, 70]
+
+
+def test_rasterize_table_columns_ignores_a_mis_clustered_spanning_outlier() -> None:
+    """A full-width header row sharing column_index 0 with column_span==1
+    must not stretch every other row in that column to its own width.
+
+    ``localization_detections/<source_id>.json`` never persists
+    ``column_span`` (only geometry + row/column_index -- see
+    ``rasterize_table_columns``'s docstring), so a consumer reading that
+    file back always sees a genuinely spanning header cell as an ordinary
+    column_span==1 cell. Real production data showed exactly this: a title
+    row detected at x1=1163..x2=1916 sharing column 0 with data rows whose
+    boxes were all ~1163..1350-1370. Without an outlier guard, "widest
+    variant" would wrongly stretch every data row in column 0 out to 1916.
+    """
+    header = TableCell("t", "header", 0, 0, Box(1163, 0, 1916, 20), "", 0.9)
+    rows = [
+        TableCell("t", f"row{i}", i, 0, Box(1163, 20 + i * 30, 1350 + i, 40 + i * 30), "", 0.9)
+        for i in range(1, 6)
+    ]
+    cells = rasterize_table_columns([header, *rows])
+
+    by_id = {cell.cell_id: cell for cell in cells}
+    # The outlier itself is left completely untouched.
+    assert by_id["header"].box == Box(1163, 0, 1916, 20)
+    # Every ordinary row keeps a narrow, consistent column-0 width -- none of
+    # them got stretched out to the header's 1916 right edge.
+    widened_x2_values = {by_id[f"row{i}"].box.x2 for i in range(1, 6)}
+    assert widened_x2_values == {1355}
+    assert max(widened_x2_values) < 1916
 
 
 def test_table_semantics_snap_to_reviewed_pipeline_a_geometry(tmp_path: Path) -> None:

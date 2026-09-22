@@ -4,7 +4,7 @@
 {% block subtitle %}{% if localization_strategy == 'table_first' %}Canonieke Ground Truth opbouwen en daarna iteratief model trainen → beoordelen → afwijkingen reviewen{% else %}Generieke detectie, functionele mapping, ROI-controle en modeltraining als afzonderlijke processtappen{% endif %}{% endblock %}
 {% block content %}
 <section class="card test-pipeline-home-card">
-  <div><span class="eyebrow">SNELLE INTEGRATIEPROEF</span><h3>Van DICOM naar datablok testen</h3><p class="muted">Upload één DICOM en volg de volledige actieve model-, mapping- en Recognition-verwerking vanuit de eindproductpagina.</p></div>
+  <div><span class="eyebrow">SNELLE INTEGRATIEPROEF</span><h3>Een al beoordeelde afbeelding hertesten</h3><p class="muted">Test een afbeelding die de trainingspipeline al beoordeeld heeft opnieuw met de actieve modellen, en vergelijk de volledige pipeline stap voor stap met het bekende resultaat.</p></div>
   <a class="button primary" href="/test-pipeline">Proefpagina openen</a>
 </section>
 <style>.test-pipeline-home-card{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}.test-pipeline-home-card h3{margin:3px 0}.test-pipeline-home-card p{margin:0}@media(max-width:650px){.test-pipeline-home-card{align-items:stretch;flex-direction:column}.test-pipeline-home-card .button{width:100%;text-align:center}}</style>
