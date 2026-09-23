@@ -15,6 +15,25 @@ from .relation_feedback import evaluate_feedback, relation_snapshot
 from .table_panels import load_panel_profile
 
 
+def _geometry_looks_sane(block: dict[str, Any], image_width: int, image_height: int) -> bool:
+    """Reject a value block whose box is obviously broken.
+
+    This is not a Pipeline-A overlap check (deliberately deferred to
+    materialization, see the docstring below) -- it is a cheap, local
+    bounds check using data already loaded for this source, so a corrupt
+    detection (a degenerate or out-of-frame box, for example from a table
+    detector regression) cannot silently turn into a mapping suggestion
+    before anyone reviews it.
+    """
+    try:
+        x1, y1, x2, y2 = (int(block[key]) for key in ("x1", "y1", "x2", "y2"))
+    except (KeyError, TypeError, ValueError):
+        return False
+    if x2 <= x1 or y2 <= y1:
+        return False
+    return x1 >= 0 and y1 >= 0 and x2 <= image_width and y2 <= image_height
+
+
 def suggest_mappings_fast(
     database: TrainingDatabase,
     source_id: str,
@@ -28,7 +47,10 @@ def suggest_mappings_fast(
 
     Mapping is label/table driven: the relation already identifies the value
     cell in the same table row and value column as the readable label. Pipeline-
-    A ROI validation is deliberately deferred to value materialization.
+    A ROI validation is deliberately deferred to value materialization; a light
+    local sanity check on the value block's own box (``_geometry_looks_sane``)
+    still runs here, so an evidently broken detection cannot become a
+    suggestion before that later validation ever sees it.
 
     Semantic matching is schema-driven: aliases, preferred unit, optional group
     context, relation type and OCR confidence are the only positive evidence.
@@ -115,13 +137,18 @@ def suggest_mappings_fast(
         value_block = blocks_by_id.get(value_block_id)
         if value_block is None:
             continue
+        if not _geometry_looks_sane(value_block, source_width, source_height):
+            continue
         if workspace is not None and not relation_column_eligible(
             relation, panel_by_id=panel_by_id, column_roles=column_roles
         ):
             continue
         # The value cell is selected by the table relation (same row and
         # value column). Pipeline-A ROI validation belongs to materialization,
-        # not to deciding which field a readable label represents.
+        # not to deciding which field a readable label represents -- but an
+        # evidently broken box (out of frame, zero/negative area) is rejected
+        # here regardless, since no downstream step re-checks this before it
+        # becomes a mapping suggestion.
         eligible_relations.append((relation, feedback))
 
     # The global field profile is authoritative when a label is an exact alias
