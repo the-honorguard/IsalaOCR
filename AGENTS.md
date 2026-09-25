@@ -79,3 +79,31 @@ richting vragen.
 Lees geen inputafbeeldingen, OCR-tekst of modelartefacten tenzij dat nodig is
 voor de foutanalyse. De terminallog kan paden, timestamps en foutdetails
 bevatten, maar bevat geen volledige gebruikersdata uit de OCR-crops.
+
+## Uurlijkse issue-diagnose (cloud-routine)
+
+- Een geplande cloud-routine diagnosticeert elk uur (07:00–23:00 Europe/Amsterdam)
+  de open GitHub Issues volgens `.claude/routines/issue-diagnosis.md`. De routine
+  is read-only: ze implementeert niets, pusht niet, sluit geen issues en past
+  nooit de issuetekst aan.
+- De uitkomst is één issuecomment per issue dat begint met
+  `<!-- isalaocr-diagnosis -->`, met bewijs, uitvoeringsplan, validatie en de
+  lokale controles die nog nodig zijn. Dit comment wordt bij latere runs
+  bijgewerkt.
+- Diagnoselabels (los van `status:*`):
+  - `diagnosis:done`: clouddiagnose en plan zijn compleet.
+  - `diagnosis:needs-local`: er zijn nog controles nodig op de Windows-machine
+    (terminallogs, Docker, `START.cmd`, GPU, echte OCR-input). Dit is de lokale
+    werkvoorraad voor Codex.
+  - Geen `diagnosis:*`-label: nog niet gediagnosticeerd of sindsdien gewijzigd;
+    de volgende run pakt het op. Verwijder het label om een nieuwe diagnose te
+    vragen.
+- Codex leest het `isalaocr-diagnosis`-comment voordat het aan een issue werkt en
+  bouwt daarop voort in plaats van de diagnose te herhalen. Pak issues met
+  `diagnosis:needs-local` eerst op: voer de genoemde lokale controles uit
+  (bijvoorbeeld `errorlog`), leg de resultaten vast in het issue, vink de
+  checklist in het diagnosecomment af en zet het label op `diagnosis:done`
+  wanneer er lokaal niets meer openstaat.
+- De routine laat issues met `status:in-progress` of recente branch-/PR-activiteit
+  met rust (hooguit voegt ze nieuw bewijs toe). Zet `status:in-progress` zodra de
+  implementatie start, zodat beide workflows elkaar niet in de weg zitten.
