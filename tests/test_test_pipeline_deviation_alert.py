@@ -96,3 +96,28 @@ def test_no_alles_testen_button_when_list_is_empty(tmp_path: Path) -> None:
     app, _workspace = _app(tmp_path)
     body = app.test_client().get("/test-pipeline").get_data(as_text=True)
     assert "Alles testen" not in body
+
+
+def test_untrained_but_tested_row_never_shows_gelijk(tmp_path: Path) -> None:
+    """"Gelijk" means this run's datablok matches the trainingspipeline's own
+    -- it can never be true for a "Nog niet getraind" origin, since there is
+    no trainingspipeline datablok at all to compare against.
+    ``_measurement_diff_rows`` returns ``[]`` (nothing differs) whenever
+    either side has no datablok yet, which used to make an untrained-but-
+    tested row's ``differing_count`` land on 0 -- the exact same value a
+    genuine match produces -- and the template couldn't tell the two apart.
+    """
+    from flask import render_template
+
+    app, _workspace = _app(tmp_path)
+    rows = [{
+        "source_id": "untrained-source", "render_exists": False, "trained": False,
+        "rerun_source_id": "rerun-1", "status": "tested",
+        "compare_url": "/test-pipeline/vergelijk/rerun-1",
+        "running_job_id": None, "differing_count": 0,
+    }]
+    with app.test_request_context():
+        html = render_template("test_pipeline.html", rows=rows, rerun_error="", running_job_ids=[])
+
+    assert "Nog niet vergelijkbaar" in html
+    assert "Gelijk" not in html
