@@ -12,6 +12,7 @@ re-implemented.
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from typing import Any, Callable
 
@@ -33,6 +34,72 @@ def _overlap_ratio(region: dict[str, int], panel: dict[str, object]) -> float:
     inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
     area = max(1, (region["x2"] - region["x1"]) * (region["y2"] - region["y1"]))
     return inter / area
+
+
+def _relation_side(context_text: str) -> str:
+    """"left"/"right"/"unknown" straight from a relation's own OCR'd context
+    text (its table/panel/column header), independent of any configured
+    Table/Panel Setup geometry. Shared by ``_located_windows`` (labels V1/V2
+    windows) and ``_identification_stage_data`` (labels individual boxes) so
+    both agree on the same evidence.
+    """
+    context_lower = context_text.casefold()
+    if "right ventricle" in context_lower or "rechter ventrikel" in context_lower or "rechts" in context_lower:
+        return "right"
+    if "left ventricle" in context_lower or "linker ventrikel" in context_lower or "links" in context_lower:
+        return "left"
+    return "unknown"
+
+
+def _window_sides_from_relations(
+    workspace_root: Path, source_id: str, windows: list[dict[str, Any]]
+) -> dict[int, str]:
+    """Best-guess left/right side per window (keyed by ``window_index``),
+    read from Identificatie's own already-OCR'd relations. This is
+    ``_located_windows``'s primary source of truth, ahead of the configured
+    Table/Panel Setup geometry: Table/Panel Setup's boxes are drawn once
+    against a single reference layout, so a document whose tables land
+    somewhere else on the page (a different report layout, or one that has
+    since drifted from that reference) has no overlap with any panel and
+    ``_configured_panel_regions`` can never label it -- even though the
+    table's own header text already says which side it is. Every relation
+    inside a window casts one vote for that window's side (by simple
+    majority) so a stray mismatched word elsewhere in the table does not
+    flip the whole window. Returns {} (letting the caller fall back to
+    geometry) whenever Identificatie hasn't run yet for this source, or no
+    relation landed inside any window.
+    """
+    if not source_id or not windows:
+        return {}
+    path = workspace_root / "generic_detections" / f"{source_id}.json"
+    if not path.is_file():
+        return {}
+    payload = read_json(path, {})
+    blocks_by_id = {
+        str(block.get("block_id") or ""): block
+        for block in (payload.get("blocks") or [])
+        if isinstance(block, dict)
+    }
+    votes: dict[int, Counter[str]] = {}
+    for relation in payload.get("relations") or []:
+        if not isinstance(relation, dict):
+            continue
+        value_block = blocks_by_id.get(str(relation.get("value_block_id") or ""))
+        if value_block is None:
+            continue
+        vx1, vy1 = int(value_block.get("x1") or 0), int(value_block.get("y1") or 0)
+        vx2, vy2 = int(value_block.get("x2") or 0), int(value_block.get("y2") or 0)
+        center_x, center_y = (vx1 + vx2) / 2, (vy1 + vy2) / 2
+        window = next(
+            (w for w in windows if w["x1"] <= center_x <= w["x2"] and w["y1"] <= center_y <= w["y2"]), None,
+        )
+        if window is None:
+            continue
+        side = _relation_side(str(relation.get("context_text") or ""))
+        if side == "unknown":
+            continue
+        votes.setdefault(window["window_index"], Counter())[side] += 1
+    return {window_index: counter.most_common(1)[0][0] for window_index, counter in votes.items() if counter}
 
 
 def _back_link(
@@ -58,9 +125,19 @@ def _back_link(
 def _located_windows(
     workspace_root: Path, localization: dict[str, Any], image_width: int, image_height: int
 ) -> list[dict[str, Any]]:
-    """Every table region Pipeline A located, numbered top-to-bottom and matched
-    to its configured Table/Panel Setup name (see ``output_review_tables``).
-    Shared with the cell-detection view so both agree on the same windows.
+    """Every table region Pipeline A located, numbered top-to-bottom and labeled
+    Links/Rechts (see ``output_review_tables``). Shared with the cell-detection
+    view so both agree on the same windows.
+
+    Labeled primarily from each window's own already-OCR'd relations (see
+    ``_window_sides_from_relations``), falling back to the configured
+    Table/Panel Setup geometry only when a window has no OCR evidence at all
+    (for example before Identificatie/Pipeline B has run for this source).
+    OCR content is preferred because it reflects the document actually in
+    front of it; the configured panel geometry is a single fixed reference
+    layout that silently goes stale the moment a document's table position
+    differs from it (a different report layout, or one that has since
+    drifted) -- exactly the case OCR content still gets right.
     """
     windows = [
         {
@@ -74,7 +151,22 @@ def _located_windows(
     for index, region in enumerate(windows, start=1):
         region["window_index"] = index
     panels = _configured_panel_regions(workspace_root, image_width, image_height)
+    panel_name_by_side = {"left": "Links", "right": "Rechts"}
+    for panel in panels:
+        side = _relation_side(str(panel.get("panel_name") or "") + " " + str(panel.get("panel_id") or ""))
+        if side != "unknown":
+            panel_name_by_side[side] = str(panel["panel_name"])
+    side_by_window = _window_sides_from_relations(
+        workspace_root, str(localization.get("source_id") or ""), windows
+    )
     for region in windows:
+        side = side_by_window.get(region["window_index"])
+        if side:
+            region["table_label"] = panel_name_by_side.get(side, side)
+            continue
+        # No OCR evidence for this window (Identificatie hasn't run yet, or no
+        # relation landed inside it) -- fall back to Table/Panel Setup's
+        # configured geometry.
         best_panel = max(panels, key=lambda panel: _overlap_ratio(region, panel)) if panels else None
         region["table_label"] = (
             str(best_panel["panel_name"])
@@ -175,6 +267,39 @@ def _measurement_diff_rows(
             "left": _display_value(left) if left else "",
             "right": _display_value(right) if right else "",
             "differs": _display_value(left) != _display_value(right),
+        })
+    return rows
+
+
+def _readout_diff_rows(
+    new_readout: dict[str, Any] | None, old_readout: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Pair up the two sides' raw Recognition read-out samples by field, like
+    ``_measurement_diff_rows`` does for the final datablok.
+
+    ``_recognition_readout_stage_data`` sorts each side's samples
+    independently by label, so the same field can land on different row
+    indexes left and right whenever one side is missing a field the other
+    has. Keying by field (falling back to the label when a sample has no
+    ``field_key``, e.g. legacy data) and unioning both sides' keys puts the
+    same field on the same row, with an empty cell on whichever side lacks it.
+    """
+    def _by_key(readout: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+        if not readout:
+            return {}
+        return {str(item["field_key"] or item["field_label"]): item for item in readout["samples"]}
+
+    new_samples, old_samples = _by_key(new_readout), _by_key(old_readout)
+    rows = []
+    for key in sorted(set(new_samples) | set(old_samples), key=lambda k: (new_samples.get(k) or old_samples.get(k))["field_label"]):
+        left, right = new_samples.get(key), old_samples.get(key)
+        rows.append({
+            "field_label": (left or right)["field_label"],
+            "left_text": left["raw_ocr"] if left else "",
+            "left_confidence": left["raw_confidence"] if left else None,
+            "right_text": right["raw_ocr"] if right else "",
+            "right_confidence": right["raw_confidence"] if right else None,
+            "differs": (left["raw_ocr"] if left else "") != (right["raw_ocr"] if right else ""),
         })
     return rows
 
@@ -456,13 +581,7 @@ def _identification_stage_data(
                 continue
         label_block = blocks_by_id.get(str(relation.get("label_block_id") or ""))
         context_text = str(relation.get("context_text") or "")
-        context_lower = context_text.casefold()
-        if "right ventricle" in context_lower or "rechter ventrikel" in context_lower or "rechts" in context_lower:
-            side = "right"
-        elif "left ventricle" in context_lower or "linker ventrikel" in context_lower or "links" in context_lower:
-            side = "left"
-        else:
-            side = "unknown"
+        side = _relation_side(context_text)
         boxes.append({
             "x1": vx1, "y1": vy1, "x2": vx2, "y2": vy2,
             "label_text": str((label_block or {}).get("text") or ""),
