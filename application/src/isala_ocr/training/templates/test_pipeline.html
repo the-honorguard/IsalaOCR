@@ -10,7 +10,10 @@
     <div><h3>Inputafbeeldingen</h3><p class="muted">Alle afbeeldingen uit Inputselectie. "Getraind" heeft al een trainingspipeline-resultaat om tegen te vergelijken; "Nog niet getraind" kan wel getest worden, maar heeft nog niets om mee te vergelijken.</p></div>
     <div class="actions">
       <span class="pill">{{ rows|length }}</span>
-      {% if rows %}<form method="post" action="{{ url_for('test_pipeline_rerun_all') }}" onsubmit="return confirm('Alle {{ rows|length }} afbeelding(en) opnieuw testen tegen de actieve modellen?')"><button class="button primary" type="submit">Alles testen</button></form>{% endif %}
+      {% if rows %}
+      <form method="post" action="{{ url_for('test_pipeline_render_thumbnails') }}"><button class="button" type="submit">Thumbnails renderen</button></form>
+      <form method="post" action="{{ url_for('test_pipeline_rerun_all') }}" onsubmit="return confirm('Alle {{ rows|length }} afbeelding(en) opnieuw testen tegen de actieve modellen?')"><button class="button primary" type="submit">Alles testen</button></form>
+      {% endif %}
     </div>
   </div>
   <div class="test-reuse-grid">

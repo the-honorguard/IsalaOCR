@@ -467,6 +467,19 @@ def rasterize_table_columns(cells: Sequence[TableCell]) -> list[TableCell]:
     ``_global_column_layout`` originally computed. Without this guard, one
     such cell would stretch every other row in its column to its own width.
 
+    A column that only a handful of rows actually use (for example a
+    sub-header cell like "Endo Volume" that PP-Structure tags with its own
+    ``column_index`` in just one row, while the real data column sits under
+    it across eight or nine rows) is excluded from bounds/boundary-snapping
+    entirely, the same way an oversized single cell is: it never becomes a
+    shared column, and its own cell(s) are left untouched. Without this, the
+    boundary-snap below (which averages every adjacent column pair) treats
+    that one sparse row as an equal neighbour and drags the real column's
+    edge in to meet it, shrinking every other row's cell in the process. The
+    threshold is relative to the busiest column sharing this cell set (at
+    least half its row coverage, floor of 2 rows) rather than a fixed count,
+    so it scales with table size instead of only fitting this one case.
+
     Deliberately NOT called from ``parse_ppstructure_tables`` itself: Pipeline
     A's persisted geometry stays exactly as detected (the "Celdetectie" stage
     -- loose, possibly ragged per-row boxes), and this is applied explicitly
@@ -481,9 +494,18 @@ def rasterize_table_columns(cells: Sequence[TableCell]) -> list[TableCell]:
             by_column.setdefault(cell.column_index, []).append(cell)
     if not by_column:
         return list(cells)
+    row_counts = {
+        column_index: len({cell.row_index for cell in items})
+        for column_index, items in by_column.items()
+    }
+    max_row_count = max(row_counts.values())
+    minimum_rows = max(2, math.ceil(max_row_count / 2))
+    sparse_columns = {column_index for column_index, count in row_counts.items() if count < minimum_rows}
     outlier_ids: set[str] = set()
     filtered_by_column: dict[int, list[TableCell]] = {}
     for column_index, items in by_column.items():
+        if column_index in sparse_columns:
+            continue
         widths = sorted(cell.box.width for cell in items)
         median_width = widths[len(widths) // 2]
         keep = [cell for cell in items if median_width <= 0 or cell.box.width <= median_width * 1.6]

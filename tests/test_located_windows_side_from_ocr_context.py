@@ -95,6 +95,38 @@ def test_ocr_context_overrides_conflicting_panel_geometry(tmp_path: Path) -> Non
     assert windows[0]["table_label"] == "Rechts"
 
 
+def test_recognizes_side_when_ocr_glues_words_together(tmp_path: Path) -> None:
+    """Pipeline B's OCR regularly drops the space between adjacent words
+    ("Leftventricle Volume Result" instead of "Left ventricle Volume
+    Result"). A plain "left ventricle" substring check would miss that and
+    leave the window "Onbekend" even though the text is unambiguous -- see
+    ``_relation_side``'s docstring.
+    """
+    localization = {
+        "source_id": "src1",
+        "tables": [
+            {"x1": 900, "y1": 20, "x2": 1570, "y2": 290},
+            {"x1": 900, "y1": 460, "x2": 1570, "y2": 700},
+        ],
+    }
+    _write_generic_detections(
+        tmp_path,
+        "src1",
+        blocks=[
+            {"block_id": "vb-top", "x1": 1000, "y1": 40, "x2": 1100, "y2": 60},
+            {"block_id": "vb-bottom", "x1": 1000, "y1": 480, "x2": 1100, "y2": 500},
+        ],
+        relations=[
+            {"value_block_id": "vb-top", "context_text": "Leftventricle Volume Result"},
+            {"value_block_id": "vb-bottom", "context_text": "Rightventricle Volume Result"},
+        ],
+    )
+
+    windows = _located_windows(tmp_path, localization, image_width=1574, image_height=876)
+
+    assert [w["table_label"] for w in windows] == ["Links", "Rechts"]
+
+
 def test_majority_vote_ignores_a_single_stray_mismatched_relation(tmp_path: Path) -> None:
     localization = {
         "source_id": "src1",
