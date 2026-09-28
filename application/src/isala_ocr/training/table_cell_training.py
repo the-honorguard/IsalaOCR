@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+
+LOGGER = logging.getLogger(__name__)
 
 from .db import TrainingDatabase, utc_now
 from .localization_dataset import resolve_localization_splits
@@ -127,7 +130,41 @@ def _dataset_identity(review_fingerprint: str) -> str:
     return f"table-cells-{stamp}-{review_fingerprint[:8]}"
 
 
-def _dataset_source_state(root: Path, db: TrainingDatabase) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]], dict[str, Any] | None]:
+def _drop_sources_missing_renders(
+    root: Path,
+    sources: list[dict[str, Any]],
+    by_source: dict[str, list[dict[str, Any]]],
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]], list[str]]:
+    """Exclude a source whose render file is gone instead of failing the whole build.
+
+    A single missing ``source_renders/<id>.png`` (for example after a manual
+    workspace cleanup) used to abort ``build_table_cell_dataset`` for every
+    other, perfectly usable source too. The render is a derived artifact, not
+    ground truth, so the safe response is to skip that one source -- loudly,
+    via a warning surfaced to the caller -- and keep training on the rest.
+    """
+    kept: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for source in sources:
+        source_id = str(source.get("source_id") or "")
+        render_path = root / str(source.get("render_path") or f"source_renders/{source_id}.png")
+        if render_path.is_file():
+            kept.append(source)
+            continue
+        message = (
+            f"Bronrender ontbreekt voor {source_id} ({render_path}); "
+            "deze bron is overgeslagen voor de tabelcel-dataset."
+        )
+        LOGGER.warning(message)
+        warnings.append(message)
+    kept_ids = {str(item["source_id"]) for item in kept}
+    filtered_by_source = {source_id: items for source_id, items in by_source.items() if source_id in kept_ids}
+    return kept, filtered_by_source, warnings
+
+
+def _dataset_source_state(
+    root: Path, db: TrainingDatabase
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]], dict[str, Any] | None, list[str]]:
     """Return sources + authoritative annotations for table-cell dataset building.
 
     After the first dataset has established canonical GT, later Step-3 runs must
@@ -146,16 +183,17 @@ def _dataset_source_state(root: Path, db: TrainingDatabase) -> tuple[list[dict[s
             for source_id in source_ids if source_id in by_id
         ]
         by_source = {source_id: [{**item, "annotation_id": item.get("gt_id")} for item in list_ground_truth_cells(root, source_id)] for source_id in source_ids}
-        return sources, by_source, canonical
-    # Step 6 candidate reviews are already usable supervision.  Do not require
-    # the older whole-source review flag: that flag belongs to the legacy GT
-    # flow and prevented explicitly accepted/rejected table cells from reaching
-    # the first training round.
-    all_sources = db.list_detection_sources()
-    by_source = {str(item["source_id"]): _current_table_annotations(db, str(item["source_id"])) for item in all_sources}
-    sources = [item for item in all_sources if by_source.get(str(item["source_id"])) or bool(item.get("review_completed"))]
-    by_source = {str(item["source_id"]): by_source.get(str(item["source_id"]), []) for item in sources}
-    return sources, by_source, None
+    else:
+        # Step 6 candidate reviews are already usable supervision.  Do not require
+        # the older whole-source review flag: that flag belongs to the legacy GT
+        # flow and prevented explicitly accepted/rejected table cells from reaching
+        # the first training round.
+        all_sources = db.list_detection_sources()
+        by_source = {str(item["source_id"]): _current_table_annotations(db, str(item["source_id"])) for item in all_sources}
+        sources = [item for item in all_sources if by_source.get(str(item["source_id"])) or bool(item.get("review_completed"))]
+        by_source = {str(item["source_id"]): by_source.get(str(item["source_id"]), []) for item in sources}
+    sources, by_source, warnings = _drop_sources_missing_renders(root, sources, by_source)
+    return sources, by_source, canonical, warnings
 
 
 def _latest_training_feedback(root: Path) -> dict[str, Any]:
@@ -234,7 +272,7 @@ def _training_panels(
 def table_cell_dataset_preview(workspace: str | Path) -> dict[str, Any]:
     root = resolve_project_workspace(workspace)
     db = TrainingDatabase(root / "samples.sqlite3")
-    sources, by_source, canonical = _dataset_source_state(root, db)
+    sources, by_source, canonical, source_warnings = _dataset_source_state(root, db)
     panels_by_source = _training_panels(root, db, sources, canonical)
     panels = [
         {"source_id": source_id, "panel_id": item["panel_id"], "name": item["name"], "x1": item["x1"], "y1": item["y1"], "x2": item["x2"], "y2": item["y2"]}
@@ -261,7 +299,7 @@ def table_cell_dataset_preview(workspace: str | Path) -> dict[str, Any]:
         "gt_review_open_source_count": len(incomplete_gt_sources),
         "gt_review_open_source_ids": incomplete_gt_sources,
         "splits": dict(split.get("counts") or {}),
-        "warnings": list(split.get("warnings") or []),
+        "warnings": [*source_warnings, *(split.get("warnings") or [])],
     }
 
 
@@ -270,7 +308,7 @@ def build_table_cell_dataset(workspace: str | Path) -> dict[str, Any]:
 
     root = resolve_project_workspace(workspace)
     db = TrainingDatabase(root / "samples.sqlite3")
-    sources, by_source, canonical = _dataset_source_state(root, db)
+    sources, by_source, canonical, source_warnings = _dataset_source_state(root, db)
     if not sources:
         raise ValueError("Beoordeel eerst minimaal één cel als goedgekeurd in Stap 6")
     if canonical is not None:
@@ -463,6 +501,7 @@ def build_table_cell_dataset(workspace: str | Path) -> dict[str, Any]:
         "panels": panel_records,
         "review_policy": "one functional table cell = one positive bounding box",
         "ground_truth_source": "canonical" if canonical else "initial_step4_review",
+        "dataset_warnings": source_warnings,
     }
     _write_json(dataset_root / "manifest.json", manifest)
     _latest_pointer(root).parent.mkdir(parents=True, exist_ok=True)

@@ -1,15 +1,36 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any, Callable
 
 from ..training.generic_detection import normalize_text
 
 MISSING_VALUE_MARKERS = ("-", "–", "—")
 
+_LEADING_NUMBER_RE = re.compile(r"^\s*[-+]?\d+(?:[.,]\d+)?\s*")
+
 
 def is_missing_value_text(value: object) -> bool:
     """Return True only for explicit empty-value markers, never negatives."""
     return str(value or "").strip() in MISSING_VALUE_MARKERS
+
+
+def _normalize_unit(value: str) -> str:
+    """Normalize a unit string while keeping "/" meaningful (unlike
+    ``normalize_text``, which flattens it to whitespace and would make "ml"
+    and "ml/m2" indistinguishable -- see ``schema_candidate_score``'s
+    docstring on ``unit_match``).
+    """
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.casefold().replace("²", "2").replace("·", "*")
+    return re.sub(r"\s+", "", text)
+
+
+def _value_unit_suffix(raw_value: str) -> str:
+    """The unit text trailing a value's leading number, e.g. "ml/m2" from "93.1 ml/m2"."""
+    return _LEADING_NUMBER_RE.sub("", str(raw_value or ""), count=1)
 
 
 def schema_candidate_score(
@@ -42,11 +63,19 @@ def schema_candidate_score(
         str(field.get("group_name") or ""),
         str(relation.get("context_text") or ""),
     )
-    preferred_unit = normalize_text(str(field.get("preferred_unit") or ""))
+    preferred_unit_raw = str(field.get("preferred_unit") or "")
+    preferred_unit = normalize_text(preferred_unit_raw)
     raw_value = str(relation.get("value_text") or "")
-    normalized_value = normalize_text(raw_value)
     missing_value = is_missing_value_text(raw_value)
-    unit_match = bool(preferred_unit and preferred_unit in normalized_value)
+    # A plain substring/containment check here would let a field whose unit is
+    # a prefix of another field's compound unit (e.g. "ml" vs "ml/m2") falsely
+    # match a value carrying the *other* unit, since ``normalize_text`` turns
+    # "/" into whitespace and erases the distinction entirely. Comparing each
+    # value's own trailing unit text against the field's unit, with "/" kept
+    # intact, requires them to actually be the same unit.
+    unit_match = bool(preferred_unit_raw) and _normalize_unit(preferred_unit_raw) == _normalize_unit(
+        _value_unit_suffix(raw_value)
+    )
 
     unit_bonus = 0.10 if unit_match else 0.0
     table_bonus = 0.10 if str(relation.get("relation_type") or "").startswith("table_") else 0.0

@@ -86,6 +86,111 @@ def test_negative_numeric_value_is_still_parsed_as_a_number():
     assert parsed["parse_status"] == "ok"
 
 
+def test_plain_unit_does_not_falsely_match_a_compound_unit_value():
+    """A field whose unit is "ml" must not treat a "ml/m2" value as a match --
+    ``normalize_text`` turns "/" into whitespace, so a naive containment check
+    ("ml" in "93.1 ml m2") used to pass. This caused two real fields (ES
+    Volume, unit "ml", and ED Volume/BSA, unit "ml/m2") to score identically
+    high on each other's values, tipping an "exact_alias" tie the wrong way
+    and swapping their readouts between two otherwise-identical pipeline runs.
+    """
+    field = {
+        "field_key": "lv_es_volume",
+        "display_name": "Left ventricle ES Volume",
+        "group_name": "Left ventricle",
+        "preferred_unit": "ml",
+        "aliases": ["ES Volume"],
+    }
+    relation = {
+        "label_text": "ES Volume",
+        "value_text": "93.1 ml/m²",
+        "context_text": "Links",
+        "relation_type": "table_cell",
+        "confidence": 0.92,
+    }
+
+    score, evidence = schema_candidate_score(
+        field,
+        relation,
+        similarity=_similarity,
+        context_score=_context_score,
+    )
+
+    assert evidence["unit_match"] is False
+    assert evidence["exact_alias"] is True
+
+
+def test_a_wrongly_aliased_field_no_longer_ties_the_correct_one_on_unit():
+    """Reproduces the real production bug directly: alias-learning had (before
+    a separate fix) let "ED Volume/BSA" leak into ES Volume's own alias list.
+    Even with that alias contamination still in place, the correct field
+    (whose unit genuinely matches) must score strictly higher than the
+    wrongly-aliased one -- before this fix they scored identically (both
+    "ml" and "ml/m2" registered as unit_match=True for a "ml/m2" value), so
+    the greedy mapping's winner was decided by unrelated tie-break order
+    instead of the actual unit.
+    """
+    relation = {
+        "label_text": "ED Volume/BSA",
+        "value_text": "93.1 ml/m²",
+        "context_text": "Links",
+        "relation_type": "table_cell",
+        "confidence": 0.92,
+    }
+    correct_field = {
+        "field_key": "lv_ed_volume_bsa",
+        "display_name": "Left ventricle ED Volume/BSA",
+        "group_name": "Left ventricle",
+        "preferred_unit": "ml/m²",
+        "aliases": ["ED Volume/BSA"],
+    }
+    wrongly_aliased_field = {
+        "field_key": "lv_es_volume",
+        "display_name": "Left ventricle ES Volume",
+        "group_name": "Left ventricle",
+        "preferred_unit": "ml",
+        "aliases": ["ES Volume", "ED Volume/BSA"],
+    }
+
+    correct_score, correct_evidence = schema_candidate_score(
+        correct_field, relation, similarity=_similarity, context_score=_context_score,
+    )
+    wrong_score, wrong_evidence = schema_candidate_score(
+        wrongly_aliased_field, relation, similarity=_similarity, context_score=_context_score,
+    )
+
+    assert correct_evidence["unit_match"] is True
+    assert wrong_evidence["unit_match"] is False
+    assert correct_score > wrong_score
+
+
+def test_compound_unit_still_matches_its_own_value():
+    field = {
+        "field_key": "lv_ed_volume_bsa",
+        "display_name": "Left ventricle ED Volume/BSA",
+        "group_name": "Left ventricle",
+        "preferred_unit": "ml/m²",
+        "aliases": ["ED Volume/BSA"],
+    }
+    relation = {
+        "label_text": "ED Volume/BSA",
+        "value_text": "93.1 ml/m²",
+        "context_text": "Links",
+        "relation_type": "table_cell",
+        "confidence": 0.92,
+    }
+
+    score, evidence = schema_candidate_score(
+        field,
+        relation,
+        similarity=_similarity,
+        context_score=_context_score,
+    )
+
+    assert evidence["unit_match"] is True
+    assert score >= 0.90
+
+
 def test_unrelated_label_does_not_become_a_suggestion_just_from_unit_match():
     field = {
         "field_key": "custom.temperature",

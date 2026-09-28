@@ -2,35 +2,35 @@
     "schema_version":  1,
     "project_id":  "cmr_testcase_01",
     "status":  "completed",
-    "started_at":  "2026-09-15T16:41:47.0007061+02:00",
-    "completed_at":  "2026-09-15T16:56:33.8083873+02:00",
+    "started_at":  "2026-09-23T14:28:02.5635298+02:00",
+    "completed_at":  "2026-09-23T14:56:53.3479440+02:00",
     "requested_device":  "auto",
     "resolved_device":  "gpu",
     "training_backend":  "gpu",
     "inference_backend":  "gpu",
     "gpu_name":  "NVIDIA GeForce RTX 3070",
-    "dataset_id":  "table-cells-20260915T144157002911Z-e7f63322",
+    "dataset_id":  "table-cells-20260923T122806179348Z-509caa47",
     "dataset":  {
-                    "source_count":  31,
-                    "panel_count":  62,
-                    "annotation_count":  1873,
-                    "training_image_count":  62,
-                    "training_annotation_count":  1871,
+                    "source_count":  30,
+                    "panel_count":  60,
+                    "annotation_count":  1819,
+                    "training_image_count":  60,
+                    "training_annotation_count":  1817,
                     "splits":  {
                                    "train":  {
-                                                 "sources":  21,
-                                                 "panels":  42,
-                                                 "annotations":  1251
+                                                 "sources":  22,
+                                                 "panels":  44,
+                                                 "annotations":  1311
                                              },
                                    "val":  {
-                                               "sources":  5,
-                                               "panels":  10,
-                                               "annotations":  300
+                                               "sources":  4,
+                                               "panels":  8,
+                                               "annotations":  243
                                            },
                                    "test":  {
-                                                "sources":  5,
-                                                "panels":  10,
-                                                "annotations":  320
+                                                "sources":  4,
+                                                "panels":  8,
+                                                "annotations":  263
                                             }
                                },
                     "training_feedback":  {
@@ -43,8 +43,8 @@
                                                                   },
                                               "policy":  "dynamic panel hard-example replay; newest model_error panel -\u003e weight 2; consecutive recurrence -\u003e weight 3 max; recurrent/high-confidence panels get replay priority; a clean newer review resets to weight 1; train split only; no negative-only crops and no physical image copies",
                                               "hard_example_registry_count":  47,
-                                              "replay_candidate_panel_count":  33,
-                                              "replay_selected_extra_draws":  63,
+                                              "replay_candidate_panel_count":  34,
+                                              "replay_selected_extra_draws":  65,
                                               "replay_budget_ratio":  1.5,
                                               "replay_max_weight":  3
                                           }
@@ -59,16 +59,16 @@
                                     ],
                        "splits":  {
                                       "train":  {
-                                                    "images":  42,
-                                                    "annotations":  1251
+                                                    "images":  44,
+                                                    "annotations":  1311
                                                 },
                                       "val":  {
-                                                  "images":  10,
-                                                  "annotations":  300
+                                                  "images":  8,
+                                                  "annotations":  243
                                               },
                                       "test":  {
-                                                   "images":  10,
-                                                   "annotations":  320
+                                                   "images":  8,
+                                                   "annotations":  263
                                                }
                                   },
                        "numeric_sanity":  {
@@ -81,16 +81,16 @@
                                                            ],
                                               "splits":  {
                                                              "train":  {
-                                                                           "images":  42,
-                                                                           "annotations":  1251
+                                                                           "images":  44,
+                                                                           "annotations":  1311
                                                                        },
                                                              "val":  {
-                                                                         "images":  10,
-                                                                         "annotations":  300
+                                                                         "images":  8,
+                                                                         "annotations":  243
                                                                      },
                                                              "test":  {
-                                                                          "images":  10,
-                                                                          "annotations":  320
+                                                                          "images":  8,
+                                                                          "annotations":  263
                                                                       }
                                                          }
                                           }
@@ -100,12 +100,12 @@
                                 "strategy":  "dynamic_panel_weighted_replay",
                                 "budget_ratio":  1.5,
                                 "budget_ratio_default":  1.5,
-                                "base_train_panels":  42,
-                                "candidate_panel_count":  33,
-                                "requested_extra_draws":  63,
-                                "budget_extra_draws":  63,
-                                "selected_extra_draws":  63,
-                                "effective_train_draws":  105,
+                                "base_train_panels":  44,
+                                "candidate_panel_count":  34,
+                                "requested_extra_draws":  65,
+                                "budget_extra_draws":  65,
+                                "selected_extra_draws":  65,
+                                "effective_train_draws":  109,
                                 "max_replay_weight":  3,
                                 "max_replay_weight_default":  3,
                                 "panels":  [
@@ -140,6 +140,23 @@
                                                    "latest_error_count":  3,
                                                    "latest_error_types":  [
                                                                               "fn",
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.85
+                                               },
+                                               {
+                                                   "panel_key":  "1cf29a1e3ecad6865c2acfc3::left",
+                                                   "source_id":  "1cf29a1e3ecad6865c2acfc3",
+                                                   "panel_id":  "left",
+                                                   "panel_name":  "left",
+                                                   "file_name":  "1cf29a1e3ecad6865c2acfc3__left.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  5,
+                                                   "total_error_runs":  5,
+                                                   "latest_error_count":  1,
+                                                   "latest_error_types":  [
                                                                               "fp"
                                                                           ],
                                                    "max_confidence":  0.85
@@ -440,6 +457,40 @@
                                                    "max_confidence":  0.85
                                                },
                                                {
+                                                   "panel_key":  "a930c0d19ac3645088712eff::left",
+                                                   "source_id":  "a930c0d19ac3645088712eff",
+                                                   "panel_id":  "left",
+                                                   "panel_name":  "left",
+                                                   "file_name":  "a930c0d19ac3645088712eff__left.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
+                                                   "latest_error_types":  [
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.85
+                                               },
+                                               {
+                                                   "panel_key":  "a930c0d19ac3645088712eff::right",
+                                                   "source_id":  "a930c0d19ac3645088712eff",
+                                                   "panel_id":  "right",
+                                                   "panel_name":  "right",
+                                                   "file_name":  "a930c0d19ac3645088712eff__right.png",
+                                                   "replay_count":  2,
+                                                   "effective_weight":  3,
+                                                   "requested_weight":  3,
+                                                   "error_streak":  3,
+                                                   "total_error_runs":  3,
+                                                   "latest_error_count":  1,
+                                                   "latest_error_types":  [
+                                                                              "fp"
+                                                                          ],
+                                                   "max_confidence":  0.85
+                                               },
+                                               {
                                                    "panel_key":  "b27419ec769898da105ee58e::left",
                                                    "source_id":  "b27419ec769898da105ee58e",
                                                    "panel_id":  "left",
@@ -593,40 +644,6 @@
                                                    "max_confidence":  0.85
                                                },
                                                {
-                                                   "panel_key":  "db2be0bdefb73932df36d991::left",
-                                                   "source_id":  "db2be0bdefb73932df36d991",
-                                                   "panel_id":  "left",
-                                                   "panel_name":  "left",
-                                                   "file_name":  "db2be0bdefb73932df36d991__left.png",
-                                                   "replay_count":  2,
-                                                   "effective_weight":  3,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  3,
-                                                   "total_error_runs":  3,
-                                                   "latest_error_count":  1,
-                                                   "latest_error_types":  [
-                                                                              "fp"
-                                                                          ],
-                                                   "max_confidence":  0.85
-                                               },
-                                               {
-                                                   "panel_key":  "db2be0bdefb73932df36d991::right",
-                                                   "source_id":  "db2be0bdefb73932df36d991",
-                                                   "panel_id":  "right",
-                                                   "panel_name":  "right",
-                                                   "file_name":  "db2be0bdefb73932df36d991__right.png",
-                                                   "replay_count":  2,
-                                                   "effective_weight":  3,
-                                                   "requested_weight":  3,
-                                                   "error_streak":  3,
-                                                   "total_error_runs":  3,
-                                                   "latest_error_count":  1,
-                                                   "latest_error_types":  [
-                                                                              "fp"
-                                                                          ],
-                                                   "max_confidence":  0.85
-                                               },
-                                               {
                                                    "panel_key":  "df10cd3bd193d33eb0d99ccc::left",
                                                    "source_id":  "df10cd3bd193d33eb0d99ccc",
                                                    "panel_id":  "left",
@@ -679,59 +696,47 @@
                                                }
                                            ]
                             },
-    "model_id":  "table-RTDETR-L-table-run-20260915T164224-RTDETR-L",
-    "run_id":  "table-run-20260915T164224-RTDETR-L",
+    "model_id":  "table-RTDETR-L-table-run-20260923T142824-RTDETR-L",
+    "run_id":  "table-run-20260923T142824-RTDETR-L",
     "training_run":  {
                          "training_mode":  "continue",
-                         "parent_model_id":  "table-RTDETR-L-table-run-20260915T155628-RTDETR-L",
+                         "parent_model_id":  "table-RTDETR-L-table-run-20260915T164224-RTDETR-L",
                          "epochs":  40,
                          "batch_size":  3,
                          "learning_rate":  3E-05,
-                         "base_train_images":  42,
-                         "hard_example_replay_draws":  63,
-                         "hard_example_replay_panels":  33,
+                         "base_train_images":  44,
+                         "hard_example_replay_draws":  65,
+                         "hard_example_replay_panels":  34,
                          "hard_example_replay_runtime":  {
                                                              "strategy":  "dynamic_panel_weighted_replay",
-                                                             "base_records":  42,
-                                                             "extra_draws":  63,
-                                                             "effective_records":  105,
-                                                             "panel_count":  33,
+                                                             "base_records":  44,
+                                                             "extra_draws":  65,
+                                                             "effective_records":  109,
+                                                             "panel_count":  34,
                                                              "budget_ratio":  1.5,
-                                                             "candidate_panel_count":  33,
-                                                             "requested_extra_draws":  63,
-                                                             "dataset":  "/training/workspace/projects/cmr_testcase_01/table_cell_datasets/table-cells-20260915T144157002911Z-e7f63322",
+                                                             "candidate_panel_count":  34,
+                                                             "requested_extra_draws":  65,
+                                                             "dataset":  "/training/workspace/projects/cmr_testcase_01/table_cell_datasets/table-cells-20260923T122806179348Z-509caa47",
                                                              "annotation":  "annotations/instance_train.json"
                                                          },
-                         "started_at":  "2026-09-15T14:42:27.345973+00:00",
-                         "completed_at":  "2026-09-15T14:51:24.118662+00:00"
+                         "started_at":  "2026-09-23T12:28:25.117331+00:00",
+                         "completed_at":  "2026-09-23T12:55:39.594537+00:00"
                      },
     "model_validation":  {
-                             "dataset_id":  "table-cells-20260915T144157002911Z-e7f63322",
+                             "dataset_id":  "table-cells-20260923T122806179348Z-509caa47",
                              "split":  "val",
                              "confidence":  0.25,
                              "iou_threshold":  0.5,
-                             "tp":  300,
+                             "tp":  243,
                              "fp":  0,
                              "fn":  0,
                              "recall":  1.0,
                              "precision":  1.0,
                              "f1":  1.0,
                              "false_positives_per_panel":  0.0,
-                             "panel_count":  10,
-                             "evaluated_at":  "2026-09-15T14:53:00.132940+00:00",
+                             "panel_count":  8,
+                             "evaluated_at":  "2026-09-23T12:55:50.145734+00:00",
                              "images":  [
-                                            {
-                                                "file_name":  "028e57a7081d876bde821abc__right.png",
-                                                "tp":  27,
-                                                "fp":  0,
-                                                "fn":  0
-                                            },
-                                            {
-                                                "file_name":  "028e57a7081d876bde821abc__left.png",
-                                                "tp":  30,
-                                                "fp":  0,
-                                                "fn":  0
-                                            },
                                             {
                                                 "file_name":  "21cf884625858fc6bd32ad15__left.png",
                                                 "tp":  30,
@@ -787,117 +792,172 @@
                                            {
                                                "confidence":  0.1,
                                                "iou_threshold":  0.5,
-                                               "tp":  300,
+                                               "tp":  243,
+                                               "fp":  1,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  0.9959016393442623,
+                                               "f1":  0.997946611909651,
+                                               "false_positives_per_panel":  0.125
+                                           },
+                                           {
+                                               "confidence":  0.1,
+                                               "iou_threshold":  0.65,
+                                               "tp":  243,
+                                               "fp":  1,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  0.9959016393442623,
+                                               "f1":  0.997946611909651,
+                                               "false_positives_per_panel":  0.125
+                                           },
+                                           {
+                                               "confidence":  0.1,
+                                               "iou_threshold":  0.75,
+                                               "tp":  239,
+                                               "fp":  5,
+                                               "fn":  4,
+                                               "recall":  0.9835390946502057,
+                                               "precision":  0.9795081967213115,
+                                               "f1":  0.9815195071868583,
+                                               "false_positives_per_panel":  0.625
+                                           },
+                                           {
+                                               "confidence":  0.1,
+                                               "iou_threshold":  0.85,
+                                               "tp":  224,
+                                               "fp":  20,
+                                               "fn":  19,
+                                               "recall":  0.9218106995884774,
+                                               "precision":  0.9180327868852459,
+                                               "f1":  0.9199178644763861,
+                                               "false_positives_per_panel":  2.5
+                                           },
+                                           {
+                                               "confidence":  0.1,
+                                               "iou_threshold":  0.95,
+                                               "tp":  87,
+                                               "fp":  157,
+                                               "fn":  156,
+                                               "recall":  0.35802469135802467,
+                                               "precision":  0.35655737704918034,
+                                               "f1":  0.3572895277207392,
+                                               "false_positives_per_panel":  19.625
+                                           },
+                                           {
+                                               "confidence":  0.25,
+                                               "iou_threshold":  0.5,
+                                               "tp":  243,
+                                               "fp":  0,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  1.0,
+                                               "f1":  1.0,
+                                               "false_positives_per_panel":  0.0
+                                           },
+                                           {
+                                               "confidence":  0.25,
+                                               "iou_threshold":  0.65,
+                                               "tp":  243,
+                                               "fp":  0,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  1.0,
+                                               "f1":  1.0,
+                                               "false_positives_per_panel":  0.0
+                                           },
+                                           {
+                                               "confidence":  0.25,
+                                               "iou_threshold":  0.75,
+                                               "tp":  239,
                                                "fp":  4,
-                                               "fn":  0,
-                                               "recall":  1.0,
-                                               "precision":  0.9868421052631579,
-                                               "f1":  0.9933774834437086,
-                                               "false_positives_per_panel":  0.4
+                                               "fn":  4,
+                                               "recall":  0.9835390946502057,
+                                               "precision":  0.9835390946502057,
+                                               "f1":  0.9835390946502057,
+                                               "false_positives_per_panel":  0.5
                                            },
                                            {
-                                               "confidence":  0.1,
+                                               "confidence":  0.25,
+                                               "iou_threshold":  0.85,
+                                               "tp":  224,
+                                               "fp":  19,
+                                               "fn":  19,
+                                               "recall":  0.9218106995884774,
+                                               "precision":  0.9218106995884774,
+                                               "f1":  0.9218106995884774,
+                                               "false_positives_per_panel":  2.375
+                                           },
+                                           {
+                                               "confidence":  0.25,
+                                               "iou_threshold":  0.95,
+                                               "tp":  87,
+                                               "fp":  156,
+                                               "fn":  156,
+                                               "recall":  0.35802469135802467,
+                                               "precision":  0.35802469135802467,
+                                               "f1":  0.35802469135802467,
+                                               "false_positives_per_panel":  19.5
+                                           },
+                                           {
+                                               "confidence":  0.5,
+                                               "iou_threshold":  0.5,
+                                               "tp":  243,
+                                               "fp":  0,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  1.0,
+                                               "f1":  1.0,
+                                               "false_positives_per_panel":  0.0
+                                           },
+                                           {
+                                               "confidence":  0.5,
                                                "iou_threshold":  0.65,
-                                               "tp":  300,
+                                               "tp":  243,
+                                               "fp":  0,
+                                               "fn":  0,
+                                               "recall":  1.0,
+                                               "precision":  1.0,
+                                               "f1":  1.0,
+                                               "false_positives_per_panel":  0.0
+                                           },
+                                           {
+                                               "confidence":  0.5,
+                                               "iou_threshold":  0.75,
+                                               "tp":  239,
                                                "fp":  4,
-                                               "fn":  0,
-                                               "recall":  1.0,
-                                               "precision":  0.9868421052631579,
-                                               "f1":  0.9933774834437086,
-                                               "false_positives_per_panel":  0.4
+                                               "fn":  4,
+                                               "recall":  0.9835390946502057,
+                                               "precision":  0.9835390946502057,
+                                               "f1":  0.9835390946502057,
+                                               "false_positives_per_panel":  0.5
                                            },
                                            {
-                                               "confidence":  0.1,
-                                               "iou_threshold":  0.75,
-                                               "tp":  297,
-                                               "fp":  7,
-                                               "fn":  3,
-                                               "recall":  0.99,
-                                               "precision":  0.9769736842105263,
-                                               "f1":  0.9834437086092715,
-                                               "false_positives_per_panel":  0.7
-                                           },
-                                           {
-                                               "confidence":  0.1,
+                                               "confidence":  0.5,
                                                "iou_threshold":  0.85,
-                                               "tp":  281,
-                                               "fp":  23,
-                                               "fn":  19,
-                                               "recall":  0.9366666666666666,
-                                               "precision":  0.9243421052631579,
-                                               "f1":  0.9304635761589404,
-                                               "false_positives_per_panel":  2.3
-                                           },
-                                           {
-                                               "confidence":  0.1,
-                                               "iou_threshold":  0.95,
-                                               "tp":  93,
-                                               "fp":  211,
-                                               "fn":  207,
-                                               "recall":  0.31,
-                                               "precision":  0.3059210526315789,
-                                               "f1":  0.3079470198675497,
-                                               "false_positives_per_panel":  21.1
-                                           },
-                                           {
-                                               "confidence":  0.25,
-                                               "iou_threshold":  0.5,
-                                               "tp":  300,
-                                               "fp":  0,
-                                               "fn":  0,
-                                               "recall":  1.0,
-                                               "precision":  1.0,
-                                               "f1":  1.0,
-                                               "false_positives_per_panel":  0.0
-                                           },
-                                           {
-                                               "confidence":  0.25,
-                                               "iou_threshold":  0.65,
-                                               "tp":  300,
-                                               "fp":  0,
-                                               "fn":  0,
-                                               "recall":  1.0,
-                                               "precision":  1.0,
-                                               "f1":  1.0,
-                                               "false_positives_per_panel":  0.0
-                                           },
-                                           {
-                                               "confidence":  0.25,
-                                               "iou_threshold":  0.75,
-                                               "tp":  297,
-                                               "fp":  3,
-                                               "fn":  3,
-                                               "recall":  0.99,
-                                               "precision":  0.99,
-                                               "f1":  0.99,
-                                               "false_positives_per_panel":  0.3
-                                           },
-                                           {
-                                               "confidence":  0.25,
-                                               "iou_threshold":  0.85,
-                                               "tp":  281,
+                                               "tp":  224,
                                                "fp":  19,
                                                "fn":  19,
-                                               "recall":  0.9366666666666666,
-                                               "precision":  0.9366666666666666,
-                                               "f1":  0.9366666666666666,
-                                               "false_positives_per_panel":  1.9
+                                               "recall":  0.9218106995884774,
+                                               "precision":  0.9218106995884774,
+                                               "f1":  0.9218106995884774,
+                                               "false_positives_per_panel":  2.375
                                            },
                                            {
-                                               "confidence":  0.25,
+                                               "confidence":  0.5,
                                                "iou_threshold":  0.95,
-                                               "tp":  93,
-                                               "fp":  207,
-                                               "fn":  207,
-                                               "recall":  0.31,
-                                               "precision":  0.31,
-                                               "f1":  0.31,
-                                               "false_positives_per_panel":  20.7
+                                               "tp":  87,
+                                               "fp":  156,
+                                               "fn":  156,
+                                               "recall":  0.35802469135802467,
+                                               "precision":  0.35802469135802467,
+                                               "f1":  0.35802469135802467,
+                                               "false_positives_per_panel":  19.5
                                            },
                                            {
-                                               "confidence":  0.5,
+                                               "confidence":  0.75,
                                                "iou_threshold":  0.5,
-                                               "tp":  300,
+                                               "tp":  243,
                                                "fp":  0,
                                                "fn":  0,
                                                "recall":  1.0,
@@ -906,9 +966,9 @@
                                                "false_positives_per_panel":  0.0
                                            },
                                            {
-                                               "confidence":  0.5,
+                                               "confidence":  0.75,
                                                "iou_threshold":  0.65,
-                                               "tp":  300,
+                                               "tp":  243,
                                                "fp":  0,
                                                "fn":  0,
                                                "recall":  1.0,
@@ -917,150 +977,95 @@
                                                "false_positives_per_panel":  0.0
                                            },
                                            {
-                                               "confidence":  0.5,
+                                               "confidence":  0.75,
                                                "iou_threshold":  0.75,
-                                               "tp":  297,
-                                               "fp":  3,
-                                               "fn":  3,
-                                               "recall":  0.99,
-                                               "precision":  0.99,
-                                               "f1":  0.99,
-                                               "false_positives_per_panel":  0.3
+                                               "tp":  239,
+                                               "fp":  4,
+                                               "fn":  4,
+                                               "recall":  0.9835390946502057,
+                                               "precision":  0.9835390946502057,
+                                               "f1":  0.9835390946502057,
+                                               "false_positives_per_panel":  0.5
                                            },
                                            {
-                                               "confidence":  0.5,
+                                               "confidence":  0.75,
                                                "iou_threshold":  0.85,
-                                               "tp":  281,
+                                               "tp":  224,
                                                "fp":  19,
                                                "fn":  19,
-                                               "recall":  0.9366666666666666,
-                                               "precision":  0.9366666666666666,
-                                               "f1":  0.9366666666666666,
-                                               "false_positives_per_panel":  1.9
-                                           },
-                                           {
-                                               "confidence":  0.5,
-                                               "iou_threshold":  0.95,
-                                               "tp":  93,
-                                               "fp":  207,
-                                               "fn":  207,
-                                               "recall":  0.31,
-                                               "precision":  0.31,
-                                               "f1":  0.31,
-                                               "false_positives_per_panel":  20.7
-                                           },
-                                           {
-                                               "confidence":  0.75,
-                                               "iou_threshold":  0.5,
-                                               "tp":  300,
-                                               "fp":  0,
-                                               "fn":  0,
-                                               "recall":  1.0,
-                                               "precision":  1.0,
-                                               "f1":  1.0,
-                                               "false_positives_per_panel":  0.0
-                                           },
-                                           {
-                                               "confidence":  0.75,
-                                               "iou_threshold":  0.65,
-                                               "tp":  300,
-                                               "fp":  0,
-                                               "fn":  0,
-                                               "recall":  1.0,
-                                               "precision":  1.0,
-                                               "f1":  1.0,
-                                               "false_positives_per_panel":  0.0
-                                           },
-                                           {
-                                               "confidence":  0.75,
-                                               "iou_threshold":  0.75,
-                                               "tp":  297,
-                                               "fp":  3,
-                                               "fn":  3,
-                                               "recall":  0.99,
-                                               "precision":  0.99,
-                                               "f1":  0.99,
-                                               "false_positives_per_panel":  0.3
-                                           },
-                                           {
-                                               "confidence":  0.75,
-                                               "iou_threshold":  0.85,
-                                               "tp":  281,
-                                               "fp":  19,
-                                               "fn":  19,
-                                               "recall":  0.9366666666666666,
-                                               "precision":  0.9366666666666666,
-                                               "f1":  0.9366666666666666,
-                                               "false_positives_per_panel":  1.9
+                                               "recall":  0.9218106995884774,
+                                               "precision":  0.9218106995884774,
+                                               "f1":  0.9218106995884774,
+                                               "false_positives_per_panel":  2.375
                                            },
                                            {
                                                "confidence":  0.75,
                                                "iou_threshold":  0.95,
-                                               "tp":  93,
-                                               "fp":  207,
-                                               "fn":  207,
-                                               "recall":  0.31,
-                                               "precision":  0.31,
-                                               "f1":  0.31,
-                                               "false_positives_per_panel":  20.7
+                                               "tp":  87,
+                                               "fp":  156,
+                                               "fn":  156,
+                                               "recall":  0.35802469135802467,
+                                               "precision":  0.35802469135802467,
+                                               "f1":  0.35802469135802467,
+                                               "false_positives_per_panel":  19.5
                                            },
                                            {
                                                "confidence":  0.9,
                                                "iou_threshold":  0.5,
-                                               "tp":  103,
+                                               "tp":  133,
                                                "fp":  0,
-                                               "fn":  197,
-                                               "recall":  0.3433333333333333,
+                                               "fn":  110,
+                                               "recall":  0.5473251028806584,
                                                "precision":  1.0,
-                                               "f1":  0.511166253101737,
+                                               "f1":  0.7074468085106382,
                                                "false_positives_per_panel":  0.0
                                            },
                                            {
                                                "confidence":  0.9,
                                                "iou_threshold":  0.65,
-                                               "tp":  103,
+                                               "tp":  133,
                                                "fp":  0,
-                                               "fn":  197,
-                                               "recall":  0.3433333333333333,
+                                               "fn":  110,
+                                               "recall":  0.5473251028806584,
                                                "precision":  1.0,
-                                               "f1":  0.511166253101737,
+                                               "f1":  0.7074468085106382,
                                                "false_positives_per_panel":  0.0
                                            },
                                            {
                                                "confidence":  0.9,
                                                "iou_threshold":  0.75,
-                                               "tp":  100,
-                                               "fp":  3,
-                                               "fn":  200,
-                                               "recall":  0.3333333333333333,
-                                               "precision":  0.970873786407767,
-                                               "f1":  0.49627791563275436,
-                                               "false_positives_per_panel":  0.3
+                                               "tp":  129,
+                                               "fp":  4,
+                                               "fn":  114,
+                                               "recall":  0.5308641975308642,
+                                               "precision":  0.9699248120300752,
+                                               "f1":  0.6861702127659575,
+                                               "false_positives_per_panel":  0.5
                                            },
                                            {
                                                "confidence":  0.9,
                                                "iou_threshold":  0.85,
-                                               "tp":  88,
-                                               "fp":  15,
-                                               "fn":  212,
-                                               "recall":  0.29333333333333333,
-                                               "precision":  0.8543689320388349,
-                                               "f1":  0.43672456575682383,
-                                               "false_positives_per_panel":  1.5
+                                               "tp":  117,
+                                               "fp":  16,
+                                               "fn":  126,
+                                               "recall":  0.48148148148148145,
+                                               "precision":  0.8796992481203008,
+                                               "f1":  0.6223404255319149,
+                                               "false_positives_per_panel":  2.0
                                            },
                                            {
                                                "confidence":  0.9,
                                                "iou_threshold":  0.95,
-                                               "tp":  23,
-                                               "fp":  80,
-                                               "fn":  277,
-                                               "recall":  0.07666666666666666,
-                                               "precision":  0.22330097087378642,
-                                               "f1":  0.11414392059553351,
-                                               "false_positives_per_panel":  8.0
+                                               "tp":  48,
+                                               "fp":  85,
+                                               "fn":  195,
+                                               "recall":  0.19753086419753085,
+                                               "precision":  0.3609022556390977,
+                                               "f1":  0.2553191489361702,
+                                               "false_positives_per_panel":  10.625
                                            }
                                        ],
-                             "note":  "Precisie/recall/F1 zijn 1.0 bij confidence=0.25/IoU=0.5 op maar 10 panelen -- dat is het zachtste punt in de sweep en verzadigt makkelijk op een kleine, vaste validatieset. Het zegt dat dit meetpunt hier niet meer onderscheidt, niet dat het model foutloos is. Vergelijk \u0027strictest_clean_iou_threshold\u0027 en \u0027sweep\u0027 tussen trainingsronden om een echt verschil te zien."
+                             "note":  "Precisie/recall/F1 zijn 1.0 bij confidence=0.25/IoU=0.5 op maar 8 panelen -- dat is het zachtste punt in de sweep en verzadigt makkelijk op een kleine, vaste validatieset. Het zegt dat dit meetpunt hier niet meer onderscheidt, niet dat het model foutloos is. Vergelijk \u0027strictest_clean_iou_threshold\u0027 en \u0027sweep\u0027 tussen trainingsronden om een echt verschil te zien."
                          },
     "error":  ""
 }

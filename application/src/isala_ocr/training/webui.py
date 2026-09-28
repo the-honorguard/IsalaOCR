@@ -4119,6 +4119,7 @@ def create_web_app(
         database=database,
         enqueue_job=enqueue_job,
         source_rows=source_rows,
+        loaded_config=loaded_config,
     )
 
     # These attach their own routes/hooks on top of the ones registered above.

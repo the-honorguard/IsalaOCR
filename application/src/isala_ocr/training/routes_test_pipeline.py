@@ -34,13 +34,16 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+import cv2
 from flask import Flask, abort, flash, redirect, render_template, request, url_for
 
+from ..image_io import load_input
 from .input_selection import input_file_source_id, input_files
 from .projects import ProjectManager
 from .routes_documents import (
-    _cells_stage_data, _datablok_stage_data, _mapping_scope_stage_data, _measurement_diff_rows,
-    _rasterized_cells_stage_data, _recognition_readout_stage_data, _tables_stage_data,
+    _cells_stage_data, _datablok_stage_data, _identification_stage_data, _mapping_scope_stage_data,
+    _measurement_diff_rows, _rasterized_cells_stage_data, _readout_diff_rows, _recognition_readout_stage_data,
+    _tables_stage_data,
 )
 from .table_cell_training import active_table_cell_model
 from .test_pipeline_rerun import duplicate_dicom_with_fresh_identity, find_input_file_by_source_id
@@ -83,6 +86,7 @@ def register_test_pipeline_routes(
     database: Any,
     enqueue_job: Callable[..., dict[str, Any]],
     source_rows: Callable[[], list[dict[str, Any]]],
+    loaded_config: Any | None,
 ) -> None:
     def _start_rerun(source_id: str) -> dict[str, Any]:
         """Kick off a proefpagina rerun of ``source_id``.
@@ -180,6 +184,47 @@ def register_test_pipeline_routes(
             })
 
         return trained_rows + untrained_rows
+
+    def _render_missing_thumbnails() -> int:
+        """Save ``source_renders/<id>.png`` for every listed row that doesn't have one yet.
+
+        Purely a decode-and-save of the original file -- no detection, no
+        database writes -- so unlike ``prepare_source_renders`` (used by the
+        Panel Setup / table-region-detect flow, which also resets that
+        source's review state on every call) this never disturbs an
+        already-reviewed or already-trained source. It only fills in the
+        list's "geen render" placeholders, e.g. for images Inputselectie
+        knows about that have never been run through anything yet.
+        """
+        input_root = Path(project_manager.active().input_path).resolve()
+        render_root = workspace_root() / "source_renders"
+        render_root.mkdir(parents=True, exist_ok=True)
+        dicom_settings = getattr(loaded_config, "dicom", None)
+        rendered = 0
+        for row in _all_input_rows():
+            if row.get("render_exists"):
+                continue
+            source_id = str(row["source_id"])
+            original = find_input_file_by_source_id(input_root, source_id)
+            if original is None:
+                continue
+            try:
+                decoded = load_input(original, dicom_settings)
+            except Exception:
+                continue
+            if cv2.imwrite(str(render_root / f"{source_id}.png"), decoded.image):
+                rendered += 1
+        return rendered
+
+    @app.post("/test-pipeline/render-thumbnails")
+    def test_pipeline_render_thumbnails():
+        """Fill in missing thumbnails on the list without testing anything."""
+        rendered = _render_missing_thumbnails()
+        if rendered:
+            flash(f"{rendered} thumbnail(s) gerenderd.", "success")
+        else:
+            flash("Geen ontbrekende thumbnails gevonden.", "info")
+        return redirect(url_for("test_pipeline"))
 
     @app.get("/test-pipeline")
     def test_pipeline():
@@ -371,19 +416,29 @@ def register_test_pipeline_routes(
             )
 
         # Stages 2-7 follow the app's own numbered workflow (PROCESS_STEPS in
-        # webui.py), not an invented 1-4 summary. Celdetectie
-        # (_cells_stage_data) shows Pipeline A's loose, un-rasterized boxes
-        # exactly as detected; Rasterisering (_rasterized_cells_stage_data)
-        # reshapes that same geometry to one shared column raster
-        # (rasterize_table_columns()) and shows it as a plain box overlay, not
-        # a text grid -- this stage is about the reshaped cell *shape*, not
-        # which text ended up in which cell. This compare screen only
-        # presents already-computed run results, it does not change what the
-        # pipeline itself records. "Welke kolommen/rijen" and "Uitlezen" both
-        # read from this run's own materialized samples (no detector-internal
-        # geometry re-derivation); "mapping resultaten" is the existing
-        # Datablok stage.
+        # webui.py), not an invented 1-4 summary. STAP 2.5 (_identification_
+        # stage_data) is inserted between Tabelherkenning and Celdetectie: it
+        # shows the OCR relations (value/label/context text) Pipeline B
+        # produced for *table-structure* purposes -- i.e. deciding each
+        # window's Links/Rechts side (see _window_sides_from_relations) --
+        # never the per-cell OCR used for data extraction later on, which
+        # stays on Celdetectie/Uitlezen. It exists so a window that stayed
+        # "Onbekend" on Tabelherkenning can be diagnosed here: no relation
+        # landed inside it, or its context text didn't match the left/right
+        # vocabulary. Celdetectie (_cells_stage_data) shows Pipeline A's
+        # loose, un-rasterized boxes exactly as detected; Rasterisering
+        # (_rasterized_cells_stage_data) reshapes that same geometry to one
+        # shared column raster (rasterize_table_columns()) and shows it as a
+        # plain box overlay, not a text grid -- this stage is about the
+        # reshaped cell *shape*, not which text ended up in which cell. This
+        # compare screen only presents already-computed run results, it does
+        # not change what the pipeline itself records. "Welke kolommen/rijen"
+        # and "Uitlezen" both read from this run's own materialized samples
+        # (no detector-internal geometry re-derivation); "mapping resultaten"
+        # is the existing Datablok stage.
         new_tables, old_tables = _stage(_tables_stage_data, source_id), _stage(_tables_stage_data, origin_source_id)
+        new_identification = _stage(_identification_stage_data, source_id)
+        old_identification = _stage(_identification_stage_data, origin_source_id)
         new_cells, old_cells = _stage(_cells_stage_data, source_id), _stage(_cells_stage_data, origin_source_id)
         new_rasterized_cells = _stage(_rasterized_cells_stage_data, source_id)
         old_rasterized_cells = _stage(_rasterized_cells_stage_data, origin_source_id)
@@ -395,14 +450,17 @@ def register_test_pipeline_routes(
         old_datablok = _stage(_datablok_stage_data, origin_source_id)
 
         measurement_rows = _measurement_diff_rows(new_datablok, old_datablok)
+        readout_rows = _readout_diff_rows(new_readout, old_readout)
 
         return render_template(
             "test_pipeline_compare.html", source_id=source_id, origin_source_id=origin_source_id,
             new_tables=new_tables, old_tables=old_tables,
+            new_identification=new_identification, old_identification=old_identification,
             new_cells=new_cells, old_cells=old_cells,
             new_rasterized_cells=new_rasterized_cells, old_rasterized_cells=old_rasterized_cells,
             new_mapping_scope=new_mapping_scope, old_mapping_scope=old_mapping_scope,
             new_readout=new_readout, old_readout=old_readout,
+            readout_rows=readout_rows,
             new_datablok=new_datablok, old_datablok=old_datablok,
             measurement_rows=measurement_rows,
             differing_count=sum(1 for row in measurement_rows if row["differs"]),

@@ -20,9 +20,11 @@ from flask import Flask, abort, render_template
 
 from ..models import Box
 from ..ocr.table_structure import TableCell, rasterize_table_columns
+from .generic_detection import looks_like_value
 from .json_store import read_json
 from .mapping_ground_truth_fast import _configured_panel_regions
 from .recognition_ground_truth import EXTRACTION_METHOD as CANONICAL_GT_CELL_EXTRACTION_METHOD
+from .recognition_ground_truth import STALE_EXTRACTION_METHOD as CANONICAL_GT_CELL_STALE_EXTRACTION_METHOD
 from .test_pipeline_sources import test_pipeline_source_ids
 
 
@@ -42,11 +44,18 @@ def _relation_side(context_text: str) -> str:
     Table/Panel Setup geometry. Shared by ``_located_windows`` (labels V1/V2
     windows) and ``_identification_stage_data`` (labels individual boxes) so
     both agree on the same evidence.
+
+    Matched with whitespace stripped from both the text and the vocabulary
+    below (e.g. "right ventricle" is checked as "rightventricle"), because
+    Pipeline B's OCR regularly glues adjacent words together with no space
+    ("Leftventricle Volume Result") -- a plain substring check for "left
+    ventricle" would silently miss that and fall through to "unknown", even
+    though the text unambiguously says which side it is.
     """
-    context_lower = context_text.casefold()
-    if "right ventricle" in context_lower or "rechter ventrikel" in context_lower or "rechts" in context_lower:
+    context_compact = "".join(context_text.casefold().split())
+    if any(term in context_compact for term in ("rightventricle", "rechterventrikel", "rechts")):
         return "right"
-    if "left ventricle" in context_lower or "linker ventrikel" in context_lower or "links" in context_lower:
+    if any(term in context_compact for term in ("leftventricle", "linkerventrikel", "links")):
         return "left"
     return "unknown"
 
@@ -524,8 +533,21 @@ def _recognition_readout_stage_data(source_id: str, *, database: Any) -> dict[st
     ``raw_ocr``/``raw_confidence`` the active Recognition model produced
     during this run, keyed by canonical field rather than by cell, since a
     cell's grid position is already shown in ``_mapping_scope_stage_data``.
+
+    Excludes ``canonical_gt_cell``/``canonical_gt_cell_stale`` samples: those
+    are Recognition GT Studio's own per-cell training crops
+    (``recognition_ground_truth.py``, field_label defaulting to the generic
+    "Tabelcel"), stored under the same source_id but unrelated to this run's
+    actual field readout. A training-pipeline source that has also been used
+    to build Recognition GT training data would otherwise dump dozens of
+    unlabelled "Tabelcel" rows into this comparison, drowning out the real
+    field-by-field comparison the compare screen's STAP 6 is meant to show.
     """
-    samples = database.samples_for_source(source_id)
+    samples = [
+        sample for sample in database.samples_for_source(source_id)
+        if str(sample.get("extraction_method") or "")
+        not in {CANONICAL_GT_CELL_EXTRACTION_METHOD, CANONICAL_GT_CELL_STALE_EXTRACTION_METHOD}
+    ]
     if not samples:
         return None
     rows = sorted(
@@ -543,10 +565,135 @@ def _recognition_readout_stage_data(source_id: str, *, database: Any) -> dict[st
     return {"source_id": source_id, "samples": rows}
 
 
+def _table_context_anchors(payload: dict[str, Any], windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Where each window's own identification text (``_relation_side``'s
+    input) was actually OCR'd from on the image.
+
+    A window's "Onbekend"/"Links"/"Rechts" label is decided purely from a
+    text string (``context_text``, e.g. "Leftventricle Volume Result") --
+    showing that string alone proves nothing about whether it was really
+    read from a sensible place on the page. This reconstructs the actual
+    OCR box that text came from:
+
+    - For a PP-Structure table (``integrate_table_regions()``), that text is
+      ``table_context = " | ".join(table_context_parts[:3])``, built from any
+      row 0-2 that has no value-looking cell. This regroups that table's own
+      ``table_cell`` blocks by row and rebuilds the same eligible rows, so
+      the anchor box is the *exact* header row(s) the text came from, not
+      the table's own outer box (which would just repeat the window and
+      show nothing new).
+    - A table with cells but no such header row (every row has a
+      value-looking cell) falls back to the table's own ``table`` block --
+      less precise, but still a real box instead of nothing.
+    - A non-table ("semantic") relation's context comes from
+      ``_header_context()``, itself a ``role == "header"`` block with its
+      own box; matched back by exact text.
+
+    Anchors are deduplicated by (window, box) and each carries its own
+    resolved ``side`` (via ``_relation_side``), so a window whose text looks
+    right but still shows "unknown" is visible as such right on its own
+    anchor, not just in a detail table.
+    """
+    blocks = [block for block in (payload.get("blocks") or []) if isinstance(block, dict)]
+
+    def _window_index(x1: float, y1: float, x2: float, y2: float) -> int | None:
+        if not windows:
+            return None
+        center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
+        window = next(
+            (w for w in windows if w["x1"] <= center_x <= w["x2"] and w["y1"] <= center_y <= w["y2"]), None,
+        )
+        return window["window_index"] if window else None
+
+    anchors: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+
+    def _add(window_index: int | None, text: str, x1: float, y1: float, x2: float, y2: float, precision: str) -> None:
+        text = text.strip()
+        if not text:
+            return
+        key = (window_index, round(x1), round(y1), round(x2), round(y2))
+        if key in seen:
+            return
+        seen.add(key)
+        anchors.append({
+            "window_index": window_index, "text": text, "side": _relation_side(text),
+            "x1": x1, "y1": y1, "x2": x2, "y2": y2, "precision": precision,
+        })
+
+    cells_by_table: dict[str, dict[int, list[dict[str, Any]]]] = {}
+    for block in blocks:
+        if block.get("block_type") != "table_cell":
+            continue
+        table_id = str(block.get("table_id") or "")
+        row_index = int(block.get("row_index") or 0)
+        cells_by_table.setdefault(table_id, {}).setdefault(row_index, []).append(block)
+
+    tables_with_header_anchor: set[str] = set()
+    for table_id, rows in cells_by_table.items():
+        for row_index in sorted(index for index in rows if index <= 2):
+            row_cells = sorted(rows[row_index], key=lambda item: int(item.get("column_index") or 0))
+            texts = [str(cell.get("text") or "").strip() for cell in row_cells]
+            if not any(texts) or any(looks_like_value(text) for text in texts):
+                continue
+            row_text = " ".join(text for text in texts if text)
+            x1 = min(float(cell.get("x1") or 0) for cell in row_cells)
+            y1 = min(float(cell.get("y1") or 0) for cell in row_cells)
+            x2 = max(float(cell.get("x2") or 0) for cell in row_cells)
+            y2 = max(float(cell.get("y2") or 0) for cell in row_cells)
+            _add(_window_index(x1, y1, x2, y2), row_text, x1, y1, x2, y2, "header_row")
+            tables_with_header_anchor.add(table_id)
+
+    for block in blocks:
+        if block.get("block_type") != "table":
+            continue
+        table_id = str(block.get("table_id") or "")
+        if table_id in tables_with_header_anchor:
+            continue
+        text = str(block.get("text") or "").strip()
+        if not text:
+            continue
+        x1, y1 = float(block.get("x1") or 0), float(block.get("y1") or 0)
+        x2, y2 = float(block.get("x2") or 0), float(block.get("y2") or 0)
+        _add(_window_index(x1, y1, x2, y2), text, x1, y1, x2, y2, "table_region")
+
+    blocks_by_id = {str(block.get("block_id") or ""): block for block in blocks}
+    header_blocks_by_text = {
+        str(block.get("text") or "").strip().casefold(): block
+        for block in blocks if block.get("block_type") == "semantic" and block.get("role") == "header"
+    }
+    for relation in payload.get("relations") or []:
+        if not isinstance(relation, dict) or str(relation.get("table_id") or ""):
+            continue  # table_cell relations are already covered above
+        context_text = str(relation.get("context_text") or "").strip()
+        header_block = header_blocks_by_text.get(context_text.casefold())
+        if header_block is None:
+            continue
+        value_block = blocks_by_id.get(str(relation.get("value_block_id") or ""))
+        if value_block is None:
+            continue
+        vx1, vy1 = float(value_block.get("x1") or 0), float(value_block.get("y1") or 0)
+        vx2, vy2 = float(value_block.get("x2") or 0), float(value_block.get("y2") or 0)
+        x1, y1 = float(header_block.get("x1") or 0), float(header_block.get("y1") or 0)
+        x2, y2 = float(header_block.get("x2") or 0), float(header_block.get("y2") or 0)
+        _add(_window_index(vx1, vy1, vx2, vy2), context_text, x1, y1, x2, y2, "header_line")
+
+    return anchors
+
+
 def _identification_stage_data(
     source_id: str, *, workspace_root: Path, safe_workspace_file: Callable[[str | Path], Path], database: Any,
 ) -> dict[str, Any] | None:
     """Build ``output_review_identification``'s view data, or ``None`` before Pipeline B has run.
+
+    Each box carries its ``window_index`` (the located table window its value
+    block's center point falls into, or ``None`` when no Pipeline A windows
+    exist yet) alongside the returned ``windows`` list, so a caller can group
+    boxes per window and show exactly what OCR text (if any) landed inside
+    each one -- e.g. the proefpagina compare screen's STAP 2.5, which answers
+    "did OCR miss this window entirely, misread its header text, or read it
+    correctly but still fail to classify a side" instead of only showing a
+    box.
 
     See ``_datablok_stage_data``'s docstring for why this is split out.
     """
@@ -575,15 +722,18 @@ def _identification_stage_data(
             continue
         vx1, vy1 = int(value_block.get("x1") or 0), int(value_block.get("y1") or 0)
         vx2, vy2 = int(value_block.get("x2") or 0), int(value_block.get("y2") or 0)
-        if windows:
-            center_x, center_y = (vx1 + vx2) / 2, (vy1 + vy2) / 2
-            if not any(w["x1"] <= center_x <= w["x2"] and w["y1"] <= center_y <= w["y2"] for w in windows):
-                continue
+        center_x, center_y = (vx1 + vx2) / 2, (vy1 + vy2) / 2
+        window = next(
+            (w for w in windows if w["x1"] <= center_x <= w["x2"] and w["y1"] <= center_y <= w["y2"]), None,
+        )
+        if windows and window is None:
+            continue
         label_block = blocks_by_id.get(str(relation.get("label_block_id") or ""))
         context_text = str(relation.get("context_text") or "")
         side = _relation_side(context_text)
         boxes.append({
             "x1": vx1, "y1": vy1, "x2": vx2, "y2": vy2,
+            "window_index": window["window_index"] if window else None,
             "label_text": str((label_block or {}).get("text") or ""),
             "value_text": str(value_block.get("text") or ""),
             "context_text": context_text,
@@ -591,7 +741,8 @@ def _identification_stage_data(
             "side": side,
         })
     return {
-        "source_id": source_id, "boxes": boxes,
+        "source_id": source_id, "boxes": boxes, "windows": windows,
+        "context_anchors": _table_context_anchors(payload, windows),
         "image_width": image_width, "image_height": image_height,
         "render_exists": (workspace_root / "source_renders" / f"{source_id}.png").is_file(),
     }

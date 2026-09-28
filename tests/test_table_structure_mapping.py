@@ -172,6 +172,53 @@ def test_rasterize_table_columns_ignores_a_mis_clustered_spanning_outlier() -> N
     assert max(widened_x2_values) < 1916
 
 
+def test_rasterize_table_columns_ignores_a_column_used_by_only_one_row() -> None:
+    """A sub-header cell tagged with its own ``column_index`` in a single row
+    must not wedge itself between two real, widely-shared columns and drag
+    their shared boundary in to meet it.
+
+    Real production data (RV volume table, source
+    ``2ded7c62ebf9453e70edc3b1``): column 1 (the value column) is used by 8
+    rows with right edges spanning up to 381; column 3 (the normal-range
+    column) starts around 379-383. Column 2 exists in exactly one row -- a
+    "Endo Volume" sub-header cell at 200..281, squeezed in between. Without a
+    row-count floor, boundary-snapping treated column 2 as an equal neighbour
+    of column 1 and pulled column 1's right edge in from 381 to ~260,
+    leaving every data row in column 1 with a badly narrowed box and a wide,
+    wrongly-empty gap next to it -- visible on the proefpagina's
+    "Rasterisering" stage as a value cell cut off well before the normal-range
+    column starts.
+    """
+    sub_header = TableCell("t", "sub-header", 1, 2, Box(200, 519, 281, 534), "", 0.9)
+    value_boxes = {
+        2: (165, 538, 377, 561), 3: (165, 561, 380, 585), 4: (165, 585, 381, 609), 5: (162, 609, 378, 633),
+        6: (158, 633, 341, 657), 7: (154, 657, 332, 681), 8: (154, 681, 328, 705), 9: (158, 705, 326, 727),
+    }
+    normal_boxes = {
+        2: (379, 538, 564, 561), 3: (381, 561, 564, 585), 4: (381, 585, 563, 609), 5: (382, 609, 558, 633),
+        6: (383, 633, 560, 657), 7: (383, 657, 562, 681), 8: (381, 681, 567, 705), 9: (381, 705, 566, 727),
+    }
+    value_cells = [
+        TableCell("t", f"value{row}", row, 1, Box(x1, y1, x2, y2), "", 0.9)
+        for row, (x1, y1, x2, y2) in value_boxes.items()
+    ]
+    normal_cells = [
+        TableCell("t", f"normal{row}", row, 3, Box(x1, y1, x2, y2), "", 0.9)
+        for row, (x1, y1, x2, y2) in normal_boxes.items()
+    ]
+    cells = rasterize_table_columns([sub_header, *value_cells, *normal_cells])
+    by_id = {cell.cell_id: cell for cell in cells}
+
+    # The sparse sub-header column never becomes a shared column: its own
+    # cell is left completely untouched, same as a width outlier.
+    assert by_id["sub-header"].box == Box(200, 519, 281, 534)
+    # Every value-column row shares one snapped right edge, near the widest
+    # raw variant (381) -- nowhere near the ~260 the bug used to squeeze it to.
+    value_x2_values = {by_id[f"value{row}"].box.x2 for row in value_boxes}
+    assert len(value_x2_values) == 1
+    assert value_x2_values.pop() > 350
+
+
 def test_table_semantics_snap_to_reviewed_pipeline_a_geometry(tmp_path: Path) -> None:
     db = TrainingDatabase(tmp_path / "samples.sqlite3")
     blocks = [

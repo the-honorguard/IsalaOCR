@@ -184,7 +184,32 @@ class MappingsMixin:
                     re.sub(r"\s+", " ", str(alias).casefold()).strip()
                     for alias in aliases
                 }
-                if normalized_observed and normalized_observed not in known:
+                # A label text already claimed as an alias by a *different* field
+                # must never also be learned here: two fields sharing one exact
+                # alias make schema_candidate_score() report exact_alias=True for
+                # both on the same relation, turning a clean match into a coin
+                # flip between them (and, once auto-confirmed, permanently
+                # entrenching whichever field won by accident). Observed here
+                # after a real case where "ES Volume"/"ED Volume/BSA" leaked into
+                # each other's alias lists this way and started swapping values.
+                claimed_elsewhere = False
+                if normalized_observed:
+                    for other_row in db.execute(
+                        "SELECT aliases_json FROM field_definitions WHERE field_key<>?", (field_key,),
+                    ):
+                        try:
+                            other_aliases = json.loads(other_row["aliases_json"] or "[]")
+                        except (TypeError, ValueError):
+                            continue
+                        if not isinstance(other_aliases, list):
+                            continue
+                        if any(
+                            re.sub(r"\s+", " ", str(alias).casefold()).strip() == normalized_observed
+                            for alias in other_aliases
+                        ):
+                            claimed_elsewhere = True
+                            break
+                if normalized_observed and normalized_observed not in known and not claimed_elsewhere:
                     aliases.append(observed_label)
                     db.execute(
                         "UPDATE field_definitions SET aliases_json=?, updated_at=? WHERE field_key=?",

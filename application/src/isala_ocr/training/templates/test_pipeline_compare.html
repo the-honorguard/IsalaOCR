@@ -4,7 +4,11 @@
 {% block subtitle %}Links: proefpagina (nieuw) <span class="mono">{{ source_id }}</span> · Rechts: trainingspipeline (bekend) <span class="mono">{{ origin_source_id }}</span>{% endblock %}
 {% block content %}
 <div class="toolbar">
-  <div class="actions"><a class="button" href="{{ url_for('test_pipeline') }}">← Proefpagina</a></div>
+  <div class="actions">
+    <a class="button" href="{{ url_for('test_pipeline') }}">← Proefpagina</a>
+    <form method="post" action="{{ url_for('test_pipeline_rerun', source_id=origin_source_id) }}" class="js-retest-form"><button class="button primary" type="submit">↻ Opnieuw uitwerken</button></form>
+    <span class="js-retest-status muted"></span>
+  </div>
   <div class="actions"><span class="pill {% if differing_count %}warn{% else %}ok{% endif %}">{% if measurement_rows %}{% if differing_count %}{{ differing_count }} veld(en) verschillen in datablok{% else %}Geen verschillen in datablok{% endif %}{% else %}Datablok nog niet compleet aan beide kanten{% endif %}</span></div>
 </div>
 
@@ -38,6 +42,81 @@
         </ul>
         {% else %}<p class="muted">Bronrender ontbreekt.</p>{% endif %}
       {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="card section-gap">
+  <div class="toolbar"><div><span class="eyebrow">STAP 2.5</span><h3>OCR voor tabelherkenning</h3><p class="muted">Precies het OCR-kader waar de Links/Rechts-identificatietekst per venster vandaan komt — niet de dataextractie van de meetwaarden zelf (zie STAP 6).</p></div></div>
+  <div class="actions ident-legend">
+    <span class="ident-key"><span class="ident-swatch ident-swatch-left"></span>Links herkend</span>
+    <span class="ident-key"><span class="ident-swatch ident-swatch-right"></span>Rechts herkend</span>
+    <span class="ident-key"><span class="ident-swatch ident-swatch-unknown"></span>Kant onbekend</span>
+  </div>
+  <div class="compare-columns">
+    <div class="compare-column">
+      <h4>Proefpagina (nieuw)</h4>
+      {% if new_identification %}
+        {% if new_identification.render_exists %}
+        <div class="output-image-stage"><div class="output-image-frame" style="aspect-ratio:{{ new_identification.image_width }}/{{ new_identification.image_height }}">
+          <img src="/source-render/{{ new_identification.source_id }}.png" alt="" width="{{ new_identification.image_width }}" height="{{ new_identification.image_height }}">
+          {% for anchor in new_identification.context_anchors %}<span class="anchor-box ident-box-{{ anchor.side }}" style="left:{{ anchor.x1/new_identification.image_width*100 }}%;top:{{ anchor.y1/new_identification.image_height*100 }}%;width:{{ (anchor.x2-anchor.x1)/new_identification.image_width*100 }}%;height:{{ (anchor.y2-anchor.y1)/new_identification.image_height*100 }}%" title="{{ anchor.text }}&#10;Kant: {{ anchor.side }}"></span>{% endfor %}
+        </div></div>
+        {% for window in new_identification.windows %}
+        <div class="ident-readout section-gap"><strong>V{{ window.window_index }} — {{ window.table_label }}</strong>
+          {% set window_anchors = new_identification.context_anchors|selectattr('window_index', 'equalto', window.window_index)|list %}
+          {% if window_anchors %}
+          <ul class="anchor-list">{% for anchor in window_anchors %}<li><span class="mono">{{ anchor.text }}</span> <span class="pill ident-pill-{{ anchor.side }}">{{ anchor.side }}</span>{% if anchor.precision == 'table_region' %} <span class="muted">(hele tabel, geen aparte kopregel gevonden)</span>{% endif %}</li>{% endfor %}</ul>
+          {% else %}<p class="muted">Geen identificatietekst gevonden voor dit venster — Pipeline B heeft hier geen kop-/contexttekst gelezen.</p>{% endif %}
+        </div>
+        {% endfor %}
+        <details class="section-gap">
+          <summary class="muted">Losse velden binnen deze vensters (ter info — niet gebruikt voor identificatie)</summary>
+          {% for window in new_identification.windows %}
+          {% set window_boxes = new_identification.boxes|selectattr('window_index', 'equalto', window.window_index)|list %}
+          <div class="ident-readout section-gap"><strong>V{{ window.window_index }}</strong>
+            {% if window_boxes %}
+            <table class="compare-table ident-readout-table"><tr><th>Label</th><th>Waarde</th><th>Identificatietekst</th><th>Kant</th></tr>
+              {% for box in window_boxes %}<tr><td>{{ box.label_text or '—' }}</td><td class="mono">{{ box.value_text or '—' }}</td><td class="mono">{{ box.context_text or '(leeg)' }}</td><td><span class="pill ident-pill-{{ box.side }}">{{ box.side }}</span></td></tr>{% endfor %}
+            </table>
+            {% else %}<p class="muted">Geen velden.</p>{% endif %}
+          </div>
+          {% endfor %}
+        </details>
+        {% else %}<p class="muted">Bronrender ontbreekt.</p>{% endif %}
+      {% else %}<p class="muted">Nog niet beschikbaar (Identificatie/Pipeline B heeft nog niet gedraaid).</p>{% endif %}
+    </div>
+    <div class="compare-column">
+      <h4>Trainingspipeline (bekend) <a class="button-link" href="{{ url_for('output_review_identification', source_id=origin_source_id) }}">→ open in trainingspipeline</a></h4>
+      {% if old_identification %}
+        {% if old_identification.render_exists %}
+        <div class="output-image-stage"><div class="output-image-frame" style="aspect-ratio:{{ old_identification.image_width }}/{{ old_identification.image_height }}">
+          <img src="/source-render/{{ old_identification.source_id }}.png" alt="" width="{{ old_identification.image_width }}" height="{{ old_identification.image_height }}">
+          {% for anchor in old_identification.context_anchors %}<span class="anchor-box ident-box-{{ anchor.side }}" style="left:{{ anchor.x1/old_identification.image_width*100 }}%;top:{{ anchor.y1/old_identification.image_height*100 }}%;width:{{ (anchor.x2-anchor.x1)/old_identification.image_width*100 }}%;height:{{ (anchor.y2-anchor.y1)/old_identification.image_height*100 }}%" title="{{ anchor.text }}&#10;Kant: {{ anchor.side }}"></span>{% endfor %}
+        </div></div>
+        {% for window in old_identification.windows %}
+        <div class="ident-readout section-gap"><strong>V{{ window.window_index }} — {{ window.table_label }}</strong>
+          {% set window_anchors = old_identification.context_anchors|selectattr('window_index', 'equalto', window.window_index)|list %}
+          {% if window_anchors %}
+          <ul class="anchor-list">{% for anchor in window_anchors %}<li><span class="mono">{{ anchor.text }}</span> <span class="pill ident-pill-{{ anchor.side }}">{{ anchor.side }}</span>{% if anchor.precision == 'table_region' %} <span class="muted">(hele tabel, geen aparte kopregel gevonden)</span>{% endif %}</li>{% endfor %}</ul>
+          {% else %}<p class="muted">Geen identificatietekst gevonden voor dit venster — Pipeline B heeft hier geen kop-/contexttekst gelezen.</p>{% endif %}
+        </div>
+        {% endfor %}
+        <details class="section-gap">
+          <summary class="muted">Losse velden binnen deze vensters (ter info — niet gebruikt voor identificatie)</summary>
+          {% for window in old_identification.windows %}
+          {% set window_boxes = old_identification.boxes|selectattr('window_index', 'equalto', window.window_index)|list %}
+          <div class="ident-readout section-gap"><strong>V{{ window.window_index }}</strong>
+            {% if window_boxes %}
+            <table class="compare-table ident-readout-table"><tr><th>Label</th><th>Waarde</th><th>Identificatietekst</th><th>Kant</th></tr>
+              {% for box in window_boxes %}<tr><td>{{ box.label_text or '—' }}</td><td class="mono">{{ box.value_text or '—' }}</td><td class="mono">{{ box.context_text or '(leeg)' }}</td><td><span class="pill ident-pill-{{ box.side }}">{{ box.side }}</span></td></tr>{% endfor %}
+            </table>
+            {% else %}<p class="muted">Geen velden.</p>{% endif %}
+          </div>
+          {% endfor %}
+        </details>
+        {% else %}<p class="muted">Bronrender ontbreekt.</p>{% endif %}
+      {% else %}<p class="muted">Nog niet beschikbaar (Identificatie/Pipeline B heeft nog niet gedraaid).</p>{% endif %}
     </div>
   </div>
 </section>
@@ -130,26 +209,20 @@
 
 <section class="card section-gap">
   <div class="toolbar"><div><span class="eyebrow">STAP 6</span><h3>Uitlezen</h3><p class="muted">De ruwe Recognition-tekst per veld, vóór toewijzing aan het einddatablok.</p></div></div>
-  <div class="compare-columns">
-    <div class="compare-column">
-      <h4>Proefpagina (nieuw)</h4>
-      {% if new_readout %}
-      <div class="table-wrap"><table class="compare-table">
-        <tr><th>Veld</th><th>Ruwe tekst</th><th>Confidence</th></tr>
-        {% for sample in new_readout.samples %}<tr><td>{{ sample.field_label }}</td><td class="mono">{{ sample.raw_ocr or '—' }}</td><td>{{ '%.0f%%'|format(sample.raw_confidence*100) }}</td></tr>{% endfor %}
-      </table></div>
-      {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
-    </div>
-    <div class="compare-column">
-      <h4>Trainingspipeline (bekend)</h4>
-      {% if old_readout %}
-      <div class="table-wrap"><table class="compare-table">
-        <tr><th>Veld</th><th>Ruwe tekst</th><th>Confidence</th></tr>
-        {% for sample in old_readout.samples %}<tr><td>{{ sample.field_label }}</td><td class="mono">{{ sample.raw_ocr or '—' }}</td><td>{{ '%.0f%%'|format(sample.raw_confidence*100) }}</td></tr>{% endfor %}
-      </table></div>
-      {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
-    </div>
-  </div>
+  {% if readout_rows %}
+  <div class="table-wrap"><table class="compare-table">
+    <tr><th>Veld</th><th>Proefpagina (nieuw)</th><th>Confidence</th><th>Trainingspipeline (bekend)</th><th>Confidence</th></tr>
+    {% for row in readout_rows %}
+    <tr class="{% if row.differs %}compare-diff{% endif %}">
+      <td><strong>{{ row.field_label }}</strong></td>
+      <td class="mono">{{ row.left_text or '—' }}</td>
+      <td>{{ '%.0f%%'|format(row.left_confidence*100) if row.left_confidence is not none else '—' }}</td>
+      <td class="mono">{{ row.right_text or '—' }}</td>
+      <td>{{ '%.0f%%'|format(row.right_confidence*100) if row.right_confidence is not none else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% else %}<p class="muted">{% if not new_readout %}Proefpagina heeft nog geen uitlezing.{% elif not old_readout %}Trainingspipeline heeft nog geen uitlezing voor deze bron.{% endif %}</p>{% endif %}
 </section>
 
 <section class="card section-gap">
@@ -168,6 +241,67 @@
   {% else %}<p class="muted">{% if not new_datablok %}Proefpagina heeft nog geen datablok.{% elif not old_datablok %}Trainingspipeline heeft nog geen datablok voor deze bron.{% endif %}</p>{% endif %}
 </section>
 
+<script>
+(()=>{
+  // "Opnieuw uitwerken" queues a fresh proefpagina rerun of the same origin
+  // source (see test_pipeline_rerun()) via fetch, exactly like test_pipeline.
+  // html's own .js-test-form, but stays on this compare page instead of
+  // navigating to the list: it polls /api/status for that one job id (never
+  // a blind setInterval full-page reload -- see test_reactive_pages_poll_
+  // json_without_full_page_reload for the same rule elsewhere) and, once the
+  // job is no longer pending/running, navigates straight to the NEW rerun's
+  // own compare URL -- reloading this same URL would still show the old
+  // (stale) rerun_source_id, since a rerun always gets a fresh source id.
+  const form = document.querySelector('.js-retest-form');
+  if (!form) return;
+  const status = document.querySelector('.js-retest-status');
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!confirm('Deze afbeelding opnieuw uitwerken tegen de actieve modellen?')) return;
+    const button = form.querySelector('button');
+    button.disabled = true;
+    button.textContent = 'In wachtrij…';
+    status.textContent = '';
+    let response;
+    try {
+      response = await fetch(form.action, {method: 'POST', headers: {'X-Test-Pipeline-Async': '1'}});
+    } catch (_error) {
+      button.disabled = false;
+      button.textContent = '↻ Opnieuw uitwerken';
+      status.textContent = 'Kon geen verbinding maken.';
+      return;
+    }
+    const data = await response.json();
+    if (!data.ok) {
+      button.disabled = false;
+      button.textContent = '↻ Opnieuw uitwerken';
+      status.textContent = data.message || 'Opnieuw uitwerken mislukt.';
+      return;
+    }
+    button.textContent = 'Bezig…';
+    status.textContent = '';
+    const jobId = String(data.job_id);
+    const rerunSourceId = data.rerun_source_id;
+    const timer = setInterval(async () => {
+      try {
+        const statusResponse = await fetch('/api/status', {cache: 'no-store'});
+        const statusData = await statusResponse.json();
+        const job = (statusData.jobs || []).find(item => String(item.job_id) === jobId);
+        if (job && ['pending', 'running'].includes(String(job.status))) return;
+        clearInterval(timer);
+        if (job && ['failed', 'error'].includes(String(job.status))) {
+          button.disabled = false;
+          button.textContent = '↻ Opnieuw proberen';
+          status.textContent = 'De nieuwe run is mislukt.';
+          return;
+        }
+        location.href = `/test-pipeline/vergelijk/${encodeURIComponent(rerunSourceId)}`;
+      } catch (_error) {}
+    }, 3000);
+  });
+})();
+</script>
+
 <style>
 .compare-columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .compare-column h4{margin:0 0 8px;font-size:13px;color:var(--muted);display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
@@ -181,6 +315,26 @@
 .table-label{position:absolute;left:2px;top:2px;width:max-content;max-width:280px;padding:3px 6px;border-radius:4px;font-size:11px;font-weight:600;line-height:1.3;background:#1e5b41;color:#8ff0bd;box-shadow:0 2px 8px rgba(0,0,0,.55);z-index:5}
 .preprocessing-summary{list-style:none;margin:8px 0 0;padding:0;font-size:12px}
 .preprocessing-summary li{padding:2px 0}
+.ident-legend{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:6px 0 10px}
+.ident-key{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.ident-swatch{display:inline-block;width:12px;height:12px;border-radius:3px}
+.ident-swatch-left{background:rgba(78,140,255,.35);border:2px solid #4e8cff}
+.ident-swatch-right{background:rgba(255,144,64,.35);border:2px solid #ff9040}
+.ident-swatch-unknown{background:rgba(230,70,70,.30);border:2px solid #e64646}
+.ident-box{position:absolute;cursor:help}
+.ident-box-left{border:2px solid #4e8cff;background:rgba(78,140,255,.12)}
+.ident-box-right{border:2px solid #ff9040;background:rgba(255,144,64,.12)}
+.ident-box-unknown{border:2px solid #e64646;background:rgba(230,70,70,.14)}
+.anchor-box{position:absolute;cursor:help;border-width:3px!important}
+.anchor-list{list-style:none;margin:0;padding:0;font-size:12px;display:flex;flex-direction:column;gap:4px}
+.anchor-list li{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ident-readout{overflow-x:auto}
+.ident-readout strong{display:block;margin-bottom:6px;font-size:12px}
+.ident-readout-table td,.ident-readout-table th{white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.ident-pill-left{background:rgba(78,140,255,.18);color:#8fb8ff}
+.ident-pill-right{background:rgba(255,144,64,.18);color:#ffb87a}
+.ident-pill-unknown{background:rgba(230,70,70,.18);color:#ff9a9a}
+details summary{cursor:pointer;font-size:12px}
 .cell-box{position:absolute;border:2px solid #4e8cff;background:rgba(78,140,255,.10)}
 .raster-box{position:absolute;border:2px solid #e0a030;background:rgba(224,160,48,.08)}
 .cell-grid-wrap{overflow-x:auto}

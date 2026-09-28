@@ -10,7 +10,10 @@
     <div><h3>Inputafbeeldingen</h3><p class="muted">Alle afbeeldingen uit Inputselectie. "Getraind" heeft al een trainingspipeline-resultaat om tegen te vergelijken; "Nog niet getraind" kan wel getest worden, maar heeft nog niets om mee te vergelijken.</p></div>
     <div class="actions">
       <span class="pill">{{ rows|length }}</span>
-      {% if rows %}<form method="post" action="{{ url_for('test_pipeline_rerun_all') }}" onsubmit="return confirm('Alle {{ rows|length }} afbeelding(en) opnieuw testen tegen de actieve modellen?')"><button class="button primary" type="submit">Alles testen</button></form>{% endif %}
+      {% if rows %}
+      <form method="post" action="{{ url_for('test_pipeline_render_thumbnails') }}"><button class="button" type="submit">Thumbnails renderen</button></form>
+      <form method="post" action="{{ url_for('test_pipeline_rerun_all') }}" onsubmit="return confirm('Alle {{ rows|length }} afbeelding(en) opnieuw testen tegen de actieve modellen?')"><button class="button primary" type="submit">Alles testen</button></form>
+      {% endif %}
     </div>
   </div>
   <div class="test-reuse-grid">
@@ -27,7 +30,7 @@
       <span class="pill bad">Mislukt</span>
       <form method="post" action="{{ url_for('test_pipeline_rerun', source_id=row.source_id) }}" class="js-test-form"><button class="button" type="submit">Opnieuw proberen</button></form>
       {% elif row.status == 'tested' %}
-      {% if row.differing_count %}<span class="pill bad" title="Datablok wijkt af van de trainingspipeline">⚠ {{ row.differing_count }} verschil{{ 'len' if row.differing_count != 1 }}</span>{% else %}<span class="pill ok">Gelijk</span>{% endif %}
+      {% if not row.trained %}<span class="pill" title="Geen trainingspipeline-resultaat om mee te vergelijken">Nog niet vergelijkbaar</span>{% elif row.differing_count %}<span class="pill bad" title="Datablok wijkt af van de trainingspipeline">⚠ {{ row.differing_count }} verschil{{ 'len' if row.differing_count != 1 }}</span>{% else %}<span class="pill ok">Gelijk</span>{% endif %}
       <a class="button primary" href="{{ row.compare_url }}">Vergelijken</a>
       <form method="post" action="{{ url_for('test_pipeline_forget', source_id=row.rerun_source_id) }}" onsubmit="return confirm('Deze proefrun verwijderen zodat de afbeelding weer opnieuw getest kan worden?')"><button class="danger" type="submit">Opnieuw testen</button></form>
       {% endif %}
