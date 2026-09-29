@@ -4,90 +4,128 @@
 {% block subtitle %}Eén label per keer: bevestig het voorgestelde veld of kies zelf, dan meteen door naar het volgende.{% endblock %}
 {% block head %}
 <script>
-window.addEventListener('DOMContentLoaded', () => {
-  const select = document.getElementById('field_choice');
-  if (select) select.focus();
-  document.addEventListener('keydown', event => {
-    if (event.target && (event.target.tagName === 'TEXTAREA')) return;
-    if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey) {
-      event.preventDefault();
-      document.getElementById('confirm-choice').click();
+(() => {
+  'use strict';
+
+  function findCard(root) { return root.querySelector('.mapping-queue-card'); }
+
+  function showStatus(card, message, kind) {
+    const status = card.querySelector('#queue-status');
+    if (!status) return;
+    if (!message) { status.hidden = true; status.textContent = ''; return; }
+    status.hidden = false;
+    status.textContent = message;
+    status.className = 'notice' + (kind === 'error' ? ' notice-blocked' : '');
+  }
+
+  // Replaces the whole card with freshly rendered HTML from the server (the
+  // exact same partial template every route below renders), pushes the new
+  // URL so the address bar/back button stay meaningful, and re-focuses the
+  // field so Enter/Alt+N keep working immediately - all without a full page
+  // navigation, so clicking through many labels never waits on a reload.
+  function swapCard(html, url) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html.trim();
+    const newCard = wrapper.firstElementChild;
+    const oldCard = findCard(document);
+    if (!newCard || !oldCard) { window.location.href = url; return; }
+    oldCard.replaceWith(newCard);
+    if (url && url !== window.location.pathname) {
+      window.history.pushState({ isalaQueue: true }, '', url);
     }
-    if (event.altKey && event.key.toLowerCase() === 'n') { event.preventDefault(); document.getElementById('skip-choice').click(); }
-    if (event.altKey && event.key === 'ArrowLeft') { const a = document.getElementById('nav-previous'); if (a) a.click(); }
-    if (event.altKey && event.key === 'ArrowRight') { const a = document.getElementById('nav-next'); if (a) a.click(); }
+    wireCard(newCard);
+    const select = newCard.querySelector('#field_choice');
+    if (select) select.focus();
+  }
+
+  async function fetchPartial(url, options) {
+    const response = await fetch(url, Object.assign({
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    }, options || {}));
+    if (!response.ok && response.status !== 400) {
+      throw new Error(`Onverwachte serverfout (${response.status}).`);
+    }
+    return response;
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const card = form.closest('.mapping-queue-card');
+    const submitter = event.submitter;
+    const formData = new FormData(form);
+    if (submitter && submitter.name) formData.set(submitter.name, submitter.value);
+    showStatus(card, '', null);
+    let response;
+    try {
+      response = await fetchPartial(form.action, { method: 'POST', body: formData });
+    } catch (error) {
+      showStatus(card, error.message || 'Netwerkfout: niet opgeslagen.', 'error');
+      return;
+    }
+    const data = await response.json();
+    if (!data.ok) {
+      showStatus(card, data.error || 'Niet opgeslagen.', 'error');
+      return;
+    }
+    if (data.done) { window.location.href = data.redirect; return; }
+    swapCard(data.html, data.url);
+  }
+
+  async function handleNavClick(event) {
+    const anchor = event.currentTarget;
+    if (!anchor.href) return;
+    event.preventDefault();
+    const card = anchor.closest('.mapping-queue-card');
+    let response;
+    try {
+      response = await fetchPartial(anchor.href);
+    } catch (error) {
+      showStatus(card, error.message || 'Netwerkfout.', 'error');
+      return;
+    }
+    const html = await response.text();
+    swapCard(html, anchor.href);
+  }
+
+  function wireCard(card) {
+    const form = card.querySelector('.mapping-queue-form');
+    if (form) form.addEventListener('submit', handleSubmit);
+    const previous = card.querySelector('#nav-previous');
+    const next = card.querySelector('#nav-next');
+    if (previous) previous.addEventListener('click', handleNavClick);
+    if (next) next.addEventListener('click', handleNavClick);
+  }
+
+  window.addEventListener('popstate', () => {
+    fetchPartial(window.location.href)
+      .then(response => response.text())
+      .then(html => swapCard(html, window.location.href))
+      .catch(() => { window.location.reload(); });
   });
-});
+
+  window.addEventListener('DOMContentLoaded', () => {
+    const card = findCard(document);
+    if (card) wireCard(card);
+    const select = document.getElementById('field_choice');
+    if (select) select.focus();
+    document.addEventListener('keydown', event => {
+      if (event.target && (event.target.tagName === 'TEXTAREA')) return;
+      if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        const confirmButton = document.getElementById('confirm-choice');
+        if (confirmButton) confirmButton.click();
+      }
+      if (event.altKey && event.key.toLowerCase() === 'n') { event.preventDefault(); const b = document.getElementById('skip-choice'); if (b) b.click(); }
+      if (event.altKey && event.key === 'ArrowLeft') { const a = document.getElementById('nav-previous'); if (a) a.click(); }
+      if (event.altKey && event.key === 'ArrowRight') { const a = document.getElementById('nav-next'); if (a) a.click(); }
+    });
+  });
+})();
 </script>
 {% endblock %}
 {% block content %}
-<section class="card mapping-queue-card">
-  <div class="toolbar">
-    <div><span class="eyebrow">WACHTRIJ · Bron {{ source_index or '?' }}/{{ source_total }} · label {{ position }}/{{ total }}</span><h2 class="mono">{{ relation.label_text }}</h2></div>
-    <span class="pill">{{ pending_count }} nog te doen</span>
-  </div>
-
-  <p class="muted mapping-queue-legend">Geel = dit label · groen = al gekoppeld · oranje = voorstel · rood = geblokkeerd · grijs = nog open. Klik een ander gekleurd kader om dat label te beoordelen.</p>
-
-  <div class="mapping-queue-body">
-    <div class="mapping-queue-image">
-      {% if table_image_url %}
-      <div class="mapping-queue-image-stage" style="--aspect:{{ image_aspect }}">
-        <img src="{{ table_image_url }}" alt="Tabel">
-        {% for overlay in overlays %}
-          {% if overlay.label_style %}<a class="mapping-overlay-box overlay-label overlay-{{ overlay.state }} {% if overlay.is_current %}is-current{% endif %}" href="{{ overlay.url }}" title="{{ overlay.label_text }}" style="left:{{ overlay.label_style.left }}%;top:{{ overlay.label_style.top }}%;width:{{ overlay.label_style.width }}%;height:{{ overlay.label_style.height }}%"></a>{% endif %}
-          {% if overlay.value_style %}<a class="mapping-overlay-box overlay-value overlay-{{ overlay.state }} {% if overlay.is_current %}is-current{% endif %}" href="{{ overlay.url }}" title="{{ overlay.label_text }}" style="left:{{ overlay.value_style.left }}%;top:{{ overlay.value_style.top }}%;width:{{ overlay.value_style.width }}%;height:{{ overlay.value_style.height }}%"></a>{% endif %}
-        {% endfor %}
-      </div>
-      {% else %}
-      <div class="mapping-queue-image-missing">Geen bronafbeelding beschikbaar voor deze tabel.</div>
-      {% endif %}
-    </div>
-
-    <div class="mapping-queue-panel">
-      <div class="mapping-queue-meta">
-        {% set table_display_name = relation.table_name or (relation.panel_name if relation.panel_name and relation.panel_name != 'Tabel' else '') %}
-        <span class="mapping-table-tag {% if not table_display_name %}is-unset{% endif %}">{{ table_display_name or 'Tabel niet benoemd' }}</span>
-        {% if not relation.table_configured %}{% if not relation.panel_recognized %}<span class="mapping-table-tag mapping-unconfigured-tag" title="Panel Setup herkent deze tabel niet op deze bronafbeelding (de tabelpositie valt buiten alle geconfigureerde panelen). Tabelstudio's kolomrollen worden hierdoor NIET toegepast op deze tabel, ook al staan ze correct ingesteld.">⚠ paneel niet herkend</span>{% else %}<span class="mapping-table-tag mapping-unconfigured-tag" title="Kolomrollen (Label/Waarde/Overslaan) zijn nog niet ingesteld in Tabelstudio voor dit paneel.">⚠ kolomrollen niet ingesteld</span>{% endif %}{% endif %}
-        <span>Rij {{ relation.raster_row_index + 1 }} · Waardekolom K{{ relation.value_column_index + 1 }}</span>
-        <span>Voorbeeldwaarde <b class="mono">{{ relation.value_text or '—' }}</b></span>
-        {% if is_confirmed %}<span class="mapping-status ok">Al gekoppeld</span>{% endif %}
-      </div>
-
-      {% if relation.auto_suggested_family and not is_confirmed %}
-      <div class="notice">Voorgesteld op basis van {{ relation.auto_suggested_count }}x eerdere bevestiging van dit label. Controleer en bevestig, of kies een ander veld.</div>
-      {% endif %}
-
-      {% if relation.blocked_unrecognized_panel %}
-      <div class="notice notice-blocked">Geblokkeerd: Panel Setup herkent deze tabel niet op deze bron, dus koppelen kan niet totdat dat is gecorrigeerd. Je kunt de rij wel overslaan om verder te gaan.</div>
-      {% endif %}
-
-      <form method="post" class="mapping-queue-form">
-        <label class="mapping-field"><span>Algemene veldnaam</span>
-          <select id="field_choice" name="field_choice" {% if relation.blocked_unrecognized_panel %}disabled{% endif %}>
-            <option value="">Niet koppelen</option>
-            {% for field in field_options %}
-            <option value="family:{{ field.family }}"
-              {% if current_family == field.family %}selected
-              {% elif not current_family and relation.auto_suggested_family == field.family %}selected{% endif %}
-            >{{ field.display_name }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <div class="actions mapping-queue-actions">
-          <button id="confirm-choice" name="mapping_queue_action" value="confirm" class="primary" type="submit" {% if relation.blocked_unrecognized_panel %}disabled title="Eerst Panel Setup corrigeren"{% endif %}>✓ Bevestigen (Enter)</button>
-          <button id="skip-choice" name="mapping_queue_action" value="skip" type="submit" formnovalidate>Niet koppelen (Alt+N)</button>
-        </div>
-      </form>
-
-      <div class="actions detail-navigation">
-        {% if previous_url %}<a id="nav-previous" class="button" href="{{ previous_url }}">← Vorige (Alt+←)</a>{% endif %}
-        {% if next_url %}<a id="nav-next" class="button" href="{{ next_url }}">Volgende → (Alt+→)</a>{% endif %}
-        <a class="button" href="{{ overview_url }}">Terug naar overzicht</a>
-      </div>
-    </div>
-  </div>
-</section>
+{% include "mapping_labels_queue_card.html" %}
 <style>
 .mapping-queue-card{max-width:1100px;margin:0 auto}
 .mapping-queue-legend{margin:6px 0 12px}

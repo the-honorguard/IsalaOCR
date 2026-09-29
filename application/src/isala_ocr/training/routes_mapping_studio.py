@@ -660,69 +660,27 @@ def register_mapping_studio_routes(
             return redirect(url_for("label_mapping_studio", source_id=source_id))
         return redirect(url_for("label_mapping_queue_item", source_id=source_id, relation_id=relation_id))
 
-    @app.route("/mapping-labels/<source_id>/queue/<relation_id>", methods=["GET", "POST"])
-    def label_mapping_queue_item(source_id: str, relation_id: str):
-        """Review exactly one label at a time: confirm/skip, then jump straight
-        to the next pending one, so working through a source's labels never
-        requires re-opening the bulk form or re-finding your place in it.
+    def _wants_json() -> bool:
+        return request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def _queue_item_context(source_id: str, relation_id: str) -> dict[str, Any] | None:
+        """Every kwarg ``mapping_labels_queue_card.html`` (and, extending it,
+        ``mapping_labels_queue.html``) needs to render one queue item.
+
+        Split out so a GET (full page or AJAX partial - see ``_wants_json()``)
+        and a POST's "here is the next item" response render from exactly the
+        same data, instead of the response duplicating this computation with
+        a chance to drift from the page a plain GET would show for that same
+        item.
         """
         context = _load_label_mapping_context(source_id)
-        fields, relations, relations_by_id = context["fields"], context["relations"], context["relations_by_id"]
+        relations, relations_by_id = context["relations"], context["relations_by_id"]
         mappings_by_relation = context["mappings_by_relation"]
         relation = relations_by_id.get(relation_id)
         if relation is None:
-            abort(404)
+            return None
         order = [str(item["relation_id"]) for item in relations]
         position = order.index(relation_id)
-
-        def _next_pending_url(after_index: int) -> str | None:
-            for candidate_id in order[after_index + 1:]:
-                if _is_pending(candidate_id, mappings_by_relation):
-                    return url_for("label_mapping_queue_item", source_id=source_id, relation_id=candidate_id)
-            return None
-
-        if request.method == "POST":
-            queue_action = str(request.form.get("mapping_queue_action") or "confirm").strip().lower()
-            selected = "" if queue_action == "skip" else str(request.form.get("field_choice") or "").strip()
-            if selected and relation.get("blocked_unrecognized_panel"):
-                flash(
-                    "Niet opgeslagen: Panel Setup herkent deze tabel niet op deze bron. Corrigeer Panel Setup, "
-                    "of zet het beleid in het overzicht op 'toestaan' als je dit bewust wilt negeren.",
-                    "error",
-                )
-                return redirect(url_for("label_mapping_queue_item", source_id=source_id, relation_id=relation_id))
-            resolved, error = _resolve_family_assignment(selected, relation, fields)
-            if error:
-                flash(f"Niet opgeslagen: {error}", "error")
-                return redirect(url_for("label_mapping_queue_item", source_id=source_id, relation_id=relation_id))
-            try:
-                database.sync_relation_mappings(
-                    source_id, [{"relation_id": relation_id, "field_key": resolved, "notes": "label-first mapping"}]
-                )
-            except (KeyError, ValueError) as exc:
-                flash(f"Niet opgeslagen: {exc}", "error")
-                return redirect(url_for("label_mapping_queue_item", source_id=source_id, relation_id=relation_id))
-            next_url = _next_pending_url(position)
-            if next_url is not None:
-                return redirect(next_url)
-            # This source is done: continue the same queue into the next
-            # source that still has an open label, instead of dropping back
-            # to the bulk page or the "Bron" picker -- see
-            # _first_pending_in_sources()'s docstring.
-            all_source_ids = [str(item["source_id"]) for item in _training_pipeline_sources()]
-            try:
-                remaining_source_ids = all_source_ids[all_source_ids.index(source_id) + 1:]
-            except ValueError:
-                remaining_source_ids = []
-            found = _first_pending_in_sources(remaining_source_ids)
-            if found is None:
-                flash("Alle bronnen zijn doorlopen: geen open labels meer.", "success")
-                return redirect(url_for("label_mapping_index"))
-            next_source_id, next_relation_id = found
-            return redirect(url_for(
-                "label_mapping_queue_item", source_id=next_source_id, relation_id=next_relation_id
-            ))
-
         previous_id = order[position - 1] if position > 0 else None
         next_id = order[position + 1] if position + 1 < len(order) else None
         pending_count = sum(1 for rid in order if _is_pending(rid, mappings_by_relation))
@@ -795,26 +753,120 @@ def register_mapping_studio_routes(
                     "value_style": _overlay_box_style(value_box, crop),
                 })
 
-        return render_template(
-            "mapping_labels_queue.html",
-            table_image_url=table_image_url, overlays=overlays, image_aspect=image_aspect,
-            source_index=source_index, source_total=len(all_sources),
-            source=context["source"],
-            source_id=source_id,
-            relation=relation,
-            field_options=context["field_options"],
-            current_family=current_family,
-            is_confirmed=bool(current_mapping and current_mapping.get("status") == "confirmed"),
-            position=position + 1,
-            total=len(order),
-            pending_count=pending_count,
-            previous_url=(
+        return {
+            "table_image_url": table_image_url, "overlays": overlays, "image_aspect": image_aspect,
+            "source_index": source_index, "source_total": len(all_sources),
+            "source": context["source"],
+            "source_id": source_id,
+            "relation": relation,
+            "field_options": context["field_options"],
+            "current_family": current_family,
+            "is_confirmed": bool(current_mapping and current_mapping.get("status") == "confirmed"),
+            "position": position + 1,
+            "total": len(order),
+            "pending_count": pending_count,
+            "current_url": url_for("label_mapping_queue_item", source_id=source_id, relation_id=relation_id),
+            "previous_url": (
                 url_for("label_mapping_queue_item", source_id=source_id, relation_id=previous_id)
                 if previous_id else None
             ),
-            next_url=(
+            "next_url": (
                 url_for("label_mapping_queue_item", source_id=source_id, relation_id=next_id)
                 if next_id else None
             ),
-            overview_url=url_for("label_mapping_studio", source_id=source_id),
-        )
+            "overview_url": url_for("label_mapping_studio", source_id=source_id),
+        }
+
+    @app.route("/mapping-labels/<source_id>/queue/<relation_id>", methods=["GET", "POST"])
+    def label_mapping_queue_item(source_id: str, relation_id: str):
+        """Review exactly one label at a time: confirm/skip, then jump straight
+        to the next pending one, so working through a source's labels never
+        requires re-opening the bulk form or re-finding your place in it.
+
+        Both GET and POST answer an ``X-Requested-With: XMLHttpRequest``
+        request (see ``mapping_labels_queue.html``'s script) without a full
+        page render: GET returns just the item's card fragment (for the
+        "Vorige"/"Volgende" links' click-through-without-reload), POST
+        returns JSON with that same fragment for whichever item comes next,
+        so confirming/skipping through many labels never waits on a full
+        page navigation. A plain (non-AJAX) request still gets the complete,
+        bookmarkable page or a redirect, exactly as before - the only
+        difference visiting this URL directly, reloading, or following a
+        link from outside the queue ever sees.
+        """
+        context = _load_label_mapping_context(source_id)
+        fields, relations, relations_by_id = context["fields"], context["relations"], context["relations_by_id"]
+        relation = relations_by_id.get(relation_id)
+        if relation is None:
+            abort(404)
+        order = [str(item["relation_id"]) for item in relations]
+        position = order.index(relation_id)
+        mappings_by_relation = context["mappings_by_relation"]
+
+        if request.method == "POST":
+            wants_json = _wants_json()
+
+            def _fail(message: str):
+                if wants_json:
+                    return jsonify({"ok": False, "error": message}), 400
+                flash(message, "error")
+                return redirect(url_for("label_mapping_queue_item", source_id=source_id, relation_id=relation_id))
+
+            queue_action = str(request.form.get("mapping_queue_action") or "confirm").strip().lower()
+            selected = "" if queue_action == "skip" else str(request.form.get("field_choice") or "").strip()
+            if selected and relation.get("blocked_unrecognized_panel"):
+                return _fail(
+                    "Niet opgeslagen: Panel Setup herkent deze tabel niet op deze bron. Corrigeer Panel Setup, "
+                    "of zet het beleid in het overzicht op 'toestaan' als je dit bewust wilt negeren."
+                )
+            resolved, error = _resolve_family_assignment(selected, relation, fields)
+            if error:
+                return _fail(f"Niet opgeslagen: {error}")
+            try:
+                database.sync_relation_mappings(
+                    source_id, [{"relation_id": relation_id, "field_key": resolved, "notes": "label-first mapping"}]
+                )
+            except (KeyError, ValueError) as exc:
+                return _fail(f"Niet opgeslagen: {exc}")
+
+            def _respond(next_source_id: str | None, next_relation_id: str | None):
+                if next_source_id is None or next_relation_id is None:
+                    if wants_json:
+                        return jsonify({"ok": True, "done": True, "redirect": url_for("label_mapping_index")})
+                    flash("Alle bronnen zijn doorlopen: geen open labels meer.", "success")
+                    return redirect(url_for("label_mapping_index"))
+                if wants_json:
+                    next_context = _queue_item_context(next_source_id, next_relation_id)
+                    html = render_template("mapping_labels_queue_card.html", **next_context)
+                    return jsonify({
+                        "ok": True, "done": False, "html": html,
+                        "url": url_for("label_mapping_queue_item", source_id=next_source_id, relation_id=next_relation_id),
+                    })
+                return redirect(url_for(
+                    "label_mapping_queue_item", source_id=next_source_id, relation_id=next_relation_id
+                ))
+
+            next_relation_id_here = next(
+                (rid for rid in order[position + 1:] if _is_pending(rid, mappings_by_relation)), None
+            )
+            if next_relation_id_here is not None:
+                return _respond(source_id, next_relation_id_here)
+            # This source is done: continue the same queue into the next
+            # source that still has an open label, instead of dropping back
+            # to the bulk page or the "Bron" picker -- see
+            # _first_pending_in_sources()'s docstring.
+            all_source_ids = [str(item["source_id"]) for item in _training_pipeline_sources()]
+            try:
+                remaining_source_ids = all_source_ids[all_source_ids.index(source_id) + 1:]
+            except ValueError:
+                remaining_source_ids = []
+            found = _first_pending_in_sources(remaining_source_ids)
+            if found is None:
+                return _respond(None, None)
+            next_source_id, next_relation_id = found
+            return _respond(next_source_id, next_relation_id)
+
+        item_context = _queue_item_context(source_id, relation_id)
+        if _wants_json():
+            return render_template("mapping_labels_queue_card.html", **item_context)
+        return render_template("mapping_labels_queue.html", **item_context)

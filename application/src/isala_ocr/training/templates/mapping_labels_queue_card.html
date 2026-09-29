@@ -1,0 +1,69 @@
+<section class="card mapping-queue-card" data-relation-id="{{ relation.relation_id }}" data-current-url="{{ current_url }}">
+  <div class="toolbar">
+    <div><span class="eyebrow">WACHTRIJ · Bron {{ source_index or '?' }}/{{ source_total }} · label {{ position }}/{{ total }}</span><h2 class="mono">{{ relation.label_text }}</h2></div>
+    <span class="pill">{{ pending_count }} nog te doen</span>
+  </div>
+
+  <div id="queue-status" class="notice" hidden role="status" aria-live="polite"></div>
+
+  <p class="muted mapping-queue-legend">Geel = dit label · groen = al gekoppeld · oranje = voorstel · rood = geblokkeerd · grijs = nog open. Klik een ander gekleurd kader om dat label te beoordelen.</p>
+
+  <div class="mapping-queue-body">
+    <div class="mapping-queue-image">
+      {% if table_image_url %}
+      <div class="mapping-queue-image-stage" style="--aspect:{{ image_aspect }}">
+        <img src="{{ table_image_url }}" alt="Tabel">
+        {% for overlay in overlays %}
+          {% if overlay.label_style %}<a class="mapping-overlay-box overlay-label overlay-{{ overlay.state }} {% if overlay.is_current %}is-current{% endif %}" href="{{ overlay.url }}" title="{{ overlay.label_text }}" style="left:{{ overlay.label_style.left }}%;top:{{ overlay.label_style.top }}%;width:{{ overlay.label_style.width }}%;height:{{ overlay.label_style.height }}%"></a>{% endif %}
+          {% if overlay.value_style %}<a class="mapping-overlay-box overlay-value overlay-{{ overlay.state }} {% if overlay.is_current %}is-current{% endif %}" href="{{ overlay.url }}" title="{{ overlay.label_text }}" style="left:{{ overlay.value_style.left }}%;top:{{ overlay.value_style.top }}%;width:{{ overlay.value_style.width }}%;height:{{ overlay.value_style.height }}%"></a>{% endif %}
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="mapping-queue-image-missing">Geen bronafbeelding beschikbaar voor deze tabel.</div>
+      {% endif %}
+    </div>
+
+    <div class="mapping-queue-panel">
+      <div class="mapping-queue-meta">
+        {% set table_display_name = relation.table_name or (relation.panel_name if relation.panel_name and relation.panel_name != 'Tabel' else '') %}
+        <span class="mapping-table-tag {% if not table_display_name %}is-unset{% endif %}">{{ table_display_name or 'Tabel niet benoemd' }}</span>
+        {% if not relation.table_configured %}{% if not relation.panel_recognized %}<span class="mapping-table-tag mapping-unconfigured-tag" title="Panel Setup herkent deze tabel niet op deze bronafbeelding (de tabelpositie valt buiten alle geconfigureerde panelen). Tabelstudio's kolomrollen worden hierdoor NIET toegepast op deze tabel, ook al staan ze correct ingesteld.">⚠ paneel niet herkend</span>{% else %}<span class="mapping-table-tag mapping-unconfigured-tag" title="Kolomrollen (Label/Waarde/Overslaan) zijn nog niet ingesteld in Tabelstudio voor dit paneel.">⚠ kolomrollen niet ingesteld</span>{% endif %}{% endif %}
+        <span>Rij {{ relation.raster_row_index + 1 }} · Waardekolom K{{ relation.value_column_index + 1 }}</span>
+        <span>Voorbeeldwaarde <b class="mono">{{ relation.value_text or '—' }}</b></span>
+        {% if is_confirmed %}<span class="mapping-status ok">Al gekoppeld</span>{% endif %}
+      </div>
+
+      {% if relation.auto_suggested_family and not is_confirmed %}
+      <div class="notice">Voorgesteld op basis van {{ relation.auto_suggested_count }}x eerdere bevestiging van dit label. Controleer en bevestig, of kies een ander veld.</div>
+      {% endif %}
+
+      {% if relation.blocked_unrecognized_panel %}
+      <div class="notice notice-blocked">Geblokkeerd: Panel Setup herkent deze tabel niet op deze bron, dus koppelen kan niet totdat dat is gecorrigeerd. Je kunt de rij wel overslaan om verder te gaan.</div>
+      {% endif %}
+
+      <form method="post" class="mapping-queue-form" action="{{ current_url }}">
+        <label class="mapping-field"><span>Algemene veldnaam</span>
+          <select id="field_choice" name="field_choice" {% if relation.blocked_unrecognized_panel %}disabled{% endif %}>
+            <option value="">Niet koppelen</option>
+            {% for field in field_options %}
+            <option value="family:{{ field.family }}"
+              {% if current_family == field.family %}selected
+              {% elif not current_family and relation.auto_suggested_family == field.family %}selected{% endif %}
+            >{{ field.display_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="actions mapping-queue-actions">
+          <button id="confirm-choice" name="mapping_queue_action" value="confirm" class="primary" type="submit" {% if relation.blocked_unrecognized_panel %}disabled title="Eerst Panel Setup corrigeren"{% endif %}>✓ Bevestigen (Enter)</button>
+          <button id="skip-choice" name="mapping_queue_action" value="skip" type="submit" formnovalidate>Niet koppelen (Alt+N)</button>
+        </div>
+      </form>
+
+      <div class="actions detail-navigation">
+        {% if previous_url %}<a id="nav-previous" class="button" href="{{ previous_url }}">← Vorige (Alt+←)</a>{% endif %}
+        {% if next_url %}<a id="nav-next" class="button" href="{{ next_url }}">Volgende → (Alt+→)</a>{% endif %}
+        <a class="button" href="{{ overview_url }}">Terug naar overzicht</a>
+      </div>
+    </div>
+  </div>
+</section>
