@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from .db_constants import VALID_FIELD_TYPES, utc_now
+from .generic_detection import normalize_text
 
 
 class FieldDefinitionsMixin:
@@ -71,7 +72,60 @@ class FieldDefinitionsMixin:
                     ),
                 )
                 inserted += int(result.rowcount > 0)
+            self._strip_leaked_builtin_aliases(db, definitions, now)
         return inserted
+
+    @staticmethod
+    def _strip_leaked_builtin_aliases(db: Any, definitions: list[dict[str, Any]], now: str) -> None:
+        """Repair learned aliases that leaked between neighbouring built-in fields.
+
+        Confirming a mapping learns the observed label as an alias of its
+        field. Older versions did this without checking other fields, so e.g.
+        "ED Volume" and "ES Volume" ended up in ``lv_cardiac_density``'s and
+        ``lv_ed_volume``'s alias lists. Those fields then all scored an exact
+        alias on the same row and the suggestion shifted every value one row
+        (ED Volume's number landing in Cardiac Density, and so on).
+
+        An alias is removed from a field when it is a built-in alias of a
+        *different* field and not one of its own. Left/Right ventricle fields
+        legitimately share labels, which is covered by each keeping its own
+        aliases; aliases leaked across groups (e.g. "Heart rate" in a
+        ventricle field) are removed as well.
+
+        Aliases are compared with ``normalize_text`` -- the same normalisation
+        ``schema_candidate_score`` uses for exact-alias matches -- so
+        punctuation/accent variants of a leaked alias are caught as well.
+        """
+        norm = normalize_text
+
+        own: dict[str, set[str]] = {}
+        for item in definitions:
+            key = FieldDefinitionsMixin._safe_field_key(str(item.get("field_key") or item.get("key") or ""))
+            own[key] = {norm(value) for value in item.get("aliases", []) if norm(value)}
+        for key, aliases_own in own.items():
+            foreign = {
+                alias
+                for other, other_aliases in own.items()
+                if other != key
+                for alias in other_aliases
+            } - aliases_own
+            if not foreign:
+                continue
+            row = db.execute("SELECT aliases_json FROM field_definitions WHERE field_key=?", (key,)).fetchone()
+            if row is None:
+                continue
+            try:
+                aliases = json.loads(row["aliases_json"] or "[]")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(aliases, list):
+                continue
+            kept = [alias for alias in aliases if norm(alias) not in foreign]
+            if len(kept) != len(aliases):
+                db.execute(
+                    "UPDATE field_definitions SET aliases_json=?, updated_at=? WHERE field_key=?",
+                    (json.dumps(kept, ensure_ascii=False), now, key),
+                )
 
     def upsert_field_definition(
         self,
