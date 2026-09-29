@@ -3917,6 +3917,8 @@ def create_web_app(
         database=database,
         workspace_root=workspace_root,
         enqueue_job=enqueue_job,
+        safe_workspace_file=safe_workspace_file,
+        cached_render_image=cached_render_image,
         canonical_table_gt_mode=canonical_table_gt_mode,
     )
 

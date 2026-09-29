@@ -26,7 +26,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
+import cv2
+from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, url_for
 
 from .json_api import json_error
 from .label_history import label_family_history, suggest_family_for_label
@@ -42,12 +43,69 @@ from .table_semantics import load_assignments as load_table_semantic_assignments
 from .test_pipeline_sources import test_pipeline_source_ids
 
 
+def _table_crop_box(
+    relations: list[dict[str, Any]], image_width: int, image_height: int, *, padding: int = 24,
+) -> tuple[int, int, int, int] | None:
+    """The bounding box (x1, y1, x2, y2) covering every label/value box of
+    ``relations`` (expected: one table's relations), padded and clamped to
+    the image. ``None`` when none of them carry usable geometry.
+
+    Shared, pixel-for-pixel, by the review queue's image-overlay percentages
+    and by the route that crops and serves that same image, so a box drawn
+    at "12% from the left" in the template is guaranteed to land on the same
+    pixel the crop route actually cut there.
+    """
+    xs1: list[int] = []
+    ys1: list[int] = []
+    xs2: list[int] = []
+    ys2: list[int] = []
+    for relation in relations:
+        for prefix in ("label", "value"):
+            x1, y1 = relation.get(f"{prefix}_x1"), relation.get(f"{prefix}_y1")
+            x2, y2 = relation.get(f"{prefix}_x2"), relation.get(f"{prefix}_y2")
+            if x1 is None or y1 is None or x2 is None or y2 is None:
+                continue
+            xs1.append(int(x1)); ys1.append(int(y1))
+            xs2.append(int(x2)); ys2.append(int(y2))
+    if not xs1:
+        return None
+    x1 = max(0, min(xs1) - padding)
+    y1 = max(0, min(ys1) - padding)
+    x2 = min(int(image_width), max(xs2) + padding)
+    y2 = min(int(image_height), max(ys2) + padding)
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return x1, y1, x2, y2
+
+
+def _overlay_box_style(
+    box: tuple[int, int, int, int] | None, crop: tuple[int, int, int, int],
+) -> dict[str, float] | None:
+    """``box`` positioned as a percentage of ``crop``, for an absolutely
+    positioned overlay ``<span>`` over the crop image."""
+    if box is None:
+        return None
+    crop_x1, crop_y1, crop_x2, crop_y2 = crop
+    crop_width, crop_height = crop_x2 - crop_x1, crop_y2 - crop_y1
+    if crop_width <= 0 or crop_height <= 0:
+        return None
+    x1, y1, x2, y2 = box
+    return {
+        "left": (x1 - crop_x1) / crop_width * 100,
+        "top": (y1 - crop_y1) / crop_height * 100,
+        "width": (x2 - x1) / crop_width * 100,
+        "height": (y2 - y1) / crop_height * 100,
+    }
+
+
 def register_mapping_studio_routes(
     app: Flask,
     *,
     database: Any,
     workspace_root: Callable[[], Path],
     enqueue_job: Callable[..., dict[str, Any]],
+    safe_workspace_file: Callable[[str | Path], Path],
+    cached_render_image: Callable[[Path], Any],
     canonical_table_gt_mode: Callable[[], bool] = lambda: False,
 ) -> None:
     def _training_pipeline_sources() -> list[dict[str, Any]]:
@@ -179,6 +237,36 @@ def register_mapping_studio_routes(
             return json_error(str(exc), 400)
         result["stats"] = database.relation_feedback_stats()
         return jsonify(result)
+
+    @app.get("/mapping-labels/<source_id>/table-image/<table_id>")
+    def label_mapping_table_image(source_id: str, table_id: str):
+        """The source render cropped to one table's labels+values, for the
+        review queue's image overlay (see ``_table_crop_box()``)."""
+        source = database.get_detection_source(source_id)
+        if source is None:
+            abort(404)
+        relations = [
+            item for item in database.list_detected_relations(source_id)
+            if str(item.get("relation_type") or "") == "table_cell"
+            and str(item.get("table_id") or "") == table_id
+        ]
+        crop = _table_crop_box(relations, int(source.get("image_width") or 0), int(source.get("image_height") or 0))
+        if crop is None:
+            abort(404)
+        render = safe_workspace_file(str(source.get("render_path") or ""))
+        if not render.is_file():
+            abort(404)
+        image = cached_render_image(render)
+        if image is None:
+            abort(404)
+        x1, y1, x2, y2 = crop
+        cropped = image[y1:y2, x1:x2]
+        if cropped.size == 0:
+            abort(404)
+        ok, encoded = cv2.imencode(".png", cropped)
+        if not ok:
+            abort(500)
+        return Response(encoded.tobytes(), mimetype="image/png", headers={"Cache-Control": "no-store"})
 
     def _load_label_mapping_context(source_id: str) -> dict[str, Any]:
         """Build everything both the bulk Mapping Studio page and the
@@ -611,8 +699,57 @@ def register_mapping_studio_routes(
         source_index = next(
             (index for index, item in enumerate(all_sources, start=1) if str(item["source_id"]) == source_id), None
         )
+
+        # Visual context, like Stap 9's model-vs-GT comparison: the whole
+        # table this label lives in, every one of its rows outlined, the
+        # current row highlighted - so confirming a label is "does this
+        # yellow box say what I picked" at a glance, not blind label/value
+        # text pairs. Only the rows already loaded for this source (i.e.
+        # already Table-Studio/eligibility-filtered) are drawn.
+        table_id = str(relation.get("table_id") or "")
+        table_relations = [item for item in relations if str(item.get("table_id") or "") == table_id]
+        source_width = int(context["source"].get("image_width") or 0)
+        source_height = int(context["source"].get("image_height") or 0)
+        crop = _table_crop_box(table_relations, source_width, source_height) if table_id else None
+        table_image_url = (
+            url_for("label_mapping_table_image", source_id=source_id, table_id=table_id)
+            if crop is not None else None
+        )
+        image_aspect = f"{crop[2] - crop[0]}/{crop[3] - crop[1]}" if crop is not None else None
+        overlays = []
+        if crop is not None:
+            for item in table_relations:
+                item_id = str(item.get("relation_id") or "")
+                item_mapping = mappings_by_relation.get(item_id)
+                if item_mapping and item_mapping.get("status") == "confirmed":
+                    state = "confirmed"
+                elif item.get("blocked_unrecognized_panel"):
+                    state = "blocked"
+                elif item.get("auto_suggested_family"):
+                    state = "suggested"
+                else:
+                    state = "open"
+                label_box = None
+                if item.get("label_x1") is not None:
+                    label_box = (
+                        int(item["label_x1"]), int(item["label_y1"]), int(item["label_x2"]), int(item["label_y2"]),
+                    )
+                value_box = (
+                    int(item["value_x1"]), int(item["value_y1"]), int(item["value_x2"]), int(item["value_y2"]),
+                )
+                overlays.append({
+                    "relation_id": item_id,
+                    "is_current": item_id == relation_id,
+                    "state": state,
+                    "label_text": str(item.get("label_text") or ""),
+                    "url": url_for("label_mapping_queue_item", source_id=source_id, relation_id=item_id),
+                    "label_style": _overlay_box_style(label_box, crop),
+                    "value_style": _overlay_box_style(value_box, crop),
+                })
+
         return render_template(
             "mapping_labels_queue.html",
+            table_image_url=table_image_url, overlays=overlays, image_aspect=image_aspect,
             source_index=source_index, source_total=len(all_sources),
             source=context["source"],
             source_id=source_id,

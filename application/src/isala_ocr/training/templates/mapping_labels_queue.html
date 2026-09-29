@@ -27,52 +27,85 @@ window.addEventListener('DOMContentLoaded', () => {
     <span class="pill">{{ pending_count }} nog te doen</span>
   </div>
 
-  <div class="mapping-queue-meta">
-    {% set table_display_name = relation.table_name or (relation.panel_name if relation.panel_name and relation.panel_name != 'Tabel' else '') %}
-    <span class="mapping-table-tag {% if not table_display_name %}is-unset{% endif %}">{{ table_display_name or 'Tabel niet benoemd' }}</span>
-    {% if not relation.table_configured %}{% if not relation.panel_recognized %}<span class="mapping-table-tag mapping-unconfigured-tag" title="Panel Setup herkent deze tabel niet op deze bronafbeelding (de tabelpositie valt buiten alle geconfigureerde panelen). Tabelstudio's kolomrollen worden hierdoor NIET toegepast op deze tabel, ook al staan ze correct ingesteld.">⚠ paneel niet herkend</span>{% else %}<span class="mapping-table-tag mapping-unconfigured-tag" title="Kolomrollen (Label/Waarde/Overslaan) zijn nog niet ingesteld in Tabelstudio voor dit paneel.">⚠ kolomrollen niet ingesteld</span>{% endif %}{% endif %}
-    <span>Rij {{ relation.raster_row_index + 1 }} · Waardekolom K{{ relation.value_column_index + 1 }}</span>
-    <span>Voorbeeldwaarde <b class="mono">{{ relation.value_text or '—' }}</b></span>
-    {% if is_confirmed %}<span class="mapping-status ok">Al gekoppeld</span>{% endif %}
-  </div>
+  <p class="muted mapping-queue-legend">Geel = dit label · groen = al gekoppeld · oranje = voorstel · rood = geblokkeerd · grijs = nog open. Klik een ander gekleurd kader om dat label te beoordelen.</p>
 
-  {% if relation.auto_suggested_family and not is_confirmed %}
-  <div class="notice">Voorgesteld op basis van {{ relation.auto_suggested_count }}x eerdere bevestiging van dit label. Controleer en bevestig, of kies een ander veld.</div>
-  {% endif %}
-
-  {% if relation.blocked_unrecognized_panel %}
-  <div class="notice notice-blocked">Geblokkeerd: Panel Setup herkent deze tabel niet op deze bron, dus koppelen kan niet totdat dat is gecorrigeerd. Je kunt de rij wel overslaan om verder te gaan.</div>
-  {% endif %}
-
-  <form method="post" class="mapping-queue-form">
-    <label class="mapping-field"><span>Algemene veldnaam</span>
-      <select id="field_choice" name="field_choice" {% if relation.blocked_unrecognized_panel %}disabled{% endif %}>
-        <option value="">Niet koppelen</option>
-        {% for field in field_options %}
-        <option value="family:{{ field.family }}"
-          {% if current_family == field.family %}selected
-          {% elif not current_family and relation.auto_suggested_family == field.family %}selected{% endif %}
-        >{{ field.display_name }}</option>
+  <div class="mapping-queue-body">
+    <div class="mapping-queue-image">
+      {% if table_image_url %}
+      <div class="mapping-queue-image-stage" style="--aspect:{{ image_aspect }}">
+        <img src="{{ table_image_url }}" alt="Tabel">
+        {% for overlay in overlays %}
+          {% if overlay.label_style %}<a class="mapping-overlay-box overlay-label overlay-{{ overlay.state }} {% if overlay.is_current %}is-current{% endif %}" href="{{ overlay.url }}" title="{{ overlay.label_text }}" style="left:{{ overlay.label_style.left }}%;top:{{ overlay.label_style.top }}%;width:{{ overlay.label_style.width }}%;height:{{ overlay.label_style.height }}%"></a>{% endif %}
+          {% if overlay.value_style %}<a class="mapping-overlay-box overlay-value overlay-{{ overlay.state }} {% if overlay.is_current %}is-current{% endif %}" href="{{ overlay.url }}" title="{{ overlay.label_text }}" style="left:{{ overlay.value_style.left }}%;top:{{ overlay.value_style.top }}%;width:{{ overlay.value_style.width }}%;height:{{ overlay.value_style.height }}%"></a>{% endif %}
         {% endfor %}
-      </select>
-    </label>
-    <div class="actions mapping-queue-actions">
-      <button id="confirm-choice" name="mapping_queue_action" value="confirm" class="primary" type="submit" {% if relation.blocked_unrecognized_panel %}disabled title="Eerst Panel Setup corrigeren"{% endif %}>✓ Bevestigen (Enter)</button>
-      <button id="skip-choice" name="mapping_queue_action" value="skip" type="submit" formnovalidate>Niet koppelen (Alt+N)</button>
+      </div>
+      {% else %}
+      <div class="mapping-queue-image-missing">Geen bronafbeelding beschikbaar voor deze tabel.</div>
+      {% endif %}
     </div>
-  </form>
 
-  <div class="actions detail-navigation">
-    {% if previous_url %}<a id="nav-previous" class="button" href="{{ previous_url }}">← Vorige (Alt+←)</a>{% endif %}
-    {% if next_url %}<a id="nav-next" class="button" href="{{ next_url }}">Volgende → (Alt+→)</a>{% endif %}
-    <a class="button" href="{{ overview_url }}">Terug naar overzicht</a>
+    <div class="mapping-queue-panel">
+      <div class="mapping-queue-meta">
+        {% set table_display_name = relation.table_name or (relation.panel_name if relation.panel_name and relation.panel_name != 'Tabel' else '') %}
+        <span class="mapping-table-tag {% if not table_display_name %}is-unset{% endif %}">{{ table_display_name or 'Tabel niet benoemd' }}</span>
+        {% if not relation.table_configured %}{% if not relation.panel_recognized %}<span class="mapping-table-tag mapping-unconfigured-tag" title="Panel Setup herkent deze tabel niet op deze bronafbeelding (de tabelpositie valt buiten alle geconfigureerde panelen). Tabelstudio's kolomrollen worden hierdoor NIET toegepast op deze tabel, ook al staan ze correct ingesteld.">⚠ paneel niet herkend</span>{% else %}<span class="mapping-table-tag mapping-unconfigured-tag" title="Kolomrollen (Label/Waarde/Overslaan) zijn nog niet ingesteld in Tabelstudio voor dit paneel.">⚠ kolomrollen niet ingesteld</span>{% endif %}{% endif %}
+        <span>Rij {{ relation.raster_row_index + 1 }} · Waardekolom K{{ relation.value_column_index + 1 }}</span>
+        <span>Voorbeeldwaarde <b class="mono">{{ relation.value_text or '—' }}</b></span>
+        {% if is_confirmed %}<span class="mapping-status ok">Al gekoppeld</span>{% endif %}
+      </div>
+
+      {% if relation.auto_suggested_family and not is_confirmed %}
+      <div class="notice">Voorgesteld op basis van {{ relation.auto_suggested_count }}x eerdere bevestiging van dit label. Controleer en bevestig, of kies een ander veld.</div>
+      {% endif %}
+
+      {% if relation.blocked_unrecognized_panel %}
+      <div class="notice notice-blocked">Geblokkeerd: Panel Setup herkent deze tabel niet op deze bron, dus koppelen kan niet totdat dat is gecorrigeerd. Je kunt de rij wel overslaan om verder te gaan.</div>
+      {% endif %}
+
+      <form method="post" class="mapping-queue-form">
+        <label class="mapping-field"><span>Algemene veldnaam</span>
+          <select id="field_choice" name="field_choice" {% if relation.blocked_unrecognized_panel %}disabled{% endif %}>
+            <option value="">Niet koppelen</option>
+            {% for field in field_options %}
+            <option value="family:{{ field.family }}"
+              {% if current_family == field.family %}selected
+              {% elif not current_family and relation.auto_suggested_family == field.family %}selected{% endif %}
+            >{{ field.display_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="actions mapping-queue-actions">
+          <button id="confirm-choice" name="mapping_queue_action" value="confirm" class="primary" type="submit" {% if relation.blocked_unrecognized_panel %}disabled title="Eerst Panel Setup corrigeren"{% endif %}>✓ Bevestigen (Enter)</button>
+          <button id="skip-choice" name="mapping_queue_action" value="skip" type="submit" formnovalidate>Niet koppelen (Alt+N)</button>
+        </div>
+      </form>
+
+      <div class="actions detail-navigation">
+        {% if previous_url %}<a id="nav-previous" class="button" href="{{ previous_url }}">← Vorige (Alt+←)</a>{% endif %}
+        {% if next_url %}<a id="nav-next" class="button" href="{{ next_url }}">Volgende → (Alt+→)</a>{% endif %}
+        <a class="button" href="{{ overview_url }}">Terug naar overzicht</a>
+      </div>
+    </div>
   </div>
 </section>
 <style>
-.mapping-queue-card{max-width:720px;margin:0 auto}
-.mapping-queue-meta{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:10px 0 4px;color:var(--muted);font-size:12px}
+.mapping-queue-card{max-width:1100px;margin:0 auto}
+.mapping-queue-legend{margin:6px 0 12px}
+.mapping-queue-body{display:grid;grid-template-columns:minmax(320px,1.2fr) minmax(320px,.9fr);gap:16px;align-items:start}
+.mapping-queue-image-stage{position:relative;aspect-ratio:var(--aspect);background:#fff;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.mapping-queue-image-stage img{display:block;width:100%;height:100%;object-fit:contain}
+.mapping-queue-image-missing{padding:24px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:8px}
+.mapping-overlay-box{position:absolute;box-sizing:border-box;border-width:2px;border-style:solid;border-radius:2px;display:block}
+.overlay-open{border-color:rgba(159,177,197,.55)}
+.overlay-suggested{border-color:rgba(240,211,74,.85)}
+.overlay-confirmed{border-color:rgba(64,210,135,.75)}
+.overlay-blocked{border-color:rgba(255,99,120,.85)}
+.mapping-overlay-box.is-current{border-color:#f0d34a;border-width:3px;box-shadow:0 0 0 2px rgba(240,211,74,.35),0 0 16px 4px rgba(240,211,74,.3);z-index:5}
+.mapping-overlay-box:hover{box-shadow:0 0 0 2px rgba(255,255,255,.6);z-index:6}
+.mapping-queue-panel{display:grid;gap:14px;align-content:start}
+.mapping-queue-meta{display:flex;flex-wrap:wrap;gap:12px;align-items:center;color:var(--muted);font-size:12px}
 .mapping-queue-meta b{color:var(--text)}
-.mapping-queue-form{margin-top:16px;display:grid;gap:14px}
+.mapping-queue-form{display:grid;gap:14px}
 .mapping-queue-form select{width:100%;padding:10px;font-size:15px}
 .mapping-queue-actions{gap:10px}
 .mapping-table-tag{display:inline-block;padding:2px 7px;border:1px solid var(--line);border-radius:999px;font-size:10px;color:var(--muted)}
@@ -81,5 +114,6 @@ window.addEventListener('DOMContentLoaded', () => {
 .mapping-status.ok{border-color:var(--ok);color:var(--ok)}
 .mapping-unconfigured-tag{border-color:var(--warn,#c99a3a);color:var(--warn,#c99a3a);border-style:dashed}
 .notice-blocked{border-color:var(--danger,#c94a4a);color:var(--danger,#c94a4a)}
+@media(max-width:900px){.mapping-queue-body{grid-template-columns:1fr}}
 </style>
 {% endblock %}
