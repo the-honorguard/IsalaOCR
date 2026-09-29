@@ -30,6 +30,7 @@ window.addEventListener('DOMContentLoaded', () => {
   <div class="mapping-queue-meta">
     {% set table_display_name = relation.table_name or (relation.panel_name if relation.panel_name and relation.panel_name != 'Tabel' else '') %}
     <span class="mapping-table-tag {% if not table_display_name %}is-unset{% endif %}">{{ table_display_name or 'Tabel niet benoemd' }}</span>
+    {% if not relation.table_configured %}<span class="mapping-table-tag mapping-unconfigured-tag" title="Kolomrollen (Label/Waarde/Overslaan) zijn nog niet ingesteld in Tabelstudio voor dit paneel. Een referentie-/normaalwaardenkolom kan daardoor als apart, gelijknamig label verschijnen.">⚠ kolomrollen niet ingesteld</span>{% endif %}
     <span>Rij {{ relation.raster_row_index + 1 }} · Waardekolom K{{ relation.value_column_index + 1 }}</span>
     <span>Voorbeeldwaarde <b class="mono">{{ relation.value_text or '—' }}</b></span>
     {% if is_confirmed %}<span class="mapping-status ok">Al gekoppeld</span>{% endif %}
@@ -74,5 +75,6 @@ window.addEventListener('DOMContentLoaded', () => {
 .mapping-table-tag.is-unset{border-style:dashed;color:var(--warn,#c99a3a)}
 .mapping-status{padding:5px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:10px}
 .mapping-status.ok{border-color:var(--ok);color:var(--ok)}
+.mapping-unconfigured-tag{border-color:var(--warn,#c99a3a);color:var(--warn,#c99a3a);border-style:dashed}
 </style>
 {% endblock %}
