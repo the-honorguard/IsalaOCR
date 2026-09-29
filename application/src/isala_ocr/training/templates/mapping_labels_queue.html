@@ -18,6 +18,67 @@
     status.className = 'notice' + (kind === 'error' ? ' notice-blocked' : '');
   }
 
+  // Confirming/skipping a label writes to a project sqlite database that,
+  // on this project's normal (Docker Desktop bind-mount) deployment, can
+  // make one single commit take several seconds - long enough that waiting
+  // for it before showing the next label turns a fast review session into a
+  // multi-second-per-click one. The save itself is queued through the
+  // shared IsalaReviewQueue (review-queue.js, loaded globally by
+  // base.html - the same bounded-concurrency, retry-with-backoff queue
+  // Stap 5/7's own review pages already use for exactly this reason) and
+  // runs in the background while the UI moves straight to the next label,
+  // using data the current card already has (its own "Volgende" target) -
+  // never waiting on that write.
+  const saveQueue = window.IsalaReviewQueue.createTaskQueue({
+    storageKey: 'isala-mapping-queue-saves',
+    concurrency: 2,
+    execute: async task => {
+      const response = await fetch(task.url, {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams(task.entries),
+      });
+      let data = null;
+      try { data = await response.json(); } catch (_) { /* fall through to the ok-check below */ }
+      if (!response.ok || !data || !data.ok) {
+        throw new Error((data && data.error) || `Opslaan mislukt (${response.status}).`);
+      }
+    },
+    onChange: ({ tasks, inFlight }) => { updateSaveQueueStatus(tasks, inFlight); },
+    onTaskError: (task, error) => {
+      if (task.failed) {
+        showGlobalNotice(
+          `Kon "${task.label}" niet opslaan na meerdere pogingen: ${error.message || error}.`, true
+        );
+      }
+    },
+  });
+
+  function updateSaveQueueStatus(tasks, inFlight) {
+    const widget = document.getElementById('save-queue-status');
+    if (!widget) return;
+    const pending = tasks.filter(task => !task.failed).length;
+    const failed = tasks.filter(task => task.failed).length;
+    if (!pending && !failed) { widget.hidden = true; return; }
+    widget.hidden = false;
+    const parts = [];
+    if (pending) parts.push(`${pending} label(s) worden op de achtergrond opgeslagen`);
+    if (failed) parts.push(`${failed} niet gelukt`);
+    widget.textContent = parts.join(' · ');
+    widget.classList.toggle('is-error', failed > 0);
+  }
+
+  function showGlobalNotice(message, isError) {
+    const widget = document.getElementById('save-queue-status');
+    if (!widget) return;
+    widget.hidden = false;
+    widget.textContent = message;
+    widget.classList.toggle('is-error', !!isError);
+  }
+
   // Replaces the whole card with freshly rendered HTML from the server (the
   // exact same partial template every route below renders), pushes the new
   // URL so the address bar/back button stay meaningful, and re-focuses the
@@ -48,6 +109,18 @@
     return response;
   }
 
+  async function navigateTo(url, card) {
+    let response;
+    try {
+      response = await fetchPartial(url);
+    } catch (error) {
+      showStatus(card, error.message || 'Netwerkfout.', 'error');
+      return;
+    }
+    const html = await response.text();
+    swapCard(html, url);
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -55,7 +128,21 @@
     const submitter = event.submitter;
     const formData = new FormData(form);
     if (submitter && submitter.name) formData.set(submitter.name, submitter.value);
+    const entries = Array.from(formData.entries()).map(([key, value]) => [key, String(value)]);
     showStatus(card, '', null);
+
+    const nextLink = card.querySelector('#nav-next');
+    if (nextLink && nextLink.href) {
+      // Background save (see saveQueue above): move on immediately using
+      // the "Volgende" target this card already has, instead of waiting for
+      // this write to finish.
+      saveQueue.enqueue({ url: form.action, entries, label: card.querySelector('h2') ? card.querySelector('h2').textContent : '' });
+      await navigateTo(nextLink.href, card);
+      return;
+    }
+    // Last label of this source: where the review continues next (possibly
+    // a different source entirely) depends on this save's own result, so
+    // this one case still waits for the real response.
     let response;
     try {
       response = await fetchPartial(form.action, { method: 'POST', body: formData });
@@ -76,16 +163,7 @@
     const anchor = event.currentTarget;
     if (!anchor.href) return;
     event.preventDefault();
-    const card = anchor.closest('.mapping-queue-card');
-    let response;
-    try {
-      response = await fetchPartial(anchor.href);
-    } catch (error) {
-      showStatus(card, error.message || 'Netwerkfout.', 'error');
-      return;
-    }
-    const html = await response.text();
-    swapCard(html, anchor.href);
+    await navigateTo(anchor.href, anchor.closest('.mapping-queue-card'));
   }
 
   function wireCard(card) {
@@ -126,7 +204,10 @@
 {% endblock %}
 {% block content %}
 {% include "mapping_labels_queue_card.html" %}
+<div id="save-queue-status" class="save-queue-status" hidden role="status" aria-live="polite"></div>
 <style>
+.save-queue-status{position:fixed;right:16px;bottom:16px;z-index:50;max-width:360px;padding:9px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel2,#101821);color:var(--muted);font-size:12px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.save-queue-status.is-error{border-color:var(--danger,#c94a4a);color:var(--danger,#c94a4a)}
 .mapping-queue-card{max-width:1100px;margin:0 auto}
 .mapping-queue-legend{margin:6px 0 12px}
 .mapping-queue-body{display:grid;grid-template-columns:minmax(320px,1.2fr) minmax(320px,.9fr);gap:16px;align-items:start}
