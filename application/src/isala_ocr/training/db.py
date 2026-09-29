@@ -90,6 +90,18 @@ class TrainingDatabase(
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA busy_timeout=30000")
         connection.execute("PRAGMA journal_mode=WAL")
+        # SQLite's own docs recommend NORMAL alongside WAL: a commit no longer
+        # waits for an fsync of the WAL file, only for one at the next
+        # checkpoint, and WAL still makes the database itself crash-safe
+        # either way (NORMAL only risks losing the most recent commit(s) on
+        # an actual OS crash/power loss, never corruption). The default,
+        # FULL, fsyncs on every single commit - on a bind-mounted Docker
+        # Desktop volume (this project's normal deployment), each of those
+        # fsyncs can cost seconds instead of milliseconds due to the
+        # virtualized filesystem layer, which is squarely what made
+        # confirming one Mapping Studio queue label feel like a ~10s hang:
+        # sync_relation_mappings() commits at least once per confirm/skip.
+        connection.execute("PRAGMA synchronous=NORMAL")
         try:
             yield connection
         except Exception:

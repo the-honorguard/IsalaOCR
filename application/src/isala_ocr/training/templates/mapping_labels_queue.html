@@ -1,0 +1,238 @@
+{% extends 'base.html' %}
+{% block title %}Mapping Studio · wachtrij · IsalaOCR{% endblock %}
+{% block heading %}Mapping Studio · wachtrij{% endblock %}
+{% block subtitle %}Eén label per keer: bevestig het voorgestelde veld of kies zelf, dan meteen door naar het volgende.{% endblock %}
+{% block head %}
+<script>
+(() => {
+  'use strict';
+
+  function findCard(root) { return root.querySelector('.mapping-queue-card'); }
+
+  function showStatus(card, message, kind) {
+    const status = card.querySelector('#queue-status');
+    if (!status) return;
+    if (!message) { status.hidden = true; status.textContent = ''; return; }
+    status.hidden = false;
+    status.textContent = message;
+    status.className = 'notice' + (kind === 'error' ? ' notice-blocked' : '');
+  }
+
+  // Confirming/skipping a label writes to a project sqlite database that,
+  // on this project's normal (Docker Desktop bind-mount) deployment, can
+  // make one single commit take several seconds - long enough that waiting
+  // for it before showing the next label turns a fast review session into a
+  // multi-second-per-click one. The save itself is queued through the
+  // shared IsalaReviewQueue (review-queue.js, loaded globally by
+  // base.html - the same bounded-concurrency, retry-with-backoff queue
+  // Stap 5/7's own review pages already use for exactly this reason) and
+  // runs in the background while the UI moves straight to the next label,
+  // using data the current card already has (its own "Volgende" target) -
+  // never waiting on that write.
+  const saveQueue = window.IsalaReviewQueue.createTaskQueue({
+    storageKey: 'isala-mapping-queue-saves',
+    concurrency: 2,
+    execute: async task => {
+      const response = await fetch(task.url, {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams(task.entries),
+      });
+      let data = null;
+      try { data = await response.json(); } catch (_) { /* fall through to the ok-check below */ }
+      if (!response.ok || !data || !data.ok) {
+        throw new Error((data && data.error) || `Opslaan mislukt (${response.status}).`);
+      }
+    },
+    onChange: ({ tasks, inFlight }) => { updateSaveQueueStatus(tasks, inFlight); },
+    onTaskError: (task, error) => {
+      if (task.failed) {
+        showGlobalNotice(
+          `Kon "${task.label}" niet opslaan na meerdere pogingen: ${error.message || error}.`, true
+        );
+      }
+    },
+  });
+
+  function updateSaveQueueStatus(tasks, inFlight) {
+    const widget = document.getElementById('save-queue-status');
+    if (!widget) return;
+    const pending = tasks.filter(task => !task.failed).length;
+    const failed = tasks.filter(task => task.failed).length;
+    if (!pending && !failed) { widget.hidden = true; return; }
+    widget.hidden = false;
+    const parts = [];
+    if (pending) parts.push(`${pending} label(s) worden op de achtergrond opgeslagen`);
+    if (failed) parts.push(`${failed} niet gelukt`);
+    widget.textContent = parts.join(' · ');
+    widget.classList.toggle('is-error', failed > 0);
+  }
+
+  function showGlobalNotice(message, isError) {
+    const widget = document.getElementById('save-queue-status');
+    if (!widget) return;
+    widget.hidden = false;
+    widget.textContent = message;
+    widget.classList.toggle('is-error', !!isError);
+  }
+
+  // Replaces the whole card with freshly rendered HTML from the server (the
+  // exact same partial template every route below renders), pushes the new
+  // URL so the address bar/back button stay meaningful, and re-focuses the
+  // field so Enter/Alt+N keep working immediately - all without a full page
+  // navigation, so clicking through many labels never waits on a reload.
+  function swapCard(html, url) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html.trim();
+    const newCard = wrapper.firstElementChild;
+    const oldCard = findCard(document);
+    if (!newCard || !oldCard) { window.location.href = url; return; }
+    oldCard.replaceWith(newCard);
+    if (url && url !== window.location.pathname) {
+      window.history.pushState({ isalaQueue: true }, '', url);
+    }
+    wireCard(newCard);
+    const select = newCard.querySelector('#field_choice');
+    if (select) select.focus();
+  }
+
+  async function fetchPartial(url, options) {
+    const response = await fetch(url, Object.assign({
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    }, options || {}));
+    if (!response.ok && response.status !== 400) {
+      throw new Error(`Onverwachte serverfout (${response.status}).`);
+    }
+    return response;
+  }
+
+  async function navigateTo(url, card) {
+    let response;
+    try {
+      response = await fetchPartial(url);
+    } catch (error) {
+      showStatus(card, error.message || 'Netwerkfout.', 'error');
+      return;
+    }
+    const html = await response.text();
+    swapCard(html, url);
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const card = form.closest('.mapping-queue-card');
+    const submitter = event.submitter;
+    const formData = new FormData(form);
+    if (submitter && submitter.name) formData.set(submitter.name, submitter.value);
+    const entries = Array.from(formData.entries()).map(([key, value]) => [key, String(value)]);
+    showStatus(card, '', null);
+
+    const nextLink = card.querySelector('#nav-next');
+    if (nextLink && nextLink.href) {
+      // Background save (see saveQueue above): move on immediately using
+      // the "Volgende" target this card already has, instead of waiting for
+      // this write to finish.
+      saveQueue.enqueue({ url: form.action, entries, label: card.querySelector('h2') ? card.querySelector('h2').textContent : '' });
+      await navigateTo(nextLink.href, card);
+      return;
+    }
+    // Last label of this source: where the review continues next (possibly
+    // a different source entirely) depends on this save's own result, so
+    // this one case still waits for the real response.
+    let response;
+    try {
+      response = await fetchPartial(form.action, { method: 'POST', body: formData });
+    } catch (error) {
+      showStatus(card, error.message || 'Netwerkfout: niet opgeslagen.', 'error');
+      return;
+    }
+    const data = await response.json();
+    if (!data.ok) {
+      showStatus(card, data.error || 'Niet opgeslagen.', 'error');
+      return;
+    }
+    if (data.done) { window.location.href = data.redirect; return; }
+    swapCard(data.html, data.url);
+  }
+
+  async function handleNavClick(event) {
+    const anchor = event.currentTarget;
+    if (!anchor.href) return;
+    event.preventDefault();
+    await navigateTo(anchor.href, anchor.closest('.mapping-queue-card'));
+  }
+
+  function wireCard(card) {
+    const form = card.querySelector('.mapping-queue-form');
+    if (form) form.addEventListener('submit', handleSubmit);
+    const previous = card.querySelector('#nav-previous');
+    const next = card.querySelector('#nav-next');
+    if (previous) previous.addEventListener('click', handleNavClick);
+    if (next) next.addEventListener('click', handleNavClick);
+  }
+
+  window.addEventListener('popstate', () => {
+    fetchPartial(window.location.href)
+      .then(response => response.text())
+      .then(html => swapCard(html, window.location.href))
+      .catch(() => { window.location.reload(); });
+  });
+
+  window.addEventListener('DOMContentLoaded', () => {
+    const card = findCard(document);
+    if (card) wireCard(card);
+    const select = document.getElementById('field_choice');
+    if (select) select.focus();
+    document.addEventListener('keydown', event => {
+      if (event.target && (event.target.tagName === 'TEXTAREA')) return;
+      if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        const confirmButton = document.getElementById('confirm-choice');
+        if (confirmButton) confirmButton.click();
+      }
+      if (event.altKey && event.key.toLowerCase() === 'n') { event.preventDefault(); const b = document.getElementById('skip-choice'); if (b) b.click(); }
+      if (event.altKey && event.key === 'ArrowLeft') { const a = document.getElementById('nav-previous'); if (a) a.click(); }
+      if (event.altKey && event.key === 'ArrowRight') { const a = document.getElementById('nav-next'); if (a) a.click(); }
+    });
+  });
+})();
+</script>
+{% endblock %}
+{% block content %}
+{% include "mapping_labels_queue_card.html" %}
+<div id="save-queue-status" class="save-queue-status" hidden role="status" aria-live="polite"></div>
+<style>
+.save-queue-status{position:fixed;right:16px;bottom:16px;z-index:50;max-width:360px;padding:9px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel2,#101821);color:var(--muted);font-size:12px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.save-queue-status.is-error{border-color:var(--danger,#c94a4a);color:var(--danger,#c94a4a)}
+.mapping-queue-card{max-width:1100px;margin:0 auto}
+.mapping-queue-legend{margin:6px 0 12px}
+.mapping-queue-body{display:grid;grid-template-columns:minmax(320px,1.2fr) minmax(320px,.9fr);gap:16px;align-items:start}
+.mapping-queue-image-stage{position:relative;aspect-ratio:var(--aspect);background:#fff;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+.mapping-queue-image-stage img{display:block;width:100%;height:100%;object-fit:contain}
+.mapping-queue-image-missing{padding:24px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:8px}
+.mapping-overlay-box{position:absolute;box-sizing:border-box;border-width:2px;border-style:solid;border-radius:2px;display:block}
+.overlay-open{border-color:rgba(159,177,197,.55)}
+.overlay-suggested{border-color:rgba(240,211,74,.85)}
+.overlay-confirmed{border-color:rgba(64,210,135,.75)}
+.overlay-blocked{border-color:rgba(255,99,120,.85)}
+.mapping-overlay-box.is-current{border-color:#f0d34a;border-width:3px;box-shadow:0 0 0 2px rgba(240,211,74,.35),0 0 16px 4px rgba(240,211,74,.3);z-index:5}
+.mapping-overlay-box:hover{box-shadow:0 0 0 2px rgba(255,255,255,.6);z-index:6}
+.mapping-queue-panel{display:grid;gap:14px;align-content:start}
+.mapping-queue-meta{display:flex;flex-wrap:wrap;gap:12px;align-items:center;color:var(--muted);font-size:12px}
+.mapping-queue-meta b{color:var(--text)}
+.mapping-queue-form{display:grid;gap:14px}
+.mapping-queue-form select{width:100%;padding:10px;font-size:15px}
+.mapping-queue-actions{gap:10px}
+.mapping-table-tag{display:inline-block;padding:2px 7px;border:1px solid var(--line);border-radius:999px;font-size:10px;color:var(--muted)}
+.mapping-table-tag.is-unset{border-style:dashed;color:var(--warn,#c99a3a)}
+.mapping-status{padding:5px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:10px}
+.mapping-status.ok{border-color:var(--ok);color:var(--ok)}
+.mapping-unconfigured-tag{border-color:var(--warn,#c99a3a);color:var(--warn,#c99a3a);border-style:dashed}
+.notice-blocked{border-color:var(--danger,#c94a4a);color:var(--danger,#c94a4a)}
+@media(max-width:900px){.mapping-queue-body{grid-template-columns:1fr}}
+</style>
+{% endblock %}

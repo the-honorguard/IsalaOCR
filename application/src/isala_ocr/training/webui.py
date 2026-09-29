@@ -65,7 +65,14 @@ from .routes_table_panel_review import register_table_panel_review_routes
 from .routes_test_pipeline import register_test_pipeline_routes
 from .routes_table_region_detect import register_table_region_detect_routes
 from .routes_value_review import register_value_review_routes
-from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
+from .input_selection import (
+    input_file_key,
+    input_file_source_id,
+    input_files,
+    selection_manifest_path,
+    selection_payload,
+    warm_input_file_source_id_cache,
+)
 from .json_api import json_error
 from .json_store import read_json as _read_json, write_json_atomic as _write_json_atomic
 from .table_cell_ground_truth import (
@@ -3917,6 +3924,9 @@ def create_web_app(
         database=database,
         workspace_root=workspace_root,
         enqueue_job=enqueue_job,
+        safe_workspace_file=safe_workspace_file,
+        cached_render_image=cached_render_image,
+        canonical_table_gt_mode=canonical_table_gt_mode,
     )
 
     def workflow_navigation_access() -> dict[str, bool]:
@@ -4133,5 +4143,14 @@ def create_web_app(
     install_comparison_review_queue(app, workspace)
     install_job_cancellation(app, workspace)
     install_stale_job_reconciliation(app, workspace)
+
+    # Warm input_file_source_id()'s cache in the background right after
+    # startup, instead of leaving the first real page render after every
+    # restart to pay for hashing every /input file itself (see
+    # input_selection_state() above, which is the hot caller). A daemon
+    # thread so it never blocks startup or keeps the process alive on exit.
+    threading.Thread(
+        target=warm_input_file_source_id_cache, args=(Path("/input"),), daemon=True
+    ).start()
 
     return app

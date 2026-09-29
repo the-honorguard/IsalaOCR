@@ -16,6 +16,41 @@ STALE_EXTRACTION_METHOD = "canonical_gt_cell_stale"
 PROFILE = "recognition_ground_truth"
 SCOPE_FILENAME = "recognition_scope.json"
 TABLE_STUDIO_FILENAME = "table_studio_roles.json"
+PANEL_POLICY_FILENAME = "mapping_panel_policy.json"
+VALID_PANEL_POLICIES = {"block", "allow"}
+
+
+def unrecognized_panel_policy(workspace: str | Path) -> str:
+    """How Mapping Studio treats a table whose position matches no configured
+    Panel Setup box at all (``relation_panel_id()`` returns ``""``): "block"
+    (the default) excludes every column of that table from mapping until
+    Panel Setup is corrected for it, so a Table Studio "Overslaan" column that
+    is silently bypassed by the unrecognized-panel gap (see
+    ``relation_column_eligible()``) can never masquerade as a real,
+    unfiltered label; "allow" restores the old fail-open fallback -- useful
+    once every source's table layout has a matching panel and an occasional,
+    genuinely new layout should not block mapping outright.
+
+    Project-wide, like ``table_studio_roles()`` (not per-panel: an
+    unrecognized table has no panel identity to key a per-panel setting on).
+    """
+    root = resolve_project_workspace(workspace)
+    path = root / PANEL_POLICY_FILENAME
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, TypeError):
+        return "block"
+    value = str((payload or {}).get("policy") or "").strip().lower()
+    return value if value in VALID_PANEL_POLICIES else "block"
+
+
+def save_unrecognized_panel_policy(workspace: str | Path, policy: str) -> str:
+    policy = str(policy or "").strip().lower()
+    if policy not in VALID_PANEL_POLICIES:
+        raise ValueError(f"Onbekend beleid voor niet-herkende panelen: {policy!r}")
+    root = resolve_project_workspace(workspace)
+    (root / PANEL_POLICY_FILENAME).write_text(json.dumps({"policy": policy}, indent=2) + "\n", encoding="utf-8")
+    return policy
 
 
 def table_studio_roles(workspace: str | Path) -> dict[str, dict[str, str]]:
@@ -49,46 +84,81 @@ def relation_panel_id(relation: dict[str, Any], panel_by_id: dict[str, dict[str,
     A relation's own ``table_id`` is a per-source, per-detection-run
     identifier (hashed from canonical GT geometry) - it never matches the
     identifiers Table/Panel Setup or Table Studio use, which are project-wide
-    ``panel_id`` values. The only bridge between the two is ``context_text``,
-    which ``_enrich_relations_with_panel_context()`` stamps with the panel's
-    name and/or id at detection time. Shared by both Mapping Studio routes
+    ``panel_id`` values (and, in practice, is not even reliably one-to-one
+    with a single physical table: two geometrically unrelated tables have
+    been observed sharing one ``table_id``). The only bridge between
+    ``table_id`` and ``panel_id`` is ``context_text``, which
+    ``_enrich_relations_with_panel_context()`` stamps with the panel's name
+    and/or id at detection time, as its own ``|``-separated segment, for
+    relations that path produces. Shared by both Mapping Studio routes
     (``routes_mapping_studio.py`` and ``routes_roi_mapping_studio.py``) so a
     column role such as "Overslaan" (skip), set once in Table Studio, hides
     that column's relations consistently in either one.
+
+    Matching is by whole-word containment (every word of the panel_id or
+    panel name must appear, as its own token, somewhere in ``context_text``),
+    not by treating each ``|``-segment as one exact string to compare a
+    candidate against. Older/other detection paths never stamp a clean
+    identity segment at all and instead leave ``context_text`` as an
+    ordinary OCR'd phrase, e.g. "Right ventricle Volume Result" - exact
+    whole-segment comparison never matches "right" or "Rechts" against that
+    phrase, so every one of that source's relations silently fell back to
+    unresolved (``""``) regardless of how obviously the text names its side.
     """
     parts = [part.strip() for part in str(relation.get("context_text") or "").split("|")]
-    # Panel context is persisted as human-readable name plus optional id.
-    # Older mapping runs only persisted the name, so do not assume the id is
-    # always the second token.
-    normalized_parts = {normalize_text(part) for part in parts if part}
+    context_tokens: set[str] = set()
+    for part in parts:
+        if part:
+            context_tokens.update(normalize_text(part).split())
+    if not context_tokens:
+        return ""
     for panel_id, panel in panel_by_id.items():
-        panel_name = normalize_text(str(panel.get("name") or ""))
-        if normalize_text(panel_id) in normalized_parts or (
-            panel_name and panel_name in normalized_parts
-        ):
-            return panel_id
+        # Panel context is persisted as human-readable name plus optional id.
+        # Older mapping runs only persisted the name, so try both.
+        for candidate in (panel_id, str(panel.get("name") or "")):
+            candidate_tokens = set(normalize_text(str(candidate)).split())
+            if candidate_tokens and candidate_tokens <= context_tokens:
+                return panel_id
     return ""
 
 
 def relation_column_eligible(
-    relation: dict[str, Any], *, panel_by_id: dict[str, dict[str, Any]], column_roles: dict[str, dict[str, str]],
+    relation: dict[str, Any], *,
+    panel_by_id: dict[str, dict[str, Any]], column_roles: dict[str, dict[str, str]],
+    block_when_panel_unrecognized: bool = False,
 ) -> bool:
     """Whether Table Studio's column-role configuration allows this relation as a value.
 
-    A panel with no Table Studio configuration is left alone (``True``) --
-    only panels an operator has explicitly configured gate anything, so an
-    unconfigured table's relations keep flowing through the existing
-    schema-similarity scoring unchanged. For a configured panel, only a
-    column explicitly marked "value" may become a mapping candidate at all;
-    columns marked label/unit/header/skip are structural noise for mapping
-    purposes and are excluded before scoring even starts -- the same rule
-    Mapping Studio's own review list already applies (``routes_mapping_studio.py``),
-    now shared so the automatic deployment pipeline (``suggest_mappings``/
-    ``suggest_mappings_fast``) treats a column an operator marked "Overslaan"
-    the same way a human reviewer would, instead of only the text-similarity
-    score deciding.
+    A *recognized* panel with no Table Studio configuration is left alone
+    (``True``) -- only panels an operator has explicitly configured gate
+    anything, so an unconfigured table's relations keep flowing through the
+    existing schema-similarity scoring unchanged. For a configured panel,
+    only a column explicitly marked "value" may become a mapping candidate at
+    all; columns marked label/unit/header/skip are structural noise for
+    mapping purposes and are excluded before scoring even starts -- the same
+    rule Mapping Studio's own review list already applies
+    (``routes_mapping_studio.py``), now shared so the automatic deployment
+    pipeline (``suggest_mappings``/``suggest_mappings_fast``) treats a column
+    an operator marked "Overslaan" the same way a human reviewer would,
+    instead of only the text-similarity score deciding.
+
+    A table whose position matches *no* configured Panel Setup box at all
+    (``relation_panel_id()`` returns ``""``), while Panel Setup *does* define
+    at least one panel, is a different, upstream problem: Table Studio's
+    column roles for that table can never be found either, indistinguishable
+    here from a table nobody has configured yet -- so a column an operator
+    correctly marked "Overslaan" is silently let through anyway.
+    ``block_when_panel_unrecognized=True`` (see ``unrecognized_panel_policy()``)
+    instead excludes every column of such a table, so that gap fails loudly
+    (nothing to map until Panel Setup is corrected) rather than silently.
+    This only applies when ``panel_by_id`` is non-empty: a project that has
+    never configured Panel Setup at all has nothing for any table to be
+    "unrecognized" against, and must keep behaving exactly as before
+    regardless of this policy.
     """
     panel_id = relation_panel_id(relation, panel_by_id)
+    if not panel_id:
+        return not (block_when_panel_unrecognized and panel_by_id)
     roles = column_roles.get(panel_id)
     if not roles:
         return True
