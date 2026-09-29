@@ -582,7 +582,11 @@ def register_mapping_studio_routes(
             header_pending_label="te koppelen",
             header_accepted_label="gekoppeld",
             auto_suggested_count=sum(1 for relation in relations if relation.get("auto_suggested_family")),
-            queue_start_url=url_for("label_mapping_queue_start", source_id=source_id),
+            # Always the global, cross-source entry point, never this one
+            # source's own queue_start: an operator on an already-finished
+            # source must still be able to jump straight into wherever real
+            # work is, not be blocked because *this* source has none.
+            queue_start_url=url_for("label_mapping_queue_global_start"),
         )
 
     def _first_pending_in_source(source_id: str) -> str | None:
