@@ -53,3 +53,41 @@ def test_cache_is_keyed_per_file_not_shared_across_paths(tmp_path: Path) -> None
     path_b.write_bytes(b"content b")
 
     assert input_selection.input_file_source_id(path_a) != input_selection.input_file_source_id(path_b)
+
+
+def test_warm_cache_hashes_every_file_once_upfront(tmp_path: Path) -> None:
+    """warm_input_file_source_id_cache() lets create_web_app() pre-hash every
+    /input file in a background thread right after startup, so the first
+    real page render doesn't pay for it. After warming, looking up any of
+    those files' ids must not touch the filesystem again."""
+    _reset_cache()
+    for name in ("a.dcm", "b.dcm", "c.dcm"):
+        (tmp_path / name).write_bytes(name.encode())
+
+    input_selection.warm_input_file_source_id_cache(tmp_path)
+
+    with mock.patch.object(Path, "open", side_effect=AssertionError("must not re-read an already-warmed file")):
+        ids = {path.name: input_selection.input_file_source_id(path) for path in tmp_path.iterdir()}
+    assert len(set(ids.values())) == 3
+
+
+def test_warm_cache_skips_unreadable_files(tmp_path: Path) -> None:
+    """A file that disappears or errors mid-scan must not abort the whole
+    warm-up; the rest of /input should still get cached."""
+    _reset_cache()
+    good = tmp_path / "good.dcm"
+    good.write_bytes(b"content")
+    missing = tmp_path / "missing.dcm"
+
+    real_source_id = input_selection.input_file_source_id
+
+    def flaky(path: Path):
+        if path == missing:
+            raise OSError("vanished mid-scan")
+        return real_source_id(path)
+
+    with mock.patch.object(input_selection, "input_files", return_value=[missing, good]), \
+            mock.patch.object(input_selection, "input_file_source_id", side_effect=flaky):
+        input_selection.warm_input_file_source_id_cache(tmp_path)
+
+    assert input_selection.input_file_source_id(good) == real_source_id(good)

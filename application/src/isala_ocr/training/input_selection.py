@@ -113,6 +113,22 @@ def input_file_source_id(path: Path) -> str:
     return source_id
 
 
+def warm_input_file_source_id_cache(root: Path) -> None:
+    """Pre-populate the source-id cache for every file under ``root``.
+
+    Meant to run once in a background thread right after the app starts, so
+    the cache is already warm by the time a real request arrives instead of
+    the first page render after every restart paying for hundreds of files'
+    SHA256 itself. Files that vanish or become unreadable mid-scan are
+    skipped, matching ``input_selection_state()``'s own error handling.
+    """
+    for path in input_files(root):
+        try:
+            input_file_source_id(path)
+        except OSError:
+            continue
+
+
 def selection_payload(selected: set[str], *, reason: str = "") -> dict[str, Any]:
     payload: dict[str, Any] = {"version": 1, "selected": sorted(selected)}
     if reason:
