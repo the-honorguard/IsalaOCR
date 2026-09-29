@@ -255,19 +255,25 @@ def register_mapping_studio_routes(
         only when no panel could be resolved - see the matching comment in
         ``label_mapping_queue_item()`` for why ``table_id`` alone is not a
         reliable grouping key.
+
+        Uses ``_load_label_mapping_context()``'s already-filtered relations
+        (Table Studio eligibility, active rows, ...), the exact same set the
+        queue page itself computes ``image_aspect`` from - not a fresh,
+        unfiltered ``list_detected_relations()`` query. Those two relation
+        sets can differ (e.g. a "skip" column, or a row Table Studio has
+        deactivated), which previously made this route crop a different
+        pixel box than the one the queue declared via ``--aspect``; the
+        browser then letterboxed the mismatched image inside that box,
+        silently shifting every overlay off the content it was meant to
+        mark.
         """
         source = database.get_detection_source(source_id)
         if source is None:
             abort(404)
-        panel_by_id = {
-            str(panel.get("panel_id") or ""): panel
-            for panel in load_panel_profile(workspace_root()).get("panels") or []
-            if str(panel.get("panel_id") or "")
-        }
+        context = _load_label_mapping_context(source_id)
         relations = [
-            item for item in database.list_detected_relations(source_id)
-            if str(item.get("relation_type") or "") == "table_cell"
-            and (relation_panel_id(item, panel_by_id) or str(item.get("table_id") or "")) == table_id
+            item for item in context["relations"]
+            if str(item.get("panel_id") or item.get("table_id") or "") == table_id
         ]
         crop = _table_crop_box(relations, int(source.get("image_width") or 0), int(source.get("image_height") or 0))
         if crop is None:
@@ -354,7 +360,13 @@ def register_mapping_studio_routes(
         def relation_raster_row(relation: dict[str, Any], panel_id: str) -> int:
             rows = raster_rows.get(panel_id) or {}
             if not rows:
-                return int(relation.get("row_index") or -1)
+                # `or -1` would treat a legitimate row_index of 0 (a very
+                # real value - the first row) as falsy and silently read it
+                # as -1 instead, which then never matches Table Studio's own
+                # active-rows configuration (a real row 0 is never equal to
+                # itself) and drops that row from Mapping Studio entirely.
+                stored_row_index = relation.get("row_index")
+                return int(stored_row_index) if stored_row_index is not None else -1
             center_y = (int(relation.get("label_y1") or 0) + int(relation.get("label_y2") or 0)) / 2
             containing = [index for index, (y1, y2) in rows.items() if y1 <= center_y <= y2]
             if containing:
