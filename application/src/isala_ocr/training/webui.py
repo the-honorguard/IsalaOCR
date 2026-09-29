@@ -1412,17 +1412,39 @@ def create_web_app(
             "localization_training_ready": training_ready,
         }
 
+    _process_snapshot_cache: dict[str, tuple[str, float, dict[str, Any]]] = {}
+    _process_snapshot_lock = threading.Lock()
+    PROCESS_SNAPSHOT_TTL_SECONDS = 5.0
+
     def process_snapshot() -> dict[str, Any]:
-        """Lean workflow snapshot for the overview page, memoized per request.
+        """Lean workflow snapshot for the overview page, cached across requests.
 
         Building this touches dozens of database/filesystem lookups (profiled
-        at ~40 SQLite connections on its own), and both the home route and the
-        workflow-navigation gate used by every page's context processor need
-        it. Without request-scoped memoization it silently ran twice per
-        request; request_cached keeps it single-shot regardless of how many
-        call sites need it in the same request.
+        at several seconds on its own: recursive glob scans of /input,
+        /models and /output plus ~40 SQLite connections), and it is not just
+        the overview page's own cost - common_context() (this app's global
+        template context processor) calls it, via workflow_navigation_access(),
+        on *every single render_template() call anywhere in the app*,
+        including Mapping Studio's small AJAX queue-card fragment. Request-
+        scoped memoization (request_cached, still used as a fallback below)
+        only stopped it from running twice within the *same* request; every
+        distinct request - e.g. the next queue card fetched right after
+        confirming a label - still paid the full cost on its own, which is
+        why the delay persisted through every Mapping-Studio-specific fix.
+        Cached here for PROCESS_SNAPSHOT_TTL_SECONDS, keyed by the active
+        project so switching projects invalidates it immediately rather than
+        briefly showing a stale project's status.
         """
-        return request_cached("process_snapshot", _build_process_snapshot)
+        project_id = project_manager.active_project_id()
+        now = time.time()
+        with _process_snapshot_lock:
+            cached = _process_snapshot_cache.get("entry")
+            if cached is not None and cached[0] == project_id and now - cached[1] < PROCESS_SNAPSHOT_TTL_SECONDS:
+                return cached[2]
+        fresh = request_cached("process_snapshot", _build_process_snapshot)
+        with _process_snapshot_lock:
+            _process_snapshot_cache["entry"] = (project_id, now, fresh)
+        return fresh
 
     def _build_process_snapshot() -> dict[str, Any]:
         """Lean workflow snapshot for the overview page.

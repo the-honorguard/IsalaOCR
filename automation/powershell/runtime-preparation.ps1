@@ -169,6 +169,18 @@ function Assert-IsalaRuntimePrepared {
             & docker compose --profile setup build model-prep
             if ($LASTEXITCODE -eq 0) {
                 $state = Get-IsalaRuntimePreparationState
+                if (-not [bool]$state.Ready -and $state.State -eq "stale") {
+                    # When the rebuild produces an image whose layers are byte-identical
+                    # to one already cached under this tag, BuildKit reuses that image
+                    # instead of creating a new one, so `docker image inspect .Created`
+                    # keeps reporting the earlier build time even though the image was
+                    # just rebuilt from (and therefore matches) the current checkout.
+                    # A successful build immediately after detecting staleness is
+                    # authoritative regardless of that timestamp comparison.
+                    $state.Ready = $true
+                    $state.State = "ready"
+                    $state.Detail = "Prepared shared runtime image was just rebuilt from the current compute checkout."
+                }
             }
         }
     }
