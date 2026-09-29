@@ -95,3 +95,18 @@ def test_mapping_index_never_redirects_into_a_proefpagina_source(tmp_path: Path)
         response = app.view_functions["label_mapping_index"]()
     assert response.status_code == 302
     assert response.headers["Location"].endswith(f"/mapping-labels/{TRAINING_SOURCE}")
+
+
+def test_main_mapping_entry_point_goes_straight_into_the_queue(tmp_path: Path) -> None:
+    """/mapping is the URL every "Mapping Studio openen" nav link points at
+    (base.html, home.html, process_step.html); it must land the operator
+    directly in the continuous cross-source queue, not the bulk list, or the
+    queue stays undiscoverable from normal navigation."""
+    app, _database, _workspace = _make_app(tmp_path)
+    with app.test_request_context("/mapping"):
+        response = app.view_functions["mapping_index"]()
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/mapping-labels/queue")
+    with app.test_request_context("/mapping-labels/queue"):
+        queue_response = app.view_functions["label_mapping_queue_global_start"]()
+    assert f"/mapping-labels/{TRAINING_SOURCE}/queue/" in queue_response.headers["Location"]

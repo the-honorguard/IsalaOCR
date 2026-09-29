@@ -171,16 +171,23 @@ def register_mapping_studio_routes(
 
     @app.get("/mapping")
     def mapping_index():
+        """The main nav's "Mapping Studio openen" entry point.
+
+        Goes straight into the continuous, cross-source review queue (one
+        unified queue for every source, not one per source) rather than a
+        specific source's bulk page - see label_mapping_queue_global_start()
+        and label_mapping_queue_item()'s cross-source auto-advance. The bulk
+        list itself is still reachable at /mapping-labels for anyone who
+        wants to see/edit many rows on one page at once.
+        """
         sources = _training_pipeline_sources()
         if not sources:
             return render_template("mapping_empty.html")
         requested = str(request.args.get("source_id") or "").strip()
         valid_source_ids = {str(item["source_id"]) for item in sources}
         if requested in valid_source_ids:
-            source_id = requested
-        else:
-            source_id = _first_open_mapping_source(sources) or str(sources[0]["source_id"])
-        return redirect(url_for("label_mapping_studio", source_id=source_id))
+            return redirect(url_for("label_mapping_queue_start", source_id=requested))
+        return redirect(url_for("label_mapping_queue_global_start"))
 
     @app.get("/mapping-labels")
     def label_mapping_index():
