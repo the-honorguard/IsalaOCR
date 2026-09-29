@@ -29,6 +29,7 @@ from typing import Any, Callable
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
 
 from .json_api import json_error
+from .label_history import label_family_history, suggest_family_for_label
 from .mapping_lateral import field_lateral_side, field_lateral_suffix, relation_lateral_side
 from .relation_feedback import RELATION_FEEDBACK_REASONS
 from .recognition_ground_truth import (
@@ -304,6 +305,25 @@ def register_mapping_studio_routes(
             for item in mappings
             if str(item.get("relation_id") or "")
         }
+        # Pre-select a label that has been confirmed against exactly one field
+        # often enough elsewhere in the project, so a recurring label does not
+        # need to be picked by hand on every source (see label_history.py).
+        # Only relations without a mapping of their own yet are touched; an
+        # existing choice - confirmed or previously overridden - is never
+        # second-guessed.
+        label_history = label_family_history(
+            database.label_history_field_counts(), fields,
+            field_family=lambda field: field_lateral_suffix(field) or str(field.get("field_key") or ""),
+        )
+        known_families = {str(option["family"]) for option in field_options}
+        for relation in relations:
+            if str(relation.get("relation_id") or "") in mappings_by_relation:
+                continue
+            suggestion = suggest_family_for_label(str(relation.get("label_text") or ""), label_history)
+            if suggestion is None or suggestion[0] not in known_families:
+                continue
+            relation["auto_suggested_family"] = suggestion[0]
+            relation["auto_suggested_count"] = suggestion[1]
         relation_groups: list[dict[str, Any]] = []
         for relation in relations:
             panel_id = str(relation.get("panel_id") or relation.get("table_id") or "")
@@ -339,4 +359,5 @@ def register_mapping_studio_routes(
             header_total_label="labels",
             header_pending_label="te koppelen",
             header_accepted_label="gekoppeld",
+            auto_suggested_count=sum(1 for relation in relations if relation.get("auto_suggested_family")),
         )

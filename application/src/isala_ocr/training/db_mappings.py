@@ -41,6 +41,33 @@ class MappingsMixin:
         result["total"] = sum(result[status] for status in VALID_MAPPING_STATUSES)
         return result
 
+    def label_history_field_counts(self) -> list[dict[str, Any]]:
+        """How many sources have confirmed each observed label text against each field.
+
+        Used by Mapping Studio to pre-select a relation's functional field once an
+        operator has confirmed the same label often enough elsewhere, so a
+        recurring label (e.g. "Ejection Fraction", present on virtually every
+        source) does not need to be picked by hand again and again. Only
+        ``field_mappings`` rows made through the label-first flow have a
+        ``label_block_id``, so this naturally excludes the ROI-first Studio's
+        custom block mappings, which have no comparable label text to learn from.
+
+        One row per source at most contributes per (label, field) pair, since
+        ``field_mappings`` has a unique ``(source_id, field_key)`` constraint --
+        so this is a source count, not a raw confirmation count.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT b.text AS label_text, m.field_key AS field_key, COUNT(*) AS source_count
+                FROM field_mappings m
+                JOIN detected_blocks b ON b.block_id = m.label_block_id AND b.source_id = m.source_id
+                WHERE m.status = 'confirmed' AND m.label_block_id != '' AND TRIM(b.text) != ''
+                GROUP BY b.text, m.field_key
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     @staticmethod
     def _mapping_component_in_source(
         db: sqlite3.Connection, table: str, key_name: str, key_value: str, source_id: str
