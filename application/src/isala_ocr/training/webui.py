@@ -3917,6 +3917,7 @@ def create_web_app(
         database=database,
         workspace_root=workspace_root,
         enqueue_job=enqueue_job,
+        canonical_table_gt_mode=canonical_table_gt_mode,
     )
 
     def workflow_navigation_access() -> dict[str, bool]:

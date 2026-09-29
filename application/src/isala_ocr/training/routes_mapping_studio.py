@@ -36,6 +36,7 @@ from .recognition_ground_truth import (
     relation_column_eligible, relation_panel_id, save_unrecognized_panel_policy,
     table_studio_roles, table_studio_rows, unrecognized_panel_policy,
 )
+from .table_cell_ground_truth import list_ground_truth_sources
 from .table_panels import load_panel_profile
 from .table_semantics import load_assignments as load_table_semantic_assignments
 from .test_pipeline_sources import test_pipeline_source_ids
@@ -47,28 +48,45 @@ def register_mapping_studio_routes(
     database: Any,
     workspace_root: Callable[[], Path],
     enqueue_job: Callable[..., dict[str, Any]],
+    canonical_table_gt_mode: Callable[[], bool] = lambda: False,
 ) -> None:
     def _training_pipeline_sources() -> list[dict[str, Any]]:
-        """Every detection source except disposable proefpagina test runs.
+        """The sources an operator is actually expected to work through in
+        Mapping Studio, in canonical-GT (table_first) mode: only the ones
+        promoted to canonical Ground Truth in Stap 5's GT Studio, excluding
+        disposable proefpagina test runs.
 
-        The proefpagina (``/test-pipeline``) reruns an image through the
-        exact same pipeline and workspace as the training flow (that is the
-        point - see ``test_pipeline_sources.py``'s module docstring), which
-        means every "Testen" click permanently adds its own
-        ``detection_sources`` row indistinguishable from a real
-        training-pipeline source unless explicitly filtered. Every other
-        training-review page (Application output/value-review,
-        ``webui.py``/``routes_documents.py``) already excludes these via
-        ``test_pipeline_source_ids()``; Mapping Studio's "Bron" list and
-        review queue must do the same, or an operator ends up wading through
-        one-off test uploads mixed in with the sources they actually need to
-        review.
+        ``detection_sources`` accumulates a row for *every* image the
+        detector ever ran on automatically, long before an operator reviews
+        or approves anything - and separately, every proefpagina
+        ('/test-pipeline') rerun permanently adds its own row indistinguishable
+        from a real training-pipeline source (see ``test_pipeline_sources.py``'s
+        module docstring). Without both filters, Mapping Studio's "Bron" list
+        and review queue included both kinds of noise: on this project, 153
+        raw rows for roughly 30 sources an operator had actually curated
+        through GT Studio.
+
+        Every other training-review page already excludes proefpagina reruns
+        via ``test_pipeline_source_ids()``
+        (``webui.py``/``routes_documents.py``); the canonical-GT restriction
+        mirrors ``routes_detection_review.py``'s own use of
+        ``list_ground_truth_sources()`` to scope its "GT Studio" listing the
+        same way. A project not in canonical-GT mode has no such curated
+        subset to restrict to, so it keeps seeing every non-test source, as
+        before.
         """
         excluded = test_pipeline_source_ids(workspace_root())
-        return [
+        sources = [
             item for item in database.list_detection_sources()
             if str(item.get("source_id") or "") not in excluded
         ]
+        if canonical_table_gt_mode():
+            canonical_ids = {
+                str(item.get("source_id") or "")
+                for item in list_ground_truth_sources(workspace_root())
+            }
+            sources = [item for item in sources if str(item.get("source_id") or "") in canonical_ids]
+        return sources
 
     def _first_open_mapping_source(sources: list[dict[str, Any]]) -> str | None:
         """Return the first source that still needs Mapping Studio review.
