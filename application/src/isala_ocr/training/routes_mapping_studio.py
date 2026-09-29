@@ -38,6 +38,7 @@ from .recognition_ground_truth import (
 )
 from .table_panels import load_panel_profile
 from .table_semantics import load_assignments as load_table_semantic_assignments
+from .test_pipeline_sources import test_pipeline_source_ids
 
 
 def register_mapping_studio_routes(
@@ -47,6 +48,28 @@ def register_mapping_studio_routes(
     workspace_root: Callable[[], Path],
     enqueue_job: Callable[..., dict[str, Any]],
 ) -> None:
+    def _training_pipeline_sources() -> list[dict[str, Any]]:
+        """Every detection source except disposable proefpagina test runs.
+
+        The proefpagina (``/test-pipeline``) reruns an image through the
+        exact same pipeline and workspace as the training flow (that is the
+        point - see ``test_pipeline_sources.py``'s module docstring), which
+        means every "Testen" click permanently adds its own
+        ``detection_sources`` row indistinguishable from a real
+        training-pipeline source unless explicitly filtered. Every other
+        training-review page (Application output/value-review,
+        ``webui.py``/``routes_documents.py``) already excludes these via
+        ``test_pipeline_source_ids()``; Mapping Studio's "Bron" list and
+        review queue must do the same, or an operator ends up wading through
+        one-off test uploads mixed in with the sources they actually need to
+        review.
+        """
+        excluded = test_pipeline_source_ids(workspace_root())
+        return [
+            item for item in database.list_detection_sources()
+            if str(item.get("source_id") or "") not in excluded
+        ]
+
     def _first_open_mapping_source(sources: list[dict[str, Any]]) -> str | None:
         """Return the first source that still needs Mapping Studio review.
 
@@ -72,7 +95,7 @@ def register_mapping_studio_routes(
 
     @app.get("/mapping")
     def mapping_index():
-        sources = database.list_detection_sources()
+        sources = _training_pipeline_sources()
         if not sources:
             return render_template("mapping_empty.html")
         requested = str(request.args.get("source_id") or "").strip()
@@ -85,7 +108,7 @@ def register_mapping_studio_routes(
 
     @app.get("/mapping-labels")
     def label_mapping_index():
-        sources = database.list_detection_sources()
+        sources = _training_pipeline_sources()
         if not sources:
             return render_template("mapping_empty.html")
         requested = str(request.args.get("source_id") or "").strip()
@@ -430,7 +453,7 @@ def register_mapping_studio_routes(
             "mapping_labels_studio.html",
             source=context["source"],
             source_id=source_id,
-            sources=database.list_detection_sources(),
+            sources=_training_pipeline_sources(),
             relations=relations,
             relation_groups=relation_groups,
             mappings_by_relation=mappings_by_relation,
@@ -449,21 +472,52 @@ def register_mapping_studio_routes(
             queue_start_url=url_for("label_mapping_queue_start", source_id=source_id),
         )
 
-    @app.get("/mapping-labels/<source_id>/queue")
-    def label_mapping_queue_start(source_id: str):
-        """Jump into the one-at-a-time review queue at the first pending label."""
+    def _first_pending_in_source(source_id: str) -> str | None:
         context = _load_label_mapping_context(source_id)
         relations, mappings_by_relation = context["relations"], context["mappings_by_relation"]
         first_pending = next(
             (relation for relation in relations if _is_pending(str(relation["relation_id"]), mappings_by_relation)),
             None,
         )
-        if first_pending is None:
+        return str(first_pending["relation_id"]) if first_pending is not None else None
+
+    def _first_pending_in_sources(source_ids: list[str]) -> tuple[str, str] | None:
+        """The first (source_id, relation_id) with an open label, in ``source_ids`` order.
+
+        Used both by the global queue entry point and by the queue's own
+        auto-advance once a source runs out of pending labels, so working
+        through the whole project is one continuous flow: never back to the
+        bulk page, never back to the "Bron" dropdown, the same way Stap 5's
+        GT Studio moves on to the next source on its own once one is done.
+        """
+        for candidate_source_id in source_ids:
+            relation_id = _first_pending_in_source(candidate_source_id)
+            if relation_id is not None:
+                return candidate_source_id, relation_id
+        return None
+
+    @app.get("/mapping-labels/queue")
+    def label_mapping_queue_global_start():
+        """Jump straight into the project-wide queue, at the very first open
+        label of the first source that has one -- no source needs to be
+        picked by hand first.
+        """
+        all_source_ids = [str(item["source_id"]) for item in _training_pipeline_sources()]
+        found = _first_pending_in_sources(all_source_ids)
+        if found is None:
+            flash("Niets meer te doen: alle bronnen zijn volledig gekoppeld.", "success")
+            return redirect(url_for("label_mapping_index"))
+        next_source_id, relation_id = found
+        return redirect(url_for("label_mapping_queue_item", source_id=next_source_id, relation_id=relation_id))
+
+    @app.get("/mapping-labels/<source_id>/queue")
+    def label_mapping_queue_start(source_id: str):
+        """Jump into the one-at-a-time review queue at the first pending label."""
+        relation_id = _first_pending_in_source(source_id)
+        if relation_id is None:
             flash("Niets meer te doen: alle labels van deze bron zijn al gekoppeld.", "success")
             return redirect(url_for("label_mapping_studio", source_id=source_id))
-        return redirect(url_for(
-            "label_mapping_queue_item", source_id=source_id, relation_id=first_pending["relation_id"]
-        ))
+        return redirect(url_for("label_mapping_queue_item", source_id=source_id, relation_id=relation_id))
 
     @app.route("/mapping-labels/<source_id>/queue/<relation_id>", methods=["GET", "POST"])
     def label_mapping_queue_item(source_id: str, relation_id: str):
@@ -508,10 +562,25 @@ def register_mapping_studio_routes(
                 flash(f"Niet opgeslagen: {exc}", "error")
                 return redirect(url_for("label_mapping_queue_item", source_id=source_id, relation_id=relation_id))
             next_url = _next_pending_url(position)
-            if next_url is None:
-                flash("Alle labels van deze bron zijn doorlopen.", "success")
-                return redirect(url_for("label_mapping_studio", source_id=source_id))
-            return redirect(next_url)
+            if next_url is not None:
+                return redirect(next_url)
+            # This source is done: continue the same queue into the next
+            # source that still has an open label, instead of dropping back
+            # to the bulk page or the "Bron" picker -- see
+            # _first_pending_in_sources()'s docstring.
+            all_source_ids = [str(item["source_id"]) for item in _training_pipeline_sources()]
+            try:
+                remaining_source_ids = all_source_ids[all_source_ids.index(source_id) + 1:]
+            except ValueError:
+                remaining_source_ids = []
+            found = _first_pending_in_sources(remaining_source_ids)
+            if found is None:
+                flash("Alle bronnen zijn doorlopen: geen open labels meer.", "success")
+                return redirect(url_for("label_mapping_index"))
+            next_source_id, next_relation_id = found
+            return redirect(url_for(
+                "label_mapping_queue_item", source_id=next_source_id, relation_id=next_relation_id
+            ))
 
         previous_id = order[position - 1] if position > 0 else None
         next_id = order[position + 1] if position + 1 < len(order) else None
@@ -520,8 +589,13 @@ def register_mapping_studio_routes(
         current_family = ""
         if current_mapping and current_mapping.get("field_key"):
             current_family = field_lateral_suffix({"field_key": current_mapping["field_key"]}) or str(current_mapping["field_key"])
+        all_sources = _training_pipeline_sources()
+        source_index = next(
+            (index for index, item in enumerate(all_sources, start=1) if str(item["source_id"]) == source_id), None
+        )
         return render_template(
             "mapping_labels_queue.html",
+            source_index=source_index, source_total=len(all_sources),
             source=context["source"],
             source_id=source_id,
             relation=relation,

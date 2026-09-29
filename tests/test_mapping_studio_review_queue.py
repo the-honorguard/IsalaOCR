@@ -102,7 +102,7 @@ def test_confirming_advances_to_next_pending_and_saves(tmp_path: Path) -> None:
 
     body = _get_queue(app, SOURCE_ID, "relation-lv-ef")
     assert "Ejectiefractie" in body
-    assert "1 / 3" in body
+    assert "label 1/3" in body
 
     response = _post_queue(
         app, SOURCE_ID, "relation-lv-ef",
@@ -128,7 +128,12 @@ def test_skip_action_ignores_dropdown_and_leaves_relation_unmapped(tmp_path: Pat
     assert database.list_mappings(SOURCE_ID, status="confirmed") == []
 
 
-def test_last_pending_confirmation_returns_to_overview(tmp_path: Path) -> None:
+def test_last_pending_confirmation_with_no_other_source_returns_to_index(tmp_path: Path) -> None:
+    """With only one source in the project and nothing left pending anywhere,
+    the queue must stop at the project-wide index, not loop back to this
+    (now fully-mapped) source's own bulk page -- see
+    test_queue_continues_into_the_next_source_once_this_one_is_done for the
+    case where a next source *does* have open work."""
     app, _database = _make_app(tmp_path)
     for relation_id, family in (
         ("relation-lv-ef", "family:ejection_fraction"),
@@ -140,7 +145,43 @@ def test_last_pending_confirmation_returns_to_overview(tmp_path: Path) -> None:
         app, SOURCE_ID, "relation-lv-ed", mapping_queue_action="confirm", field_choice="family:ed_volume",
     )
     assert response.status_code == 302
-    assert response.headers["Location"].endswith(f"/mapping-labels/{SOURCE_ID}")
+    assert response.headers["Location"].endswith("/mapping-labels")
+
+
+def test_queue_continues_into_the_next_source_once_this_one_is_done(tmp_path: Path) -> None:
+    """The whole point of a queue: finishing one source's last label must
+    jump straight into the next source's first open label, never back to a
+    bulk page or the "Bron" picker."""
+    app, database = _make_app(tmp_path)
+    other_source = "other-source"
+    database.replace_generic_detection(
+        {
+            "source_id": other_source, "image_width": 200, "image_height": 100,
+            "render_path": f"source_renders/{other_source}.png", "detector_version": "test", "token_count": 2,
+        },
+        [
+            _block(f"label-{other_source}", role="label", text="Cardiac Output", column_index=0, row_index=0),
+            _block(f"value-{other_source}", role="value", text="5.0", column_index=1, row_index=0),
+        ],
+        [_relation(f"relation-{other_source}", label_block_id=f"label-{other_source}", value_block_id=f"value-{other_source}", row_index=0)],
+    )
+    # list_detection_sources() orders newest-detected-first; force other_source
+    # to sort *after* SOURCE_ID regardless of wall-clock timing, so it is
+    # actually in "the remaining sources" the queue continues into.
+    with database.connect() as db:
+        db.execute("UPDATE detection_sources SET detected_at='2000-01-01T00:00:00Z' WHERE source_id=?", (other_source,))
+
+    for relation_id, family in (
+        ("relation-lv-ef", "family:ejection_fraction"),
+        ("relation-lv-co", "family:cardiac_output"),
+    ):
+        _post_queue(app, SOURCE_ID, relation_id, mapping_queue_action="confirm", field_choice=family)
+
+    response = _post_queue(
+        app, SOURCE_ID, "relation-lv-ed", mapping_queue_action="confirm", field_choice="family:ed_volume",
+    )
+    assert response.status_code == 302
+    assert f"/mapping-labels/{other_source}/queue/relation-{other_source}" in response.headers["Location"]
 
 
 def test_queue_item_preselects_history_based_suggestion(tmp_path: Path) -> None:

@@ -23,7 +23,7 @@ window.addEventListener('DOMContentLoaded', () => {
 {% block content %}
 <section class="card mapping-queue-card">
   <div class="toolbar">
-    <div><span class="eyebrow">WACHTRIJ · {{ position }} / {{ total }}</span><h2 class="mono">{{ relation.label_text }}</h2></div>
+    <div><span class="eyebrow">WACHTRIJ · Bron {{ source_index or '?' }}/{{ source_total }} · label {{ position }}/{{ total }}</span><h2 class="mono">{{ relation.label_text }}</h2></div>
     <span class="pill">{{ pending_count }} nog te doen</span>
   </div>
 
