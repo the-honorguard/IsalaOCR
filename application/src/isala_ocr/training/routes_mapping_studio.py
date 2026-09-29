@@ -248,14 +248,26 @@ def register_mapping_studio_routes(
     @app.get("/mapping-labels/<source_id>/table-image/<table_id>")
     def label_mapping_table_image(source_id: str, table_id: str):
         """The source render cropped to one table's labels+values, for the
-        review queue's image overlay (see ``_table_crop_box()``)."""
+        review queue's image overlay (see ``_table_crop_box()``).
+
+        Despite the URL segment's name (kept for route stability), this
+        matches by *panel_id* first, falling back to the raw ``table_id``
+        only when no panel could be resolved - see the matching comment in
+        ``label_mapping_queue_item()`` for why ``table_id`` alone is not a
+        reliable grouping key.
+        """
         source = database.get_detection_source(source_id)
         if source is None:
             abort(404)
+        panel_by_id = {
+            str(panel.get("panel_id") or ""): panel
+            for panel in load_panel_profile(workspace_root()).get("panels") or []
+            if str(panel.get("panel_id") or "")
+        }
         relations = [
             item for item in database.list_detected_relations(source_id)
             if str(item.get("relation_type") or "") == "table_cell"
-            and str(item.get("table_id") or "") == table_id
+            and (relation_panel_id(item, panel_by_id) or str(item.get("table_id") or "")) == table_id
         ]
         crop = _table_crop_box(relations, int(source.get("image_width") or 0), int(source.get("image_height") or 0))
         if crop is None:
@@ -717,13 +729,26 @@ def register_mapping_studio_routes(
         # yellow box say what I picked" at a glance, not blind label/value
         # text pairs. Only the rows already loaded for this source (i.e.
         # already Table-Studio/eligibility-filtered) are drawn.
-        table_id = str(relation.get("table_id") or "")
-        table_relations = [item for item in relations if str(item.get("table_id") or "") == table_id]
+        # relation["table_id"] is not reliable for this: two spatially and
+        # semantically distinct physical tables (seen in practice: a left-
+        # ventricle block and a right-ventricle block on the same source)
+        # can share one canonical table_id, which would silently combine
+        # both into a single, badly-stretched crop with wrong overlay
+        # positions. relation["panel_id"] (already resolved per relation by
+        # relation_panel_id() above, via Stap 6/context_text - the same
+        # mechanism that disambiguates left/right for lateral fields) is the
+        # real, reliable grouping key; only fall back to table_id when the
+        # panel itself could not be recognized at all.
+        group_id = str(relation.get("panel_id") or relation.get("table_id") or "")
+        table_relations = [
+            item for item in relations
+            if str(item.get("panel_id") or item.get("table_id") or "") == group_id
+        ]
         source_width = int(context["source"].get("image_width") or 0)
         source_height = int(context["source"].get("image_height") or 0)
-        crop = _table_crop_box(table_relations, source_width, source_height) if table_id else None
+        crop = _table_crop_box(table_relations, source_width, source_height) if group_id else None
         table_image_url = (
-            url_for("label_mapping_table_image", source_id=source_id, table_id=table_id)
+            url_for("label_mapping_table_image", source_id=source_id, table_id=group_id)
             if crop is not None else None
         )
         image_aspect = f"{crop[2] - crop[0]}/{crop[3] - crop[1]}" if crop is not None else None

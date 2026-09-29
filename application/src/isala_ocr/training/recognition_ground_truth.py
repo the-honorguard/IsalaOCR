@@ -84,24 +84,41 @@ def relation_panel_id(relation: dict[str, Any], panel_by_id: dict[str, dict[str,
     A relation's own ``table_id`` is a per-source, per-detection-run
     identifier (hashed from canonical GT geometry) - it never matches the
     identifiers Table/Panel Setup or Table Studio use, which are project-wide
-    ``panel_id`` values. The only bridge between the two is ``context_text``,
-    which ``_enrich_relations_with_panel_context()`` stamps with the panel's
-    name and/or id at detection time. Shared by both Mapping Studio routes
+    ``panel_id`` values (and, in practice, is not even reliably one-to-one
+    with a single physical table: two geometrically unrelated tables have
+    been observed sharing one ``table_id``). The only bridge between
+    ``table_id`` and ``panel_id`` is ``context_text``, which
+    ``_enrich_relations_with_panel_context()`` stamps with the panel's name
+    and/or id at detection time, as its own ``|``-separated segment, for
+    relations that path produces. Shared by both Mapping Studio routes
     (``routes_mapping_studio.py`` and ``routes_roi_mapping_studio.py``) so a
     column role such as "Overslaan" (skip), set once in Table Studio, hides
     that column's relations consistently in either one.
+
+    Matching is by whole-word containment (every word of the panel_id or
+    panel name must appear, as its own token, somewhere in ``context_text``),
+    not by treating each ``|``-segment as one exact string to compare a
+    candidate against. Older/other detection paths never stamp a clean
+    identity segment at all and instead leave ``context_text`` as an
+    ordinary OCR'd phrase, e.g. "Right ventricle Volume Result" - exact
+    whole-segment comparison never matches "right" or "Rechts" against that
+    phrase, so every one of that source's relations silently fell back to
+    unresolved (``""``) regardless of how obviously the text names its side.
     """
     parts = [part.strip() for part in str(relation.get("context_text") or "").split("|")]
-    # Panel context is persisted as human-readable name plus optional id.
-    # Older mapping runs only persisted the name, so do not assume the id is
-    # always the second token.
-    normalized_parts = {normalize_text(part) for part in parts if part}
+    context_tokens: set[str] = set()
+    for part in parts:
+        if part:
+            context_tokens.update(normalize_text(part).split())
+    if not context_tokens:
+        return ""
     for panel_id, panel in panel_by_id.items():
-        panel_name = normalize_text(str(panel.get("name") or ""))
-        if normalize_text(panel_id) in normalized_parts or (
-            panel_name and panel_name in normalized_parts
-        ):
-            return panel_id
+        # Panel context is persisted as human-readable name plus optional id.
+        # Older mapping runs only persisted the name, so try both.
+        for candidate in (panel_id, str(panel.get("name") or "")):
+            candidate_tokens = set(normalize_text(str(candidate)).split())
+            if candidate_tokens and candidate_tokens <= context_tokens:
+                return panel_id
     return ""
 
 
