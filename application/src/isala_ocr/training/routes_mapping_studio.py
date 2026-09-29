@@ -231,6 +231,17 @@ def register_mapping_studio_routes(
                 "table_name": semantic_name,
                 "raster_row_index": raster_row,
                 "table_configured": configured,
+                # Distinguishes *why* a table isn't gated by Table Studio's
+                # column roles: panel_id being empty means Panel/Table Setup's
+                # geometry doesn't recognize where this table sits on this
+                # particular source image at all (relation_panel_id() found no
+                # containing panel box) -- a different, upstream problem from
+                # simply never having opened Table Studio for that panel.
+                # Both currently fall back to "let every column through"
+                # (relation_column_eligible()'s documented fail-open), so a
+                # table with unrecognized geometry silently bypasses even a
+                # correctly configured "Overslaan" column.
+                "panel_recognized": bool(panel_id),
             })
         relations.sort(key=lambda item: (
             str(item.get("panel_name") or ""),
