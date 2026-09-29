@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import cv2
-from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, url_for
+from flask import Flask, Response, abort, flash, g, has_request_context, jsonify, redirect, render_template, request, url_for
 
 from .json_api import json_error
 from .label_history import label_family_history, suggest_family_for_label
@@ -108,6 +108,32 @@ def register_mapping_studio_routes(
     cached_render_image: Callable[[Path], Any],
     canonical_table_gt_mode: Callable[[], bool] = lambda: False,
 ) -> None:
+    def _request_cached(key: str, factory: Callable[[], Any]) -> Any:
+        """Memoize an expensive helper for the lifetime of one HTTP request.
+
+        The queue's confirm/skip response rebuilds a full item context for
+        whichever relation comes next, on top of the current relation's own
+        context already built earlier in the same request - each of those
+        pulls table_studio_roles, the panel profile, project-wide label
+        history and every one of a source's relations from disk/SQLite.
+        Scanning past several already-finished sources for the next one with
+        open work (``_first_pending_in_sources()``) used to pay that same
+        cost again for every source it looked at. None of that changes
+        within a single request, so it is fetched once and reused - this is
+        the same pattern webui.py's own ``request_cached`` follows for
+        ``workspace_root()`` and friends, kept local here instead of wiring
+        it through as another shared callable.
+        """
+        if not has_request_context():
+            return factory()
+        cache = getattr(g, "_isala_mapping_studio_cache", None)
+        if cache is None:
+            cache = {}
+            g._isala_mapping_studio_cache = cache
+        if key not in cache:
+            cache[key] = factory()
+        return cache[key]
+
     def _training_pipeline_sources() -> list[dict[str, Any]]:
         """The sources an operator is actually expected to work through in
         Mapping Studio, in canonical-GT (table_first) mode: only the ones
@@ -131,20 +157,25 @@ def register_mapping_studio_routes(
         ``list_ground_truth_sources()`` to scope its "GT Studio" listing the
         same way. A project not in canonical-GT mode has no such curated
         subset to restrict to, so it keeps seeing every non-test source, as
-        before.
+        before. Reads the canonical-GT file and the proefpagina marker from
+        disk, so it is memoized per request (see ``_request_cached()``):
+        the queue's cross-source scan calls this on every source it looks
+        at, and none of it changes mid-request.
         """
-        excluded = test_pipeline_source_ids(workspace_root())
-        sources = [
-            item for item in database.list_detection_sources()
-            if str(item.get("source_id") or "") not in excluded
-        ]
-        if canonical_table_gt_mode():
-            canonical_ids = {
-                str(item.get("source_id") or "")
-                for item in list_ground_truth_sources(workspace_root())
-            }
-            sources = [item for item in sources if str(item.get("source_id") or "") in canonical_ids]
-        return sources
+        def _compute() -> list[dict[str, Any]]:
+            excluded = test_pipeline_source_ids(workspace_root())
+            sources = [
+                item for item in database.list_detection_sources()
+                if str(item.get("source_id") or "") not in excluded
+            ]
+            if canonical_table_gt_mode():
+                canonical_ids = {
+                    str(item.get("source_id") or "")
+                    for item in list_ground_truth_sources(workspace_root())
+                }
+                sources = [item for item in sources if str(item.get("source_id") or "") in canonical_ids]
+            return sources
+        return _request_cached("training_pipeline_sources", _compute)
 
     def _first_open_mapping_source(sources: list[dict[str, Any]]) -> str | None:
         """Return the first source that still needs Mapping Studio review.
@@ -294,6 +325,22 @@ def register_mapping_studio_routes(
         return Response(encoded.tobytes(), mimetype="image/png", headers={"Cache-Control": "no-store"})
 
     def _load_label_mapping_context(source_id: str) -> dict[str, Any]:
+        """Memoized per request (see ``_request_cached()``): the queue's
+        confirm/skip POST already builds this once for the current relation,
+        then again for whichever relation comes next in the JSON response -
+        and, when a source runs out of pending labels, once per subsequent
+        source the cross-source scan looks at. None of that changes within
+        one request, and this is by far the most expensive of those repeated
+        computations (table_studio_roles, the panel profile, every relation
+        of the source, and a project-wide label-history query), so without
+        this a single confirm/skip click could rebuild it several times
+        over.
+        """
+        return _request_cached(
+            f"label_mapping_context:{source_id}", lambda: _load_label_mapping_context_impl(source_id)
+        )
+
+    def _load_label_mapping_context_impl(source_id: str) -> dict[str, Any]:
         """Build everything both the bulk Mapping Studio page and the
         one-at-a-time review queue need: the eligible, ordered relations
         (each annotated with panel/table/row context and, when unmapped, an
@@ -622,6 +669,33 @@ def register_mapping_studio_routes(
         )
         return str(first_pending["relation_id"]) if first_pending is not None else None
 
+    def _source_might_have_pending(source_id: str) -> bool:
+        """Cheap, approximate stand-in for ``_first_pending_in_source()``,
+        reusing ``_first_open_mapping_source()``'s own (already-cheap) test:
+        any non-confirmed table_cell relation with a label, straight from
+        ``list_detected_relations()``'s LEFT JOIN - no Table Studio roles,
+        panel profile, table geometry or project-wide label-history query.
+
+        Used only to narrow down which source to fully load next when
+        scanning past several already-finished sources
+        (``_first_pending_in_sources()``): each of those costs a real
+        query either way, but skipping the *expensive* computation for a
+        source that turns out to have nothing open anyway is what keeps
+        confirming the last label of a source fast even late in a large
+        project. The source the scan actually lands on is still loaded in
+        full (via ``_first_pending_in_source()``) before use, so a rare false
+        positive here (this cheap check sees an open relation that Table
+        Studio eligibility would later exclude) only costs one extra full
+        load on that source before the scan moves on - it can never make the
+        queue show something this cheap check alone would not.
+        """
+        return any(
+            str(relation.get("relation_type") or "") == "table_cell"
+            and str(relation.get("label_text") or "").strip()
+            and str(relation.get("mapping_status") or "") != "confirmed"
+            for relation in database.list_detected_relations(source_id)
+        )
+
     def _first_pending_in_sources(source_ids: list[str]) -> tuple[str, str] | None:
         """The first (source_id, relation_id) with an open label, in ``source_ids`` order.
 
@@ -632,6 +706,8 @@ def register_mapping_studio_routes(
         GT Studio moves on to the next source on its own once one is done.
         """
         for candidate_source_id in source_ids:
+            if not _source_might_have_pending(candidate_source_id):
+                continue
             relation_id = _first_pending_in_source(candidate_source_id)
             if relation_id is not None:
                 return candidate_source_id, relation_id
