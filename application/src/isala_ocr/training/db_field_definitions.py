@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from .db_constants import VALID_FIELD_TYPES, utc_now
+from .generic_detection import normalize_text
 
 
 class FieldDefinitionsMixin:
@@ -86,24 +87,26 @@ class FieldDefinitionsMixin:
         (ED Volume's number landing in Cardiac Density, and so on).
 
         An alias is removed from a field when it is a built-in alias of a
-        *different* field in the same group and not one of its own. Fields of
-        different groups (Left/Right ventricle) legitimately share labels, so
-        they are never compared.
+        *different* field and not one of its own. Left/Right ventricle fields
+        legitimately share labels, which is covered by each keeping its own
+        aliases; aliases leaked across groups (e.g. "Heart rate" in a
+        ventricle field) are removed as well.
+
+        Aliases are compared with ``normalize_text`` -- the same normalisation
+        ``schema_candidate_score`` uses for exact-alias matches -- so
+        punctuation/accent variants of a leaked alias are caught as well.
         """
-        def norm(text: Any) -> str:
-            return re.sub(r"\s+", " ", str(text or "").casefold()).strip()
+        norm = normalize_text
 
         own: dict[str, set[str]] = {}
-        group_of: dict[str, str] = {}
         for item in definitions:
             key = FieldDefinitionsMixin._safe_field_key(str(item.get("field_key") or item.get("key") or ""))
             own[key] = {norm(value) for value in item.get("aliases", []) if norm(value)}
-            group_of[key] = str(item.get("group_name") or item.get("group") or "")
         for key, aliases_own in own.items():
             foreign = {
                 alias
                 for other, other_aliases in own.items()
-                if other != key and group_of[other] == group_of[key]
+                if other != key
                 for alias in other_aliases
             } - aliases_own
             if not foreign:

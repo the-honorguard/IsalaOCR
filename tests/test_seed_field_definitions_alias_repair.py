@@ -25,6 +25,7 @@ def test_seed_removes_aliases_leaked_from_neighbouring_fields(tmp_path):
         _definition("lv_ed_volume", "Left ventricle", "ED Volume"),
         _definition("lv_es_volume", "Left ventricle", "ES Volume"),
         _definition("rv_ed_volume", "Right ventricle", "ED Volume"),
+        _definition("study.heart_rate_bpm", "Study information", "Heart rate"),
     ]
     database.seed_field_definitions(definitions)
     # Simulate the old alias-learning bug: neighbours' labels leaked in.
@@ -35,7 +36,7 @@ def test_seed_removes_aliases_leaked_from_neighbouring_fields(tmp_path):
         )
         db.execute(
             "UPDATE field_definitions SET aliases_json=? WHERE field_key='lv_ed_volume'",
-            (json.dumps(["ED Volume", "ES Volume"]),),
+            (json.dumps(["ED Volume", "ES.Volume", "Heart rate"]),),
         )
 
     database.seed_field_definitions(definitions)
