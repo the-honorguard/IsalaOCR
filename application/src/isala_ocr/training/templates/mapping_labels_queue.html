@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block title %}Mapping Studio · wachtrij · IsalaOCR{% endblock %}
+{% block heading %}Mapping Studio · wachtrij{% endblock %}
+{% block subtitle %}Eén label per keer: bevestig het voorgestelde veld of kies zelf, dan meteen door naar het volgende.{% endblock %}
+{% block head %}
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+  const select = document.getElementById('field_choice');
+  if (select) select.focus();
+  document.addEventListener('keydown', event => {
+    if (event.target && (event.target.tagName === 'TEXTAREA')) return;
+    if (event.key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      document.getElementById('confirm-choice').click();
+    }
+    if (event.altKey && event.key.toLowerCase() === 'n') { event.preventDefault(); document.getElementById('skip-choice').click(); }
+    if (event.altKey && event.key === 'ArrowLeft') { const a = document.getElementById('nav-previous'); if (a) a.click(); }
+    if (event.altKey && event.key === 'ArrowRight') { const a = document.getElementById('nav-next'); if (a) a.click(); }
+  });
+});
+</script>
+{% endblock %}
+{% block content %}
+<section class="card mapping-queue-card">
+  <div class="toolbar">
+    <div><span class="eyebrow">WACHTRIJ · {{ position }} / {{ total }}</span><h2 class="mono">{{ relation.label_text }}</h2></div>
+    <span class="pill">{{ pending_count }} nog te doen</span>
+  </div>
+
+  <div class="mapping-queue-meta">
+    {% set table_display_name = relation.table_name or (relation.panel_name if relation.panel_name and relation.panel_name != 'Tabel' else '') %}
+    <span class="mapping-table-tag {% if not table_display_name %}is-unset{% endif %}">{{ table_display_name or 'Tabel niet benoemd' }}</span>
+    <span>Rij {{ relation.raster_row_index + 1 }} · Waardekolom K{{ relation.value_column_index + 1 }}</span>
+    <span>Voorbeeldwaarde <b class="mono">{{ relation.value_text or '—' }}</b></span>
+    {% if is_confirmed %}<span class="mapping-status ok">Al gekoppeld</span>{% endif %}
+  </div>
+
+  {% if relation.auto_suggested_family and not is_confirmed %}
+  <div class="notice">Voorgesteld op basis van {{ relation.auto_suggested_count }}x eerdere bevestiging van dit label. Controleer en bevestig, of kies een ander veld.</div>
+  {% endif %}
+
+  <form method="post" class="mapping-queue-form">
+    <label class="mapping-field"><span>Algemene veldnaam</span>
+      <select id="field_choice" name="field_choice">
+        <option value="">Niet koppelen</option>
+        {% for field in field_options %}
+        <option value="family:{{ field.family }}"
+          {% if current_family == field.family %}selected
+          {% elif not current_family and relation.auto_suggested_family == field.family %}selected{% endif %}
+        >{{ field.display_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions mapping-queue-actions">
+      <button id="confirm-choice" name="mapping_queue_action" value="confirm" class="primary" type="submit">✓ Bevestigen (Enter)</button>
+      <button id="skip-choice" name="mapping_queue_action" value="skip" type="submit" formnovalidate>Niet koppelen (Alt+N)</button>
+    </div>
+  </form>
+
+  <div class="actions detail-navigation">
+    {% if previous_url %}<a id="nav-previous" class="button" href="{{ previous_url }}">← Vorige (Alt+←)</a>{% endif %}
+    {% if next_url %}<a id="nav-next" class="button" href="{{ next_url }}">Volgende → (Alt+→)</a>{% endif %}
+    <a class="button" href="{{ overview_url }}">Terug naar overzicht</a>
+  </div>
+</section>
+<style>
+.mapping-queue-card{max-width:720px;margin:0 auto}
+.mapping-queue-meta{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:10px 0 4px;color:var(--muted);font-size:12px}
+.mapping-queue-meta b{color:var(--text)}
+.mapping-queue-form{margin-top:16px;display:grid;gap:14px}
+.mapping-queue-form select{width:100%;padding:10px;font-size:15px}
+.mapping-queue-actions{gap:10px}
+.mapping-table-tag{display:inline-block;padding:2px 7px;border:1px solid var(--line);border-radius:999px;font-size:10px;color:var(--muted)}
+.mapping-table-tag.is-unset{border-style:dashed;color:var(--warn,#c99a3a)}
+.mapping-status{padding:5px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:10px}
+.mapping-status.ok{border-color:var(--ok);color:var(--ok)}
+</style>
+{% endblock %}

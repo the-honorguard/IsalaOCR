@@ -138,9 +138,16 @@ def register_mapping_studio_routes(
         result["stats"] = database.relation_feedback_stats()
         return jsonify(result)
 
-    @app.route("/mapping-labels/<source_id>", methods=["GET", "POST"])
-    def label_mapping_studio(source_id: str):
-        """Label-first Mapping Studio, independent of ROI review."""
+    def _load_label_mapping_context(source_id: str) -> dict[str, Any]:
+        """Build everything both the bulk Mapping Studio page and the
+        one-at-a-time review queue need: the eligible, ordered relations
+        (each annotated with panel/table/row context and, when unmapped, an
+        ``auto_suggested_family``/``auto_suggested_count`` per
+        ``label_history.py``), the generic field dropdown options, and the
+        current mappings by relation. Split out so the queue view does not
+        have to re-derive raster rows, panel names and history suggestions
+        with its own copy of this logic.
+        """
         source = database.get_detection_source(source_id)
         if source is None:
             abort(404)
@@ -251,54 +258,6 @@ def register_mapping_studio_routes(
 
         field_options = generic_field_options()
 
-        if request.method == "POST":
-            action = str(request.form.get("label_mapping_action") or "save").strip().lower()
-            if action == "rebuild":
-                job = enqueue_job("20")
-                flash("Mappingvoorstellen opnieuw opgebouwd; controleer de nieuwe voorstellen zodra de taak gereed is.", "success")
-                return redirect(url_for("label_mapping_studio", source_id=source_id, job_id=job["job_id"]))
-            if action != "save":
-                abort(400)
-            assignments = [
-                {
-                    "relation_id": relation_id,
-                    "field_key": str(request.form.get(f"field_{relation_id}") or "").strip(),
-                    "notes": "label-first mapping",
-                }
-                for relation_id in request.form.getlist("relation_id")
-                if relation_id in relations_by_id
-            ]
-            resolution_error = ""
-            for assignment in assignments:
-                selected = assignment["field_key"]
-                if not selected.startswith("family:"):
-                    continue
-                family = selected.removeprefix("family:")
-                relation = relations_by_id[assignment["relation_id"]]
-                side = relation_lateral_side(relation)
-                candidates = [
-                    field for field in fields
-                    if (field_lateral_suffix(field) or str(field.get("field_key") or "")) == family
-                    and (not side or not field_lateral_side(field) or field_lateral_side(field) == side)
-                ]
-                if len(candidates) != 1:
-                    resolution_error = f"Kan algemene veldnaam '{family}' niet eenduidig koppelen aan de gekozen tabel/panel."
-                    break
-                assignment["field_key"] = str(candidates[0]["field_key"])
-            if resolution_error:
-                flash(f"Labelmappings niet opgeslagen: {resolution_error}", "error")
-                return redirect(url_for("label_mapping_studio", source_id=source_id))
-            try:
-                result = database.sync_relation_mappings(source_id, assignments)
-            except (KeyError, ValueError) as exc:
-                flash(f"Labelmappings niet opgeslagen: {exc}", "error")
-            else:
-                flash(
-                    f"{result['saved']} labelmapping(s) opgeslagen, {result['removed']} verwijderd.",
-                    "success",
-                )
-            return redirect(url_for("label_mapping_studio", source_id=source_id))
-
         mappings = database.list_mappings(source_id)
         mappings_by_relation = {
             str(item["relation_id"]): item
@@ -324,6 +283,91 @@ def register_mapping_studio_routes(
                 continue
             relation["auto_suggested_family"] = suggestion[0]
             relation["auto_suggested_count"] = suggestion[1]
+
+        return {
+            "source": source,
+            "fields": fields,
+            "field_options": field_options,
+            "relations": relations,
+            "relations_by_id": relations_by_id,
+            "mappings_by_relation": mappings_by_relation,
+            "table_roles_configured": bool(column_roles),
+        }
+
+    def _resolve_family_assignment(
+        selected: str, relation: dict[str, Any], fields: list[dict[str, Any]]
+    ) -> tuple[str, str]:
+        """Resolve a posted ``family:<name>`` choice to one concrete field_key.
+
+        Returns ``(field_key, error_message)``; ``error_message`` is empty on
+        success. A bare (non-``family:``) value, typically ``""`` for "Niet
+        koppelen", passes through unchanged. Shared by the bulk save and the
+        one-relation-at-a-time review queue so both apply the exact same
+        left/right disambiguation.
+        """
+        if not selected.startswith("family:"):
+            return selected, ""
+        family = selected.removeprefix("family:")
+        side = relation_lateral_side(relation)
+        candidates = [
+            field for field in fields
+            if (field_lateral_suffix(field) or str(field.get("field_key") or "")) == family
+            and (not side or not field_lateral_side(field) or field_lateral_side(field) == side)
+        ]
+        if len(candidates) != 1:
+            return selected, f"Kan algemene veldnaam '{family}' niet eenduidig koppelen aan de gekozen tabel/panel."
+        return str(candidates[0]["field_key"]), ""
+
+    def _is_pending(relation_id: str, mappings_by_relation: dict[str, Any]) -> bool:
+        return str(mappings_by_relation.get(relation_id, {}).get("status") or "") != "confirmed"
+
+    @app.route("/mapping-labels/<source_id>", methods=["GET", "POST"])
+    def label_mapping_studio(source_id: str):
+        """Label-first Mapping Studio, independent of ROI review."""
+        if request.method == "POST":
+            action = str(request.form.get("label_mapping_action") or "save").strip().lower()
+            if action == "rebuild":
+                job = enqueue_job("20")
+                flash("Mappingvoorstellen opnieuw opgebouwd; controleer de nieuwe voorstellen zodra de taak gereed is.", "success")
+                return redirect(url_for("label_mapping_studio", source_id=source_id, job_id=job["job_id"]))
+            if action != "save":
+                abort(400)
+            context = _load_label_mapping_context(source_id)
+            fields, relations_by_id = context["fields"], context["relations_by_id"]
+            assignments = [
+                {
+                    "relation_id": relation_id,
+                    "field_key": str(request.form.get(f"field_{relation_id}") or "").strip(),
+                    "notes": "label-first mapping",
+                }
+                for relation_id in request.form.getlist("relation_id")
+                if relation_id in relations_by_id
+            ]
+            resolution_error = ""
+            for assignment in assignments:
+                resolved, error = _resolve_family_assignment(
+                    assignment["field_key"], relations_by_id[assignment["relation_id"]], fields
+                )
+                if error:
+                    resolution_error = error
+                    break
+                assignment["field_key"] = resolved
+            if resolution_error:
+                flash(f"Labelmappings niet opgeslagen: {resolution_error}", "error")
+                return redirect(url_for("label_mapping_studio", source_id=source_id))
+            try:
+                result = database.sync_relation_mappings(source_id, assignments)
+            except (KeyError, ValueError) as exc:
+                flash(f"Labelmappings niet opgeslagen: {exc}", "error")
+            else:
+                flash(
+                    f"{result['saved']} labelmapping(s) opgeslagen, {result['removed']} verwijderd.",
+                    "success",
+                )
+            return redirect(url_for("label_mapping_studio", source_id=source_id))
+
+        context = _load_label_mapping_context(source_id)
+        relations, mappings_by_relation = context["relations"], context["mappings_by_relation"]
         relation_groups: list[dict[str, Any]] = []
         for relation in relations:
             panel_id = str(relation.get("panel_id") or relation.get("table_id") or "")
@@ -334,30 +378,112 @@ def register_mapping_studio_routes(
                     "relations": [],
                 })
             relation_groups[-1]["relations"].append(relation)
+        pending_count = sum(1 for relation in relations if _is_pending(str(relation["relation_id"]), mappings_by_relation))
         return render_template(
             "mapping_labels_studio.html",
-            source=source,
+            source=context["source"],
             source_id=source_id,
             sources=database.list_detection_sources(),
             relations=relations,
             relation_groups=relation_groups,
             mappings_by_relation=mappings_by_relation,
-            fields=fields,
-            field_options=field_options,
-            table_roles_configured=bool(column_roles),
+            fields=context["fields"],
+            field_options=context["field_options"],
+            table_roles_configured=context["table_roles_configured"],
             header_counts={
                 "total": len(relations),
-                "pending": sum(
-                    1 for relation in relations
-                    if str(mappings_by_relation.get(str(relation["relation_id"]), {}).get("status") or "") != "confirmed"
-                ),
-                "accepted": sum(
-                    1 for relation in relations
-                    if str(mappings_by_relation.get(str(relation["relation_id"]), {}).get("status") or "") == "confirmed"
-                ),
+                "pending": pending_count,
+                "accepted": len(relations) - pending_count,
             },
             header_total_label="labels",
             header_pending_label="te koppelen",
             header_accepted_label="gekoppeld",
             auto_suggested_count=sum(1 for relation in relations if relation.get("auto_suggested_family")),
+            queue_start_url=url_for("label_mapping_queue_start", source_id=source_id),
+        )
+
+    @app.get("/mapping-labels/<source_id>/queue")
+    def label_mapping_queue_start(source_id: str):
+        """Jump into the one-at-a-time review queue at the first pending label."""
+        context = _load_label_mapping_context(source_id)
+        relations, mappings_by_relation = context["relations"], context["mappings_by_relation"]
+        first_pending = next(
+            (relation for relation in relations if _is_pending(str(relation["relation_id"]), mappings_by_relation)),
+            None,
+        )
+        if first_pending is None:
+            flash("Niets meer te doen: alle labels van deze bron zijn al gekoppeld.", "success")
+            return redirect(url_for("label_mapping_studio", source_id=source_id))
+        return redirect(url_for(
+            "label_mapping_queue_item", source_id=source_id, relation_id=first_pending["relation_id"]
+        ))
+
+    @app.route("/mapping-labels/<source_id>/queue/<relation_id>", methods=["GET", "POST"])
+    def label_mapping_queue_item(source_id: str, relation_id: str):
+        """Review exactly one label at a time: confirm/skip, then jump straight
+        to the next pending one, so working through a source's labels never
+        requires re-opening the bulk form or re-finding your place in it.
+        """
+        context = _load_label_mapping_context(source_id)
+        fields, relations, relations_by_id = context["fields"], context["relations"], context["relations_by_id"]
+        mappings_by_relation = context["mappings_by_relation"]
+        relation = relations_by_id.get(relation_id)
+        if relation is None:
+            abort(404)
+        order = [str(item["relation_id"]) for item in relations]
+        position = order.index(relation_id)
+
+        def _next_pending_url(after_index: int) -> str | None:
+            for candidate_id in order[after_index + 1:]:
+                if _is_pending(candidate_id, mappings_by_relation):
+                    return url_for("label_mapping_queue_item", source_id=source_id, relation_id=candidate_id)
+            return None
+
+        if request.method == "POST":
+            queue_action = str(request.form.get("mapping_queue_action") or "confirm").strip().lower()
+            selected = "" if queue_action == "skip" else str(request.form.get("field_choice") or "").strip()
+            resolved, error = _resolve_family_assignment(selected, relation, fields)
+            if error:
+                flash(f"Niet opgeslagen: {error}", "error")
+                return redirect(url_for("label_mapping_queue_item", source_id=source_id, relation_id=relation_id))
+            try:
+                database.sync_relation_mappings(
+                    source_id, [{"relation_id": relation_id, "field_key": resolved, "notes": "label-first mapping"}]
+                )
+            except (KeyError, ValueError) as exc:
+                flash(f"Niet opgeslagen: {exc}", "error")
+                return redirect(url_for("label_mapping_queue_item", source_id=source_id, relation_id=relation_id))
+            next_url = _next_pending_url(position)
+            if next_url is None:
+                flash("Alle labels van deze bron zijn doorlopen.", "success")
+                return redirect(url_for("label_mapping_studio", source_id=source_id))
+            return redirect(next_url)
+
+        previous_id = order[position - 1] if position > 0 else None
+        next_id = order[position + 1] if position + 1 < len(order) else None
+        pending_count = sum(1 for rid in order if _is_pending(rid, mappings_by_relation))
+        current_mapping = mappings_by_relation.get(relation_id)
+        current_family = ""
+        if current_mapping and current_mapping.get("field_key"):
+            current_family = field_lateral_suffix({"field_key": current_mapping["field_key"]}) or str(current_mapping["field_key"])
+        return render_template(
+            "mapping_labels_queue.html",
+            source=context["source"],
+            source_id=source_id,
+            relation=relation,
+            field_options=context["field_options"],
+            current_family=current_family,
+            is_confirmed=bool(current_mapping and current_mapping.get("status") == "confirmed"),
+            position=position + 1,
+            total=len(order),
+            pending_count=pending_count,
+            previous_url=(
+                url_for("label_mapping_queue_item", source_id=source_id, relation_id=previous_id)
+                if previous_id else None
+            ),
+            next_url=(
+                url_for("label_mapping_queue_item", source_id=source_id, relation_id=next_id)
+                if next_id else None
+            ),
+            overview_url=url_for("label_mapping_studio", source_id=source_id),
         )
