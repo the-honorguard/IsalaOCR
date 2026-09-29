@@ -40,9 +40,13 @@ window.addEventListener('DOMContentLoaded', () => {
   <div class="notice">Voorgesteld op basis van {{ relation.auto_suggested_count }}x eerdere bevestiging van dit label. Controleer en bevestig, of kies een ander veld.</div>
   {% endif %}
 
+  {% if relation.blocked_unrecognized_panel %}
+  <div class="notice notice-blocked">Geblokkeerd: Panel Setup herkent deze tabel niet op deze bron, dus koppelen kan niet totdat dat is gecorrigeerd. Je kunt de rij wel overslaan om verder te gaan.</div>
+  {% endif %}
+
   <form method="post" class="mapping-queue-form">
     <label class="mapping-field"><span>Algemene veldnaam</span>
-      <select id="field_choice" name="field_choice">
+      <select id="field_choice" name="field_choice" {% if relation.blocked_unrecognized_panel %}disabled{% endif %}>
         <option value="">Niet koppelen</option>
         {% for field in field_options %}
         <option value="family:{{ field.family }}"
@@ -53,7 +57,7 @@ window.addEventListener('DOMContentLoaded', () => {
       </select>
     </label>
     <div class="actions mapping-queue-actions">
-      <button id="confirm-choice" name="mapping_queue_action" value="confirm" class="primary" type="submit">✓ Bevestigen (Enter)</button>
+      <button id="confirm-choice" name="mapping_queue_action" value="confirm" class="primary" type="submit" {% if relation.blocked_unrecognized_panel %}disabled title="Eerst Panel Setup corrigeren"{% endif %}>✓ Bevestigen (Enter)</button>
       <button id="skip-choice" name="mapping_queue_action" value="skip" type="submit" formnovalidate>Niet koppelen (Alt+N)</button>
     </div>
   </form>
@@ -76,5 +80,6 @@ window.addEventListener('DOMContentLoaded', () => {
 .mapping-status{padding:5px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:10px}
 .mapping-status.ok{border-color:var(--ok);color:var(--ok)}
 .mapping-unconfigured-tag{border-color:var(--warn,#c99a3a);color:var(--warn,#c99a3a);border-style:dashed}
+.notice-blocked{border-color:var(--danger,#c94a4a);color:var(--danger,#c94a4a)}
 </style>
 {% endblock %}

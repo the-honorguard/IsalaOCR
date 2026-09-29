@@ -33,7 +33,8 @@ from .label_history import label_family_history, suggest_family_for_label
 from .mapping_lateral import field_lateral_side, field_lateral_suffix, relation_lateral_side
 from .relation_feedback import RELATION_FEEDBACK_REASONS
 from .recognition_ground_truth import (
-    relation_column_eligible, relation_panel_id, table_studio_roles, table_studio_rows,
+    relation_column_eligible, relation_panel_id, save_unrecognized_panel_policy,
+    table_studio_roles, table_studio_rows, unrecognized_panel_policy,
 )
 from .table_panels import load_panel_profile
 from .table_semantics import load_assignments as load_table_semantic_assignments
@@ -159,6 +160,7 @@ def register_mapping_studio_routes(
         ]
         column_roles = table_studio_roles(workspace_root())
         active_rows = table_studio_rows(workspace_root())
+        panel_policy = unrecognized_panel_policy(workspace_root())
         panel_profile = load_panel_profile(workspace_root())
         # Stap 6 ("Tabelregio selecteren") is where an operator explicitly
         # assigns each table region a semantic name (typically left/right).
@@ -216,6 +218,13 @@ def register_mapping_studio_routes(
             panel_id = relation_panel_id(relation, panel_by_id)
             raster_row = relation_raster_row(relation, panel_id)
             configured = panel_id in column_roles
+            # Display eligibility deliberately never hides an unrecognized-
+            # panel relation (unlike the automatic suggesters in mapping.py /
+            # mapping_fast.py, which do apply panel_policy here): an operator
+            # reviewing this list needs to *see* the row to notice Panel Setup
+            # is wrong for it at all. "block" instead disables saving it
+            # below (``blocked_unrecognized_panel``), which keeps the row
+            # visible rather than making it vanish without explanation.
             if not relation_column_eligible(relation, panel_by_id=panel_by_id, column_roles=column_roles):
                 continue
             if panel_id in active_rows and raster_row not in set(active_rows[panel_id]):
@@ -242,6 +251,12 @@ def register_mapping_studio_routes(
                 # table with unrecognized geometry silently bypasses even a
                 # correctly configured "Overslaan" column.
                 "panel_recognized": bool(panel_id),
+                # Enforced at save time (both the bulk form and the queue),
+                # not here: see the comment above relation_column_eligible().
+                # Only meaningful when Panel Setup defines panels at all - a
+                # project that has none configured has nothing to be
+                # "unrecognized" against.
+                "blocked_unrecognized_panel": bool(panel_policy == "block" and not panel_id and panel_by_id),
             })
         relations.sort(key=lambda item: (
             str(item.get("panel_name") or ""),
@@ -303,6 +318,7 @@ def register_mapping_studio_routes(
             "relations_by_id": relations_by_id,
             "mappings_by_relation": mappings_by_relation,
             "table_roles_configured": bool(column_roles),
+            "panel_policy": panel_policy,
         }
 
     def _resolve_family_assignment(
@@ -341,6 +357,20 @@ def register_mapping_studio_routes(
                 job = enqueue_job("20")
                 flash("Mappingvoorstellen opnieuw opgebouwd; controleer de nieuwe voorstellen zodra de taak gereed is.", "success")
                 return redirect(url_for("label_mapping_studio", source_id=source_id, job_id=job["job_id"]))
+            if action == "set_panel_policy":
+                policy = str(request.form.get("panel_policy") or "").strip().lower()
+                try:
+                    save_unrecognized_panel_policy(workspace_root(), policy)
+                except ValueError as exc:
+                    flash(str(exc), "error")
+                else:
+                    flash(
+                        "Niet-herkende panelen worden nu geblokkeerd voor mapping."
+                        if policy == "block" else
+                        "Niet-herkende panelen mogen weer gemapt worden (oud gedrag).",
+                        "success",
+                    )
+                return redirect(url_for("label_mapping_studio", source_id=source_id))
             if action != "save":
                 abort(400)
             context = _load_label_mapping_context(source_id)
@@ -356,9 +386,15 @@ def register_mapping_studio_routes(
             ]
             resolution_error = ""
             for assignment in assignments:
-                resolved, error = _resolve_family_assignment(
-                    assignment["field_key"], relations_by_id[assignment["relation_id"]], fields
-                )
+                relation = relations_by_id[assignment["relation_id"]]
+                if assignment["field_key"] and relation.get("blocked_unrecognized_panel"):
+                    resolution_error = (
+                        f"'{relation.get('label_text')}' kan niet gekoppeld worden: Panel Setup herkent deze "
+                        "tabel niet op deze bron. Corrigeer Panel Setup, of zet het beleid hierboven op "
+                        "'toestaan' als je dit bewust wilt negeren."
+                    )
+                    break
+                resolved, error = _resolve_family_assignment(assignment["field_key"], relation, fields)
                 if error:
                     resolution_error = error
                     break
@@ -453,6 +489,13 @@ def register_mapping_studio_routes(
         if request.method == "POST":
             queue_action = str(request.form.get("mapping_queue_action") or "confirm").strip().lower()
             selected = "" if queue_action == "skip" else str(request.form.get("field_choice") or "").strip()
+            if selected and relation.get("blocked_unrecognized_panel"):
+                flash(
+                    "Niet opgeslagen: Panel Setup herkent deze tabel niet op deze bron. Corrigeer Panel Setup, "
+                    "of zet het beleid in het overzicht op 'toestaan' als je dit bewust wilt negeren.",
+                    "error",
+                )
+                return redirect(url_for("label_mapping_queue_item", source_id=source_id, relation_id=relation_id))
             resolved, error = _resolve_family_assignment(selected, relation, fields)
             if error:
                 flash(f"Niet opgeslagen: {error}", "error")

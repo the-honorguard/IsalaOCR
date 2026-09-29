@@ -20,7 +20,7 @@ from .generic_detection import normalize_text
 from .projects import resolve_project_workspace
 from .mapping_lateral import ambiguous_lateral_suffixes, lateral_candidate_allowed
 from .mapping_semantics import is_missing_value_text, schema_candidate_score
-from .recognition_ground_truth import relation_column_eligible, table_studio_roles
+from .recognition_ground_truth import relation_column_eligible, table_studio_roles, unrecognized_panel_policy
 from .relation_feedback import evaluate_feedback, relation_snapshot
 from .table_panels import load_panel_profile
 
@@ -251,6 +251,7 @@ def suggest_mappings(
     source_height = int(source.get("image_height") or 0)
     panel_by_id: dict[str, dict[str, Any]] = {}
     column_roles: dict[str, dict[str, str]] = {}
+    block_unrecognized_panel = False
     if workspace is not None:
         panel_profile = load_panel_profile(workspace)
         panel_by_id = {
@@ -259,6 +260,7 @@ def suggest_mappings(
             if str(panel.get("panel_id") or "")
         }
         column_roles = table_studio_roles(workspace)
+        block_unrecognized_panel = unrecognized_panel_policy(workspace) == "block"
     feedback_examples = database.list_relation_feedback()
     feedback_by_relation = {
         str(relation["relation_id"]): evaluate_feedback(
@@ -305,7 +307,8 @@ def suggest_mappings(
         if not str(relation.get("label_text") or ""):
             continue
         if workspace is not None and not relation_column_eligible(
-            relation, panel_by_id=panel_by_id, column_roles=column_roles
+            relation, panel_by_id=panel_by_id, column_roles=column_roles,
+            block_when_panel_unrecognized=block_unrecognized_panel,
         ):
             continue
         eligible_relations.append(relation)
