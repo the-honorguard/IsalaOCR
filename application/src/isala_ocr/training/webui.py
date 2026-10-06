@@ -1414,7 +1414,17 @@ def create_web_app(
 
     _process_snapshot_cache: dict[str, tuple[str, float, dict[str, Any]]] = {}
     _process_snapshot_lock = threading.Lock()
-    PROCESS_SNAPSHOT_TTL_SECONDS = 5.0
+    # Must comfortably exceed how long a *whole* heavy page (not just this
+    # snapshot) takes to render on a large project, not just how long
+    # _build_process_snapshot() itself takes. Profiling the proefpagina list
+    # (~200 rows) showed the snapshot itself costing ~7s, but the page's own
+    # per-row work before it ever reaches render_template() costs several
+    # seconds more on top -- so a request that starts shortly after the
+    # previous one *finished* can still arrive at this check more than 5s
+    # after the cache was written, missing every time even with a correct
+    # (post-build) write timestamp. 30s keeps results fresh enough for a
+    # value that only changes when an actual training action completes.
+    PROCESS_SNAPSHOT_TTL_SECONDS = 30.0
 
     def process_snapshot() -> dict[str, Any]:
         """Lean workflow snapshot for the overview page, cached across requests.
@@ -1436,14 +1446,20 @@ def create_web_app(
         briefly showing a stale project's status.
         """
         project_id = project_manager.active_project_id()
-        now = time.time()
         with _process_snapshot_lock:
             cached = _process_snapshot_cache.get("entry")
-            if cached is not None and cached[0] == project_id and now - cached[1] < PROCESS_SNAPSHOT_TTL_SECONDS:
+            if cached is not None and cached[0] == project_id and time.time() - cached[1] < PROCESS_SNAPSHOT_TTL_SECONDS:
                 return cached[2]
         fresh = request_cached("process_snapshot", _build_process_snapshot)
+        # Timestamp taken *after* building, not before: on a project large
+        # enough that _build_process_snapshot() itself takes longer than
+        # PROCESS_SNAPSHOT_TTL_SECONDS, stamping the pre-build time made the
+        # cache entry already older than its own TTL the moment it was
+        # written -- every single request missed and rebuilt from scratch,
+        # silently defeating this cache entirely instead of just shortening
+        # its effective lifetime.
         with _process_snapshot_lock:
-            _process_snapshot_cache["entry"] = (project_id, now, fresh)
+            _process_snapshot_cache["entry"] = (project_id, time.time(), fresh)
         return fresh
 
     def _build_process_snapshot() -> dict[str, Any]:
