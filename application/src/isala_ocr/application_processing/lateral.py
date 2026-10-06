@@ -19,6 +19,19 @@ def _tokens(value: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", normalize_text(value)))
 
 
+def _compact(value: str) -> str:
+    """Whitespace-free form of ``value``, for matching a side phrase against
+    OCR text that sometimes glues two adjacent words with no space (e.g.
+    "Leftventricle Volume Result" instead of "Left ventricle Volume
+    Result"). A plain token/phrase check would miss that occurrence
+    entirely, since "left" and "ventricle" never appear as separate words --
+    the same OCR quirk ``_relation_side()`` (``routes_documents.py``) and
+    ``relation_panel_id()`` (``recognition_ground_truth.py``) already guard
+    against with this technique.
+    """
+    return "".join(normalize_text(value).split())
+
+
 def field_lateral_side(field: dict[str, Any]) -> str:
     key = str(field.get("field_key") or "").casefold()
     if key.startswith("lv_"):
@@ -70,8 +83,17 @@ def relation_lateral_side(relation: dict[str, Any]) -> str:
     ]
     text = normalize_text(" ".join(str(part or "") for part in parts))
     tokens = _tokens(text)
-    left = bool(tokens & _LEFT_TERMS) or any(phrase in text for phrase in _LEFT_PHRASES)
-    right = bool(tokens & _RIGHT_TERMS) or any(phrase in text for phrase in _RIGHT_PHRASES)
+    compact_text = _compact(text)
+    left = (
+        bool(tokens & _LEFT_TERMS)
+        or any(phrase in text for phrase in _LEFT_PHRASES)
+        or any(_compact(phrase) in compact_text for phrase in _LEFT_PHRASES)
+    )
+    right = (
+        bool(tokens & _RIGHT_TERMS)
+        or any(phrase in text for phrase in _RIGHT_PHRASES)
+        or any(_compact(phrase) in compact_text for phrase in _RIGHT_PHRASES)
+    )
     if left and right:
         return "ambiguous"
     if left:

@@ -104,20 +104,39 @@ def relation_panel_id(relation: dict[str, Any], panel_by_id: dict[str, dict[str,
     whole-segment comparison never matches "right" or "Rechts" against that
     phrase, so every one of that source's relations silently fell back to
     unresolved (``""``) regardless of how obviously the text names its side.
+
+    Falls back to a whitespace-free substring check when the token check
+    above finds nothing: Pipeline B's OCR regularly glues two adjacent words
+    together with no space ("Leftventricle Volume Result" instead of "Left
+    ventricle Volume Result"), so the token "left" then never appears on its
+    own and the whole-word check above misses a side the text still names
+    unambiguously -- the same OCR quirk ``_relation_side()``
+    (``routes_documents.py``) already compacts whitespace away to catch, now
+    shared here so the Table/Panel Setup eligibility gate (which only this
+    function feeds) does not silently drop one side's relations while the
+    other side's happen to have an OCR'd space and pass.
     """
     parts = [part.strip() for part in str(relation.get("context_text") or "").split("|")]
     context_tokens: set[str] = set()
+    normalized_parts: list[str] = []
     for part in parts:
         if part:
-            context_tokens.update(normalize_text(part).split())
+            normalized_part = normalize_text(part)
+            context_tokens.update(normalized_part.split())
+            normalized_parts.append(normalized_part)
     if not context_tokens:
         return ""
+    context_compact = "".join("".join(normalized_parts).split())
     for panel_id, panel in panel_by_id.items():
         # Panel context is persisted as human-readable name plus optional id.
         # Older mapping runs only persisted the name, so try both.
         for candidate in (panel_id, str(panel.get("name") or "")):
-            candidate_tokens = set(normalize_text(str(candidate)).split())
+            candidate_normalized = normalize_text(str(candidate))
+            candidate_tokens = set(candidate_normalized.split())
             if candidate_tokens and candidate_tokens <= context_tokens:
+                return panel_id
+            candidate_compact = "".join(candidate_normalized.split())
+            if candidate_compact and candidate_compact in context_compact:
                 return panel_id
     return ""
 

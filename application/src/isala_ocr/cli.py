@@ -22,7 +22,7 @@ from .training.db import TrainingDatabase, utc_now
 from .training.evaluator import compare_evaluations, evaluate_model
 from .training.model_registry import activate_model, register_model
 from .training.mapping import (
-    auto_confirm_mapping_suggestions, materialize_confirmed_mappings,
+    MAPPING_ENGINE_VERSION, auto_confirm_mapping_suggestions, materialize_confirmed_mappings,
     recognize_approved_mapped_samples,
 )
 from .training.localization import passes_detection_gate
@@ -308,19 +308,38 @@ def _run_application_pipeline(args: argparse.Namespace) -> int:
         database, source_id, minimum_score=float(args.minimum_mapping_confidence)
     )
     confirmed = database.list_mappings(source_id, status="confirmed")
+
+    # A document the active pipeline cannot map (no unambiguous mapping, no
+    # materializable crop, or nothing recognized) is still a result, not a
+    # hard failure: downstream review (Mapping Studio) needs *something* to
+    # open for this source, so we always write extracted_output and keep
+    # going instead of raising, and record what went wrong in mapping_status
+    # / mapping_issues for the operator to see and act on.
+    mapping_status = "ok"
+    mapping_issues: list[str] = []
+    materialized: dict[str, object] = {}
+    recognition: dict[str, object] = {}
+
     if not promoted and not confirmed:
-        raise RuntimeError(
+        mapping_status = "unmapped"
+        mapping_issues.append(
             "Geen ondubbelzinnige mappings boven de automatische drempel; "
-            "output wordt niet aangemaakt. Open Mapping Studio voor review."
+            "open Mapping Studio voor review."
         )
-    materialized = materialize_confirmed_mappings(
-        workspace, config, None, source_id=source_id, recognize=False
-    )
-    if int(materialized.get("failed_sources") or 0):
-        raise RuntimeError(f"Waarde-crops konden niet volledig worden gemaakt: {materialized}")
-    recognition = recognize_approved_mapped_samples(workspace, engine, source_id=source_id)
-    if int(recognition.get("recognized_samples") or 0) <= 0:
-        raise RuntimeError(f"Geen waarden herkend: {recognition}")
+    else:
+        materialized = materialize_confirmed_mappings(
+            workspace, config, None, source_id=source_id, recognize=False
+        )
+        if int(materialized.get("failed_sources") or 0):
+            mapping_status = "partial"
+            mapping_issues.append(f"Waarde-crops konden niet volledig worden gemaakt: {materialized}")
+        try:
+            recognition = recognize_approved_mapped_samples(workspace, engine, source_id=source_id)
+        except ValueError as exc:
+            mapping_issues.append(str(exc))
+        if int(recognition.get("recognized_samples") or 0) <= 0:
+            mapping_status = "unmapped" if mapping_status == "ok" else mapping_status
+            mapping_issues.append("Geen waarden herkend.")
 
     # Make the final data block self-describing.  The result must be traceable
     # to the exact active model bundle, dataset and mapping decision that
@@ -344,57 +363,77 @@ def _run_application_pipeline(args: argparse.Namespace) -> int:
                 registry_active = {**registered, **registry_active}
     except (OSError, TypeError, ValueError):
         LOGGER.warning("Active Recognition registry could not be read: %s", registry_file)
-    output_path = workspace / "extracted_output" / f"{source_id}.json"
+    output_root = workspace / "extracted_output"
+    output_root.mkdir(parents=True, exist_ok=True)
+    output_path = output_root / f"{source_id}.json"
     if output_path.is_file():
         output_payload = json.loads(output_path.read_text(encoding="utf-8"))
         if not isinstance(output_payload, dict):
             raise RuntimeError("Generated output block is not a JSON object")
-        output_payload["provenance"] = {
-            "input_format": "DICOM",
+    else:
+        # Mapping/materialization/recognition produced nothing to write this
+        # file themselves (see mapping_status above) -- write a minimal,
+        # schema-shaped placeholder so there is still something for Mapping
+        # Studio / the document view to open for this source.
+        output_payload = {
+            "schema_version": "2.0",
             "source_id": source_id,
-            "source_filename_stored": False,
-            "dicom_headers_stored": False,
-            "active_models": {
-                "table_cell": active_table_model or detection.get("active_table_cell_model") or {},
-                "recognition": registry_active or engine.info(),
-                "locator_ocr": mapping.get("locator_engine") or {},
-                "table_structure": mapping.get("table_structure_engine") or {},
-            },
-            "datasets": {
-                "table_cell": str(active_table_model.get("dataset_id") or ""),
-                "recognition": registry_active.get("dataset_id", ""),
-            },
-            "mapping": {
-                "profile_id": str(args.mapping_profile_id or ""),
-                "mode": "profile_plus_active_schema_matching" if args.mapping_profile_id else "active_schema_matching",
-                "auto_confirmed_count": len(promoted),
-                "confirmed_count": len(confirmed),
-                "minimum_confidence": float(args.minimum_mapping_confidence),
-            },
-            "pipeline": [
-                "DICOM intake",
-                "active table/cell geometry",
-                "semantic OCR and table relations",
-                "mapping profile and active schema matching",
-                "approved ROI materialization",
-                "active Recognition value extraction",
-            ],
+            "mapping_engine": MAPPING_ENGINE_VERSION,
+            "recognition_engine": engine.info(),
+            "generated_at": utc_now(),
+            "measurements": {},
         }
-        output_path.write_text(json.dumps(output_payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        (workspace / "application_pipeline_manifest.json").write_text(
-            json.dumps({
-                "created_at": utc_now(),
-                "source_id": source_id,
-                "input_format": "DICOM",
-                "output_path": f"extracted_output/{source_id}.json",
-                "provenance": output_payload["provenance"],
-                "stages": {"detection": detection, "mapping": mapping, "materialized": materialized, "recognition": recognition},
-            }, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+    output_payload["mapping_status"] = mapping_status
+    if mapping_issues:
+        output_payload["mapping_issues"] = mapping_issues
+    output_payload["provenance"] = {
+        "input_format": "DICOM",
+        "source_id": source_id,
+        "source_filename_stored": False,
+        "dicom_headers_stored": False,
+        "active_models": {
+            "table_cell": active_table_model or detection.get("active_table_cell_model") or {},
+            "recognition": registry_active or engine.info(),
+            "locator_ocr": mapping.get("locator_engine") or {},
+            "table_structure": mapping.get("table_structure_engine") or {},
+        },
+        "datasets": {
+            "table_cell": str(active_table_model.get("dataset_id") or ""),
+            "recognition": registry_active.get("dataset_id", ""),
+        },
+        "mapping": {
+            "profile_id": str(args.mapping_profile_id or ""),
+            "mode": "profile_plus_active_schema_matching" if args.mapping_profile_id else "active_schema_matching",
+            "auto_confirmed_count": len(promoted),
+            "confirmed_count": len(confirmed),
+            "minimum_confidence": float(args.minimum_mapping_confidence),
+        },
+        "pipeline": [
+            "DICOM intake",
+            "active table/cell geometry",
+            "semantic OCR and table relations",
+            "mapping profile and active schema matching",
+            "approved ROI materialization",
+            "active Recognition value extraction",
+        ],
+    }
+    output_path.write_text(json.dumps(output_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    (workspace / "application_pipeline_manifest.json").write_text(
+        json.dumps({
+            "created_at": utc_now(),
+            "source_id": source_id,
+            "input_format": "DICOM",
+            "output_path": f"extracted_output/{source_id}.json",
+            "provenance": output_payload["provenance"],
+            "stages": {"detection": detection, "mapping": mapping, "materialized": materialized, "recognition": recognition},
+        }, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     print(json.dumps({
         "source_id": source_id,
         "active_table_model": active_table_model.get("model_id") or args.table_model_id or "active",
         "mapping_profile_id": str(args.mapping_profile_id or ""),
+        "mapping_status": mapping_status,
+        "mapping_issues": mapping_issues,
         "auto_confirmed_mappings": len(promoted),
         "confirmed_mappings_used": len(confirmed),
         "detection": detection,
@@ -404,6 +443,11 @@ def _run_application_pipeline(args: argparse.Namespace) -> int:
         "output_path": f"extracted_output/{source_id}.json",
         "provenance_path": "application_pipeline_manifest.json",
     }, indent=2, ensure_ascii=False))
+    # A document the pipeline could not confidently map is still a completed
+    # run, not a failed one: it produced a result (possibly empty) that is
+    # visible for review, rather than nothing at all. Only a raised exception
+    # above this point (detection failure, I/O error, etc.) should surface as
+    # a failed job.
     return 0
 
 
