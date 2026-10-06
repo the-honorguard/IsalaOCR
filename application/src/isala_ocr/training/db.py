@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -71,6 +72,34 @@ class TrainingDatabase(
             return None
         return (stat.st_dev, stat.st_ino)
 
+    def _open_connection_with_wal(self) -> sqlite3.Connection:
+        # Enabling WAL mode creates new sibling files (-wal/-shm) next to the
+        # main database file, unlike the PRAGMAs before it. On a bind-mounted
+        # Docker Desktop volume, creating those siblings right after a burst
+        # of unrelated writes to the same project directory (e.g. the
+        # table-cell crop PNGs the collector writes per source image) has
+        # been observed to transiently fail with "unable to open database
+        # file" even though the main file itself opens fine. Retry briefly
+        # instead of failing the whole collection run over what resolves a
+        # moment later.
+        attempts = 0
+        while True:
+            attempts += 1
+            connection = sqlite3.connect(self.path, timeout=30)
+            connection.row_factory = sqlite3.Row
+            try:
+                connection.execute("PRAGMA foreign_keys=ON")
+                connection.execute("PRAGMA busy_timeout=30000")
+                connection.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.OperationalError:
+                connection.close()
+                if attempts >= 3:
+                    raise
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                time.sleep(0.5 * attempts)
+                continue
+            return connection
+
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
         # The project reset may remove the SQLite file while the long-lived
@@ -85,11 +114,7 @@ class TrainingDatabase(
                 else:
                     self.initialize()
                     self._schema_confirmed_identity = self._file_identity()
-        connection = sqlite3.connect(self.path, timeout=30)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA busy_timeout=30000")
-        connection.execute("PRAGMA journal_mode=WAL")
+        connection = self._open_connection_with_wal()
         # SQLite's own docs recommend NORMAL alongside WAL: a commit no longer
         # waits for an fsync of the WAL file, only for one at the next
         # checkpoint, and WAL still makes the database itself crash-safe
