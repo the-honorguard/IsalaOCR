@@ -749,7 +749,9 @@ def integrate_table_regions(
         cell_block_by_id: dict[str, GenericBlock] = {}
         for cell in cells:
             text = str(cell.text or "").strip()
-            if looks_like_value(text):
+            if cell.column_index < 0:
+                role = "header"
+            elif looks_like_value(text):
                 role = "value"
             elif looks_like_unit(text):
                 role = "unit"
