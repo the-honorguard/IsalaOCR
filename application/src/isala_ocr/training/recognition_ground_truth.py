@@ -104,20 +104,40 @@ def relation_panel_id(relation: dict[str, Any], panel_by_id: dict[str, dict[str,
     whole-segment comparison never matches "right" or "Rechts" against that
     phrase, so every one of that source's relations silently fell back to
     unresolved (``""``) regardless of how obviously the text names its side.
+
+    As a second fallback (after whole-word containment fails), also try a
+    whitespace-free substring match of the panel *name* only (never
+    ``panel_id``, which isn't natural OCR'd text) against a whitespace-free
+    ``context_text``, same pattern as ``_relation_side()``
+    (routes_documents.py): Pipeline B's OCR sometimes glues adjacent words
+    together with no space ("Leftventricle Volume Result"), which defeats the
+    whole-word check above even though the phrase unambiguously names its
+    panel. Requires the panel name to be at least two words, so a single
+    short/generic word can't false-positive as a substring of unrelated text.
     """
     parts = [part.strip() for part in str(relation.get("context_text") or "").split("|")]
     context_tokens: set[str] = set()
+    context_compact_parts: list[str] = []
     for part in parts:
         if part:
-            context_tokens.update(normalize_text(part).split())
+            normalized_part = normalize_text(part)
+            context_tokens.update(normalized_part.split())
+            context_compact_parts.append(normalized_part.replace(" ", ""))
     if not context_tokens:
         return ""
+    context_compact = "".join(context_compact_parts)
     for panel_id, panel in panel_by_id.items():
         # Panel context is persisted as human-readable name plus optional id.
         # Older mapping runs only persisted the name, so try both.
         for candidate in (panel_id, str(panel.get("name") or "")):
             candidate_tokens = set(normalize_text(str(candidate)).split())
             if candidate_tokens and candidate_tokens <= context_tokens:
+                return panel_id
+        panel_name_normalized = normalize_text(str(panel.get("name") or ""))
+        panel_name_tokens = set(panel_name_normalized.split())
+        if len(panel_name_tokens) >= 2:
+            panel_name_compact = panel_name_normalized.replace(" ", "")
+            if panel_name_compact and panel_name_compact in context_compact:
                 return panel_id
     return ""
 
