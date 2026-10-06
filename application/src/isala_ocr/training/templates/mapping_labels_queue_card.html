@@ -34,7 +34,7 @@
       </div>
 
       {% if relation.auto_suggested_family and not is_confirmed %}
-      <div class="notice">Voorgesteld op basis van {{ relation.auto_suggested_count }}x eerdere bevestiging van dit label. Controleer en bevestig, of kies een ander veld.</div>
+      <div class="notice">Dit label is op {{ relation.auto_suggested_count }} andere bronnen eenduidig aan hetzelfde veld gekoppeld en wordt automatisch bevestigd.</div>
       {% endif %}
 
       {% if relation.blocked_unrecognized_panel %}
@@ -56,12 +56,13 @@
         <div class="actions mapping-queue-actions">
           <button id="confirm-choice" name="mapping_queue_action" value="confirm" class="primary" type="submit" {% if relation.blocked_unrecognized_panel %}disabled title="Eerst Panel Setup corrigeren"{% endif %}>✓ Bevestigen (Enter)</button>
           <button id="skip-choice" name="mapping_queue_action" value="skip" type="submit" formnovalidate>Niet koppelen (Alt+N)</button>
+          {% if relation.auto_suggested_family and not is_confirmed and not relation.blocked_unrecognized_panel %}<button id="auto-confirm-choice" name="mapping_queue_action" value="auto_confirm" type="submit" hidden>Automatisch bevestigen</button>{% endif %}
         </div>
       </form>
 
       <div class="actions detail-navigation">
         {% if previous_url %}<a id="nav-previous" class="button" href="{{ previous_url }}">← Vorige (Alt+←)</a>{% endif %}
-        {% if next_url %}<a id="nav-next" class="button" href="{{ next_url }}">Volgende → (Alt+→)</a>{% endif %}
+        {% if next_url or next_source_url %}<a id="nav-next" class="button" href="{{ next_url or next_source_url }}">Volgende → (Alt+→)</a>{% endif %}
         <a class="button" href="{{ overview_url }}">Terug naar overzicht</a>
       </div>
     </div>

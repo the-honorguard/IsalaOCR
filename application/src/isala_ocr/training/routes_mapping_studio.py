@@ -353,16 +353,27 @@ def register_mapping_studio_routes(
         source = database.get_detection_source(source_id)
         if source is None:
             abort(404)
-        fields = database.list_field_definitions(active_only=True)
+        # None of the calls below this point take source_id -- they are the
+        # same project-wide field list/config for every source this request
+        # looks at, so each is memoized under its own fixed key instead of
+        # source_id's. Without this, the cross-source queue scan re-read and
+        # re-parsed every one of these from disk (or re-queried
+        # field_definitions) once per source examined, on top of the same
+        # problem already fixed for label_history_field_counts() below.
+        fields = _request_cached(
+            "field_definitions", lambda: database.list_field_definitions(active_only=True)
+        )
         all_relations = [
             item for item in database.list_detected_relations(source_id)
             if str(item.get("relation_type") or "") == "table_cell"
             and str(item.get("label_text") or "").strip()
         ]
-        column_roles = table_studio_roles(workspace_root())
-        active_rows = table_studio_rows(workspace_root())
-        panel_policy = unrecognized_panel_policy(workspace_root())
-        panel_profile = load_panel_profile(workspace_root())
+        column_roles = _request_cached("table_studio_roles", lambda: table_studio_roles(workspace_root()))
+        active_rows = _request_cached("table_studio_rows", lambda: table_studio_rows(workspace_root()))
+        panel_policy = _request_cached(
+            "unrecognized_panel_policy", lambda: unrecognized_panel_policy(workspace_root())
+        )
+        panel_profile = _request_cached("panel_profile", lambda: load_panel_profile(workspace_root()))
         # Stap 6 ("Tabelregio selecteren") is where an operator explicitly
         # assigns each table region a semantic name (typically left/right).
         # That name is the authoritative left/right signal - the Panel
@@ -371,7 +382,9 @@ def register_mapping_studio_routes(
         # bilateral fields (e.g. Ejectiefractie for LV and RV) can never be
         # told apart by relation_lateral_side() even though the operator
         # already resolved that ambiguity in Stap 6.
-        table_semantic_names = load_table_semantic_assignments(workspace_root())
+        table_semantic_names = _request_cached(
+            "table_semantic_assignments", lambda: load_table_semantic_assignments(workspace_root())
+        )
         panel_by_id = {
             str(panel.get("panel_id") or ""): panel
             for panel in panel_profile.get("panels") or []
@@ -503,8 +516,16 @@ def register_mapping_studio_routes(
         # Only relations without a mapping of their own yet are touched; an
         # existing choice - confirmed or previously overridden - is never
         # second-guessed.
+        # Project-wide (no source_id in its own query at all), so it is the
+        # same result no matter which source this context is being built
+        # for -- but _load_label_mapping_context() is itself memoized per
+        # *source_id*, so without its own cache key here this reran on every
+        # source the cross-source queue scan looked at. Profiling a real
+        # project showed this one call costing ~1.1s on its own; across the
+        # ~25 sources a single queue-start scan can touch, that was the
+        # overwhelming majority of a 40s page load.
         label_history = label_family_history(
-            database.label_history_field_counts(), fields,
+            _request_cached("label_history_field_counts", database.label_history_field_counts), fields,
             field_family=lambda field: field_lateral_suffix(field) or str(field.get("field_key") or ""),
         )
         known_families = {str(option["family"]) for option in field_options}
@@ -673,26 +694,46 @@ def register_mapping_studio_routes(
         """Cheap, approximate stand-in for ``_first_pending_in_source()``,
         reusing ``_first_open_mapping_source()``'s own (already-cheap) test:
         any non-confirmed table_cell relation with a label, straight from
-        ``list_detected_relations()``'s LEFT JOIN - no Table Studio roles,
-        panel profile, table geometry or project-wide label-history query.
+        ``list_detected_relations()``'s LEFT JOIN - no table geometry or
+        project-wide label-history query.
 
-        Used only to narrow down which source to fully load next when
-        scanning past several already-finished sources
-        (``_first_pending_in_sources()``): each of those costs a real
-        query either way, but skipping the *expensive* computation for a
-        source that turns out to have nothing open anyway is what keeps
-        confirming the last label of a source fast even late in a large
-        project. The source the scan actually lands on is still loaded in
-        full (via ``_first_pending_in_source()``) before use, so a rare false
-        positive here (this cheap check sees an open relation that Table
-        Studio eligibility would later exclude) only costs one extra full
-        load on that source before the scan moves on - it can never make the
-        queue show something this cheap check alone would not.
+        Also applies Table Studio's column-role filter
+        (``relation_column_eligible()``), the same one
+        ``_load_label_mapping_context_impl()`` uses when it builds the real,
+        fully-loaded ``relations`` list -- cheap to replicate here because it
+        only needs a relation's own ``context_text``/``value_column_index``
+        (already on every row ``list_detected_relations()`` returns) plus the
+        project-wide panel profile/column-role config (memoized once per
+        request, not reloaded per source). Without this, a source whose only
+        unconfirmed relations sit in a column an operator marked "Overslaan"
+        looked identical to one with genuine open work, forcing a full load
+        (table geometry, raster rows, mappings, project-wide label history)
+        just to discover there was nothing to do after all -- on one real
+        project, 24 of 25 full loads a single queue-start scan triggered
+        turned out to be exactly that.
+
+        Deliberately does not also replicate ``active_rows`` (row-level)
+        filtering: that needs this source's own raster geometry, which is
+        the one piece of "full load" cost not worth duplicating here. A rare
+        false positive from that gap (this cheap check sees an open relation
+        on a column Table Studio allows, but a row Table Studio does not)
+        only costs one extra full load on that source before the scan moves
+        on - it can never make the queue show something this cheap check
+        alone would not, matching the guarantee this function already made
+        before column eligibility was added here.
         """
+        panel_profile = _request_cached("panel_profile", lambda: load_panel_profile(workspace_root()))
+        panel_by_id = {
+            str(panel.get("panel_id") or ""): panel
+            for panel in panel_profile.get("panels") or []
+            if str(panel.get("panel_id") or "")
+        }
+        column_roles = _request_cached("table_studio_roles", lambda: table_studio_roles(workspace_root()))
         return any(
             str(relation.get("relation_type") or "") == "table_cell"
             and str(relation.get("label_text") or "").strip()
             and str(relation.get("mapping_status") or "") != "confirmed"
+            and relation_column_eligible(relation, panel_by_id=panel_by_id, column_roles=column_roles)
             for relation in database.list_detected_relations(source_id)
         )
 
@@ -758,7 +799,9 @@ def register_mapping_studio_routes(
         order = [str(item["relation_id"]) for item in relations]
         position = order.index(relation_id)
         previous_id = order[position - 1] if position > 0 else None
-        next_id = order[position + 1] if position + 1 < len(order) else None
+        next_id = next(
+            (rid for rid in order[position + 1:] if _is_pending(rid, mappings_by_relation)), None
+        )
         pending_count = sum(1 for rid in order if _is_pending(rid, mappings_by_relation))
         current_mapping = mappings_by_relation.get(relation_id)
         current_family = ""
@@ -768,6 +811,12 @@ def register_mapping_studio_routes(
         source_index = next(
             (index for index, item in enumerate(all_sources, start=1) if str(item["source_id"]) == source_id), None
         )
+        next_source_target = None
+        if next_id is None and source_index is not None:
+            all_source_ids = [str(item["source_id"]) for item in all_sources]
+            found = _first_pending_in_sources(all_source_ids[source_index:])
+            if found is not None:
+                next_source_target = found
 
         # Visual context, like Stap 9's model-vs-GT comparison: the whole
         # table this label lives in, every one of its rows outlined, the
@@ -850,6 +899,10 @@ def register_mapping_studio_routes(
                 url_for("label_mapping_queue_item", source_id=source_id, relation_id=next_id)
                 if next_id else None
             ),
+            "next_source_url": (
+                url_for("label_mapping_queue_item", source_id=next_source_target[0], relation_id=next_source_target[1])
+                if next_source_target else None
+            ),
             "overview_url": url_for("label_mapping_studio", source_id=source_id),
         }
 
@@ -890,6 +943,10 @@ def register_mapping_studio_routes(
 
             queue_action = str(request.form.get("mapping_queue_action") or "confirm").strip().lower()
             selected = "" if queue_action == "skip" else str(request.form.get("field_choice") or "").strip()
+            if queue_action == "auto_confirm":
+                suggested = str(relation.get("auto_suggested_family") or "")
+                if not suggested or selected != f"family:{suggested}" or relation.get("blocked_unrecognized_panel"):
+                    return _fail("Niet automatisch gekoppeld: de labelhistorie geeft hiervoor geen eenduidig voorstel.")
             if selected and relation.get("blocked_unrecognized_panel"):
                 return _fail(
                     "Niet opgeslagen: Panel Setup herkent deze tabel niet op deze bron. Corrigeer Panel Setup, "

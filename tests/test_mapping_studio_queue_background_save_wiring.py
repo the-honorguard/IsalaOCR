@@ -81,3 +81,32 @@ def test_queue_page_wires_up_the_background_save_queue(tmp_path: Path) -> None:
     assert "IsalaReviewQueue.createTaskQueue" in body
     assert 'id="save-queue-status"' in body
     assert "saveQueue.enqueue" in body
+    assert "Opslaan op achtergrond" in body
+    assert "top:106px" in body
+
+
+def test_last_label_has_a_cross_source_target_for_background_advance(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    workspace = resolve_project_workspace(tmp_path / "training" / "workspace")
+    database = TrainingDatabase(workspace / "samples.sqlite3")
+    other_source = "bg-save-next-source"
+    other_label, other_value, other_relation = "label-next", "value-next", "relation-next"
+    database.replace_generic_detection(
+        {
+            "source_id": other_source, "image_width": 200, "image_height": 100,
+            "render_path": f"source_renders/{other_source}.png", "detector_version": "test", "token_count": 2,
+        },
+        [
+            _block(other_label, role="label", text="ED Volume", column_index=0, row_index=0),
+            _block(other_value, role="value", text="345.3 ml", column_index=1, row_index=0),
+        ],
+        [_relation(other_relation, label_block_id=other_label, value_block_id=other_value, row_index=0)],
+    )
+    with database.connect() as db:
+        db.execute("UPDATE detection_sources SET detected_at='2000-01-01T00:00:00Z' WHERE source_id=?", (other_source,))
+
+    with app.test_request_context(f"/mapping-labels/{SOURCE_ID}/queue/relation-co"):
+        body = app.view_functions["label_mapping_queue_item"](SOURCE_ID, "relation-co")
+
+    assert 'id="nav-next"' in body
+    assert f"/mapping-labels/{other_source}/queue/{other_relation}" in body
