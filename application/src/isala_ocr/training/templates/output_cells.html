@@ -11,6 +11,7 @@
 <section class="card section-gap">
   <div class="toolbar"><h3>Venster {{ window.window_index }} — {{ window.table_label }}</h3><span class="pill">{{ window.cell_count }} cellen</span></div>
   {% if not window.has_text %}<p class="notice info compact">Mapping-fase heeft nog niet gedraaid — kadergeometrie is er, tekst nog niet. Open fase 3 (Identificatie & mapping) eerst.</p>{% endif %}
+  {% for header in window.headers %}<p class="cell-header" title="{{ header.x1 }}, {{ header.y1 }}, {{ header.x2 }}, {{ header.y2 }}">{{ header.text or 'Kopcel zonder uitgelezen tekst' }}</p>{% endfor %}
   <div class="cell-grid-wrap">
     <table class="cell-grid">
       <tbody>
@@ -44,6 +45,7 @@
 {% endif %}
 <style>
 .cell-grid-wrap{overflow-x:auto}
+.cell-header{padding:7px 10px;margin:0 0 6px;border:1px solid var(--line);background:#14202b;font-size:13px}
 .cell-grid{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
 .cell-grid td{padding:7px 10px;border:1px solid var(--line);background:#0d151e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
 .cell-grid td.cell-empty{color:var(--muted);font-style:italic}

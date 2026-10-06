@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -79,12 +80,53 @@ def input_file_key(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
+# input_file_source_id() is called for every /input file on every single
+# page render (webui.py's common_context() builds the "Inputselectie"
+# sidebar status on each request), so it is by far the hottest caller of
+# this function; hashing hundreds of files' full content that many times a
+# minute made every page in the app slow, not just the file that actually
+# changed. Cached here by (mtime, size) - the same "has this file plausibly
+# changed" shortcut db.py's own connect() already uses to skip its schema
+# check - so an unchanged file's SHA256 is computed once, not once per
+# request. Keyed by the resolved absolute path so a relative Path and its
+# resolved equivalent share one entry; guarded by a lock since waitress
+# serves requests from several threads at once.
+_source_id_cache: dict[str, tuple[int, int, str]] = {}
+_source_id_cache_lock = threading.Lock()
+
+
 def input_file_source_id(path: Path) -> str:
+    resolved = str(path.resolve())
+    stat = path.stat()
+    fingerprint = (stat.st_mtime_ns, stat.st_size)
+    with _source_id_cache_lock:
+        cached = _source_id_cache.get(resolved)
+        if cached is not None and (cached[0], cached[1]) == fingerprint:
+            return cached[2]
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
-    return digest.hexdigest()[:24]
+    source_id = digest.hexdigest()[:24]
+    with _source_id_cache_lock:
+        _source_id_cache[resolved] = (fingerprint[0], fingerprint[1], source_id)
+    return source_id
+
+
+def warm_input_file_source_id_cache(root: Path) -> None:
+    """Pre-populate the source-id cache for every file under ``root``.
+
+    Meant to run once in a background thread right after the app starts, so
+    the cache is already warm by the time a real request arrives instead of
+    the first page render after every restart paying for hundreds of files'
+    SHA256 itself. Files that vanish or become unreadable mid-scan are
+    skipped, matching ``input_selection_state()``'s own error handling.
+    """
+    for path in input_files(root):
+        try:
+            input_file_source_id(path)
+        except OSError:
+            continue
 
 
 def selection_payload(selected: set[str], *, reason: str = "") -> dict[str, Any]:

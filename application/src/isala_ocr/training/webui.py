@@ -65,7 +65,14 @@ from .routes_table_panel_review import register_table_panel_review_routes
 from .routes_test_pipeline import register_test_pipeline_routes
 from .routes_table_region_detect import register_table_region_detect_routes
 from .routes_value_review import register_value_review_routes
-from .input_selection import input_file_key, input_file_source_id, input_files, selection_manifest_path, selection_payload
+from .input_selection import (
+    input_file_key,
+    input_file_source_id,
+    input_files,
+    selection_manifest_path,
+    selection_payload,
+    warm_input_file_source_id_cache,
+)
 from .json_api import json_error
 from .json_store import read_json as _read_json, write_json_atomic as _write_json_atomic
 from .table_cell_ground_truth import (
@@ -1405,17 +1412,55 @@ def create_web_app(
             "localization_training_ready": training_ready,
         }
 
+    _process_snapshot_cache: dict[str, tuple[str, float, dict[str, Any]]] = {}
+    _process_snapshot_lock = threading.Lock()
+    # Must comfortably exceed how long a *whole* heavy page (not just this
+    # snapshot) takes to render on a large project, not just how long
+    # _build_process_snapshot() itself takes. Profiling the proefpagina list
+    # (~200 rows) showed the snapshot itself costing ~7s, but the page's own
+    # per-row work before it ever reaches render_template() costs several
+    # seconds more on top -- so a request that starts shortly after the
+    # previous one *finished* can still arrive at this check more than 5s
+    # after the cache was written, missing every time even with a correct
+    # (post-build) write timestamp. 30s keeps results fresh enough for a
+    # value that only changes when an actual training action completes.
+    PROCESS_SNAPSHOT_TTL_SECONDS = 30.0
+
     def process_snapshot() -> dict[str, Any]:
-        """Lean workflow snapshot for the overview page, memoized per request.
+        """Lean workflow snapshot for the overview page, cached across requests.
 
         Building this touches dozens of database/filesystem lookups (profiled
-        at ~40 SQLite connections on its own), and both the home route and the
-        workflow-navigation gate used by every page's context processor need
-        it. Without request-scoped memoization it silently ran twice per
-        request; request_cached keeps it single-shot regardless of how many
-        call sites need it in the same request.
+        at several seconds on its own: recursive glob scans of /input,
+        /models and /output plus ~40 SQLite connections), and it is not just
+        the overview page's own cost - common_context() (this app's global
+        template context processor) calls it, via workflow_navigation_access(),
+        on *every single render_template() call anywhere in the app*,
+        including Mapping Studio's small AJAX queue-card fragment. Request-
+        scoped memoization (request_cached, still used as a fallback below)
+        only stopped it from running twice within the *same* request; every
+        distinct request - e.g. the next queue card fetched right after
+        confirming a label - still paid the full cost on its own, which is
+        why the delay persisted through every Mapping-Studio-specific fix.
+        Cached here for PROCESS_SNAPSHOT_TTL_SECONDS, keyed by the active
+        project so switching projects invalidates it immediately rather than
+        briefly showing a stale project's status.
         """
-        return request_cached("process_snapshot", _build_process_snapshot)
+        project_id = project_manager.active_project_id()
+        with _process_snapshot_lock:
+            cached = _process_snapshot_cache.get("entry")
+            if cached is not None and cached[0] == project_id and time.time() - cached[1] < PROCESS_SNAPSHOT_TTL_SECONDS:
+                return cached[2]
+        fresh = request_cached("process_snapshot", _build_process_snapshot)
+        # Timestamp taken *after* building, not before: on a project large
+        # enough that _build_process_snapshot() itself takes longer than
+        # PROCESS_SNAPSHOT_TTL_SECONDS, stamping the pre-build time made the
+        # cache entry already older than its own TTL the moment it was
+        # written -- every single request missed and rebuilt from scratch,
+        # silently defeating this cache entirely instead of just shortening
+        # its effective lifetime.
+        with _process_snapshot_lock:
+            _process_snapshot_cache["entry"] = (project_id, time.time(), fresh)
+        return fresh
 
     def _build_process_snapshot() -> dict[str, Any]:
         """Lean workflow snapshot for the overview page.
@@ -3917,6 +3962,9 @@ def create_web_app(
         database=database,
         workspace_root=workspace_root,
         enqueue_job=enqueue_job,
+        safe_workspace_file=safe_workspace_file,
+        cached_render_image=cached_render_image,
+        canonical_table_gt_mode=canonical_table_gt_mode,
     )
 
     def workflow_navigation_access() -> dict[str, bool]:
@@ -4133,5 +4181,14 @@ def create_web_app(
     install_comparison_review_queue(app, workspace)
     install_job_cancellation(app, workspace)
     install_stale_job_reconciliation(app, workspace)
+
+    # Warm input_file_source_id()'s cache in the background right after
+    # startup, instead of leaving the first real page render after every
+    # restart to pay for hashing every /input file itself (see
+    # input_selection_state() above, which is the hot caller). A daemon
+    # thread so it never blocks startup or keeps the process alive on exit.
+    threading.Thread(
+        target=warm_input_file_source_id_cache, args=(Path("/input"),), daemon=True
+    ).start()
 
     return app

@@ -10,7 +10,7 @@ from .mapping import (
 )
 from .mapping_lateral import ambiguous_lateral_suffixes, lateral_candidate_allowed
 from .mapping_semantics import schema_candidate_score
-from .recognition_ground_truth import relation_column_eligible, table_studio_roles
+from .recognition_ground_truth import relation_column_eligible, table_studio_roles, unrecognized_panel_policy
 from .relation_feedback import evaluate_feedback, relation_snapshot
 from .table_panels import load_panel_profile
 
@@ -82,6 +82,7 @@ def suggest_mappings_fast(
         return []
     panel_by_id: dict[str, dict[str, Any]] = {}
     column_roles: dict[str, dict[str, str]] = {}
+    block_unrecognized_panel = False
     if workspace is not None:
         panel_profile = load_panel_profile(workspace)
         panel_by_id = {
@@ -90,6 +91,7 @@ def suggest_mappings_fast(
             if str(panel.get("panel_id") or "")
         }
         column_roles = table_studio_roles(workspace)
+        block_unrecognized_panel = unrecognized_panel_policy(workspace) == "block"
 
     feedback_examples = database.list_relation_feedback()
     feedback_by_relation = {
@@ -140,7 +142,8 @@ def suggest_mappings_fast(
         if not _geometry_looks_sane(value_block, source_width, source_height):
             continue
         if workspace is not None and not relation_column_eligible(
-            relation, panel_by_id=panel_by_id, column_roles=column_roles
+            relation, panel_by_id=panel_by_id, column_roles=column_roles,
+            block_when_panel_unrecognized=block_unrecognized_panel,
         ):
             continue
         # The value cell is selected by the table relation (same row and

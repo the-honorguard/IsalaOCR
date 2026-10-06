@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from isala_ocr.models import Box, OCRToken
-from isala_ocr.ocr.table_structure import TableCell, parse_ppstructure_tables, rasterize_table_columns
+from isala_ocr.ocr.table_structure import (
+    TableCell, normalize_table_column_layout, parse_ppstructure_tables, rasterize_table_columns,
+)
 from isala_ocr.training.db import TrainingDatabase
 from isala_ocr.training.generic_detection import detect_generic_structure, integrate_table_regions
 from isala_ocr.training.mapping import build_mapping_output_preview, resolve_value_roi_box
@@ -92,6 +94,93 @@ def test_ppstructure_assigns_one_global_column_grid_across_rows() -> None:
     ]
 
 
+def test_isolated_header_is_outside_three_data_columns() -> None:
+    """A top sub-header inside the value area must not create column four."""
+    boxes = [[195, 10, 359, 28]]
+    for row in range(3):
+        y1 = 35 + row * 25
+        boxes.extend([
+            [5, y1, 151, y1 + 22],
+            [147, y1, 367, y1 + 22],
+            [367, y1, 530, y1 + 22],
+        ])
+    tables = parse_ppstructure_tables({"table_res_list": [{"cell_box_list": boxes}]}, source_id="header")
+    cells = tables[0].cells
+    assert [(cell.row_index, cell.column_index) for cell in cells] == [
+        (0, -1), (1, 0), (1, 1), (1, 2),
+        (2, 0), (2, 1), (2, 2), (3, 0), (3, 1), (3, 2),
+    ]
+    assert rasterize_table_columns(cells)[0].box == Box(195, 10, 359, 28)
+
+    # Existing localization files have the old 0,1,2,3 numbering. Reading
+    # them must produce the same layout without rewriting their raw boxes.
+    old_indices = [2, *([0, 1, 3] * 3)]
+    saved = [
+        TableCell("t", str(index), cell.row_index, old_indices[index], cell.box, "", 0.9)
+        for index, cell in enumerate(cells)
+    ]
+    repaired = normalize_table_column_layout(saved)
+    assert [(cell.row_index, cell.column_index) for cell in repaired] == [
+        (cell.row_index, cell.column_index) for cell in cells
+    ]
+    assert [cell.box for cell in repaired] == [cell.box for cell in saved]
+
+
+def test_full_width_title_stays_outside_data_columns() -> None:
+    boxes = [[5, 5, 549, 25]]
+    for row in range(2):
+        y1 = 35 + row * 25
+        boxes.extend([
+            [5, y1, 150, y1 + 22],
+            [150, y1, 367, y1 + 22],
+            [367, y1, 530, y1 + 22],
+        ])
+    cells = parse_ppstructure_tables(
+        {"table_res_list": [{"cell_box_list": boxes}]}, source_id="title",
+    )[0].cells
+    assert cells[0].column_index == -1
+    assert {cell.column_index for cell in cells[1:]} == {0, 1, 2}
+    assert rasterize_table_columns(cells)[0].box == Box(5, 5, 549, 25)
+
+
+def test_global_column_layout_merges_a_left_edge_split_value_column() -> None:
+    """A value column split across two left-edge clusters, but sharing one
+    right edge, must merge into a single column instead of staying split.
+
+    Real production data (proefpagina source ``3cd1d917a4074a172c3946b3``):
+    7 of 10 rows' value cell landed on a left edge around x=166-171, but 3
+    rows (the one right after a sub-header, and two rows with an unusually
+    short or missing value) landed on a left edge around x=221-223 instead
+    -- a ~50px gap, just outside the left-edge clustering tolerance, so they
+    formed a second, separate column. Both clusters' right edges, however,
+    landed within a couple of pixels of each other either way. Without
+    merging on that right-edge agreement, the 3 minority rows' relations
+    never matched the mapping feedback trained on the majority pattern and
+    were silently dropped from the datablok, even though their text was
+    read correctly.
+    """
+    boxes = []
+    # Minority cluster: 3 rows whose value cell starts further right (~221).
+    for y1 in (10, 40, 310):
+        boxes.append([5, y1, 165, y1 + 22])
+        boxes.append([221, y1, 443, y1 + 22])
+        boxes.append([443, y1, 660, y1 + 22])
+    # Majority cluster: 7 rows whose value cell starts further left (~169),
+    # ending at essentially the same right edge as the minority cluster.
+    for y1 in (70, 100, 130, 160, 190, 220, 250):
+        boxes.append([5, y1, 165, y1 + 22])
+        boxes.append([169, y1, 442, y1 + 22])
+        boxes.append([443, y1, 660, y1 + 22])
+    cells = parse_ppstructure_tables({"table_res_list": [{"cell_box_list": boxes}]}, source_id="source")[0].cells
+
+    value_cells = [cell for cell in cells if cell.box.x1 not in (5,) and cell.box.x2 not in (660,)]
+    assert len(value_cells) == 10, "all 10 rows' value cells must survive -- none dropped as noise"
+    assert {cell.column_index for cell in value_cells} == {1}, (
+        "both left-edge clusters must land in the same shared column"
+    )
+    assert {cell.column_index for cell in cells} == {0, 1, 2}, "no fourth, orphaned column should remain"
+
+
 def test_ppstructure_leaves_raw_per_row_cell_boxes_undisturbed() -> None:
     """Celdetectie (Pipeline A's persisted geometry) must stay the loose,
     un-rasterized boxes exactly as detected -- rasterization is an explicit,
@@ -146,11 +235,9 @@ def test_rasterize_table_columns_ignores_a_mis_clustered_spanning_outlier() -> N
     """A full-width header row sharing column_index 0 with column_span==1
     must not stretch every other row in that column to its own width.
 
-    ``localization_detections/<source_id>.json`` never persists
-    ``column_span`` (only geometry + row/column_index -- see
-    ``rasterize_table_columns``'s docstring), so a consumer reading that
-    file back always sees a genuinely spanning header cell as an ordinary
-    column_span==1 cell. Real production data showed exactly this: a title
+    Older localization records can lack ``column_span``, so a consumer may
+    see a genuinely spanning header cell as an ordinary column_span==1 cell.
+    Real production data showed exactly this: a title
     row detected at x1=1163..x2=1916 sharing column 0 with data rows whose
     boxes were all ~1163..1350-1370. Without an outlier guard, "widest
     variant" would wrongly stretch every data row in column 0 out to 1916.
@@ -217,6 +304,65 @@ def test_rasterize_table_columns_ignores_a_column_used_by_only_one_row() -> None
     value_x2_values = {by_id[f"value{row}"].box.x2 for row in value_boxes}
     assert len(value_x2_values) == 1
     assert value_x2_values.pop() > 350
+
+
+def test_rasterize_table_columns_does_not_snap_across_an_excluded_column() -> None:
+    """A column excluded as sparse (see the previous test) must still act as
+    a fence between its two kept neighbours, not a column that was never
+    there.
+
+    Real production data (proefpagina sources ``faa69d10532321d8f13448a9``
+    and ``2eaf574162a07b08734dca6d``): the value column's cells landed split
+    across two column indices (1 and 2), each individually too sparse to
+    pass the row-coverage floor, so *both* got excluded -- leaving only the
+    label column (0) and the reference-range column (3) in the shared
+    raster. Before this guard, ``ordered_columns`` skipped straight from 0
+    to 3 and boundary-snapped them as if they were adjacent, stretching the
+    label column's right edge from its own ~185px width out to 324 --
+    straight across the entire (invisible, because excluded) value column.
+    A later consumer then assigned the value text to the label cell too (by
+    centre-point containment), gluing "228.4 ml ED Volume" into one reading
+    instead of two.
+    """
+    label_cells = [
+        TableCell("t", f"label{row}", row, 0, Box(3, 20 + row * 24, 187, 20 + row * 24 + 24), "", 0.9)
+        for row in range(1, 11)
+    ]
+    # Column 1: a handful of wide, spanning value cells (excluded from
+    # by_column entirely, since rasterize_table_columns only tracks
+    # column_span==1 cells there).
+    spanning_value_cells = [
+        TableCell(
+            "t", f"value{row}", row, 1, Box(x1, 20 + row * 24, 444, 20 + row * 24 + 24), "", 0.9,
+            column_span=2,
+        )
+        for row, x1 in {3: 183, 4: 174, 5: 173, 6: 177, 7: 169, 8: 170}.items()
+    ]
+    # Column 2: a few narrow, single-span cells -- individually too sparse
+    # (3 of 10 rows) to pass the row-coverage floor.
+    narrow_value_cells = [
+        TableCell("t", f"narrow{row}", row, 2, Box(x1, 20 + row * 24, x2, 20 + row * 24 + 24), "", 0.9)
+        for row, (x1, x2) in {1: (221, 444), 2: (222, 443), 10: (221, 377)}.items()
+    ]
+    range_cells = [
+        TableCell("t", f"range{row}", row, 3, Box(442, 20 + row * 24, 664, 20 + row * 24 + 24), "", 0.9)
+        for row in range(1, 11)
+    ]
+    cells = rasterize_table_columns([*label_cells, *spanning_value_cells, *narrow_value_cells, *range_cells])
+    by_id = {cell.cell_id: cell for cell in cells}
+
+    # The label column keeps its own observed width -- it must never reach
+    # past where the (excluded) value column's own cells actually start.
+    label_x2_values = {by_id[f"label{row}"].box.x2 for row in range(1, 11)}
+    assert label_x2_values == {187}
+    # The range column likewise keeps its own observed width on the left.
+    range_x1_values = {by_id[f"range{row}"].box.x1 for row in range(1, 11)}
+    assert range_x1_values == {442}
+    # Neither excluded (value) column's own cells were touched.
+    for row, x1 in {3: 183, 4: 174, 5: 173, 6: 177, 7: 169, 8: 170}.items():
+        assert by_id[f"value{row}"].box.x1 == x1
+    for row, (x1, _x2) in {1: (221, 444), 2: (222, 443), 10: (221, 377)}.items():
+        assert by_id[f"narrow{row}"].box.x1 == x1
 
 
 def test_table_semantics_snap_to_reviewed_pipeline_a_geometry(tmp_path: Path) -> None:

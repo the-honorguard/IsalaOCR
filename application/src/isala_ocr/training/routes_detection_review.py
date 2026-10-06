@@ -79,6 +79,15 @@ def register_detection_review_routes(
 
     def detection_review_source_rows() -> list[dict[str, Any]]:
         sources = database.list_detection_sources()
+        # One directory scan instead of one safe_workspace_file(...).is_file()
+        # (a full symlink-resolving realpath per call) per source -- on a
+        # project with ~300 detection sources that alone was ~1.6s of
+        # lstat() calls on every /detection-review view. render_path is
+        # always "source_renders/<source_id>.png" (see
+        # prepare_source_renders()), so an in-memory set membership check
+        # answers the same question.
+        render_root = workspace_root() / "source_renders"
+        render_ids = {path.stem for path in render_root.glob("*.png")} if render_root.is_dir() else set()
         table_counts = database.detection_table_counts_by_source()
         canonical_sources = {
             str(item["source_id"]): item
@@ -106,7 +115,7 @@ def register_detection_review_routes(
                 "review_counts": counts,
                 "table_region_count": int(geometry.get("regions", 0)),
                 "table_cell_count": int(geometry.get("cells", 0)),
-                "render_exists": safe_workspace_file(str(source.get("render_path") or "")).is_file(),
+                "render_exists": Path(str(source.get("render_path") or "")).stem in render_ids,
                 "gt_mode": is_canonical_gt,
             })
         return result

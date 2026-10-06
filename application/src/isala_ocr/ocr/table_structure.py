@@ -402,29 +402,114 @@ def _cluster_centers(values: Sequence[float], tolerance: float) -> list[list[int
     return [group for _, group in sorted(zip(centers, groups), key=lambda item: item[0])]
 
 
+def _leading_header_indices(
+    cell_boxes: Sequence[Box], rows: Sequence[Sequence[int]],
+    known_headers: set[int] | None = None,
+) -> set[int]:
+    """Find isolated leading headers using repeated data rows as geometry."""
+    excluded = set(known_headers or ())
+    regular_rows = [row for row in rows if len(row) >= 2]
+    if len(regular_rows) >= 2:
+        regular_indices = [index for row in regular_rows for index in row if index not in excluded]
+        if not regular_indices:
+            return excluded
+        regular_widths = sorted(max(1, cell_boxes[index].width) for index in regular_indices)
+        regular_tolerance = max(6.0, min(40.0, regular_widths[len(regular_widths) // 2] * 0.20))
+        regular_edges = [float(cell_boxes[index].x1) for index in regular_indices]
+        regular_columns = _cluster_centers(regular_edges, regular_tolerance)
+        regular_anchors = [
+            sum(regular_edges[index] for index in column) / len(column)
+            for column in regular_columns
+        ]
+        regular_boxes = [cell_boxes[index] for index in regular_indices]
+        for row in rows:
+            if len(row) >= 2:
+                break
+            if len(row) != 1:
+                continue
+            index = row[0]
+            if index in excluded:
+                continue
+            box = cell_boxes[index]
+            covered_anchors = sum(box.x1 - regular_tolerance <= anchor <= box.x2 + regular_tolerance for anchor in regular_anchors)
+            left_is_distinct = all(abs(box.x1 - anchor) > regular_tolerance for anchor in regular_anchors)
+            center_x = (box.x1 + box.x2) / 2
+            contained_in_data_column = any(
+                other.x1 <= center_x <= other.x2 and
+                max(0, min(box.x2, other.x2) - max(box.x1, other.x1)) / max(1, box.width) >= 0.8
+                for other in regular_boxes
+            )
+            if covered_anchors >= 2 or (left_is_distinct and contained_in_data_column):
+                excluded.add(index)
+    return excluded
+
+
+def _merge_right_aligned_columns(
+    columns: Sequence[Sequence[int]], right_edges: Sequence[float], tolerance: float,
+) -> list[list[int]]:
+    """Merge adjacent left-edge clusters that actually share one right edge.
+
+    Per-row cell detection does not always find the same left edge for a
+    column: a cell's left edge can drift onto whitespace it shares with its
+    row neighbour, while its right edge (set by where the real text ends)
+    stays put. Clustering on left edges alone then splits one real column
+    into two -- observed in production on a table where most rows' value
+    cells land on a shared, tighter left edge while a handful of rows (the
+    one right after a sub-header row, and the row whose value is missing)
+    land 30-50px further right, just outside the left-edge tolerance above.
+    Those rows' relations never match the historical mapping feedback the
+    majority pattern was built from, so their field stays unmapped even
+    though nothing is wrong with their text.
+
+    Right edges are the strongest available signal that two such clusters
+    are one real column read inconsistently rather than two genuinely
+    different ones: two distinct adjacent columns essentially never share a
+    right edge by coincidence. Only ADJACENT clusters (in left-to-right
+    anchor order) are ever merged, so this can never reach across a real
+    intervening column -- it only pulls neighbours together.
+    """
+    if len(columns) < 2:
+        return [list(column) for column in columns]
+
+    def median_right_edge(column: Sequence[int]) -> float:
+        ordered = sorted(right_edges[index] for index in column)
+        return ordered[len(ordered) // 2]
+
+    merged: list[list[int]] = [list(columns[0])]
+    for column in columns[1:]:
+        if abs(median_right_edge(merged[-1]) - median_right_edge(column)) <= tolerance:
+            merged[-1].extend(column)
+        else:
+            merged.append(list(column))
+    return merged
+
+
 def _global_column_layout(
     cell_boxes: Sequence[Box], rows: Sequence[Sequence[int]],
+    *, header_indices: set[int] | None = None,
 ) -> dict[int, tuple[int, int]]:
-    """Assign cells to one shared column grid for the whole table.
+    """Assign contiguous data columns while keeping leading headers separate.
 
-    PP-Structure returns cell boxes, but its boxes do not always contain stable
-    row/column indexes.  Numbering cells independently inside every row makes
-    a missing cell shift all following columns.  We therefore cluster the left
-    edges across all rows and use those anchors as the table's global columns.
-    A wide box covering multiple anchors is represented with ``column_span``.
-    This is geometry-only and deliberately does not depend on report-specific
-    coordinates or text labels.
+    PP-Structure's cell boxes have no stable column indices. Repeated data-cell
+    left edges define the shared columns; a leading header never supplies an
+    anchor and receives column index ``-1``. Its own box is retained.
     """
     if not cell_boxes:
         return {}
+    excluded = _leading_header_indices(cell_boxes, rows, header_indices)
 
-    widths = sorted(max(1, box.width) for box in cell_boxes)
+    data_indices = [index for index in range(len(cell_boxes)) if index not in excluded]
+    if not data_indices:
+        return {index: (-1, 1) for index in range(len(cell_boxes))}
+    widths = sorted(max(1, cell_boxes[index].width) for index in data_indices)
     # A missing cell changes its row's centres, but it does not change the
     # left edge of the next real column. Build the shared raster from left
     # edges so sparse rows cannot shift later columns to the left.
     tolerance = max(6.0, min(40.0, widths[len(widths) // 2] * 0.20))
-    left_edges = [float(box.x1) for box in cell_boxes]
+    left_edges = [float(cell_boxes[index].x1) for index in data_indices]
     columns = _cluster_centers(left_edges, tolerance)
+    right_edges = [float(cell_boxes[index].x2) for index in data_indices]
+    columns = _merge_right_aligned_columns(columns, right_edges, tolerance)
     anchors = [
         sum(left_edges[index] for index in column) / len(column)
         for column in columns
@@ -433,12 +518,41 @@ def _global_column_layout(
     column_gap = sorted(gaps)[len(gaps) // 2] if gaps else None
     result: dict[int, tuple[int, int]] = {}
     for index, box in enumerate(cell_boxes):
+        if index in excluded:
+            result[index] = (-1, 1)
+            continue
         column_index = min(range(len(anchors)), key=lambda item: abs(anchors[item] - box.x1))
         span = 1
         if column_gap:
             span = max(1, int(round((box.x2 - anchors[column_index]) / column_gap)))
         result[index] = (column_index, span)
     return result
+
+
+def normalize_table_column_layout(cells: Sequence[TableCell]) -> list[TableCell]:
+    """Apply the same header separation and contiguous columns to saved cells.
+
+    Older localization files contain the original boxes and row indices, so
+    their layout can be corrected in memory without rewriting a finished run.
+    """
+    if not cells:
+        return []
+    rows_by_index: dict[int, list[int]] = {}
+    for index, cell in enumerate(cells):
+        rows_by_index.setdefault(cell.row_index, []).append(index)
+    rows = [rows_by_index[index] for index in sorted(rows_by_index)]
+    headers = _leading_header_indices(
+        [cell.box for cell in cells], rows,
+        {index for index, cell in enumerate(cells) if cell.column_index < 0},
+    )
+    data_columns = sorted({cell.column_index for index, cell in enumerate(cells) if index not in headers})
+    header_columns = {cells[index].column_index for index in headers if cells[index].column_index >= 0}
+    renumber = bool(header_columns - set(data_columns))
+    column_map = {column: index for index, column in enumerate(data_columns)} if renumber else {}
+    return [
+        replace(cell, column_index=-1 if index in headers else column_map.get(cell.column_index, cell.column_index))
+        for index, cell in enumerate(cells)
+    ]
 
 
 def rasterize_table_columns(cells: Sequence[TableCell]) -> list[TableCell]:
@@ -459,12 +573,8 @@ def rasterize_table_columns(cells: Sequence[TableCell]) -> list[TableCell]:
     A single-span cell whose width is much larger than its column's typical
     width (more than 1.6x the column's median) is excluded from that
     column's own bounds, and left untouched itself: this is very likely a
-    genuinely spanning cell (e.g. a full-width table title) that a caller's
-    ``column_span`` never recorded as such -- notably, ``localization_
-    detections/<source_id>.json`` never persists ``column_span`` at all
-    (only geometry + row/column_index), so any consumer reading that file
-    back always sees ``column_span`` default to 1 regardless of what
-    ``_global_column_layout`` originally computed. Without this guard, one
+    genuinely spanning cell (e.g. a full-width table title) that an older
+    localization record did not preserve as spanning. Without this guard, one
     such cell would stretch every other row in its column to its own width.
 
     A column that only a handful of rows actually use (for example a
@@ -480,6 +590,20 @@ def rasterize_table_columns(cells: Sequence[TableCell]) -> list[TableCell]:
     least half its row coverage, floor of 2 rows) rather than a fixed count,
     so it scales with table size instead of only fitting this one case.
 
+    An excluded column (sparse, or only ever seen inside a wider spanning
+    cell) still occupies real space between its neighbours, even though it
+    never joins the shared raster. The boundary-snap below only walks
+    *kept* columns in index order, so without this guard, two kept columns
+    with an excluded one sandwiched between them (for example a value
+    column whose cells landed too thin on too few rows to pass the
+    minimum-row-coverage check above) would be treated as if they were
+    directly adjacent -- stretching the shared boundary straight across the
+    excluded column's own territory, dragging a neighbouring column's text
+    along with it when a later consumer assigns OCR'd text to cells by
+    centre-point containment. A kept column whose immediate neighbour (by
+    column index) is excluded is left at its own already-observed width
+    instead, exactly as if that excluded column were the edge of the table.
+
     Deliberately NOT called from ``parse_ppstructure_tables`` itself: Pipeline
     A's persisted geometry stays exactly as detected (the "Celdetectie" stage
     -- loose, possibly ragged per-row boxes), and this is applied explicitly
@@ -490,7 +614,7 @@ def rasterize_table_columns(cells: Sequence[TableCell]) -> list[TableCell]:
     """
     by_column: dict[int, list[TableCell]] = {}
     for cell in cells:
-        if cell.column_span == 1:
+        if cell.column_index >= 0 and cell.column_span == 1:
             by_column.setdefault(cell.column_index, []).append(cell)
     if not by_column:
         return list(cells)
@@ -517,8 +641,11 @@ def rasterize_table_columns(cells: Sequence[TableCell]) -> list[TableCell]:
         column_index: [min(cell.box.x1 for cell in items), max(cell.box.x2 for cell in items)]
         for column_index, items in filtered_by_column.items()
     }
+    excluded_columns = {cell.column_index for cell in cells if cell.column_index >= 0} - set(bounds)
     ordered_columns = sorted(bounds)
     for left_index, right_index in zip(ordered_columns, ordered_columns[1:]):
+        if any(left_index < excluded < right_index for excluded in excluded_columns):
+            continue
         left_x1, left_x2 = bounds[left_index]
         right_x1, right_x2 = bounds[right_index]
         boundary = round(((left_x1 + left_x2) / 2 + (right_x1 + right_x2) / 2) / 2)

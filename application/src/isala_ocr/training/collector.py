@@ -16,7 +16,8 @@ from ..image_io import load_input
 from ..models import Box
 from ..study_info import extract_study_info
 from ..ocr.table_structure import (
-    PPStructureTableEngine, TABLE_ENGINE_VERSION, TableCell, TableRegion, rasterize_table_columns,
+    PPStructureTableEngine, TABLE_ENGINE_VERSION, TableCell, TableRegion,
+    normalize_table_column_layout, rasterize_table_columns,
 )
 from ..ocr.base import OCREngine
 from .projects import resolve_project_workspace
@@ -626,7 +627,7 @@ def _table_regions_from_located_cells(
         if not raw_cells:
             continue
         cells: list[TableCell] = []
-        for cell in rasterize_table_columns(raw_cells):
+        for cell in rasterize_table_columns(normalize_table_column_layout(raw_cells)):
             texts = [
                 block.text.strip() for block in semantic_blocks
                 if cell.box.x1 <= (block.box.x1 + block.box.x2) / 2 <= cell.box.x2

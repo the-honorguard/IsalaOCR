@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Any
 
 from .json_store import read_json_object, write_json_atomic
 from .projects import resolve_project_workspace
@@ -41,7 +42,8 @@ def _marker_path(workspace: str | Path) -> Path:
 
 
 def record_test_pipeline_source(
-    workspace: str | Path, source_id: str, *, origin_source_id: str | None = None, job_id: str | None = None
+    workspace: str | Path, source_id: str, *, origin_source_id: str | None = None, job_id: str | None = None,
+    input_file_path: str | Path | None = None,
 ) -> None:
     """Mark ``source_id`` as having come from a proefpagina upload.
 
@@ -60,6 +62,16 @@ def record_test_pipeline_source(
     source, so the "Beoordeelde afbeeldingen" list on the proefpagina can show
     a live status per image (``job_of_test_pipeline_source``) instead of only
     knowing about the single run named in the current page's URL.
+
+    ``input_file_path``, when given, records the duplicate DICOM this rerun
+    created under the active project's input directory (see
+    ``_start_rerun()``/``duplicate_dicom_with_fresh_identity()``), so
+    ``forget_test_pipeline_source()`` can free it later. Nothing ever reads
+    that file again once this source_id's own job has processed it -- without
+    tracking it here it just sits in ``/input`` forever, and a project with a
+    long history of reruns accumulates hundreds of these, which measurably
+    slows down every proefpagina list view (it has to identify every
+    untrained input file to build the list).
     """
     source_id = str(source_id or "").strip()
     if not source_id:
@@ -80,7 +92,17 @@ def record_test_pipeline_source(
     }
     if job_id and str(job_id).strip():
         jobs[source_id] = str(job_id).strip()
-    write_json_atomic(path, {"source_ids": ids, "origins": origins, "jobs": jobs})
+    input_files = {
+        str(key): str(value) for key, value in (payload.get("input_files") or {}).items()
+        if str(key).strip() and str(value).strip()
+    }
+    if input_file_path:
+        input_files[source_id] = str(input_file_path)
+    reviewed_ids = sorted({str(item) for item in (payload.get("reviewed_ids") or []) if str(item).strip()})
+    write_json_atomic(path, {
+        "source_ids": ids, "origins": origins, "jobs": jobs, "reviewed_ids": reviewed_ids,
+        "input_files": input_files,
+    })
 
 
 def test_pipeline_source_ids(workspace: str | Path) -> set[str]:
@@ -131,6 +153,99 @@ def latest_rerun_of_source(workspace: str | Path, origin_source_id: str) -> str 
     return None
 
 
+def test_pipeline_sources_snapshot(workspace: str | Path) -> dict[str, Any]:
+    """Read ``test_pipeline_sources.json`` once and return a reusable lookup snapshot.
+
+    ``latest_rerun_of_source()``/``job_of_test_pipeline_source()``/
+    ``is_test_pipeline_source_reviewed()`` each independently call
+    ``read_json_object(_marker_path(workspace), ...)`` -- fine for a single
+    lookup (the compare screen, a single-row action), but the proefpagina
+    list calls all three of them for every row it shows. With ~200 rows that
+    is up to 600 re-reads and re-resolutions of the same file and workspace
+    path per page view, measurably slowing the list down. Call this once
+    before the loop and look up each row's data from the dicts/sets it
+    returns instead.
+
+    ``latest_rerun_by_origin`` mirrors ``latest_rerun_of_source()``'s own
+    "most recent wins" rule: ``source_ids`` is oldest-first (see
+    ``record_test_pipeline_source()``), so a forward scan that lets a later
+    entry overwrite an earlier one for the same origin ends up keyed by the
+    latest rerun, same as that function's own reverse-order first-match scan.
+    """
+    payload = read_json_object(_marker_path(workspace), {})
+    ids = [str(item) for item in (payload.get("source_ids") or []) if str(item).strip()]
+    origins = {
+        str(key): str(value) for key, value in (payload.get("origins") or {}).items()
+        if str(key).strip() and str(value).strip()
+    }
+    jobs = {
+        str(key): str(value) for key, value in (payload.get("jobs") or {}).items()
+        if str(key).strip() and str(value).strip()
+    }
+    reviewed_ids = {str(item) for item in (payload.get("reviewed_ids") or []) if str(item).strip()}
+    latest_rerun_by_origin: dict[str, str] = {}
+    for candidate in ids:
+        origin = origins.get(candidate)
+        if origin:
+            latest_rerun_by_origin[origin] = candidate
+    return {
+        "source_ids": set(ids),
+        "origins": origins,
+        "jobs": jobs,
+        "reviewed_ids": reviewed_ids,
+        "latest_rerun_by_origin": latest_rerun_by_origin,
+    }
+
+
+def mark_test_pipeline_reviewed(workspace: str | Path, source_id: str, reviewed: bool) -> None:
+    """Record that a proefpagina compare run needs no further review, or undo that.
+
+    Some runs legitimately produce *more* measurements than the training
+    pipeline's own result -- the training data itself is missing fields, not
+    the retest -- so a "wijkt af" row on the proefpagina list isn't always
+    something to fix. This lets the user mark such a compare run as reviewed
+    straight from the compare screen, so the list can distinguish "nog te
+    beoordelen" from "al bekeken, geen actie nodig" instead of showing every
+    deviation as equally outstanding forever.
+    """
+    source_id = str(source_id or "").strip()
+    if not source_id:
+        return
+    path = _marker_path(workspace)
+    payload = read_json_object(path, {})
+    reviewed_ids = {str(item) for item in (payload.get("reviewed_ids") or []) if str(item).strip()}
+    if reviewed:
+        reviewed_ids.add(source_id)
+    else:
+        reviewed_ids.discard(source_id)
+    write_json_atomic(path, {
+        "source_ids": [str(item) for item in (payload.get("source_ids") or []) if str(item).strip()],
+        "origins": {
+            str(key): str(value) for key, value in (payload.get("origins") or {}).items()
+            if str(key).strip() and str(value).strip()
+        },
+        "jobs": {
+            str(key): str(value) for key, value in (payload.get("jobs") or {}).items()
+            if str(key).strip() and str(value).strip()
+        },
+        "reviewed_ids": sorted(reviewed_ids),
+        "input_files": {
+            str(key): str(value) for key, value in (payload.get("input_files") or {}).items()
+            if str(key).strip() and str(value).strip()
+        },
+    })
+
+
+def is_test_pipeline_source_reviewed(workspace: str | Path, source_id: str) -> bool:
+    """Return whether ``source_id`` was marked reviewed via ``mark_test_pipeline_reviewed()``."""
+    source_id = str(source_id or "").strip()
+    if not source_id:
+        return False
+    payload = read_json_object(_marker_path(workspace), {})
+    reviewed_ids = {str(item) for item in (payload.get("reviewed_ids") or [])}
+    return source_id in reviewed_ids
+
+
 def job_of_test_pipeline_source(workspace: str | Path, source_id: str) -> str | None:
     """Return the worker job_id last recorded for ``source_id``, if any."""
     source_id = str(source_id or "").strip()
@@ -149,7 +264,10 @@ def forget_test_pipeline_source(workspace: str | Path, source_id: str) -> None:
     while leaving its extracted_output/generic_detections/localization_detections
     JSON and renders/crops sitting in the project workspace forever -- these
     are disposable, one-off test artifacts, not training data, so "verwijderen"
-    here means actually freeing that clutter, not just delisting it.
+    here means actually freeing that clutter, not just delisting it. The
+    duplicate DICOM this rerun created under the input directory (tracked via
+    ``record_test_pipeline_source()``'s ``input_file_path``) is freed the same
+    way -- nothing reads it again once this source_id's job has run.
     """
     source_id = str(source_id or "").strip()
     if not source_id:
@@ -166,7 +284,18 @@ def forget_test_pipeline_source(workspace: str | Path, source_id: str) -> None:
         str(key): str(value) for key, value in (payload.get("jobs") or {}).items()
         if str(key).strip() and str(value).strip() and str(key) != source_id
     }
-    write_json_atomic(path, {"source_ids": ids, "origins": origins, "jobs": jobs})
+    reviewed_ids = sorted(
+        {str(item) for item in (payload.get("reviewed_ids") or []) if str(item).strip() and str(item) != source_id}
+    )
+    input_file_to_remove = str((payload.get("input_files") or {}).get(source_id) or "").strip()
+    input_files = {
+        str(key): str(value) for key, value in (payload.get("input_files") or {}).items()
+        if str(key).strip() and str(value).strip() and str(key) != source_id
+    }
+    write_json_atomic(path, {
+        "source_ids": ids, "origins": origins, "jobs": jobs, "reviewed_ids": reviewed_ids,
+        "input_files": input_files,
+    })
     for pattern in _PER_SOURCE_FILES:
         target = root / pattern.format(id=source_id)
         target.unlink(missing_ok=True)
@@ -174,3 +303,5 @@ def forget_test_pipeline_source(workspace: str | Path, source_id: str) -> None:
         target = root / pattern.format(id=source_id)
         if target.is_dir():
             shutil.rmtree(target, ignore_errors=True)
+    if input_file_to_remove:
+        Path(input_file_to_remove).unlink(missing_ok=True)

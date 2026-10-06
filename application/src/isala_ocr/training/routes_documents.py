@@ -19,7 +19,7 @@ from typing import Any, Callable
 from flask import Flask, abort, render_template
 
 from ..models import Box
-from ..ocr.table_structure import TableCell, rasterize_table_columns
+from ..ocr.table_structure import TableCell, normalize_table_column_layout, rasterize_table_columns
 from .generic_detection import looks_like_value
 from .json_store import read_json
 from .mapping_ground_truth_fast import _configured_panel_regions
@@ -336,6 +336,25 @@ def _tables_stage_data(
     }
 
 
+def _table_cells_from_payload(table: dict[str, Any]) -> list[TableCell]:
+    """Read raw saved geometry and repair older column numbering in memory."""
+    raw_cells = [
+        TableCell(
+            table_id=str(table.get("table_id") or ""), cell_id=str(cell.get("cell_id") or index),
+            row_index=int(cell.get("row_index") or 0), column_index=int(cell.get("column_index") or 0),
+            box=Box(
+                int(cell.get("x1") or 0), int(cell.get("y1") or 0),
+                int(cell.get("x2") or 0), int(cell.get("y2") or 0),
+            ),
+            text="", confidence=float(cell.get("confidence") or 0),
+            column_span=int(cell.get("column_span") or 1),
+        )
+        for index, cell in enumerate(table.get("cells") or [])
+        if isinstance(cell, dict)
+    ]
+    return normalize_table_column_layout(raw_cells)
+
+
 def _cells_stage_data(
     source_id: str, *, workspace_root: Path, safe_workspace_file: Callable[[str | Path], Path], database: Any,
 ) -> dict[str, Any] | None:
@@ -400,30 +419,31 @@ def _cells_stage_data(
             {},
         )
         rows: dict[int, dict[int, dict[str, Any]]] = {}
-        for cell in table.get("cells") or []:
-            if not isinstance(cell, dict):
-                continue
-            cx1, cy1 = int(cell.get("x1") or 0), int(cell.get("y1") or 0)
-            cx2, cy2 = int(cell.get("x2") or 0), int(cell.get("y2") or 0)
+        headers: list[dict[str, Any]] = []
+        for cell in _table_cells_from_payload(table):
+            cx1, cy1, cx2, cy2 = cell.box.x1, cell.box.y1, cell.box.x2, cell.box.y2
             texts = (
                 _matching_texts(table_cell_blocks, cx1, cy1, cx2, cy2)
                 or _matching_texts(semantic_blocks, cx1, cy1, cx2, cy2)
                 or _matching_texts(gt_cell_samples, cx1, cy1, cx2, cy2)
             )
-            row_index = int(cell.get("row_index") or 0)
-            column_index = int(cell.get("column_index") or 0)
-            rows.setdefault(row_index, {})[column_index] = {
+            display_cell = {
                 "text": " ".join(texts),
-                "confidence": float(cell.get("confidence") or 0),
+                "confidence": cell.confidence,
                 "x1": cx1, "y1": cy1, "x2": cx2, "y2": cy2,
             }
+            if cell.column_index < 0:
+                headers.append(display_cell)
+            else:
+                rows.setdefault(cell.row_index, {})[cell.column_index] = display_cell
         column_count = max((max(cols) for cols in rows.values()), default=-1) + 1
         grid = [
             [rows[row_index].get(col) for col in range(column_count)]
             for row_index in sorted(rows)
         ]
         window["grid"] = grid
-        window["cell_count"] = sum(1 for row in rows.values() for _ in row)
+        window["headers"] = headers
+        window["cell_count"] = len(headers) + sum(len(row) for row in rows.values())
         window["has_text"] = bool(table_cell_blocks or semantic_blocks or gt_cell_samples)
 
     return {
@@ -459,23 +479,9 @@ def _rasterized_cells_stage_data(
             (item for item in located_tables if item.get("x1") == window["x1"] and item.get("y1") == window["y1"]),
             {},
         )
-        raw_cells = [
-            TableCell(
-                table_id=str(table.get("table_id") or ""), cell_id=str(cell.get("cell_id") or index),
-                row_index=int(cell.get("row_index") or 0), column_index=int(cell.get("column_index") or 0),
-                box=Box(
-                    int(cell.get("x1") or 0), int(cell.get("y1") or 0),
-                    int(cell.get("x2") or 0), int(cell.get("y2") or 0),
-                ),
-                text="", confidence=float(cell.get("confidence") or 0),
-                column_span=int(cell.get("column_span") or 1),
-            )
-            for index, cell in enumerate(table.get("cells") or [])
-            if isinstance(cell, dict)
-        ]
         window["boxes"] = [
             {"x1": cell.box.x1, "y1": cell.box.y1, "x2": cell.box.x2, "y2": cell.box.y2}
-            for cell in rasterize_table_columns(raw_cells)
+            for cell in rasterize_table_columns(_table_cells_from_payload(table))
         ]
 
     return {

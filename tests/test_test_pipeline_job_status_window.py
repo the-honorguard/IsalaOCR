@@ -2,13 +2,13 @@
 exist in the system.
 
 ``job_statuses(limit)`` (webui.py) truncates to the N *most recently created*
-jobs system-wide before returning them. "Alles testen" can queue dozens of
-reruns in one click, and any unrelated job traffic on top of that easily
-pushes an earlier job 61 out of a small, unscoped window -- its row would
-then show "Testen" again even though a rerun is genuinely still queued,
-because neither ``has_output`` nor a job entry would be found for it. The fix
-scopes the ``test_pipeline()``/``test_pipeline_rerun_all()`` lookups to
-``action_ids={"61"}`` before the limit ever applies.
+jobs system-wide before returning them. "Geselecteerd opnieuw testen" can
+queue dozens of reruns in one click, and any unrelated job traffic on top of
+that easily pushes an earlier job 61 out of a small, unscoped window -- its
+row would then show "Testen" again even though a rerun is genuinely still
+queued, because neither ``has_output`` nor a job entry would be found for it.
+The fix scopes the ``test_pipeline()``/``test_pipeline_rerun_selected()``
+lookups to ``action_ids={"61"}`` before the limit ever applies.
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ def test_running_rerun_survives_a_flood_of_newer_unrelated_jobs(tmp_path: Path) 
     assert "Testen</button>" not in body, "the row must not offer 'Testen' again while its rerun is still running"
 
 
-def test_alles_testen_does_not_double_queue_a_rerun_hidden_by_job_noise(tmp_path: Path) -> None:
+def test_bulk_retest_does_not_double_queue_a_rerun_hidden_by_job_noise(tmp_path: Path) -> None:
     app, workspace, jobs_root = _app(tmp_path)
     from isala_ocr.training.test_pipeline_sources import job_of_test_pipeline_source, record_test_pipeline_source
 
@@ -102,10 +102,13 @@ def test_alles_testen_does_not_double_queue_a_rerun_hidden_by_job_noise(tmp_path
             created_at=f"2026-01-02T00:00:{index:02d}Z",
         )
 
-    # "Alles testen" must recognize the in-flight rerun and skip it, not
-    # start a second one on top of it (it would fail to find /input anyway
-    # on this host, but the point under test is the *skip decision* itself).
-    response = app.test_client().post("/test-pipeline/alles-testen", follow_redirects=True)
+    # "Geselecteerd opnieuw testen" must recognize the in-flight rerun and
+    # skip it, not start a second one on top of it (it would fail to find
+    # /input anyway on this host, but the point under test is the *skip
+    # decision* itself).
+    response = app.test_client().post(
+        "/test-pipeline/geselecteerd-opnieuw-testen", data={"source_ids": [ORIGIN_ID]}, follow_redirects=True,
+    )
     assert response.status_code == 200
     assert job_of_test_pipeline_source(workspace, RERUN_ID) == "job-real-1", (
         "the original in-flight job must still be the tracked one; a second rerun must not have been queued"
