@@ -2,7 +2,8 @@
 differs from its trainingspipeline origin, using the exact same field-by-field
 rule the compare screen's STAP 7 uses (``_measurement_diff_rows``, shared),
 so a deviation is visible without opening every row's compare screen. Also
-covers the "Alles testen" bulk-rerun button's presence and basic reachability.
+covers the "Geselecteerd opnieuw testen" bulk-rerun button's presence and
+basic reachability.
 """
 
 from __future__ import annotations
@@ -80,22 +81,26 @@ def test_list_shows_gelijk_when_datablok_matches(tmp_path: Path) -> None:
     assert "⚠" not in body, "no deviation alert should render when the datablok matches"
 
 
-def test_alles_testen_button_and_route_present_when_rows_exist(tmp_path: Path) -> None:
+def test_bulk_retest_button_and_route_present_when_rows_exist(tmp_path: Path) -> None:
     app, workspace = _app(tmp_path)
     _write_output(workspace, ORIGIN_ID, "12")
 
     body = app.test_client().get("/test-pipeline").get_data(as_text=True)
-    assert "Alles testen" in body
-    assert "test_pipeline_rerun_all" in app.view_functions
+    assert "Geselecteerd opnieuw testen" in body
+    assert "test_pipeline_rerun_selected" in app.view_functions
 
-    response = app.test_client().post("/test-pipeline/alles-testen", follow_redirects=True)
+    response = app.test_client().post(
+        "/test-pipeline/geselecteerd-opnieuw-testen", data={"source_ids": [ORIGIN_ID]}, follow_redirects=True,
+    )
     assert response.status_code == 200
 
 
-def test_no_alles_testen_button_when_list_is_empty(tmp_path: Path) -> None:
+def test_no_bulk_retest_button_when_list_is_empty(tmp_path: Path) -> None:
     app, _workspace = _app(tmp_path)
     body = app.test_client().get("/test-pipeline").get_data(as_text=True)
-    assert "Alles testen" not in body
+    # The phrase itself also appears in an explanatory JS comment that's
+    # always present, so this checks for the button element specifically.
+    assert 'class="button primary js-bulk-retest"' not in body
 
 
 def test_untrained_but_tested_row_never_shows_gelijk(tmp_path: Path) -> None:

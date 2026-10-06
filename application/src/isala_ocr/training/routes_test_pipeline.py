@@ -30,6 +30,7 @@ mutable file.
 from __future__ import annotations
 
 import hashlib
+import threading
 import uuid
 from pathlib import Path
 from typing import Any, Callable
@@ -48,8 +49,9 @@ from .routes_documents import (
 from .table_cell_training import active_table_cell_model
 from .test_pipeline_rerun import duplicate_dicom_with_fresh_identity, find_input_file_by_source_id
 from .test_pipeline_sources import (
-    forget_test_pipeline_source, job_of_test_pipeline_source, latest_rerun_of_source,
-    origin_of_test_pipeline_source, record_test_pipeline_source, test_pipeline_source_ids,
+    forget_test_pipeline_source, is_test_pipeline_source_reviewed, job_of_test_pipeline_source,
+    latest_rerun_of_source, mark_test_pipeline_reviewed, origin_of_test_pipeline_source,
+    record_test_pipeline_source, test_pipeline_source_ids, test_pipeline_sources_snapshot,
 )
 
 RERUN_ERROR_MESSAGES = {
@@ -88,19 +90,107 @@ def register_test_pipeline_routes(
     source_rows: Callable[[], list[dict[str, Any]]],
     loaded_config: Any | None,
 ) -> None:
+    # (rerun_source_id, origin_source_id) -> (fingerprint, differing_count). The
+    # fingerprint is each side's own extracted_output file (mtime_ns, size), so a
+    # rerun's result (written once and never touched again) is cached forever,
+    # while an origin whose datablok gets regenerated later (e.g. a Mapping
+    # Studio correction) still invalidates correctly. See
+    # _cached_differing_count()'s own docstring for why this exists.
+    _differing_count_cache: dict[tuple[str, str], tuple[tuple[tuple[int, int], tuple[int, int]], int]] = {}
+    _differing_count_cache_lock = threading.Lock()
+
+    def _cached_differing_count(rerun_source_id: str, origin_source_id: str) -> int:
+        """Field-by-field deviation count between a rerun and its origin, cached by file mtime.
+
+        _datablok_stage_data() reads and parses a JSON file and resolves
+        several paths per call; recomputing it for both sides of every
+        "getest" row on every proefpagina list view (dozens to low hundreds
+        of rows) measurably slowed the page down -- profiling a real project
+        showed ~5s of a ~24s page load going into this alone. Neither side's
+        file content needs re-reading if neither has changed since the last
+        time this exact pair was computed, so this mirrors
+        input_file_source_id()'s own (mtime, size) cache in input_selection.py.
+        """
+        def _fingerprint(source_id: str) -> tuple[int, int]:
+            # Deliberately not safe_workspace_file(): that resolves the full
+            # real path (symlink-safe, for paths built from a request) on
+            # every call, which this function also pays on a cache *hit* --
+            # profiling showed it as the single biggest remaining cost once
+            # the rest of this page was fixed. source_id here always comes
+            # from this project's own tracked ids (never straight from a
+            # request), and _datablok_stage_data() below still reads the
+            # file through safe_workspace_file() itself when there's an
+            # actual cache miss to serve.
+            try:
+                stat = (workspace_root() / "extracted_output" / f"{source_id}.json").stat()
+            except OSError:
+                return (0, 0)
+            return (stat.st_mtime_ns, stat.st_size)
+
+        fingerprint = (_fingerprint(rerun_source_id), _fingerprint(origin_source_id))
+        cache_key = (rerun_source_id, origin_source_id)
+        with _differing_count_cache_lock:
+            cached = _differing_count_cache.get(cache_key)
+            if cached is not None and cached[0] == fingerprint:
+                return cached[1]
+        new_datablok = _datablok_stage_data(
+            rerun_source_id, workspace_root=workspace_root(), safe_workspace_file=safe_workspace_file,
+            database=database,
+        )
+        old_datablok = _datablok_stage_data(
+            origin_source_id, workspace_root=workspace_root(), safe_workspace_file=safe_workspace_file,
+            database=database,
+        )
+        diff_rows = _measurement_diff_rows(new_datablok, old_datablok)
+        differing_count = sum(1 for item in diff_rows if item["differs"])
+        with _differing_count_cache_lock:
+            _differing_count_cache[cache_key] = (fingerprint, differing_count)
+        return differing_count
+
+    def _extracted_output_ids() -> set[str]:
+        """Every source_id with an ``extracted_output/<id>.json`` file, in one directory scan.
+
+        ``_all_input_rows()``/``test_pipeline()`` used to check this per row
+        with an individual ``Path.is_file()`` stat call -- harmless locally,
+        but each one is its own round trip across the project's Docker bind
+        mount, and with ~200 rows that alone was over 10,000 stat calls
+        (~11s) on a real project. One directory listing plus in-memory set
+        membership checks replaces all of them.
+        """
+        root = workspace_root() / "extracted_output"
+        if not root.is_dir():
+            return set()
+        return {path.stem for path in root.glob("*.json")}
+
+    def _render_ids() -> set[str]:
+        """Every source_id with a ``source_renders/<id>.png`` file, in one directory scan."""
+        root = workspace_root() / "source_renders"
+        if not root.is_dir():
+            return set()
+        return {path.stem for path in root.glob("*.png")}
+
     def _start_rerun(source_id: str) -> dict[str, Any]:
-        """Kick off a proefpagina rerun of ``source_id``.
+        """Reset any previous proefpagina run of ``source_id`` and queue a fresh one.
 
         Returns ``{"error": None, "job_id": ..., "rerun_source_id": ...}`` on
         success, or ``{"error": <key of RERUN_ERROR_MESSAGES>, "job_id": None,
         "rerun_source_id": None}`` on failure. Shared by the single-row
-        "Testen" route and the bulk "Alles testen" route so both apply the
-        exact same rerun mechanics (see ``test_pipeline_rerun()``'s docstring
-        for why the copy must be byte-distinct from the original). Only
-        *queues* the job (``enqueue_job`` just writes a "pending" job file and
-        returns immediately) -- the worker that actually picks it up and
-        drives it to "running" runs out-of-process, so this call itself never
-        blocks on that.
+        "Testen"/"Opnieuw testen" route and the bulk "Geselecteerde opnieuw
+        testen" route so both apply the exact same reset-and-requeue
+        mechanics (see ``test_pipeline_rerun()``'s docstring for why the copy
+        must be byte-distinct from the original). Only *queues* the job
+        (``enqueue_job`` just writes a "pending" job file and returns
+        immediately) -- the worker that actually picks it up and drives it to
+        "running" runs out-of-process, so this call itself never blocks on
+        that.
+
+        Always resets first: any existing rerun of ``source_id`` (its
+        tracking entry plus extracted_output/generic_detections/renders/crops,
+        via ``forget_test_pipeline_source()``) is cleared before a fresh one
+        is queued, so clicking "Testen" again on an already-tested row
+        replaces its previous attempt instead of piling disposable artifacts
+        up alongside it -- a row only ever has its latest run on disk.
+        Harmless to call on a never-tested row (nothing to reset yet).
 
         The job is told exactly which file to process via its own
         ``options["input_file"]`` (a path relative to ``/input``, forwarded
@@ -117,6 +207,9 @@ def register_test_pipeline_routes(
         options removes the shared mutable state entirely, so queuing several
         reruns in a row can no longer race.
         """
+        previous_rerun_source_id = latest_rerun_of_source(workspace_root(), source_id)
+        if previous_rerun_source_id:
+            forget_test_pipeline_source(workspace_root(), previous_rerun_source_id)
         input_root = Path(project_manager.active().input_path).resolve()
         original = find_input_file_by_source_id(input_root, source_id)
         if original is None:
@@ -140,6 +233,7 @@ def register_test_pipeline_routes(
         })
         record_test_pipeline_source(
             workspace_root(), new_source_id, origin_source_id=source_id, job_id=str(job["job_id"]),
+            input_file_path=destination,
         )
         return {"error": None, "job_id": str(job["job_id"]), "rerun_source_id": new_source_id}
 
@@ -157,12 +251,14 @@ def register_test_pipeline_routes(
         visually distinct instead of looking interchangeable.
         """
         test_source_ids = test_pipeline_source_ids(workspace_root())
+        extracted_output_ids = _extracted_output_ids()
+        render_ids = _render_ids()
 
         def _is_trained(source_id: str) -> bool:
-            return safe_workspace_file(Path("extracted_output") / f"{source_id}.json").is_file()
+            return source_id in extracted_output_ids
 
         def _render_exists(source_id: str) -> bool:
-            return (workspace_root() / "source_renders" / f"{source_id}.png").is_file()
+            return source_id in render_ids
 
         trained_rows = [
             {"source_id": str(row["source_id"]), "render_exists": bool(row.get("render_exists")), "trained": True}
@@ -243,23 +339,29 @@ def register_test_pipeline_routes(
         # Scoped to action 61 (proefpagina reruns) specifically, and given a
         # generous limit: job_statuses() truncates to its N *most recently
         # created* jobs across the whole app before this callsite ever sees
-        # them. "Alles testen" can queue dozens of reruns in one go, and an
+        # them. "Geselecteerde opnieuw testen" can queue dozens of reruns in one go, and an
         # unscoped job_statuses(20) would push earlier ones straight out of
         # that window -- their row would then show "Testen" again even
         # though a rerun is genuinely still queued or just finished, since
         # neither has_output nor a job entry would be found for it.
         jobs = job_statuses(200, action_ids={"61"})
+        extracted_output_ids = _extracted_output_ids()
+        # One read of test_pipeline_sources.json for the whole list instead of
+        # up to three re-reads (latest rerun / job id / reviewed flag) per row --
+        # see test_pipeline_sources_snapshot()'s own docstring.
+        sources_snapshot = test_pipeline_sources_snapshot(workspace_root())
         rows = []
         for row in _all_input_rows():
             source_id = str(row["source_id"])
-            rerun_source_id = latest_rerun_of_source(workspace_root(), source_id)
+            rerun_source_id = sources_snapshot["latest_rerun_by_origin"].get(source_id)
             status = "untested"
             compare_url = None
             running_job_id = None
             differing_count = 0
+            reviewed = False
             if rerun_source_id:
-                has_output = safe_workspace_file(Path("extracted_output") / f"{rerun_source_id}.json").is_file()
-                job_id = job_of_test_pipeline_source(workspace_root(), rerun_source_id)
+                has_output = rerun_source_id in extracted_output_ids
+                job_id = sources_snapshot["jobs"].get(rerun_source_id)
                 job = next((item for item in jobs if str(item.get("job_id") or "") == job_id), None)
                 if has_output:
                     status = "tested"
@@ -268,16 +370,12 @@ def register_test_pipeline_routes(
                     # (STAP 7), computed here too so a deviation is visible
                     # straight from the list -- no need to open every "getest"
                     # row's compare screen just to find out which ones differ.
-                    new_datablok = _datablok_stage_data(
-                        rerun_source_id, workspace_root=workspace_root(),
-                        safe_workspace_file=safe_workspace_file, database=database,
-                    )
-                    old_datablok = _datablok_stage_data(
-                        source_id, workspace_root=workspace_root(),
-                        safe_workspace_file=safe_workspace_file, database=database,
-                    )
-                    diff_rows = _measurement_diff_rows(new_datablok, old_datablok)
-                    differing_count = sum(1 for item in diff_rows if item["differs"])
+                    # Cached by file mtime (see _cached_differing_count()) --
+                    # recomputing this from scratch for every "getest" row on
+                    # every page view was the single biggest contributor to a
+                    # real ~24s page load.
+                    differing_count = _cached_differing_count(rerun_source_id, source_id)
+                    reviewed = rerun_source_id in sources_snapshot["reviewed_ids"]
                 elif job and str(job.get("status") or "") in RUNNING_JOB_STATUSES:
                     status = "running"
                     running_job_id = job_id
@@ -296,7 +394,12 @@ def register_test_pipeline_routes(
                 "compare_url": compare_url,
                 "running_job_id": running_job_id,
                 "differing_count": differing_count,
+                "reviewed": reviewed,
             })
+
+        needs_review_count = sum(
+            1 for row in rows if row["status"] == "tested" and row["differing_count"] and not row["reviewed"]
+        )
 
         # Poll /api/status for just these specific job ids and navigate back to
         # this same list exactly once, the moment none of them are still
@@ -310,19 +413,28 @@ def register_test_pipeline_routes(
 
         return render_template(
             "test_pipeline.html", rows=rows, rerun_error=rerun_error, running_job_ids=running_job_ids,
+            needs_review_count=needs_review_count,
         )
 
-    @app.post("/test-pipeline/verwijderen/<source_id>")
-    def test_pipeline_forget(source_id: str):
-        """Delete one proefpagina run's tracking entry and output artifacts.
+    @app.post("/test-pipeline/beoordeeld/<source_id>")
+    def test_pipeline_mark_reviewed(source_id: str):
+        """Toggle whether a proefpagina compare run needs no further review.
 
-        Scoped deliberately to the proefpagina's own disposable output (see
-        ``forget_test_pipeline_source()``'s docstring) -- never the shared
-        samples database other training-review pages depend on. Used from the
-        proefpagina list to reset a "getest"/"mislukt" row back to untested.
+        Used when a "wijkt af" row turns out fine on inspection -- e.g. the
+        retest found *more* values than the training data has, because the
+        training data itself is incomplete rather than the retest being
+        wrong. Marking it here lets the list (``test_pipeline()``) separate
+        "nog te beoordelen" from "al bekeken, geen actie nodig" instead of
+        flagging every deviation as outstanding forever. Called from both the
+        compare screen (toggles the one run it's showing) and, via fetch with
+        the same ``X-Test-Pipeline-Async`` convention the rerun routes use,
+        without a full page reload.
         """
-        forget_test_pipeline_source(workspace_root(), source_id)
-        return redirect(url_for("test_pipeline"))
+        reviewed = str(request.form.get("reviewed") or "") != "0"
+        mark_test_pipeline_reviewed(workspace_root(), source_id, reviewed)
+        if request.headers.get("X-Test-Pipeline-Async"):
+            return {"ok": True, "reviewed": reviewed}
+        return redirect(request.referrer or url_for("test_pipeline"))
 
     @app.post("/test-pipeline/opnieuw-testen/<source_id>")
     def test_pipeline_rerun(source_id: str):
@@ -338,7 +450,7 @@ def register_test_pipeline_routes(
         recorded with ``source_id`` as its origin and this job's id, so the
         proefpagina list can show live status and, once finished, link to the
         stage-by-stage comparison. See ``_start_rerun()`` for the mechanics,
-        shared with the bulk "Alles testen" route below.
+        shared with the bulk "Geselecteerde opnieuw testen" route below.
 
         The list page's "Testen"/"Opnieuw proberen" buttons call this via
         ``fetch`` (marked by the ``X-Test-Pipeline-Async`` header) so a click
@@ -360,22 +472,25 @@ def register_test_pipeline_routes(
             return redirect(url_for("test_pipeline", rerun_error=result["error"]))
         return redirect(url_for("test_pipeline"))
 
-    @app.post("/test-pipeline/alles-testen")
-    def test_pipeline_rerun_all():
-        """Kick off a proefpagina rerun for every image on the list, trained or not.
+    @app.post("/test-pipeline/geselecteerd-opnieuw-testen")
+    def test_pipeline_rerun_selected():
+        """Reset + requeue a proefpagina run for exactly the checked rows.
 
-        "Alles" is literal: every listed image gets a fresh rerun against the
-        currently active models, including ones already "getest" and ones
-        never trained at all -- this is a bulk refresh, not just a "fill in
-        the untested ones" action. Only a row already "Bezig..." (a rerun
+        The bulk equivalent of clicking "Testen"/"Opnieuw testen" on each
+        selected row by hand -- see ``_start_rerun()`` for the shared
+        reset-and-requeue mechanics -- so retesting a chosen subset no longer
+        needs one click per row. Only a row already "Bezig..." (a rerun
         genuinely in flight, per the same check the list itself uses) is
-        skipped, so a click here never queues a second job on top of one
-        still running for the same image.
+        skipped even if selected, so this never queues a second job on top of
+        one still running for the same image.
         """
+        requested_ids = [str(item).strip() for item in request.form.getlist("source_ids") if str(item).strip()]
+        if not requested_ids:
+            flash("Geen afbeeldingen geselecteerd.", "info")
+            return redirect(url_for("test_pipeline"))
         jobs = job_statuses(200, action_ids={"61"})  # see test_pipeline()'s comment on this call
         started = 0
-        for row in _all_input_rows():
-            source_id = str(row["source_id"])
+        for source_id in requested_ids:
             rerun_source_id = latest_rerun_of_source(workspace_root(), source_id)
             if rerun_source_id:
                 has_output = safe_workspace_file(Path("extracted_output") / f"{rerun_source_id}.json").is_file()
@@ -386,9 +501,9 @@ def register_test_pipeline_routes(
             if _start_rerun(source_id)["error"] is None:
                 started += 1
         if started:
-            flash(f"{started} afbeelding(en) worden opnieuw getest.", "success")
+            flash(f"{started} geselecteerde afbeelding(en) worden opnieuw getest.", "success")
         else:
-            flash("Geen afbeeldingen om te testen (alles is al bezig).", "info")
+            flash("Geen van de geselecteerde afbeeldingen kon opnieuw getest worden (al bezig, of niet gevonden).", "info")
         return redirect(url_for("test_pipeline"))
 
     @app.get("/test-pipeline/vergelijk/<source_id>")
@@ -451,9 +566,11 @@ def register_test_pipeline_routes(
 
         measurement_rows = _measurement_diff_rows(new_datablok, old_datablok)
         readout_rows = _readout_diff_rows(new_readout, old_readout)
+        reviewed = is_test_pipeline_source_reviewed(root, source_id)
 
         return render_template(
             "test_pipeline_compare.html", source_id=source_id, origin_source_id=origin_source_id,
+            reviewed=reviewed,
             new_tables=new_tables, old_tables=old_tables,
             new_identification=new_identification, old_identification=old_identification,
             new_cells=new_cells, old_cells=old_cells,

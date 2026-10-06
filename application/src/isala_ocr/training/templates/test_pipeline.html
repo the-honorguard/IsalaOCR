@@ -10,15 +10,22 @@
     <div><h3>Inputafbeeldingen</h3><p class="muted">Alle afbeeldingen uit Inputselectie. "Getraind" heeft al een trainingspipeline-resultaat om tegen te vergelijken; "Nog niet getraind" kan wel getest worden, maar heeft nog niets om mee te vergelijken.</p></div>
     <div class="actions">
       <span class="pill">{{ rows|length }}</span>
+      {% if needs_review_count %}<span class="pill warn" title="Vergelijkingen met verschillen die nog niet gemarkeerd zijn als beoordeeld">{{ needs_review_count }} nog te beoordelen</span>
+      <label class="muted js-review-filter-label"><input type="checkbox" class="js-review-filter"> Toon alleen nog te beoordelen</label>
+      {% endif %}
       {% if rows %}
       <form method="post" action="{{ url_for('test_pipeline_render_thumbnails') }}"><button class="button" type="submit">Thumbnails renderen</button></form>
-      <form method="post" action="{{ url_for('test_pipeline_rerun_all') }}" onsubmit="return confirm('Alle {{ rows|length }} afbeelding(en) opnieuw testen tegen de actieve modellen?')"><button class="button primary" type="submit">Alles testen</button></form>
+      <label class="muted"><input type="checkbox" class="js-select-all"> Alles selecteren</label>
+      <form method="post" id="bulk-retest-form" action="{{ url_for('test_pipeline_rerun_selected') }}">
+        <button class="button primary js-bulk-retest" type="submit" disabled>Geselecteerd opnieuw testen (<span class="js-bulk-count">0</span>)</button>
+      </form>
       {% endif %}
     </div>
   </div>
   <div class="test-reuse-grid">
     {% for row in rows %}
-    <div class="test-reuse-item" data-source-id="{{ row.source_id }}">
+    <div class="test-reuse-item" data-source-id="{{ row.source_id }}" data-needs-review="{{ (row.status == 'tested' and row.differing_count and not row.reviewed)|lower }}">
+      {% if row.status != 'running' %}<input type="checkbox" class="js-select-row" name="source_ids" value="{{ row.source_id }}" form="bulk-retest-form" title="Selecteren voor bulkactie">{% endif %}
       {% if row.render_exists %}<img src="{{ url_for('source_render', source_id=row.source_id) }}" alt="" loading="lazy">{% else %}<div class="test-reuse-placeholder">geen render</div>{% endif %}
       <span class="mono">{{ row.source_id }}</span>
       {% if row.trained %}<span class="pill ok" title="Al door de trainingspipeline gegaan">Getraind</span>{% else %}<span class="pill" title="Nog niet door de trainingspipeline gegaan">Nog niet getraind</span>{% endif %}
@@ -30,9 +37,13 @@
       <span class="pill bad">Mislukt</span>
       <form method="post" action="{{ url_for('test_pipeline_rerun', source_id=row.source_id) }}" class="js-test-form"><button class="button" type="submit">Opnieuw proberen</button></form>
       {% elif row.status == 'tested' %}
-      {% if not row.trained %}<span class="pill" title="Geen trainingspipeline-resultaat om mee te vergelijken">Nog niet vergelijkbaar</span>{% elif row.differing_count %}<span class="pill bad" title="Datablok wijkt af van de trainingspipeline">⚠ {{ row.differing_count }} verschil{{ 'len' if row.differing_count != 1 }}</span>{% else %}<span class="pill ok">Gelijk</span>{% endif %}
+      {% if not row.trained %}<span class="pill" title="Geen trainingspipeline-resultaat om mee te vergelijken">Nog niet vergelijkbaar</span>
+      {% elif row.differing_count %}
+        {% if row.reviewed %}<span class="pill ok" title="Bekeken en gemarkeerd als geen actie nodig ({{ row.differing_count }} verschil{{ 'len' if row.differing_count != 1 }})">✓ Beoordeeld</span>
+        {% else %}<span class="pill bad" title="Datablok wijkt af van de trainingspipeline">⚠ {{ row.differing_count }} verschil{{ 'len' if row.differing_count != 1 }}</span>{% endif %}
+      {% else %}<span class="pill ok">Gelijk</span>{% endif %}
       <a class="button primary" href="{{ row.compare_url }}">Vergelijken</a>
-      <form method="post" action="{{ url_for('test_pipeline_forget', source_id=row.rerun_source_id) }}" onsubmit="return confirm('Deze proefrun verwijderen zodat de afbeelding weer opnieuw getest kan worden?')"><button class="danger" type="submit">Opnieuw testen</button></form>
+      <form method="post" action="{{ url_for('test_pipeline_rerun', source_id=row.source_id) }}" class="js-test-form"><button class="button" type="submit">Opnieuw testen</button></form>
       {% endif %}
     </div>
     {% else %}<p class="muted">Geen afbeeldingen gevonden. Zet DICOM's in de inputmap (zie Inputselectie).</p>{% endfor %}
@@ -61,6 +72,45 @@
     }, 3000);
   }
   if (jobIds.size) startPolling();
+
+  // Client-side only -- hides rows whose datablok differs from the
+  // trainingspipeline and haven't been marked "beoordeeld" yet (see
+  // test_pipeline_compare.html's review toggle), so the user can focus on
+  // what's actually still outstanding without reloading the page.
+  const reviewFilter = document.querySelector('.js-review-filter');
+  if (reviewFilter) {
+    reviewFilter.addEventListener('change', () => {
+      document.querySelectorAll('.test-reuse-item').forEach(item => {
+        item.style.display = (reviewFilter.checked && item.dataset.needsReview !== 'true') ? 'none' : '';
+      });
+    });
+  }
+
+  // "Geselecteerd opnieuw testen" -- just counts/enables the bulk button;
+  // the actual submit is a plain form POST (see test_pipeline_rerun_selected()),
+  // since a bulk retest is an infrequent, heavier action where a full-page
+  // reload back to the refreshed list is fine, unlike the per-row "Testen"/
+  // "Opnieuw testen" buttons below. Checkboxes live inside each grid item but
+  // target '#bulk-retest-form' via their own `form` attribute, so they submit
+  // with it without nesting a <form> inside each item's own per-row <form>s.
+  const bulkButton = document.querySelector('.js-bulk-retest');
+  const bulkCount = document.querySelector('.js-bulk-count');
+  const selectAll = document.querySelector('.js-select-all');
+  const rowCheckboxes = () => Array.from(document.querySelectorAll('.js-select-row'));
+  function updateBulkButton() {
+    if (!bulkButton) return;
+    const checked = rowCheckboxes().filter(cb => cb.checked).length;
+    bulkButton.disabled = checked === 0;
+    if (bulkCount) bulkCount.textContent = String(checked);
+  }
+  rowCheckboxes().forEach(cb => cb.addEventListener('change', updateBulkButton));
+  if (selectAll) {
+    selectAll.addEventListener('change', () => {
+      rowCheckboxes().forEach(cb => { cb.checked = selectAll.checked; });
+      updateBulkButton();
+    });
+  }
+  updateBulkButton();
 
   // "Testen"/"Opnieuw proberen" queue the rerun via fetch instead of a full
   // form submission, so clicking one never navigates the page away -- the
@@ -100,7 +150,8 @@
 </script>
 <style>
 .test-reuse-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
-.test-reuse-item{display:grid;gap:6px;padding:10px;border:1px solid var(--line);border-radius:9px;background:#0d151e;text-align:center}
+.test-reuse-item{position:relative;display:grid;gap:6px;padding:10px;border:1px solid var(--line);border-radius:9px;background:#0d151e;text-align:center}
+.test-reuse-item .js-select-row{position:absolute;top:6px;left:6px;width:16px;height:16px;z-index:2;margin:0}
 .test-reuse-item img{width:100%;height:120px;object-fit:cover;border-radius:6px;background:#081017}
 .test-reuse-placeholder{display:grid;place-items:center;height:120px;border-radius:6px;background:#081017;color:var(--muted);font-size:11px}
 .test-reuse-item .mono{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

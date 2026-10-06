@@ -9,7 +9,14 @@
     <form method="post" action="{{ url_for('test_pipeline_rerun', source_id=origin_source_id) }}" class="js-retest-form"><button class="button primary" type="submit">↻ Opnieuw uitwerken</button></form>
     <span class="js-retest-status muted"></span>
   </div>
-  <div class="actions"><span class="pill {% if differing_count %}warn{% else %}ok{% endif %}">{% if measurement_rows %}{% if differing_count %}{{ differing_count }} veld(en) verschillen in datablok{% else %}Geen verschillen in datablok{% endif %}{% else %}Datablok nog niet compleet aan beide kanten{% endif %}</span></div>
+  <div class="actions">
+    <span class="pill {% if differing_count %}warn{% else %}ok{% endif %}">{% if measurement_rows %}{% if differing_count %}{{ differing_count }} veld(en) verschillen in datablok{% else %}Geen verschillen in datablok{% endif %}{% else %}Datablok nog niet compleet aan beide kanten{% endif %}</span>
+    <span class="pill {% if reviewed %}ok{% else %}warn{% endif %} js-review-pill">{% if reviewed %}✓ Beoordeeld — geen actie nodig{% else %}Nog te beoordelen{% endif %}</span>
+    <form method="post" action="{{ url_for('test_pipeline_mark_reviewed', source_id=source_id) }}" class="js-review-form">
+      <input type="hidden" name="reviewed" value="{{ '0' if reviewed else '1' }}">
+      <button class="button" type="submit">{% if reviewed %}Markeer als nog te beoordelen{% else %}Markeer als beoordeeld (geen actie nodig){% endif %}</button>
+    </form>
+  </div>
 </div>
 
 <section class="card section-gap">
@@ -130,7 +137,7 @@
         {% if new_cells.render_exists %}
         <div class="output-image-stage"><div class="output-image-frame" style="aspect-ratio:{{ new_cells.image_width }}/{{ new_cells.image_height }}">
           <img src="/source-render/{{ new_cells.source_id }}.png" alt="" width="{{ new_cells.image_width }}" height="{{ new_cells.image_height }}">
-          {% for window in new_cells.windows %}{% for row in window.grid %}{% for cell in row %}{% if cell %}<span class="cell-box" style="left:{{ cell.x1/new_cells.image_width*100 }}%;top:{{ cell.y1/new_cells.image_height*100 }}%;width:{{ (cell.x2-cell.x1)/new_cells.image_width*100 }}%;height:{{ (cell.y2-cell.y1)/new_cells.image_height*100 }}%"></span>{% endif %}{% endfor %}{% endfor %}{% endfor %}
+          {% for window in new_cells.windows %}{% for cell in window.headers %}<span class="cell-box" style="left:{{ cell.x1/new_cells.image_width*100 }}%;top:{{ cell.y1/new_cells.image_height*100 }}%;width:{{ (cell.x2-cell.x1)/new_cells.image_width*100 }}%;height:{{ (cell.y2-cell.y1)/new_cells.image_height*100 }}%"></span>{% endfor %}{% for row in window.grid %}{% for cell in row %}{% if cell %}<span class="cell-box" style="left:{{ cell.x1/new_cells.image_width*100 }}%;top:{{ cell.y1/new_cells.image_height*100 }}%;width:{{ (cell.x2-cell.x1)/new_cells.image_width*100 }}%;height:{{ (cell.y2-cell.y1)/new_cells.image_height*100 }}%"></span>{% endif %}{% endfor %}{% endfor %}{% endfor %}
         </div></div>
         {% else %}<p class="muted">Bronrender ontbreekt.</p>{% endif %}
       {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
@@ -141,7 +148,7 @@
         {% if old_cells.render_exists %}
         <div class="output-image-stage"><div class="output-image-frame" style="aspect-ratio:{{ old_cells.image_width }}/{{ old_cells.image_height }}">
           <img src="/source-render/{{ old_cells.source_id }}.png" alt="" width="{{ old_cells.image_width }}" height="{{ old_cells.image_height }}">
-          {% for window in old_cells.windows %}{% for row in window.grid %}{% for cell in row %}{% if cell %}<span class="cell-box" style="left:{{ cell.x1/old_cells.image_width*100 }}%;top:{{ cell.y1/old_cells.image_height*100 }}%;width:{{ (cell.x2-cell.x1)/old_cells.image_width*100 }}%;height:{{ (cell.y2-cell.y1)/old_cells.image_height*100 }}%"></span>{% endif %}{% endfor %}{% endfor %}{% endfor %}
+          {% for window in old_cells.windows %}{% for cell in window.headers %}<span class="cell-box" style="left:{{ cell.x1/old_cells.image_width*100 }}%;top:{{ cell.y1/old_cells.image_height*100 }}%;width:{{ (cell.x2-cell.x1)/old_cells.image_width*100 }}%;height:{{ (cell.y2-cell.y1)/old_cells.image_height*100 }}%"></span>{% endfor %}{% for row in window.grid %}{% for cell in row %}{% if cell %}<span class="cell-box" style="left:{{ cell.x1/old_cells.image_width*100 }}%;top:{{ cell.y1/old_cells.image_height*100 }}%;width:{{ (cell.x2-cell.x1)/old_cells.image_width*100 }}%;height:{{ (cell.y2-cell.y1)/old_cells.image_height*100 }}%"></span>{% endif %}{% endfor %}{% endfor %}{% endfor %}
         </div></div>
         {% else %}<p class="muted">Bronrender ontbreekt.</p>{% endif %}
       {% else %}<p class="muted">Nog niet beschikbaar.</p>{% endif %}
@@ -185,6 +192,7 @@
       {% if new_mapping_scope %}
         {% for window in new_mapping_scope.windows %}
         <div class="cell-grid-wrap section-gap"><strong>V{{ window.window_index }} — {{ window.table_label }}</strong>
+          {% for header in window.headers %}<p class="cell-header">{{ header.text or 'Kopcel zonder uitgelezen tekst' }}</p>{% endfor %}
           <table class="cell-grid"><tbody>
             {% for row in window.grid %}<tr>{% for cell in row %}{% if cell %}<td class="{{ 'cell-included' if cell.included else 'cell-excluded' }}" title="{{ cell.field_label }}">{{ cell.text or '—' }}</td>{% else %}<td class="cell-missing"></td>{% endif %}{% endfor %}</tr>{% else %}<tr><td class="muted">Geen cellen.</td></tr>{% endfor %}
           </tbody></table>
@@ -197,6 +205,7 @@
       {% if old_mapping_scope %}
         {% for window in old_mapping_scope.windows %}
         <div class="cell-grid-wrap section-gap"><strong>V{{ window.window_index }} — {{ window.table_label }}</strong>
+          {% for header in window.headers %}<p class="cell-header">{{ header.text or 'Kopcel zonder uitgelezen tekst' }}</p>{% endfor %}
           <table class="cell-grid"><tbody>
             {% for row in window.grid %}<tr>{% for cell in row %}{% if cell %}<td class="{{ 'cell-included' if cell.included else 'cell-excluded' }}" title="{{ cell.field_label }}">{{ cell.text or '—' }}</td>{% else %}<td class="cell-missing"></td>{% endif %}{% endfor %}</tr>{% else %}<tr><td class="muted">Geen cellen.</td></tr>{% endfor %}
           </tbody></table>
@@ -243,6 +252,39 @@
 
 <script>
 (()=>{
+  // "Markeer als beoordeeld" toggles this one compare run's reviewed state
+  // via fetch (same X-Test-Pipeline-Async convention as the rerun forms), so
+  // a deviation that's actually fine -- e.g. the retest found more values
+  // than the training data has, because the training data itself is
+  // incomplete -- can be marked "geen actie nodig" without leaving the page.
+  // test_pipeline.html's list reads this same state to separate "nog te
+  // beoordelen" from already-reviewed rows.
+  const reviewForm = document.querySelector('.js-review-form');
+  if (reviewForm) {
+    reviewForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const input = reviewForm.querySelector('input[name="reviewed"]');
+      const button = reviewForm.querySelector('button');
+      const pill = document.querySelector('.js-review-pill');
+      button.disabled = true;
+      try {
+        const response = await fetch(reviewForm.action, {
+          method: 'POST',
+          headers: {'X-Test-Pipeline-Async': '1', 'Content-Type': 'application/x-www-form-urlencoded'},
+          body: `reviewed=${encodeURIComponent(input.value)}`,
+        });
+        const data = await response.json();
+        const reviewedNow = !!data.reviewed;
+        pill.classList.toggle('ok', reviewedNow);
+        pill.classList.toggle('warn', !reviewedNow);
+        pill.textContent = reviewedNow ? '✓ Beoordeeld — geen actie nodig' : 'Nog te beoordelen';
+        button.textContent = reviewedNow ? 'Markeer als nog te beoordelen' : 'Markeer als beoordeeld (geen actie nodig)';
+        input.value = reviewedNow ? '0' : '1';
+      } catch (_error) {}
+      button.disabled = false;
+    });
+  }
+
   // "Opnieuw uitwerken" queues a fresh proefpagina rerun of the same origin
   // source (see test_pipeline_rerun()) via fetch, exactly like test_pipeline.
   // html's own .js-test-form, but stays on this compare page instead of
@@ -339,6 +381,7 @@ details summary{cursor:pointer;font-size:12px}
 .raster-box{position:absolute;border:2px solid #e0a030;background:rgba(224,160,48,.08)}
 .cell-grid-wrap{overflow-x:auto}
 .cell-grid-wrap strong{display:block;margin-bottom:6px;font-size:12px}
+.cell-header{padding:6px 8px;margin:0 0 6px;border:1px solid var(--line);background:#14202b;font-size:12px}
 .cell-grid{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
 .cell-grid td{padding:6px 8px;border:1px solid var(--line);background:#0d151e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
 .cell-grid td.cell-empty{color:var(--muted);font-style:italic}
