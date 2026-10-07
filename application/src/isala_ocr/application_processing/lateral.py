@@ -13,6 +13,13 @@ _RIGHT_TERMS = {
 }
 _LEFT_PHRASES = ("left ventricle", "linker ventrikel")
 _RIGHT_PHRASES = ("right ventricle", "rechter ventrikel")
+# Pipeline B's OCR sometimes glues adjacent words together with no space
+# ("Leftventricle Volume Result"), which defeats the spaced-phrase substring
+# check above even though the text unambiguously names its side. Compact
+# variants let ``relation_lateral_side()`` fall back to a whitespace-free
+# substring match, same pattern as ``_relation_side()`` (routes_documents.py).
+_LEFT_PHRASES_COMPACT = tuple(phrase.replace(" ", "") for phrase in _LEFT_PHRASES)
+_RIGHT_PHRASES_COMPACT = tuple(phrase.replace(" ", "") for phrase in _RIGHT_PHRASES)
 
 
 def _tokens(value: str) -> set[str]:
@@ -69,9 +76,18 @@ def relation_lateral_side(relation: dict[str, Any]) -> str:
         relation.get("column_header"), relation.get("header_text"),
     ]
     text = normalize_text(" ".join(str(part or "") for part in parts))
+    text_compact = text.replace(" ", "")
     tokens = _tokens(text)
-    left = bool(tokens & _LEFT_TERMS) or any(phrase in text for phrase in _LEFT_PHRASES)
-    right = bool(tokens & _RIGHT_TERMS) or any(phrase in text for phrase in _RIGHT_PHRASES)
+    left = (
+        bool(tokens & _LEFT_TERMS)
+        or any(phrase in text for phrase in _LEFT_PHRASES)
+        or any(phrase in text_compact for phrase in _LEFT_PHRASES_COMPACT)
+    )
+    right = (
+        bool(tokens & _RIGHT_TERMS)
+        or any(phrase in text for phrase in _RIGHT_PHRASES)
+        or any(phrase in text_compact for phrase in _RIGHT_PHRASES_COMPACT)
+    )
     if left and right:
         return "ambiguous"
     if left:
