@@ -149,3 +149,36 @@ def test_reconfigured_panel_replaces_stale_identity_instead_of_accumulating(tmp_
         for item in panel_boxes_for_image(load_panel_profile(tmp_path), IMAGE_WIDTH, IMAGE_HEIGHT)
     }
     assert relation_panel_id({"context_text": refreshed_context}, panel_by_id) == "rv"
+
+
+def test_relation_panel_id_falls_back_to_semantic_side_when_names_dont_overlap():
+    """Regression test: a Dutch report naming "rechterventrikel" against a
+    panel named only "Rechts" (single word) must still resolve.
+
+    Neither existing text check catches this: no token of "rechts" equals
+    "rechterventrikel" (whole-word containment), and the compact-substring
+    fallback requires a panel name of at least two words to avoid false
+    positives on short/generic names -- "rechts" alone never qualifies. Both
+    names plainly mean the same side, so relation_panel_id() must fall back
+    to semantic left/right matching (the same vocabulary
+    relation_lateral_side()/field_lateral_side() already use for bilateral
+    field disambiguation) instead of leaving every relation on this table
+    unresolved, which previously blocked 100% of a real Dutch CMR report's
+    mappings under the default "block unrecognized panel" policy.
+    """
+    panel_by_id = {
+        "left": {"panel_id": "left", "name": "Links"},
+        "right": {"panel_id": "right", "name": "Rechts"},
+    }
+    right_relation = {
+        "context_text": "Volumeresultaat rechterventrikel | Endovolume Normale waarden Kawel-Boehm",
+    }
+    left_relation = {
+        "context_text": "Volumeresultaat linkerventrikel | Endovolume Normale waarden Kawel-Boehm",
+    }
+    assert relation_panel_id(right_relation, panel_by_id) == "right"
+    assert relation_panel_id(left_relation, panel_by_id) == "left"
+
+    # A relation with no left/right evidence at all must still resolve to
+    # nothing rather than guessing.
+    assert relation_panel_id({"context_text": "Scannr. 8, 1 - Slice 12/15"}, panel_by_id) == ""

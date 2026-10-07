@@ -78,6 +78,30 @@ def table_studio_roles(workspace: str | Path) -> dict[str, dict[str, str]]:
     return result
 
 
+def _lateral_side(text: str) -> str:
+    """"left"/"right"/"" straight from free text, independent of any configured
+    Panel Setup vocabulary.
+
+    A local, deliberately narrow copy of the same technique used by two
+    equivalent helpers elsewhere in this codebase for the same ambiguity
+    (webui table-window labeling, and bilateral deployment-field scoring) --
+    duplicated here rather than imported, because this module must stay a
+    self-contained canonical-GT building block, independent of the webui
+    route layer and of the deployment-only mapping/field-scoring code those
+    other two helpers live in (see
+    ``test_recognition_gt_is_built_directly_from_canonical_geometry_
+    without_mapping``, which asserts exactly that). Matched on a
+    whitespace-free form because Pipeline B's OCR regularly glues adjacent
+    words together with no space ("Leftventricle Volume Result").
+    """
+    compact = "".join(text.casefold().split())
+    if any(term in compact for term in ("rightventricle", "rechterventrikel", "rechts")):
+        return "right"
+    if any(term in compact for term in ("leftventricle", "linkerventrikel", "links")):
+        return "left"
+    return ""
+
+
 def relation_panel_id(relation: dict[str, Any], panel_by_id: dict[str, dict[str, Any]]) -> str:
     """Resolve which Table/Panel Setup panel a detected relation belongs to.
 
@@ -114,6 +138,22 @@ def relation_panel_id(relation: dict[str, Any], panel_by_id: dict[str, dict[str,
     whole-word check above even though the phrase unambiguously names its
     panel. Requires the panel name to be at least two words, so a single
     short/generic word can't false-positive as a substring of unrelated text.
+
+    As a third and final fallback (after both text-containment checks above
+    find nothing), match by *semantic side* instead of literal vocabulary:
+    a panel typically has its own left/right identity (its name, e.g.
+    "Rechts", or its ``panel_id``, e.g. "right") even when that exact word
+    never appears in the relation's own context text -- for example a report
+    that spells out "rechterventrikel" (right ventricle) while the panel is
+    just named "Rechts". Neither containment check above catches that: no
+    token of "rechts" equals "rechterventrikel", and the compact-substring
+    check requires a two-word panel name. ``_lateral_side()`` (see its own
+    docstring for why it is a local, deliberately narrow copy rather than an
+    import) resolves each side from the same left/right vocabulary used for
+    this exact ambiguity elsewhere; matching the panel's side against the
+    relation's side this way mirrors the identical fallback
+    ``_located_windows()`` (routes_documents.py) already applies when a
+    window's own panel-name text doesn't appear in its OCR content.
     """
     parts = [part.strip() for part in str(relation.get("context_text") or "").split("|")]
     context_tokens: set[str] = set()
@@ -123,21 +163,25 @@ def relation_panel_id(relation: dict[str, Any], panel_by_id: dict[str, dict[str,
             normalized_part = normalize_text(part)
             context_tokens.update(normalized_part.split())
             context_compact_parts.append(normalized_part.replace(" ", ""))
-    if not context_tokens:
-        return ""
-    context_compact = "".join(context_compact_parts)
-    for panel_id, panel in panel_by_id.items():
-        # Panel context is persisted as human-readable name plus optional id.
-        # Older mapping runs only persisted the name, so try both.
-        for candidate in (panel_id, str(panel.get("name") or "")):
-            candidate_tokens = set(normalize_text(str(candidate)).split())
-            if candidate_tokens and candidate_tokens <= context_tokens:
-                return panel_id
-        panel_name_normalized = normalize_text(str(panel.get("name") or ""))
-        panel_name_tokens = set(panel_name_normalized.split())
-        if len(panel_name_tokens) >= 2:
-            panel_name_compact = panel_name_normalized.replace(" ", "")
-            if panel_name_compact and panel_name_compact in context_compact:
+    if context_tokens:
+        context_compact = "".join(context_compact_parts)
+        for panel_id, panel in panel_by_id.items():
+            # Panel context is persisted as human-readable name plus optional id.
+            # Older mapping runs only persisted the name, so try both.
+            for candidate in (panel_id, str(panel.get("name") or "")):
+                candidate_tokens = set(normalize_text(str(candidate)).split())
+                if candidate_tokens and candidate_tokens <= context_tokens:
+                    return panel_id
+            panel_name_normalized = normalize_text(str(panel.get("name") or ""))
+            panel_name_tokens = set(panel_name_normalized.split())
+            if len(panel_name_tokens) >= 2:
+                panel_name_compact = panel_name_normalized.replace(" ", "")
+                if panel_name_compact and panel_name_compact in context_compact:
+                    return panel_id
+    relation_side = _lateral_side(str(relation.get("context_text") or ""))
+    if relation_side:
+        for panel_id, panel in panel_by_id.items():
+            if _lateral_side(f"{panel.get('name') or ''} {panel_id}") == relation_side:
                 return panel_id
     return ""
 
