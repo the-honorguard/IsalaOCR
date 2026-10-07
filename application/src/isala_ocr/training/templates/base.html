@@ -8,9 +8,6 @@
   <link rel="stylesheet" href="{{ url_for('static',filename='step7-review.css',v=app_version,rev='20260817b') }}">
   <link rel="stylesheet" href="{{ url_for('static',filename='step7-single-panel.css',v=app_version,rev='20260909a') }}">
   <link rel="stylesheet" href="{{ url_for('static',filename='mapping-review-studio.css',v=app_version) }}">
-  <script src="{{ url_for('static',filename='viewport-pan.js',v=app_version,rev='20260915a') }}"></script>
-  <script src="{{ url_for('static',filename='box-overlay.js',v=app_version,rev='20260915a') }}"></script>
-  <script src="{{ url_for('static',filename='review-queue.js',v=app_version,rev='20260915a') }}"></script>
   {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
@@ -198,11 +195,14 @@
   </div>
 </section>
 
+<script src="{{ url_for('static',filename='viewport-pan.js',v=app_version,rev='20260915a') }}"></script>
+<script src="{{ url_for('static',filename='box-overlay.js',v=app_version,rev='20260915a') }}"></script>
+<script src="{{ url_for('static',filename='review-queue.js',v=app_version,rev='20260915a') }}"></script>
 <script>window.ISALA_ACTION_DURATION_ESTIMATES={{ action_duration_estimates|tojson }};</script>
-<script src="{{ url_for('static',filename='app.js',v=app_version,rev='20260921a') }}"></script>
-<script src="{{ url_for('static',filename='job-runtime.js',v=app_version,rev='20260826b') }}"></script>
-<script src="{{ url_for('static',filename='step7-review-flow.js',v=app_version,rev='20260817b') }}"></script>
-<script src="{{ url_for('static',filename='step7-single-panel.js',v=app_version,rev='20260909a') }}"></script>
+<script defer src="{{ url_for('static',filename='app.js',v=app_version,rev='20260921a') }}"></script>
+<script defer src="{{ url_for('static',filename='job-runtime.js',v=app_version,rev='20260826b') }}"></script>
+<script defer src="{{ url_for('static',filename='step7-review-flow.js',v=app_version,rev='20260817b') }}"></script>
+<script defer src="{{ url_for('static',filename='step7-single-panel.js',v=app_version,rev='20260909a') }}"></script>
 <script defer src="{{ url_for('static',filename='mapping-review-studio.js',v=app_version,rev='20260824a') }}"></script>
 <script defer src="{{ url_for('static',filename='table-studio-overlay.js',v=app_version,rev='20260915d') }}"></script>
 <script>document.getElementById('project-switch-select')?.addEventListener('change',()=>document.getElementById('project-switch-form').submit());</script>
