@@ -69,9 +69,10 @@ def _similarity(expected: str, observed: str) -> float:
     genoemd"; zie ook documentation/architecture/refactor-phase2-plan.md,
     item 4): forcing one shape onto both would shift real field/label
     matches in production with no way to verify the shift is safe across the
-    full range of real reports. If you fix an ED/ES or BSA confusion here,
-    check whether ``mapping.py``'s ``_similarity()`` needs the same guard --
-    it currently has none.
+    full range of real reports. ``mapping.py``'s ``_similarity()`` has its
+    own, narrower ED/ES/BSA guard on its containment-bonus branch -- if you
+    change the guard here, check whether that one needs the same change; they
+    are deliberately not kept in lockstep.
     """
     left = normalize_for_matching(expected)
     right = normalize_for_matching(observed)

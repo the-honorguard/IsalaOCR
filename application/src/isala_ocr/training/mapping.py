@@ -177,19 +177,23 @@ def ensure_default_field_definitions(database: TrainingDatabase, profile: Profil
     return database.seed_field_definitions(default_field_definitions(profile))
 
 
+_BARE_DISCRIMINATOR_TOKENS = ("bsa", "ed", "es")
+
+
 def _similarity(left: str, right: str) -> float:
     """Fuzzy-match a schema-candidate label against a field label during Mapping.
 
     NOTE: ``dynamic_locator.py`` has its own, differently-tuned
     ``_similarity()`` for a different problem (locator-label vs. OCR-observed
     text matching, normalized with ``normalize_for_matching()`` instead of
-    this module's ``normalize_text()``, with ED/ES/BSA domain guards this one
-    doesn't have). They are NOT merged (CODE_REVIEW_v3.16.0.md, sectie Hoog;
-    zie ook documentation/architecture/refactor-phase2-plan.md, item 4): if
-    Mapping ever needs the same ED/ES/BSA protection dynamic_locator.py has,
-    port the guard deliberately -- don't unify the two functions wholesale,
-    that would shift real field-matching behavior in production with no way
-    to verify the shift is safe across the full range of real reports.
+    this module's ``normalize_text()``). They are NOT merged
+    (CODE_REVIEW_v3.16.0.md, sectie Hoog; zie ook
+    documentation/architecture/refactor-phase2-plan.md, item 4) -- that would
+    shift real field-matching behavior in production with no way to verify
+    the shift is safe across the full range of real reports. This function
+    has its own, deliberately narrow ED/ES/BSA guard below (ported from
+    dynamic_locator.py's version, not a wholesale unification): it only
+    short-circuits the containment bonus, never the plain ratio path.
     """
     a = normalize_text(left)
     b = normalize_text(right)
@@ -199,7 +203,18 @@ def _similarity(left: str, right: str) -> float:
         return 1.0
     if a in b or b in a:
         containment = min(len(a), len(b)) / max(len(a), len(b))
-        return 0.78 + 0.20 * containment
+        # A bare discriminator ("BSA", "ED", "ES") contained in a much longer,
+        # otherwise-unrelated label (e.g. alias "BSA" inside observed label
+        # "ES Wall Mass/BSA") must not get the same high containment bonus as
+        # a real near-duplicate label merely because it happens to match a
+        # trailing/leading fragment -- see the BSA mis-mapping this guards
+        # against (study.bsa_m2 reading an "ES Wall Mass/BSA" cell). Scoped to
+        # the bare token case only (containment < 0.6) so legitimate matches
+        # like "ED Volume" inside "ED Volume/BSA" keep their existing score.
+        shorter = a if len(a) <= len(b) else b
+        is_discriminator_fragment = shorter.replace(" ", "") in _BARE_DISCRIMINATOR_TOKENS
+        if not (is_discriminator_fragment and containment < 0.6):
+            return 0.78 + 0.20 * containment
     return SequenceMatcher(None, a, b).ratio()
 
 
