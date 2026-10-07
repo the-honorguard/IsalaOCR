@@ -15,7 +15,6 @@ def test_connect_retries_transient_unable_to_open_on_wal_pragma(
     though the main database file itself opens fine. connect() should retry
     rather than fail the caller's whole operation over a one-off hiccup.
     """
-    database = TrainingDatabase(tmp_path / "samples.sqlite3")
     calls = {"count": 0}
 
     class FlakyConnection(sqlite3.Connection):
@@ -33,6 +32,12 @@ def test_connect_retries_transient_unable_to_open_on_wal_pragma(
 
     monkeypatch.setattr("isala_ocr.training.db.sqlite3.connect", flaky_connect)
     monkeypatch.setattr("isala_ocr.training.db.time.sleep", lambda _seconds: None)
+
+    # connect() now caches one connection per thread and reuses it instead of
+    # reopening on every call (see db.py's _thread_connection()), so
+    # __init__()'s own initialize() - not a later connect() call - is what
+    # actually opens the real, retry-exercising connection here.
+    database = TrainingDatabase(tmp_path / "samples.sqlite3")
 
     with database.connect() as db:
         assert str(db.execute("PRAGMA journal_mode").fetchone()[0]).lower() == "wal"

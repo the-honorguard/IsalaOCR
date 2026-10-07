@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -61,6 +62,15 @@ class TrainingDatabase(
         # changed since we last checked it. A cheap stat() is enough to notice
         # the file being replaced (project reset) and fall back to the real check.
         self._schema_confirmed_identity: tuple[int, int] | None = None
+        # One sqlite3.Connection per thread, reused across every connect()
+        # call that thread makes instead of opening (and WAL/pragma-
+        # configuring) a brand-new one per call - see connect()/
+        # _thread_connection() for why. sqlite3 connections must not be
+        # shared *between* threads, so a connection pool keyed by thread is
+        # the safe way to cut that cost: each waitress worker thread still
+        # only ever touches its own connection, exactly as before, just
+        # without discarding and reopening it after every single query.
+        self._thread_local = threading.local()
         self.initialize()
 
     def _file_identity(self) -> tuple[int, int] | None:
@@ -91,6 +101,21 @@ class TrainingDatabase(
                 connection.execute("PRAGMA foreign_keys=ON")
                 connection.execute("PRAGMA busy_timeout=30000")
                 connection.execute("PRAGMA journal_mode=WAL")
+                # SQLite's own docs recommend NORMAL alongside WAL: a commit no
+                # longer waits for an fsync of the WAL file, only for one at
+                # the next checkpoint, and WAL still makes the database itself
+                # crash-safe either way (NORMAL only risks losing the most
+                # recent commit(s) on an actual OS crash/power loss, never
+                # corruption). The default, FULL, fsyncs on every single
+                # commit - on a bind-mounted Docker Desktop volume (this
+                # project's normal deployment), each of those fsyncs can cost
+                # seconds instead of milliseconds due to the virtualized
+                # filesystem layer, which is squarely what made confirming one
+                # Mapping Studio queue label feel like a ~10s hang:
+                # sync_relation_mappings() commits at least once per
+                # confirm/skip. A per-connection setting, so it only needs to
+                # be set once here rather than on every connect() call.
+                connection.execute("PRAGMA synchronous=NORMAL")
             except sqlite3.OperationalError:
                 connection.close()
                 if attempts >= 3:
@@ -99,6 +124,37 @@ class TrainingDatabase(
                 time.sleep(0.5 * attempts)
                 continue
             return connection
+
+    def _thread_connection(self) -> sqlite3.Connection:
+        """Return this thread's persistent connection, opening/replacing it as needed.
+
+        connect() used to open a brand-new sqlite3 connection (four PRAGMA
+        round-trips) for every single query, across the entire app - profiled
+        at dozens of connections for one overview-page render alone. sqlite3
+        connections are not safe to share *between* threads, but nothing
+        stops one thread from reusing its own connection across many calls,
+        so cache one per thread here instead of per call. A project reset
+        (or any other replacement of the underlying file) is picked up the
+        same way the old per-call open did: by comparing (st_dev, st_ino)
+        against what this thread's cached connection was opened against, and
+        transparently reconnecting when it no longer matches.
+        """
+        cached = getattr(self._thread_local, "connection", None)
+        if cached is not None and getattr(self._thread_local, "identity", None) == self._file_identity():
+            return cached
+        if cached is not None:
+            try:
+                cached.close()
+            except sqlite3.Error:
+                pass
+        connection = self._open_connection_with_wal()
+        self._thread_local.connection = connection
+        # Recompute after opening: _open_connection_with_wal() creates the
+        # file (and, below, initialize() writes its schema) if it did not
+        # already exist, which changes the identity this connection should
+        # be cached under.
+        self._thread_local.identity = self._file_identity()
+        return connection
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -114,19 +170,7 @@ class TrainingDatabase(
                 else:
                     self.initialize()
                     self._schema_confirmed_identity = self._file_identity()
-        connection = self._open_connection_with_wal()
-        # SQLite's own docs recommend NORMAL alongside WAL: a commit no longer
-        # waits for an fsync of the WAL file, only for one at the next
-        # checkpoint, and WAL still makes the database itself crash-safe
-        # either way (NORMAL only risks losing the most recent commit(s) on
-        # an actual OS crash/power loss, never corruption). The default,
-        # FULL, fsyncs on every single commit - on a bind-mounted Docker
-        # Desktop volume (this project's normal deployment), each of those
-        # fsyncs can cost seconds instead of milliseconds due to the
-        # virtualized filesystem layer, which is squarely what made
-        # confirming one Mapping Studio queue label feel like a ~10s hang:
-        # sync_relation_mappings() commits at least once per confirm/skip.
-        connection.execute("PRAGMA synchronous=NORMAL")
+        connection = self._thread_connection()
         try:
             yield connection
         except Exception:
@@ -134,8 +178,8 @@ class TrainingDatabase(
             raise
         else:
             connection.commit()
-        finally:
-            connection.close()
+        # No finally: connection.close() - the connection is cached on
+        # self._thread_local and reused by this thread's next connect() call.
 
     @staticmethod
     def _column_names(db: sqlite3.Connection, table: str) -> set[str]:
