@@ -217,3 +217,23 @@ def test_unrelated_label_does_not_become_a_suggestion_just_from_unit_match():
     assert evidence["unit_match"] is True
     assert evidence["exact_alias"] is False
     assert score < 0.68
+
+
+def test_bare_bsa_alias_does_not_match_an_unrelated_wall_mass_bsa_label():
+    """Reproduces a real production bug directly: the bare "BSA" alias for
+    ``study.bsa_m2`` was scoring ~0.82 against "ES Wall Mass/BSA" purely
+    because ``_similarity``'s containment bonus gave any label ending in
+    "/BSA" a high floor score, regardless of how much longer that label was
+    than the bare alias. This caused one document's Body surface area field
+    to read "92.7 gr/m²" -- the ES Wall Mass/BSA cell's own value and unit --
+    instead of the real "1.98 m²" printed in the Study info line.
+
+    ``dynamic_locator.py`` already guarded a related ED/ES/BSA mismatch; this
+    guards the containment-bonus branch specifically (see that module's
+    ``_similarity()`` NOTE for why the two fuzzy-matchers are not merged).
+    """
+    assert _similarity("BSA", "ES Wall Mass/BSA") < 0.5
+    assert _similarity("BSA", "ED Wall + Papillary mass/BSA") < 0.5
+    # A short label legitimately contained in a longer compound one (not a
+    # bare ED/ES/BSA discriminator) must keep its existing high score.
+    assert _similarity("ED Volume", "ED Volume/BSA") > 0.85
