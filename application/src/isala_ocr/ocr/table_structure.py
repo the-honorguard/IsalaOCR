@@ -1042,6 +1042,19 @@ class PPStructureTableEngine:
         ``detect_panels_with_benchmark``. Selected as the production
         table-region detection path after the Detectie-lab comparison
         ("Probeer 2" scored best on average).
+
+        The region model's own raw proposals can include several heavily
+        overlapping boxes for the same physical panel (observed in practice:
+        3-4 near-duplicate, almost full-width boxes proposed for what is
+        really one panel) -- each independently re-detecting the same real
+        table(s) inside it. Left unmerged, every one of those duplicate
+        proposals turned into its own "table" in the final output (one
+        two-table panel became 4-8 overlapping "tables" in the compare view
+        instead of 2). The detected tables are therefore merged across
+        proposal boxes the same way ``_benchmark_full_image`` already merges
+        across preprocessing variants (``_merge_variant_table_regions``),
+        keeping one rendition per distinct table regardless of which
+        proposal box found it.
         """
         height, width = image.shape[:2]
         variants = self.table_settings.get("preprocessing_variants") or [
@@ -1050,7 +1063,7 @@ class PPStructureTableEngine:
         allowed = {"original", "grayscale", "clahe", "invert_clahe", "adaptive"}
         variants = [str(item) for item in variants if str(item) in allowed]
 
-        all_regions: list[TableRegion] = []
+        regions_by_proposal: dict[str, list[TableRegion]] = {}
         region_results: list[dict[str, Any]] = []
         all_runs: list[dict[str, Any]] = []
         region_boxes = self._trained_region_boxes(image)
@@ -1078,13 +1091,16 @@ class PPStructureTableEngine:
                     best_regions = translated
                     best_score = numeric_score
                     best_variant = variant
-            all_regions.extend(best_regions)
+            regions_by_proposal[f"trained-region-{index}"] = best_regions
             region_results.append({
                 "region_index": index, "region_box": box.to_list(),
                 "selected_variant": best_variant,
                 "selected_score": round(max(0.0, best_score), 2),
                 "cell_count": sum(len(region.cells) for region in best_regions),
             })
+        all_regions, _merged_groups, table_sources = _merge_variant_table_regions(
+            regions_by_proposal, width, height
+        )
         selected_score = (
             sum(float(item["selected_score"]) for item in region_results) / len(region_results)
             if region_results else 0.0
@@ -1097,8 +1113,12 @@ class PPStructureTableEngine:
             "region_count": len(region_results),
             "regions": region_results,
             "runs": all_runs,
+            "table_sources": table_sources,
             "model_threshold": float(self.table_settings.get("table_region_model_threshold", 0.25) or 0.25),
-            "selection_rule": "best preprocessing variant per trained table-region box",
+            "selection_rule": (
+                "best preprocessing variant per trained table-region box, deduplicated across "
+                "overlapping region proposals"
+            ),
         }
 
     def _detect_once(self, image: np.ndarray, *, source_id: str, fallback_tokens: Sequence[OCRToken] = ()) -> list[TableRegion]:

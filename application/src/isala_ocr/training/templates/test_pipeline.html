@@ -38,6 +38,7 @@
       <form method="post" action="{{ url_for('test_pipeline_rerun', source_id=row.source_id) }}" class="js-test-form"><button class="button" type="submit">Opnieuw proberen</button></form>
       {% elif row.status == 'tested' %}
       {% if not row.trained %}<span class="pill" title="Geen trainingspipeline-resultaat om mee te vergelijken">Nog niet vergelijkbaar</span>
+      {% if row.reviewed %}<span class="pill ok" title="Bekeken en gemarkeerd als geen actie nodig">✓ Beoordeeld</span>{% endif %}
       {% elif row.differing_count %}
         {% if row.reviewed %}<span class="pill ok" title="Bekeken en gemarkeerd als geen actie nodig ({{ row.differing_count }} verschil{{ 'len' if row.differing_count != 1 }})">✓ Beoordeeld</span>
         {% else %}<span class="pill bad" title="Datablok wijkt af van de trainingspipeline">⚠ {{ row.differing_count }} verschil{{ 'len' if row.differing_count != 1 }}</span>{% endif %}
