@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
 import io
 import csv
@@ -380,6 +381,45 @@ def create_web_app(
         SEND_FILE_MAX_AGE_DEFAULT=31536000,
     )
     app_version = (project / "VERSION").read_text(encoding="utf-8").strip() if (project / "VERSION").is_file() else "unknown"
+
+    _COMPRESSIBLE_MIMETYPES = {
+        "text/html",
+        "text/css",
+        "text/plain",
+        "application/javascript",
+        "text/javascript",
+        "application/json",
+        "image/svg+xml",
+    }
+
+    @app.after_request
+    def _compress_response(response: Response) -> Response:
+        """Gzip text/HTML/CSS/JS responses for clients that accept it.
+
+        Waitress does not compress responses on its own, so every page load
+        (HTML plus the per-page CSS/JS, e.g. ~100KB app.css, ~100KB
+        react-dom) currently ships uncompressed. Skip anything already
+        encoded, streamed (direct_passthrough, used by the large image/DICOM
+        routes), or small enough that gzip's own overhead would not pay off.
+        """
+        if (
+            response.direct_passthrough
+            or response.mimetype not in _COMPRESSIBLE_MIMETYPES
+            or "gzip" not in (request.accept_encodings or "")
+            or response.content_encoding
+            or response.content_length is not None and response.content_length < 500
+        ):
+            return response
+        payload = response.get_data()
+        if len(payload) < 500:
+            return response
+        response.set_data(gzip.compress(payload, compresslevel=6))
+        response.headers["Content-Encoding"] = "gzip"
+        response.headers["Content-Length"] = str(len(response.get_data()))
+        vary = response.headers.get("Vary", "")
+        if "accept-encoding" not in vary.lower():
+            response.headers["Vary"] = f"{vary}, Accept-Encoding".strip(", ") if vary else "Accept-Encoding"
+        return response
 
     def request_cached(key: str, factory):
         """Memoize expensive helpers for the lifetime of one HTTP request."""
@@ -1414,6 +1454,7 @@ def create_web_app(
 
     _process_snapshot_cache: dict[str, tuple[str, float, dict[str, Any]]] = {}
     _process_snapshot_lock = threading.Lock()
+    _process_snapshot_refreshing: set[str] = set()
     # Must comfortably exceed how long a *whole* heavy page (not just this
     # snapshot) takes to render on a large project, not just how long
     # _build_process_snapshot() itself takes. Profiling the proefpagina list
@@ -1425,6 +1466,15 @@ def create_web_app(
     # (post-build) write timestamp. 30s keeps results fresh enough for a
     # value that only changes when an actual training action completes.
     PROCESS_SNAPSHOT_TTL_SECONDS = 30.0
+
+    def _refresh_process_snapshot_in_background(project_id: str) -> None:
+        try:
+            fresh = _build_process_snapshot()
+            with _process_snapshot_lock:
+                _process_snapshot_cache["entry"] = (project_id, time.time(), fresh)
+        finally:
+            with _process_snapshot_lock:
+                _process_snapshot_refreshing.discard(project_id)
 
     def process_snapshot() -> dict[str, Any]:
         """Lean workflow snapshot for the overview page, cached across requests.
@@ -1444,12 +1494,37 @@ def create_web_app(
         Cached here for PROCESS_SNAPSHOT_TTL_SECONDS, keyed by the active
         project so switching projects invalidates it immediately rather than
         briefly showing a stale project's status.
+
+        A TTL cache still makes whichever request lands right after expiry
+        pay the full multi-second rebuild synchronously, in that user's own
+        request thread - a periodic "page hangs" moment under any traffic.
+        Once a value exists for the active project, serve it immediately even
+        when stale and refresh it on a background thread instead, so no
+        foreground request pays the rebuild cost. Only the very first call
+        for a project (nothing cached yet, e.g. right after startup or a
+        project switch) still builds synchronously, since there is nothing
+        else to show.
         """
         project_id = project_manager.active_project_id()
         with _process_snapshot_lock:
             cached = _process_snapshot_cache.get("entry")
-            if cached is not None and cached[0] == project_id and time.time() - cached[1] < PROCESS_SNAPSHOT_TTL_SECONDS:
-                return cached[2]
+            if cached is not None and cached[0] == project_id:
+                stale = time.time() - cached[1] >= PROCESS_SNAPSHOT_TTL_SECONDS
+                start_refresh = stale and project_id not in _process_snapshot_refreshing
+                if start_refresh:
+                    _process_snapshot_refreshing.add(project_id)
+                stale_value = cached[2]
+            else:
+                start_refresh = False
+                stale_value = None
+        if stale_value is not None:
+            if start_refresh:
+                threading.Thread(
+                    target=_refresh_process_snapshot_in_background,
+                    args=(project_id,),
+                    daemon=True,
+                ).start()
+            return stale_value
         fresh = request_cached("process_snapshot", _build_process_snapshot)
         # Timestamp taken *after* building, not before: on a project large
         # enough that _build_process_snapshot() itself takes longer than
@@ -2635,12 +2710,38 @@ def create_web_app(
         }
 
 
+    _project_summary_db_cache: dict[str, TrainingDatabase] = {}
+    _project_summary_db_cache_lock = threading.Lock()
+
+    def _project_summary_database(project_id: str, project_workspace: Path, use_case_id: str) -> TrainingDatabase:
+        """Reuse one TrainingDatabase handle per project across renders.
+
+        render_management() calls this for every project (including archived
+        ones) on every /manage load. Opening a brand-new TrainingDatabase per
+        call means a fresh sqlite3 connection, WAL pragma setup and schema-
+        version check each time - the same per-request cost ActiveProjectDatabase
+        was already built to avoid for the active project. Cache the handle here
+        the same way, bounded so a long history of archived projects can't grow
+        this without limit.
+        """
+        db_path = project_workspace / "samples.sqlite3"
+        with _project_summary_db_cache_lock:
+            db = _project_summary_db_cache.get(project_id)
+            if db is not None and db.path == db_path:
+                return db
+        db = TrainingDatabase(db_path)
+        if header_profile is not None and use_case_id == DEFAULT_USE_CASE_ID:
+            ensure_default_field_definitions(db, header_profile)
+        with _project_summary_db_cache_lock:
+            _project_summary_db_cache[project_id] = db
+            while len(_project_summary_db_cache) > 32:
+                _project_summary_db_cache.pop(next(iter(_project_summary_db_cache)))
+        return db
+
     def project_summary(item: dict[str, Any]) -> dict[str, Any]:
         project_id = str(item.get("project_id") or "")
         project_workspace = project_manager.projects_root / project_id
-        db = TrainingDatabase(project_workspace / "samples.sqlite3")
-        if header_profile is not None and str(item.get("use_case_id") or "") == DEFAULT_USE_CASE_ID:
-            ensure_default_field_definitions(db, header_profile)
+        db = _project_summary_database(project_id, project_workspace, str(item.get("use_case_id") or ""))
         detection = db.detection_review_counts()
         mappings = db.mapping_counts()
         loc_models = db.list_localization_models()
