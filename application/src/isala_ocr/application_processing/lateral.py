@@ -13,23 +13,17 @@ _RIGHT_TERMS = {
 }
 _LEFT_PHRASES = ("left ventricle", "linker ventrikel")
 _RIGHT_PHRASES = ("right ventricle", "rechter ventrikel")
+# Pipeline B's OCR sometimes glues adjacent words together with no space
+# ("Leftventricle Volume Result"), which defeats the spaced-phrase substring
+# check above even though the text unambiguously names its side. Compact
+# variants let ``relation_lateral_side()`` fall back to a whitespace-free
+# substring match, same pattern as ``_relation_side()`` (routes_documents.py).
+_LEFT_PHRASES_COMPACT = tuple(phrase.replace(" ", "") for phrase in _LEFT_PHRASES)
+_RIGHT_PHRASES_COMPACT = tuple(phrase.replace(" ", "") for phrase in _RIGHT_PHRASES)
 
 
 def _tokens(value: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", normalize_text(value)))
-
-
-def _compact(value: str) -> str:
-    """Whitespace-free form of ``value``, for matching a side phrase against
-    OCR text that sometimes glues two adjacent words with no space (e.g.
-    "Leftventricle Volume Result" instead of "Left ventricle Volume
-    Result"). A plain token/phrase check would miss that occurrence
-    entirely, since "left" and "ventricle" never appear as separate words --
-    the same OCR quirk ``_relation_side()`` (``routes_documents.py``) and
-    ``relation_panel_id()`` (``recognition_ground_truth.py``) already guard
-    against with this technique.
-    """
-    return "".join(normalize_text(value).split())
 
 
 def field_lateral_side(field: dict[str, Any]) -> str:
@@ -82,17 +76,17 @@ def relation_lateral_side(relation: dict[str, Any]) -> str:
         relation.get("column_header"), relation.get("header_text"),
     ]
     text = normalize_text(" ".join(str(part or "") for part in parts))
+    text_compact = text.replace(" ", "")
     tokens = _tokens(text)
-    compact_text = _compact(text)
     left = (
         bool(tokens & _LEFT_TERMS)
         or any(phrase in text for phrase in _LEFT_PHRASES)
-        or any(_compact(phrase) in compact_text for phrase in _LEFT_PHRASES)
+        or any(phrase in text_compact for phrase in _LEFT_PHRASES_COMPACT)
     )
     right = (
         bool(tokens & _RIGHT_TERMS)
         or any(phrase in text for phrase in _RIGHT_PHRASES)
-        or any(_compact(phrase) in compact_text for phrase in _RIGHT_PHRASES)
+        or any(phrase in text_compact for phrase in _RIGHT_PHRASES_COMPACT)
     )
     if left and right:
         return "ambiguous"

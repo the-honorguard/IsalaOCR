@@ -212,15 +212,30 @@ def _context_score(group_name: str, context_text: str) -> float:
     right_terms = {"right", "rechts", "rechter", "rechterventrikel", "rv"}
     group_tokens = set(group.split())
     context_tokens = set(context.split())
+    # Pipeline B's OCR sometimes glues adjacent words together with no space
+    # ("Leftventricle Volume Result"), so a plain whitespace split can miss an
+    # otherwise-unambiguous left/right term. Fall back to a whitespace-free
+    # substring check, same pattern as ``_relation_side()``
+    # (routes_documents.py) -- but only for the longer, unambiguous terms:
+    # "lv"/"rv" are excluded from the substring check because they are too
+    # short to search that way without false positives (e.g. "lv" inside
+    # "valve").
+    context_compact = context.replace(" ", "")
+    context_has_left = bool(context_tokens & left_terms) or any(
+        term in context_compact for term in left_terms - {"lv"}
+    )
+    context_has_right = bool(context_tokens & right_terms) or any(
+        term in context_compact for term in right_terms - {"rv"}
+    )
     if group_tokens & left_terms:
-        if context_tokens & left_terms:
+        if context_has_left:
             return 1.0
-        if context_tokens & right_terms:
+        if context_has_right:
             return -1.0
     if group_tokens & right_terms:
-        if context_tokens & right_terms:
+        if context_has_right:
             return 1.0
-        if context_tokens & left_terms:
+        if context_has_left:
             return -1.0
     return _similarity(group, context) * 0.5
 
