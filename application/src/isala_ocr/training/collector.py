@@ -781,13 +781,22 @@ def _collect_mapping_detections(
     diagnostics_root = root / "generic_detections"
     blocks_root = root / "detected_blocks"
     source_renders_root = root / "source_renders"
-    # Action 20 is a rebuild, not an incremental append. Remove only generated
-    # Mapping artifacts; canonical Detection-GT, Recognition-GT and feedback
-    # remain in their separate stores. The database replacement below preserves
-    # confirmed mappings when their stable block IDs still exist.
-    for generated_root in (diagnostics_root, blocks_root):
-        if generated_root.exists():
-            shutil.rmtree(generated_root)
+    # Action 20 (a whole-project rebuild) passes the input *directory* and
+    # expects a clean slate: remove only generated Mapping artifacts, not
+    # canonical Detection-GT/Recognition-GT/feedback, which stay in their own
+    # separate stores -- the database replacement below preserves confirmed
+    # mappings when their stable block IDs still exist. A single *file* here
+    # is never a rebuild -- it's one targeted DICOM passed straight through
+    # instead of the whole input directory (a proefpagina retest's own file;
+    # see selected_input_files()'s docstring for the same distinction) -- and
+    # wiping these directories for it would delete every OTHER source's
+    # generic_detections/detected_blocks on every single proefpagina run.
+    # Each source already overwrites its own files below, so skipping the
+    # wipe here does not leave a targeted rerun with stale data of its own.
+    if Path(input_path).is_dir():
+        for generated_root in (diagnostics_root, blocks_root):
+            if generated_root.exists():
+                shutil.rmtree(generated_root)
     diagnostics_root.mkdir(parents=True, exist_ok=True)
     blocks_root.mkdir(parents=True, exist_ok=True)
     source_renders_root.mkdir(parents=True, exist_ok=True)

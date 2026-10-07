@@ -235,3 +235,66 @@ def test_merged_benchmark_regions_keep_table_only_found_by_a_losing_variant():
     assert len(regions2) == 2
     assert {region.table_id for region in regions2} == {"upper-panel", "lower-strong"}
     assert len(sources2) == 2
+
+
+def test_trained_region_benchmark_deduplicates_overlapping_proposal_boxes(monkeypatch):
+    """Regression test for the proefpagina compare screen showing 8 near-duplicate
+    "tables" for a document with only 2 real ones (STAP 2, Tabelherkenning).
+
+    The trained table-region model can propose several heavily overlapping
+    boxes for the same physical panel (seen in practice on a real CMR report:
+    4 near-identical, almost full-width proposals for what is really one
+    panel containing a left and a right table). ``detect_with_trained_
+    regions_benchmark`` used to run per-region table detection on every one
+    of those proposals and concatenate the results unconditionally, turning
+    one real two-table panel into up to 8 overlapping "tables". It must
+    instead merge detections across proposal boxes the same way the
+    full-image path already merges across preprocessing variants, keeping
+    one rendition per distinct table.
+    """
+    from isala_ocr.ocr.table_structure import PPStructureTableEngine, TableCell, TableRegion
+
+    width, height = 600, 500
+    left_table = Box(20, 20, 240, 480)
+    right_table = Box(360, 20, 580, 480)
+
+    # Four overlapping proposals for what is really one panel: three see both
+    # tables, one (narrower) only sees the left one -- mirrors the real data
+    # (one trained-region box only spanned the left half of the image).
+    proposals = [
+        Box(0, 0, 600, 500),
+        Box(0, 10, 600, 510),
+        Box(0, 0, 250, 500),
+        Box(5, 5, 595, 495),
+    ]
+
+    def fake_region_boxes(self, image):
+        return [(box, 0.9) for box in proposals]
+
+    def fake_detect_once(image, *, source_id, fallback_tokens=()):
+        index = int(str(source_id).rsplit("-", 1)[-1]) - 1
+        box = proposals[index]
+        found = []
+        for table_id, table in (("left", left_table), ("right", right_table)):
+            if box.x1 <= table.x1 and table.x2 <= box.x2 and box.y1 <= table.y1 and table.y2 <= box.y2:
+                local = Box(table.x1 - box.x1, table.y1 - box.y1, table.x2 - box.x1, table.y2 - box.y1)
+                cell = TableCell(
+                    f"{table_id}-detected", f"{table_id}-0-0", 0, 0, local, "", 0.9,
+                )
+                found.append(TableRegion(f"{table_id}-detected", local, 0.9, (cell,)))
+        return found
+
+    monkeypatch.setattr(PPStructureTableEngine, "_trained_region_boxes", fake_region_boxes)
+    engine = PPStructureTableEngine({}, {"table_region_model_dir": "dummy", "preprocessing_variants": ["original"]})
+    engine._detect_once = fake_detect_once
+
+    image = np.zeros((height, width, 3), dtype=np.uint8)
+    regions, info = engine.detect_with_trained_regions_benchmark(image, source_id="src")
+
+    assert len(regions) == 2, [region.box for region in regions]
+    kept_boxes = {(region.box.x1, region.box.y1, region.box.x2, region.box.y2) for region in regions}
+    assert kept_boxes == {
+        (left_table.x1, left_table.y1, left_table.x2, left_table.y2),
+        (right_table.x1, right_table.y1, right_table.x2, right_table.y2),
+    }
+    assert info["region_count"] == 4
