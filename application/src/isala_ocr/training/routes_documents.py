@@ -777,6 +777,15 @@ def register_document_routes(
             abort(404)
         field_options = {item["field_key"]: item for item in header_field_options()}
         fallback_count = 0
+        # One directory scan instead of one safe_workspace_file(...).is_file()
+        # (a full symlink-resolving realpath per call) per sample - the same
+        # fix already applied to detection_review_source_rows(). A sample's
+        # crop_path is always "crops/original/<source_id>/<field_key>.png"
+        # (see collector.py), and every sample here is this one source_id, so
+        # an in-memory set-membership check on that one directory's filenames
+        # answers the same question.
+        crop_dir = workspace_root() / "crops" / "original" / source_id
+        existing_crop_names = {entry.name for entry in crop_dir.iterdir() if entry.is_file()} if crop_dir.is_dir() else set()
         for sample in samples:
             method = str(sample.get("extraction_method") or "")
             sample["is_fallback"] = method in {"fixed_fallback", "fixed_roi"}
@@ -784,7 +793,8 @@ def register_document_routes(
             profile_field = field_options.get(str(sample.get("field_key") or ""), {})
             sample["canonical_header"] = str(profile_field.get("canonical_label") or sample.get("field_label") or "")
             sample["panel"] = str(profile_field.get("panel") or "")
-            sample["crop_exists"] = safe_workspace_file(str(sample.get("crop_path") or "")).is_file()
+            crop_path_value = str(sample.get("crop_path") or "")
+            sample["crop_exists"] = bool(crop_path_value) and Path(crop_path_value).name in existing_crop_names
             sample["can_train_header"] = bool(
                 str(sample.get("locator_label_text") or "").strip()
                 and str(sample.get("header_crop_path") or "").strip()

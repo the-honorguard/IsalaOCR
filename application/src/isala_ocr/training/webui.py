@@ -4082,6 +4082,7 @@ def create_web_app(
         database=database,
         workspace_root=workspace_root,
         safe_workspace_file=safe_workspace_file,
+        cached_render_image=cached_render_image,
     )
 
     register_table_region_detect_routes(

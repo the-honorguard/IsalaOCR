@@ -32,10 +32,29 @@ from flask import Flask, abort, flash, jsonify, redirect, render_template, reque
 from .projects import DEFAULT_PROJECT_ID, ProjectManager
 
 
-def _read_log_text(path: Path) -> str:
-    """Read PowerShell/cmd output without showing an apparently blank NUL-filled log."""
+def _read_log_text(path: Path, *, tail_bytes: int | None = None) -> str:
+    """Read PowerShell/cmd output without showing an apparently blank NUL-filled log.
+
+    ``tail_bytes``, when given, reads only the last ``tail_bytes`` of the
+    file instead of the whole thing. job_log() is polled every ~2s while a
+    job is running (static/job-runtime.js), and re-reading a log that has
+    grown to several megabytes from scratch on every single poll - only to
+    immediately throw away everything but its last 100000 characters at the
+    end of job_log() - is exactly the kind of repeated full-file read that is
+    disproportionately expensive on a bind-mounted Docker Desktop volume. A
+    stray partial multi-byte sequence at the very start of a tail read is not
+    a problem: the encoding fallbacks below, and ultimately
+    errors="replace", already have to tolerate imperfect bytes.
+    """
     try:
-        raw = path.read_bytes()
+        if tail_bytes is not None:
+            size = path.stat().st_size
+            with path.open("rb") as handle:
+                if size > tail_bytes:
+                    handle.seek(size - tail_bytes)
+                raw = handle.read()
+        else:
+            raw = path.read_bytes()
     except OSError:
         return ""
     if not raw:
@@ -300,9 +319,14 @@ def register_job_routes(
             elif status == "failed":
                 lifecycle.append(f"[{finished or '--'}] Status: taak mislukt (exitcode {match.get('exit_code', 'onbekend')}).")
 
-        worker_text=_read_log_text(jobs_root/"logs"/(job_id+".worker.log"))
-        stdout_text=_read_log_text(jobs_root/"logs"/(job_id+".log"))
-        stderr_text=_read_log_text(jobs_root/"logs"/(job_id+".log.err"))
+        # The final response is truncated to the last 100000 characters
+        # anyway (below); read at most roughly twice that many bytes per
+        # file instead of the whole thing, and skip files this stream does
+        # not even use (only "overview" needs all three).
+        tail_bytes=200_000
+        worker_text=_read_log_text(jobs_root/"logs"/(job_id+".worker.log"), tail_bytes=tail_bytes) if stream in ("worker","overview") else ""
+        stdout_text=_read_log_text(jobs_root/"logs"/(job_id+".log"), tail_bytes=tail_bytes) if stream in ("stdout","overview") else ""
+        stderr_text=_read_log_text(jobs_root/"logs"/(job_id+".log.err"), tail_bytes=tail_bytes) if stream in ("stderr","overview") else ""
 
         if stream == "stdout":
             text=stdout_text

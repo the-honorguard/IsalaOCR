@@ -246,6 +246,53 @@ class RelationFeedbackMixin:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    def list_detected_relations_by_source(self) -> dict[str, list[dict[str, Any]]]:
+        """Bulk relations for every source, without one query per source.
+
+        Mapping Studio's queue-start scan (routes_mapping_studio.py's
+        _first_open_mapping_source()/_source_might_have_pending()) used to
+        call list_detected_relations(source_id) - the multi-table JOIN below
+        - once per source while scanning in order for the next one with open
+        work. On a project where most sources are already fully mapped, that
+        scan paid for the JOIN once per source instead of once overall.
+        Mirrors list_detection_table_geometry_by_source()'s approach: the
+        same query without the per-source WHERE, grouped by source_id here.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                SELECT r.*,
+                       lb.text AS label_text, lb.normalized_text AS label_normalized,
+                       lb.crop_path AS label_crop_path, lb.x1 AS label_x1, lb.y1 AS label_y1,
+                       lb.x2 AS label_x2, lb.y2 AS label_y2,
+                       COALESCE(NULLIF(vb.recognition_text,''), vb.text) AS value_text,
+                       vb.text AS value_locator_text,
+                       vb.recognition_text AS value_recognition_text,
+                       vb.recognition_confidence AS value_recognition_confidence,
+                       vb.recognition_model AS value_recognition_model,
+                       vb.normalized_text AS value_normalized,
+                       vb.crop_path AS value_crop_path, vb.confidence AS value_confidence,
+                       vb.x1 AS value_x1, vb.y1 AS value_y1, vb.x2 AS value_x2, vb.y2 AS value_y2,
+                       ub.text AS unit_text, ub.crop_path AS unit_crop_path,
+                       fm.mapping_id, fm.field_key AS mapped_field_key,
+                       fm.status AS mapping_status, fm.mapping_confidence, fm.notes AS mapping_notes
+                FROM detected_relations r
+                LEFT JOIN detected_blocks lb ON lb.block_id=r.label_block_id
+                JOIN detected_blocks vb ON vb.block_id=r.value_block_id
+                LEFT JOIN detected_blocks ub ON ub.block_id=r.unit_block_id
+                LEFT JOIN field_mappings fm ON fm.source_id=r.source_id AND fm.relation_id=r.relation_id
+                ORDER BY r.source_id,
+                         CASE WHEN r.relation_type='table_cell' THEN 0 ELSE 1 END,
+                         COALESCE(NULLIF(r.table_id,''), r.source_id), r.row_index,
+                         vb.y1, vb.x1, r.rank, r.confidence DESC
+                """
+            ).fetchall()
+        result: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            item = dict(row)
+            result.setdefault(str(item.get("source_id") or ""), []).append(item)
+        return result
+
     def update_relation_contexts(
         self, source_id: str, contexts_by_relation: dict[str, str]
     ) -> int:
