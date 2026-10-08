@@ -52,11 +52,12 @@ def register_field_mapping_config_routes(app: Flask, *, database) -> None:
             else:
                 abort(400)
             return redirect(url_for("field_schema"))
+        fields = database.list_field_definitions()
         return render_template(
             "field_schema.html",
-            fields=database.list_field_definitions(),
+            fields=fields,
             data_types=["text", "decimal", "integer", "boolean", "date", "code"],
-            header_counts={"total": len(database.list_field_definitions()), "pending": sum(not bool(item.get("active")) for item in database.list_field_definitions()), "accepted": sum(bool(item.get("active")) for item in database.list_field_definitions())},
+            header_counts={"total": len(fields), "pending": sum(not bool(item.get("active")) for item in fields), "accepted": sum(bool(item.get("active")) for item in fields)},
             header_total_label="velden", header_pending_label="inactief", header_accepted_label="actief",
         )
 
@@ -91,10 +92,11 @@ def register_field_mapping_config_routes(app: Flask, *, database) -> None:
             else:
                 abort(400)
             return redirect(url_for("mapping_profiles_page"))
+        profiles = database.list_mapping_profiles()
         return render_template(
             "mapping_profiles.html",
-            profiles=database.list_mapping_profiles(),
+            profiles=profiles,
             sources=sources,
-            header_counts={"total": len(database.list_mapping_profiles()), "pending": 0, "accepted": len(database.list_mapping_profiles())},
+            header_counts={"total": len(profiles), "pending": 0, "accepted": len(profiles)},
             header_total_label="profielen", header_pending_label="open", header_accepted_label="actief",
         )

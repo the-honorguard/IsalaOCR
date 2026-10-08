@@ -24,9 +24,12 @@ from __future__ import annotations
 
 import re
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
+import cv2
 from flask import Flask, jsonify, request
 
 from .dynamic_locator import normalize_for_matching
@@ -45,7 +48,55 @@ def register_table_panel_config_routes(
     database: Any,
     workspace_root: Callable[[], Path],
     safe_workspace_file: Callable[[str | Path], Path],
+    cached_render_image: Callable[[Path], Any],
 ) -> None:
+    _table_semantic_ocr_cache: dict[tuple[Any, ...], str] = {}
+    _table_semantic_ocr_cache_lock = threading.Lock()
+
+    def _ocr_text_for_region(render_path: Path, source_id: str, box: tuple[float, float, float, float]) -> str:
+        """Run tesseract on one table-semantic-detect region, cached.
+
+        table_semantic_detect_api() used to run this synchronously, once per
+        region needing the OCR fallback, directly in the request thread -
+        the same blocking-subprocess-per-item pattern already fixed for
+        Panel Setup's quick_ocr_text_for_proposal() (webui.py). Cache per
+        (source, box, render identity) and reuse the shared
+        cached_render_image() helper instead of re-decoding the render PNG
+        once per region; callers run the remaining cache misses in parallel.
+        """
+        rx1, ry1, rx2, ry2 = box
+        try:
+            render_identity = (render_path.stat().st_mtime_ns, render_path.stat().st_size)
+        except OSError:
+            return ""
+        cache_key = (source_id, int(rx1), int(ry1), int(rx2), int(ry2), render_identity)
+        with _table_semantic_ocr_cache_lock:
+            cached = _table_semantic_ocr_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        image = cached_render_image(render_path)
+        if image is None:
+            return ""
+        height, width = image.shape[:2]
+        crop = image[max(0, int(ry1)):min(height, int(ry2)), max(0, int(rx1)):min(width, int(rx2))]
+        if crop.size == 0:
+            return ""
+        text = ""
+        try:
+            ok, encoded = cv2.imencode(".png", crop)
+            if ok:
+                completed = subprocess.run(
+                    ["tesseract", "stdin", "stdout", "--psm", "6"],
+                    input=encoded.tobytes(), capture_output=True, check=False, timeout=20,
+                )
+                text = completed.stdout.decode("utf-8", errors="ignore")
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return ""
+        with _table_semantic_ocr_cache_lock:
+            _table_semantic_ocr_cache[cache_key] = text
+            while len(_table_semantic_ocr_cache) > 256:
+                _table_semantic_ocr_cache.pop(next(iter(_table_semantic_ocr_cache)))
+        return text
     @app.post("/api/table-panel-definitions")
     def table_panel_definitions_save_api():
         payload = json_body(request)
@@ -114,13 +165,13 @@ def register_table_panel_config_routes(
         payload = json_body(request)
         if not _SOURCE_ID_RE.fullmatch(source_id):
             return jsonify({"error": "Ongeldig source_id"}), 400
-        if not any(str(item.get("source_id") or "") == source_id for item in database.list_detection_sources()):
+        source = database.get_detection_source(source_id)
+        if source is None:
             return jsonify({"error": "Bron niet gevonden"}), 404
         regions = payload.get("regions")
         if not isinstance(regions, list):
             return jsonify({"error": "regions is verplicht"}), 400
         try:
-            source = next(item for item in database.list_detection_sources() if str(item.get("source_id") or "") == source_id)
             saved = save_table_regions(
                 workspace_root(), source_id,
                 image_width=int(payload.get("image_width") or source.get("image_width") or 0),
@@ -181,38 +232,46 @@ def register_table_panel_config_routes(
         relations = database.list_detected_relations(source_id)
         if not definitions:
             return jsonify({"error": "Maak eerst minimaal één tabeldefinitie met sleutelwoorden."}), 400
-        proposals = []
-        for index, region in enumerate(geometry.get("regions") or []):
-            rx1, ry1, rx2, ry2 = (float(region.get(key) or 0) for key in ("x1", "y1", "x2", "y2"))
-            text_parts = []
+        regions = list(geometry.get("regions") or [])
+        region_boxes = [
+            tuple(float(region.get(key) or 0) for key in ("x1", "y1", "x2", "y2"))
+            for region in regions
+        ]
+        text_parts_by_region: list[list[str]] = [[] for _ in regions]
+        for index, (rx1, ry1, rx2, ry2) in enumerate(region_boxes):
             for relation in relations:
                 cx = (float(relation.get("label_x1") or 0) + float(relation.get("label_x2") or 0)) / 2
                 cy = (float(relation.get("label_y1") or 0) + float(relation.get("label_y2") or 0)) / 2
                 if rx1 <= cx <= rx2 and ry1 <= cy <= ry2:
-                    text_parts.extend(str(relation.get(key) or "") for key in ("context_text", "label_text", "header_text", "column_header"))
-            # Table-first detection intentionally skips full-page OCR. Run a
-            # focused OCR pass here, on the selected region, when no persisted
-            # relation context is available for semantic assignment.
-            if not text_parts:
-                source = database.get_detection_source(source_id) or {}
-                render_path = safe_workspace_file(str(source.get("render_path") or ""))
-                if render_path.is_file():
-                    try:
-                        import cv2
+                    text_parts_by_region[index].extend(
+                        str(relation.get(key) or "") for key in ("context_text", "label_text", "header_text", "column_header")
+                    )
 
-                        image = cv2.imread(str(render_path))
-                        if image is not None:
-                            height, width = image.shape[:2]
-                            crop = image[max(0, int(ry1)):min(height, int(ry2)), max(0, int(rx1)):min(width, int(rx2))]
-                            ok, encoded = cv2.imencode(".png", crop)
-                            if ok:
-                                completed = subprocess.run(
-                                    ["tesseract", "stdin", "stdout", "--psm", "6"],
-                                    input=encoded.tobytes(), capture_output=True, check=False, timeout=20,
-                                )
-                                text_parts.append(completed.stdout.decode("utf-8", errors="ignore"))
-                    except (OSError, subprocess.SubprocessError, ValueError):
-                        pass
+        # Table-first detection intentionally skips full-page OCR. Run a
+        # focused OCR pass on just the regions with no persisted relation
+        # context available for semantic assignment - this used to run
+        # sequentially, once per such region, each a blocking tesseract
+        # subprocess call directly in this request's thread. get_detection_source()
+        # does not depend on the region, so it is looked up once here instead
+        # of once per region too.
+        pending_ocr_indexes = [index for index, parts in enumerate(text_parts_by_region) if not parts]
+        if pending_ocr_indexes:
+            source = database.get_detection_source(source_id) or {}
+            render_path = safe_workspace_file(str(source.get("render_path") or ""))
+            if render_path.is_file():
+                with ThreadPoolExecutor(max_workers=min(4, len(pending_ocr_indexes))) as pool:
+                    future_to_index = {
+                        pool.submit(_ocr_text_for_region, render_path, source_id, region_boxes[index]): index
+                        for index in pending_ocr_indexes
+                    }
+                    for future, index in future_to_index.items():
+                        text = future.result()
+                        if text:
+                            text_parts_by_region[index].append(text)
+
+        proposals = []
+        for index, region in enumerate(regions):
+            text_parts = text_parts_by_region[index]
             haystack = normalize_for_matching(" ".join(text_parts))
             scored = []
             for definition in definitions:

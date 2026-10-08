@@ -14,6 +14,7 @@ import time
 import threading
 import traceback
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1338,15 +1339,38 @@ def create_web_app(
         })
         return prep
 
+    _input_source_count_cache: dict[str, tuple[float, int]] = {}
+    _input_source_count_lock = threading.Lock()
+    INPUT_SOURCE_COUNT_TTL_SECONDS = 30.0
+
     def input_source_count() -> int:
+        """Count processable files under /input, cached briefly.
+
+        This was an uncached input_root.rglob("*") on every Step-1 render - a
+        full recursive directory walk with no caching at all, unlike most
+        other filesystem-heavy helpers in this file. On a Windows Docker
+        Desktop bind mount, walking a directory with any real number of files
+        is exactly the kind of thing already measured elsewhere in this
+        codebase at several seconds to over ten seconds. /input only changes
+        when someone adds or removes source files, so a short TTL - like
+        process_snapshot's - is enough to stop every page load from re-paying
+        that walk.
+        """
         input_root = Path("/input")
         if not input_root.is_dir():
             return 0
+        with _input_source_count_lock:
+            cached = _input_source_count_cache.get("entry")
+            if cached is not None and time.time() - cached[0] < INPUT_SOURCE_COUNT_TTL_SECONDS:
+                return cached[1]
         ignored = {".ini", ".yaml", ".yml", ".json", ".txt", ".log", ".gitkeep"}
-        return sum(
+        count = sum(
             1 for item in input_root.rglob("*")
             if item.is_file() and item.suffix.lower() not in ignored and item.name != ".gitkeep"
         )
+        with _input_source_count_lock:
+            _input_source_count_cache["entry"] = (time.time(), count)
+        return count
 
     def mapped_sample_state() -> dict[str, int]:
         return database.mapped_sample_counts()
@@ -2798,6 +2822,9 @@ def create_web_app(
     )
 
 
+    _quick_ocr_cache: dict[tuple[Any, ...], str] = {}
+    _quick_ocr_cache_lock = threading.Lock()
+
     def _table_panel_review_context(requested_source_id: str = "", panel_state: dict[str, Any] | None = None) -> dict[str, Any]:
         panel_state = panel_state or table_panel_state()
         sources = [dict(item) for item in database.list_detection_sources()]
@@ -2899,25 +2926,40 @@ def create_web_app(
         definitions = list((panel_state.get("profile") or {}).get("definitions") or [])
         ocr_blocks = database.list_detected_blocks(selected_source_id) if selected_source_id else []
 
+        _render_path = (
+            safe_workspace_file(Path(str(selected.get("render_path") or f"source_renders/{selected_source_id}.png")))
+            if selected is not None else None
+        )
+
         def quick_ocr_text_for_proposal(proposal: dict[str, Any]) -> str:
             """OCR only the upper part of a proposed table for type matching.
 
             Table-first detection deliberately does not persist OCR values. This
             small, on-demand pass reads likely headers only, so table type
             matching can use stable labels without turning Pipeline A into value
-            extraction.
+            extraction. Each call shells out to the `tesseract` binary (up to a
+            10s timeout) - previously run once per candidate proposal, in
+            sequence, directly in this page's render path. Cache the result per
+            (source, box, render identity) so revisiting the same proposals does
+            not repeat the subprocess call; callers run the remaining,
+            not-yet-cached calls in parallel instead of one after another.
             """
-            if selected is None:
-                return ""
-            render_value = str(selected.get("render_path") or f"source_renders/{selected_source_id}.png")
-            render_path = safe_workspace_file(Path(render_value))
-            if not render_path.is_file():
+            if selected is None or _render_path is None:
                 return ""
             try:
                 x1, y1, x2, y2 = (int(float(proposal[key])) for key in ("x1", "y1", "x2", "y2"))
             except (KeyError, TypeError, ValueError):
                 return ""
-            image = cv2.imread(str(render_path))
+            try:
+                render_identity = (_render_path.stat().st_mtime_ns, _render_path.stat().st_size)
+            except OSError:
+                return ""
+            cache_key = (selected_source_id, x1, y1, x2, y2, render_identity)
+            with _quick_ocr_cache_lock:
+                cached = _quick_ocr_cache.get(cache_key)
+            if cached is not None:
+                return cached
+            image = cached_render_image(_render_path)
             if image is None:
                 return ""
             height, width = image.shape[:2]
@@ -2947,7 +2989,12 @@ def create_web_app(
                         tokens.append(text)
             except Exception:
                 return ""
-            return " | ".join(tokens)
+            text_result = " | ".join(tokens)
+            with _quick_ocr_cache_lock:
+                _quick_ocr_cache[cache_key] = text_result
+                while len(_quick_ocr_cache) > 256:
+                    _quick_ocr_cache.pop(next(iter(_quick_ocr_cache)))
+            return text_result
 
         def table_text_for_proposal(proposal: dict[str, Any]) -> str:
             try:
@@ -2993,10 +3040,26 @@ def create_web_app(
                     best_score, best_hit = score, candidate
             return best_score, best_hit
 
-        for proposal in suggestions:
-            observed_text = table_text_for_proposal(proposal)
-            if not observed_text:
-                observed_text = quick_ocr_text_for_proposal(proposal)
+        observed_texts = [table_text_for_proposal(proposal) for proposal in suggestions]
+        pending_quick_ocr = [index for index, text in enumerate(observed_texts) if not text]
+        if pending_quick_ocr:
+            # Each of these is a `tesseract` subprocess call (up to 10s) for a
+            # proposal with no already-persisted OCR text nearby. Run the ones
+            # this request actually needs (cache misses only) in parallel
+            # instead of one after another, so a source with several such
+            # proposals does not serialize N timeouts into one page render.
+            with ThreadPoolExecutor(max_workers=min(4, len(pending_quick_ocr))) as pool:
+                future_to_index = {
+                    pool.submit(quick_ocr_text_for_proposal, suggestions[index]): index
+                    for index in pending_quick_ocr
+                }
+                for future, index in future_to_index.items():
+                    try:
+                        observed_texts[index] = future.result()
+                    except Exception:
+                        observed_texts[index] = ""
+
+        for proposal, observed_text in zip(suggestions, observed_texts):
             scored = sorted(
                 ((definition_text_score(definition, observed_text)[0], definition, definition_text_score(definition, observed_text)[1]) for definition in definitions),
                 key=lambda item: item[0], reverse=True,
@@ -4019,6 +4082,7 @@ def create_web_app(
         database=database,
         workspace_root=workspace_root,
         safe_workspace_file=safe_workspace_file,
+        cached_render_image=cached_render_image,
     )
 
     register_table_region_detect_routes(

@@ -49,16 +49,40 @@
 </section>
 {% endblock %}
 {% block scripts %}
-<script src="{{ url_for('static', filename='react-vendor/react.production.min.js', v=app_version) }}"></script>
-<script src="{{ url_for('static', filename='react-vendor/react-dom.production.min.js', v=app_version) }}"></script>
-<script src="{{ url_for('static', filename='react/localization-artifacts.js', v=app_version) }}"></script>
 <script>
 (() => {
   const tabs = Array.from(document.querySelectorAll('[data-management-tab]'));
   const panels = Array.from(document.querySelectorAll('[data-management-panel]'));
+
+  // React + ReactDOM (~131KB combined) plus the "Data & modellen" controller
+  // only matter on that one tab, which also fires its own
+  // /api/v2/localization/artifacts fetch on mount - but all three used to
+  // load and run unconditionally on every /manage visit, even to just look
+  // at "Projecten". Load them on first actual use of that tab instead.
+  let modelsScriptsState = 'unloaded'; // 'unloaded' | 'loading' | 'loaded'
+  const loadModelsScripts = () => {
+    if (modelsScriptsState !== 'unloaded') return;
+    modelsScriptsState = 'loading';
+    const sources = [
+      "{{ url_for('static', filename='react-vendor/react.production.min.js', v=app_version) }}",
+      "{{ url_for('static', filename='react-vendor/react-dom.production.min.js', v=app_version) }}",
+      "{{ url_for('static', filename='react/localization-artifacts.js', v=app_version) }}",
+    ];
+    const loadNext = (index) => {
+      if (index >= sources.length) { modelsScriptsState = 'loaded'; return; }
+      const script = document.createElement('script');
+      script.src = sources[index];
+      script.onload = () => loadNext(index + 1);
+      script.onerror = () => { modelsScriptsState = 'unloaded'; };
+      document.body.appendChild(script);
+    };
+    loadNext(0);
+  };
+
   const setTab = (name, updateUrl = true) => {
     tabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.managementTab === name));
     panels.forEach((panel) => { panel.hidden = panel.dataset.managementPanel !== name; });
+    if (name === 'models') loadModelsScripts();
     if (updateUrl && window.history && window.history.replaceState) {
       const url = new URL(window.location.href);
       url.pathname = '/manage';
@@ -67,6 +91,7 @@
     }
   };
   tabs.forEach((tab) => tab.addEventListener('click', () => setTab(tab.dataset.managementTab || 'projects')));
+  {% if active_tab == 'models' %}loadModelsScripts();{% endif %}
 })();
 </script>
 {% endblock %}

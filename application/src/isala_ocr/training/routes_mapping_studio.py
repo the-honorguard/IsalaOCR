@@ -177,6 +177,21 @@ def register_mapping_studio_routes(
             return sources
         return _request_cached("training_pipeline_sources", _compute)
 
+    def _relations_by_source() -> dict[str, list[dict[str, Any]]]:
+        """Every source's detected relations, fetched once per request.
+
+        _first_open_mapping_source()/_source_might_have_pending() each used
+        to call database.list_detected_relations(source_id) - a multi-table
+        JOIN - once per source while scanning in order for the next one with
+        open work. On a project where every source but the last is already
+        fully mapped, that scan paid for that JOIN once per source instead of
+        once overall. list_detected_relations_by_source() answers it for
+        every source in a single query; memoize that single call per request
+        the same way _request_cached() already does for the other
+        project-wide lookups this scan uses.
+        """
+        return _request_cached("detected_relations_by_source", database.list_detected_relations_by_source)
+
     def _first_open_mapping_source(sources: list[dict[str, Any]]) -> str | None:
         """Return the first source that still needs Mapping Studio review.
 
@@ -185,12 +200,13 @@ def register_mapping_studio_routes(
         query per source instead of also calling list_mappings(source_id)
         just to look the same status back up by relation_id.
         """
+        relations_by_source = _relations_by_source()
         for item in sources:
             source_id = str(item.get("source_id") or "")
             if not source_id:
                 continue
             relations = [
-                relation for relation in database.list_detected_relations(source_id)
+                relation for relation in relations_by_source.get(source_id, [])
                 if str(relation.get("relation_type") or "") == "table_cell"
                 and str(relation.get("label_text") or "").strip()
             ]
@@ -734,7 +750,7 @@ def register_mapping_studio_routes(
             and str(relation.get("label_text") or "").strip()
             and str(relation.get("mapping_status") or "") != "confirmed"
             and relation_column_eligible(relation, panel_by_id=panel_by_id, column_roles=column_roles)
-            for relation in database.list_detected_relations(source_id)
+            for relation in _relations_by_source().get(source_id, [])
         )
 
     def _first_pending_in_sources(source_ids: list[str]) -> tuple[str, str] | None:
