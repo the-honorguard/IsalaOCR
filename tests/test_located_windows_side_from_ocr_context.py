@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from isala_ocr.training.routes_documents import _located_windows
+from isala_ocr.training.routes_documents import _located_windows, _table_context_anchors
 from isala_ocr.training.table_panels import save_panel_definitions, save_panel_profile
 
 
@@ -63,6 +63,48 @@ def test_stays_onbekend_without_any_ocr_context(tmp_path: Path) -> None:
     windows = _located_windows(tmp_path, localization, image_width=1574, image_height=876)
 
     assert windows[0]["table_label"] == "Onbekend"
+
+
+def test_uses_explicit_side_heading_just_above_table_when_outside_crop(tmp_path: Path) -> None:
+    localization = {
+        "source_id": "src1",
+        "tables": [
+            {"x1": 100, "y1": 120, "x2": 500, "y2": 300},
+            {"x1": 600, "y1": 120, "x2": 1000, "y2": 300},
+        ],
+    }
+    _write_generic_detections(
+        tmp_path,
+        "src1",
+        blocks=[
+            # Full-page line grouping can merge two side-by-side headings;
+            # it must not vote for the right-hand side on its own.
+            {"block_id": "joined-line", "text": "Left ventricle Volume Result Right ventricle Volume Result", "x1": 120, "y1": 90, "x2": 930, "y2": 110},
+            {"block_id": "left-title", "text": "Left ventricle Volume Result", "x1": 120, "y1": 90, "x2": 430, "y2": 110},
+            {"block_id": "right-title", "text": "Right ventricle Volume Result", "x1": 620, "y1": 90, "x2": 930, "y2": 110},
+        ],
+        relations=[],
+    )
+
+    windows = _located_windows(tmp_path, localization, image_width=1100, image_height=500)
+
+    assert [window["table_label"] for window in windows] == ["Links", "Rechts"]
+
+
+def test_surfaces_outside_side_heading_as_window_context_anchor() -> None:
+    windows = [
+        {"window_index": 1, "x1": 100, "y1": 120, "x2": 500, "y2": 300},
+        {"window_index": 2, "x1": 600, "y1": 120, "x2": 1000, "y2": 300},
+    ]
+    payload = {"blocks": [
+        {"block_type": "line", "text": "Left ventricle Volume Result Right ventricle Volume Result", "x1": 120, "y1": 90, "x2": 930, "y2": 110},
+        {"block_type": "semantic", "role": "header", "text": "Left ventricle Volume Result", "x1": 120, "y1": 90, "x2": 430, "y2": 110},
+        {"block_type": "semantic", "role": "header", "text": "Right ventricle Volume Result", "x1": 620, "y1": 90, "x2": 930, "y2": 110},
+    ]}
+
+    anchors = _table_context_anchors(payload, windows)
+
+    assert [(anchor["window_index"], anchor["side"]) for anchor in anchors] == [(1, "left"), (2, "right")]
 
 
 def test_ocr_context_overrides_conflicting_panel_geometry(tmp_path: Path) -> None:

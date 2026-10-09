@@ -1,12 +1,8 @@
 param(
     [string]$InputPath = "",
-    # A single file's path relative to /input (e.g. from a proefpagina
-    # rerun). When set, this job processes exactly this file instead of
-    # whatever the shared input_selection.json happens to say at the moment
-    # this container starts -- several reruns queued close together would
-    # otherwise race on that one mutable file (an earlier still-queued job
-    # could pick up a later click's target, silently processing the wrong
-    # image). Takes precedence over $InputPath.
+    # A single file's path relative to /input, or __batch__:<id> for a
+    # proefpagina batch manifest in the project workspace. Both bypass the
+    # mutable input_selection.json and take precedence over $InputPath.
     [string]$InputFile = "",
     [string]$TableModelId = "active",
     [string]$MappingProfileId = "",
@@ -21,11 +17,17 @@ try {
     Assert-IsalaActionPreflight -ActionId "61"
     Assert-Docker
     Assert-IsalaRuntimePrepared | Out-Null
-    if (-not [string]::IsNullOrWhiteSpace($InputFile)) {
+    $InputManifest = ""
+    if ($InputFile -match '^__batch__:([a-f0-9]{32})$') {
+        $batchId = $Matches[1]
+        $InputManifest = "$(Get-IsalaContainerWorkspace)/test_pipeline_batches/$batchId.json"
+        $InputPath = Get-IsalaContainerProjectInput
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($InputFile)) {
         if ($InputFile -match '(^|[\\/])\.\.([\\/]|$)' -or $InputFile.StartsWith("/") -or $InputFile -match '^[A-Za-z]:') {
             throw "Invalid input file selection: $InputFile"
         }
-        $InputPath = "$(Get-IsalaContainerProjectInput)/$($InputFile.Replace('\','/'))"
+        $InputPath = "/input/$($InputFile.Replace('\','/'))"
     }
     elseif ([string]::IsNullOrWhiteSpace($InputPath)) { $InputPath = Get-IsalaContainerProjectInput }
     $dockerArguments = @(
@@ -36,10 +38,17 @@ try {
         "--config", "/app/config/app.yaml", "--table-model-id", $TableModelId,
         "--minimum-mapping-confidence", $MinimumMappingConfidence
     )
+    if ($InputManifest) { $dockerArguments += @("--input-manifest", $InputManifest) }
     if (-not [string]::IsNullOrWhiteSpace($MappingProfileId)) { $dockerArguments += @("--mapping-profile-id", $MappingProfileId) }
     Write-Host "Running the active DICOM application pipeline..." -ForegroundColor Cyan
     & docker @dockerArguments
-    if ($LASTEXITCODE -ne 0) { throw "The complete application pipeline failed. Open the activity log for the exact stage and error." }
+    $dockerExitCode = $LASTEXITCODE
+    if ($dockerExitCode -eq 137) {
+        throw "De inferencecontainer is gestopt met exitcode 137 (SIGKILL; mogelijk te weinig Docker-geheugen). Controleer Docker-events en het taaklog."
+    }
+    if ($dockerExitCode -ne 0) {
+        throw "The complete application pipeline failed (Docker exit code $dockerExitCode). Open the activity log for the exact stage and error."
+    }
 }
 finally {
     Pop-Location

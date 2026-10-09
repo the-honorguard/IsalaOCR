@@ -53,9 +53,16 @@ def _relation_side(context_text: str) -> str:
     though the text unambiguously says which side it is.
     """
     context_compact = "".join(context_text.casefold().split())
-    if any(term in context_compact for term in ("rightventricle", "rechterventrikel", "rechts")):
+    mentions_right = any(term in context_compact for term in ("rightventricle", "rechterventrikel", "rechts"))
+    mentions_left = any(term in context_compact for term in ("leftventricle", "linkerventrikel", "links"))
+    # A full OCR line can join two adjacent panel headings into one string
+    # ("Left ventricle ... Right ventricle ..."). That is evidence for
+    # neither individual window, even though either substring matches.
+    if mentions_left and mentions_right:
+        return "unknown"
+    if mentions_right:
         return "right"
-    if any(term in context_compact for term in ("leftventricle", "linkerventrikel", "links")):
+    if mentions_left:
         return "left"
     return "unknown"
 
@@ -108,7 +115,43 @@ def _window_sides_from_relations(
         if side == "unknown":
             continue
         votes.setdefault(window["window_index"], Counter())[side] += 1
-    return {window_index: counter.most_common(1)[0][0] for window_index, counter in votes.items() if counter}
+    resolved = {window_index: counter.most_common(1)[0][0] for window_index, counter in votes.items() if counter}
+
+    # A report's explicit side heading (for example "Left ventricle Volume
+    # Result") can sit just above the detected table, outside its crop. In
+    # that case no in-window relation can inherit it as context_text. Use the
+    # heading's own OCR box as a fallback, and only attach it to a nearby
+    # window it horizontally overlaps. This keeps unrelated page mentions
+    # from deciding a table's side.
+    headings: list[tuple[str, int, int, int, int]] = []
+    for block in blocks_by_id.values():
+        side = _relation_side(str(block.get("text") or ""))
+        if side == "unknown":
+            continue
+        try:
+            x1, y1, x2, y2 = (int(block.get(key) or 0) for key in ("x1", "y1", "x2", "y2"))
+        except (TypeError, ValueError):
+            continue
+        if x2 > x1 and y2 > y1:
+            headings.append((side, x1, y1, x2, y2))
+
+    for window in windows:
+        if window["window_index"] in resolved:
+            continue
+        candidates: list[tuple[float, float, str]] = []
+        window_width = max(1, window["x2"] - window["x1"])
+        for side, x1, y1, x2, y2 in headings:
+            gap = window["y1"] - y2
+            if gap < 0 or gap > max(180, int(window_width * 0.20)):
+                continue
+            overlap = max(0, min(window["x2"], x2) - max(window["x1"], x1))
+            overlap_ratio = overlap / max(1, min(window_width, x2 - x1))
+            if overlap_ratio < 0.35:
+                continue
+            candidates.append((float(gap), -overlap_ratio, side))
+        if candidates:
+            resolved[window["window_index"]] = min(candidates)[2]
+    return resolved
 
 
 def _back_link(
@@ -482,6 +525,7 @@ def _rasterized_cells_stage_data(
         window["boxes"] = [
             {"x1": cell.box.x1, "y1": cell.box.y1, "x2": cell.box.x2, "y2": cell.box.y2}
             for cell in rasterize_table_columns(_table_cells_from_payload(table))
+            if cell.column_index >= 0
         ]
 
     return {
@@ -627,6 +671,33 @@ def _table_context_anchors(payload: dict[str, Any], windows: list[dict[str, Any]
             "x1": x1, "y1": y1, "x2": x2, "y2": y2, "precision": precision,
         })
 
+    # The side heading can sit just outside the table crop. Surface that
+    # actual OCR box under the matching window so the UI shows the evidence
+    # used by _located_windows(), rather than only the table's side-neutral
+    # row context (for example "Endo Volume Normal Values Chuang").
+    for block in blocks:
+        text = str(block.get("text") or "").strip()
+        if _relation_side(text) == "unknown":
+            continue
+        try:
+            x1, y1, x2, y2 = (float(block.get(key) or 0) for key in ("x1", "y1", "x2", "y2"))
+        except (TypeError, ValueError):
+            continue
+        if x2 <= x1 or y2 <= y1:
+            continue
+        candidates: list[tuple[float, float, int]] = []
+        for window in windows:
+            gap = float(window["y1"]) - y2
+            window_width = max(1, int(window["x2"]) - int(window["x1"]))
+            if gap < 0 or gap > max(180, int(window_width * 0.20)):
+                continue
+            overlap = max(0.0, min(float(window["x2"]), x2) - max(float(window["x1"]), x1))
+            overlap_ratio = overlap / max(1.0, min(float(window_width), x2 - x1))
+            if overlap_ratio >= 0.35:
+                candidates.append((gap, -overlap_ratio, int(window["window_index"])))
+        if candidates:
+            _add(min(candidates)[2], text, x1, y1, x2, y2, "side_heading")
+
     cells_by_table: dict[str, dict[int, list[dict[str, Any]]]] = {}
     for block in blocks:
         if block.get("block_type") != "table_cell":
@@ -737,6 +808,11 @@ def _identification_stage_data(
         label_block = blocks_by_id.get(str(relation.get("label_block_id") or ""))
         context_text = str(relation.get("context_text") or "")
         side = _relation_side(context_text)
+        if side == "unknown" and window is not None:
+            # The window label may come from a nearby explicit side heading
+            # outside the table crop. Carry that resolved side into otherwise
+            # side-neutral per-row context for this identification preview.
+            side = _relation_side(str(window.get("table_label") or ""))
         boxes.append({
             "x1": vx1, "y1": vy1, "x2": vx2, "y2": vy2,
             "window_index": window["window_index"] if window else None,

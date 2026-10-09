@@ -190,6 +190,7 @@ def relation_column_eligible(
     relation: dict[str, Any], *,
     panel_by_id: dict[str, dict[str, Any]], column_roles: dict[str, dict[str, str]],
     block_when_panel_unrecognized: bool = False,
+    normalized_value_column_index: int | None = None,
 ) -> bool:
     """Whether Table Studio's column-role configuration allows this relation as a value.
 
@@ -226,7 +227,11 @@ def relation_column_eligible(
     roles = column_roles.get(panel_id)
     if not roles:
         return True
-    value_column = str(int(relation.get("value_column_index") or 0))
+    value_column = str(int(
+        normalized_value_column_index
+        if normalized_value_column_index is not None
+        else relation.get("value_column_index") or 0
+    ))
     return roles.get(value_column) == "value"
 
 

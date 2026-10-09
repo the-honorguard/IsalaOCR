@@ -119,6 +119,7 @@ services:
     read_only: true
     environment:
       ISALA_PROJECT_ID: ${ISALA_PROJECT_ID:-}
+      ISALA_SQLITE_JOURNAL_MODE: TRUNCATE
       PADDLE_PDX_CACHE_HOME: /models/paddlex
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       HOME: /tmp
@@ -141,6 +142,7 @@ services:
     read_only: true
     environment:
       HOME: /tmp
+      ISALA_SQLITE_JOURNAL_MODE: TRUNCATE
     volumes:
       # The integrated test page accepts DICOM uploads and stores them in the
       # active project's input namespace before the worker processes them.
@@ -195,6 +197,7 @@ services:
     read_only: true
     environment:
       ISALA_PROJECT_ID: ${ISALA_PROJECT_ID:-}
+      ISALA_SQLITE_JOURNAL_MODE: TRUNCATE
       PADDLE_PDX_CACHE_HOME: /models/paddlex
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
       HOME: /tmp
@@ -215,6 +218,7 @@ services:
     read_only: true
     environment:
       ISALA_PROJECT_ID: ${ISALA_PROJECT_ID:-}
+      ISALA_SQLITE_JOURNAL_MODE: TRUNCATE
       HOME: /tmp
     volumes:
       - ../../training:/training

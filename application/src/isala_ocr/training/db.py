@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 import time
@@ -91,7 +92,9 @@ class TrainingDatabase(
         # been observed to transiently fail with "unable to open database
         # file" even though the main file itself opens fine. Retry briefly
         # instead of failing the whole collection run over what resolves a
-        # moment later.
+        # moment later. Docker Desktop's Windows bind mount can also make an
+        # existing WAL unreadable across containers; the compose services use
+        # TRUNCATE with FULL synchronization to avoid the shared-memory file.
         attempts = 0
         while True:
             attempts += 1
@@ -100,7 +103,10 @@ class TrainingDatabase(
             try:
                 connection.execute("PRAGMA foreign_keys=ON")
                 connection.execute("PRAGMA busy_timeout=30000")
-                connection.execute("PRAGMA journal_mode=WAL")
+                journal_mode = os.environ.get("ISALA_SQLITE_JOURNAL_MODE", "WAL").upper()
+                if journal_mode not in {"WAL", "TRUNCATE"}:
+                    raise ValueError(f"Unsupported SQLite journal mode: {journal_mode}")
+                connection.execute(f"PRAGMA journal_mode={journal_mode}")
                 # SQLite's own docs recommend NORMAL alongside WAL: a commit no
                 # longer waits for an fsync of the WAL file, only for one at
                 # the next checkpoint, and WAL still makes the database itself
@@ -114,8 +120,12 @@ class TrainingDatabase(
                 # Mapping Studio queue label feel like a ~10s hang:
                 # sync_relation_mappings() commits at least once per
                 # confirm/skip. A per-connection setting, so it only needs to
-                # be set once here rather than on every connect() call.
-                connection.execute("PRAGMA synchronous=NORMAL")
+                # be set once here rather than on every connect() call. Rollback
+                # journals instead use FULL to preserve crash safety.
+                connection.execute(
+                    "PRAGMA synchronous=FULL" if journal_mode == "TRUNCATE"
+                    else "PRAGMA synchronous=NORMAL"
+                )
             except sqlite3.OperationalError:
                 connection.close()
                 if attempts >= 3:

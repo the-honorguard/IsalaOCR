@@ -17,25 +17,42 @@
       <form method="post" action="{{ url_for('test_pipeline_render_thumbnails') }}"><button class="button" type="submit">Thumbnails renderen</button></form>
       <label class="muted"><input type="checkbox" class="js-select-all"> Alles selecteren</label>
       <form method="post" id="bulk-retest-form" action="{{ url_for('test_pipeline_rerun_selected') }}">
-        <button class="button primary js-bulk-retest" type="submit" disabled>Geselecteerd opnieuw testen (<span class="js-bulk-count">0</span>)</button>
+        <button class="button primary js-bulk-retest" type="submit" disabled title="Per batch van maximaal 20 afbeeldingen worden de modellen één keer geladen">Geselecteerd in batches testen (<span class="js-bulk-count">0</span>)</button>
       </form>
       {% endif %}
     </div>
   </div>
-  <div class="test-reuse-grid">
+  {% if rows %}
+  <div class="test-reuse-controls">
+    <label for="test-reuse-sort">Sorteren op</label>
+    <select id="test-reuse-sort" class="js-test-reuse-sort">
+      <option value="recent">Laatst uitgewerkt · nieuwste eerst</option>
+      <option value="oldest">Laatst uitgewerkt · oudste eerst</option>
+      <option value="review">Nog te beoordelen eerst</option>
+      <option value="mapped">Meeste gemapte waarden</option>
+      <option value="tables">Meeste tabellen</option>
+      <option value="differences">Meeste verschillen</option>
+      <option value="untested">Nog niet getest eerst</option>
+      <option value="original">Oorspronkelijke volgorde</option>
+    </select>
+  </div>
+  {% endif %}
+  <div class="test-reuse-grid js-test-reuse-grid">
     {% for row in rows %}
-    <div class="test-reuse-item" data-source-id="{{ row.source_id }}" data-needs-review="{{ (row.status == 'tested' and row.differing_count and not row.reviewed)|lower }}">
+    <div class="test-reuse-item" data-source-id="{{ row.source_id }}" data-status="{{ row.status }}" data-needs-review="{{ (row.status == 'tested' and row.differing_count and not row.reviewed)|lower }}" data-processed-at="{{ row.processed_at_iso }}" data-mapped-values="{{ (row.table_summary.mapped_per_table|sum) + row.table_summary.unassigned if row.table_summary is not none else '' }}" data-table-count="{{ row.table_summary.table_count if row.table_summary is not none else '' }}" data-differences="{{ row.differing_count }}">
       {% if row.status != 'running' %}<input type="checkbox" class="js-select-row" name="source_ids" value="{{ row.source_id }}" form="bulk-retest-form" title="Selecteren voor bulkactie">{% endif %}
-      {% if row.render_exists %}<img src="{{ url_for('source_render', source_id=row.source_id) }}" alt="" loading="lazy">{% else %}<div class="test-reuse-placeholder">geen render</div>{% endif %}
-      <span class="mono">{{ row.source_id }}</span>
-      {% if row.trained %}<span class="pill ok" title="Al door de trainingspipeline gegaan">Getraind</span>{% else %}<span class="pill" title="Nog niet door de trainingspipeline gegaan">Nog niet getraind</span>{% endif %}
+      {% if row.render_exists %}<img class="test-reuse-preview" src="{{ url_for('source_render', source_id=row.source_id) }}" alt="Onderzoeksafbeelding" loading="lazy">{% else %}<div class="test-reuse-placeholder">geen render</div>{% endif %}
+      <div class="test-reuse-body">
+      <div class="test-reuse-heading"><span class="muted">Onderzoek</span><strong class="mono" title="{{ row.source_id }}">{{ row.source_id }}</strong></div>
+      {% if row.processed_at_label %}<div class="test-reuse-processed"><span>Laatst uitgewerkt</span><time datetime="{{ row.processed_at_iso }}" title="Nederlandse tijd">{{ row.processed_at_label }}</time></div>{% endif %}
+      <div class="test-reuse-badges">
+        {% if row.trained %}<span class="pill ok" title="Al door de trainingspipeline gegaan">Getraind</span>{% else %}<span class="pill" title="Nog niet door de trainingspipeline gegaan">Nog niet getraind</span>{% endif %}
       {% if row.status == 'untested' %}
-      <form method="post" action="{{ url_for('test_pipeline_rerun', source_id=row.source_id) }}" class="js-test-form"><button class="button" type="submit">Testen</button></form>
+      <span class="pill">Nog niet getest</span>
       {% elif row.status == 'running' %}
       <span class="pill warn">Bezig…</span>
       {% elif row.status == 'failed' %}
       <span class="pill bad">Mislukt</span>
-      <form method="post" action="{{ url_for('test_pipeline_rerun', source_id=row.source_id) }}" class="js-test-form"><button class="button" type="submit">Opnieuw proberen</button></form>
       {% elif row.status == 'tested' %}
       {% if not row.trained %}<span class="pill" title="Geen trainingspipeline-resultaat om mee te vergelijken">Nog niet vergelijkbaar</span>
       {% if row.reviewed %}<span class="pill ok" title="Bekeken en gemarkeerd als geen actie nodig">✓ Beoordeeld</span>{% endif %}
@@ -43,9 +60,29 @@
         {% if row.reviewed %}<span class="pill ok" title="Bekeken en gemarkeerd als geen actie nodig ({{ row.differing_count }} verschil{{ 'len' if row.differing_count != 1 }})">✓ Beoordeeld</span>
         {% else %}<span class="pill bad" title="Datablok wijkt af van de trainingspipeline">⚠ {{ row.differing_count }} verschil{{ 'len' if row.differing_count != 1 }}</span>{% endif %}
       {% else %}<span class="pill ok">Gelijk</span>{% endif %}
-      <a class="button primary" href="{{ row.compare_url }}">Vergelijken</a>
-      <form method="post" action="{{ url_for('test_pipeline_rerun', source_id=row.source_id) }}" class="js-test-form"><button class="button" type="submit">Opnieuw testen</button></form>
       {% endif %}
+      </div>
+      {% if row.status == 'tested' %}
+      {% if row.table_summary is not none %}
+      <div class="test-table-summary" aria-label="Gevonden tabellen en gemapte waarden">
+        <div class="test-table-totals">
+          <div><strong>{{ row.table_summary.table_count }}</strong><span>tabel{{ 'len' if row.table_summary.table_count != 1 }}</span></div>
+          <div><strong>{{ (row.table_summary.mapped_per_table|sum) + row.table_summary.unassigned }}</strong><span>waarden gemapt</span></div>
+        </div>
+        <div class="test-table-breakdown">
+        {% for count in row.table_summary.mapped_per_table %}
+        <span>Tabel {{ loop.index }} <strong>{{ count }}</strong></span>
+        {% endfor %}
+        {% if row.table_summary.unassigned %}<span>Buiten tabellen <strong>{{ row.table_summary.unassigned }}</strong></span>{% endif %}
+        </div>
+      </div>
+      {% else %}<div class="test-table-summary muted">Tabeltelling niet beschikbaar</div>{% endif %}
+      {% endif %}
+      <div class="test-reuse-actions">
+        {% if row.status == 'tested' %}<a class="button primary" href="{{ row.compare_url }}">{{ 'Vergelijken' if row.trained else 'Resultaat bekijken' }}</a>{% endif %}
+        {% if row.status != 'running' %}<form method="post" action="{{ url_for('test_pipeline_rerun', source_id=row.source_id) }}" class="js-test-form"><button class="button" type="submit">{{ 'Opnieuw testen' if row.status == 'tested' else 'Opnieuw proberen' if row.status == 'failed' else 'Testen' }}</button></form>{% endif %}
+      </div>
+      </div>
     </div>
     {% else %}<p class="muted">Geen afbeeldingen gevonden. Zet DICOM's in de inputmap (zie Inputselectie).</p>{% endfor %}
   </div>
@@ -73,6 +110,39 @@
     }, 3000);
   }
   if (jobIds.size) startPolling();
+
+  const sortSelect = document.querySelector('.js-test-reuse-sort');
+  const grid = document.querySelector('.js-test-reuse-grid');
+  if (sortSelect && grid) {
+    const items = Array.from(grid.querySelectorAll('.test-reuse-item'));
+    const originalOrder = new Map(items.map((item, index) => [item, index]));
+    const number = (item, name) => item.dataset[name] === '' ? -1 : Number(item.dataset[name]);
+    const date = item => item.dataset.processedAt ? Date.parse(item.dataset.processedAt) || -1 : -1;
+    const compare = (a, b) => {
+      const mode = sortSelect.value;
+      if (mode === 'recent') return date(b) - date(a) || originalOrder.get(a) - originalOrder.get(b);
+      if (mode === 'oldest') {
+        const aDate = date(a), bDate = date(b);
+        return (aDate < 0) - (bDate < 0) || aDate - bDate || originalOrder.get(a) - originalOrder.get(b);
+      }
+      if (mode === 'review') return Number(b.dataset.needsReview === 'true') - Number(a.dataset.needsReview === 'true') || number(b, 'differences') - number(a, 'differences') || date(b) - date(a);
+      if (mode === 'mapped') return number(b, 'mappedValues') - number(a, 'mappedValues') || date(b) - date(a);
+      if (mode === 'tables') return number(b, 'tableCount') - number(a, 'tableCount') || date(b) - date(a);
+      if (mode === 'differences') return number(b, 'differences') - number(a, 'differences') || date(b) - date(a);
+      if (mode === 'untested') return Number(['untested', 'failed'].includes(b.dataset.status)) - Number(['untested', 'failed'].includes(a.dataset.status)) || originalOrder.get(a) - originalOrder.get(b);
+      return originalOrder.get(a) - originalOrder.get(b);
+    };
+    try {
+      const saved = localStorage.getItem('isalaocr-test-pipeline-sort');
+      if (saved && Array.from(sortSelect.options).some(option => option.value === saved)) sortSelect.value = saved;
+    } catch (_error) {}
+    const applySort = () => grid.append(...items.slice().sort(compare));
+    sortSelect.addEventListener('change', () => {
+      try { localStorage.setItem('isalaocr-test-pipeline-sort', sortSelect.value); } catch (_error) {}
+      applySort();
+    });
+    applySort();
+  }
 
   // Client-side only -- hides rows whose datablok differs from the
   // trainingspipeline and haven't been marked "beoordeeld" yet (see
@@ -150,12 +220,31 @@
 })();
 </script>
 <style>
-.test-reuse-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
-.test-reuse-item{position:relative;display:grid;gap:6px;padding:10px;border:1px solid var(--line);border-radius:9px;background:#0d151e;text-align:center}
-.test-reuse-item .js-select-row{position:absolute;top:6px;left:6px;width:16px;height:16px;z-index:2;margin:0}
-.test-reuse-item img{width:100%;height:120px;object-fit:cover;border-radius:6px;background:#081017}
-.test-reuse-placeholder{display:grid;place-items:center;height:120px;border-radius:6px;background:#081017;color:var(--muted);font-size:11px}
-.test-reuse-item .mono{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.test-reuse-item form{display:contents}
+.test-reuse-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.test-reuse-controls label{color:var(--muted);font-size:12px}
+.test-reuse-controls select{max-width:100%}
+.test-reuse-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,310px),1fr));gap:16px}
+.test-reuse-item{position:relative;display:flex;flex-direction:column;min-width:0;border:1px solid var(--line);border-radius:11px;background:#0d151e;overflow:hidden}
+.test-reuse-item .js-select-row{position:absolute;top:12px;left:12px;width:18px;height:18px;z-index:2;margin:0}
+.test-reuse-preview{display:block;width:100%;height:180px;object-fit:contain;background:#081017}
+.test-reuse-placeholder{display:grid;place-items:center;height:180px;background:#081017;color:var(--muted);font-size:12px}
+.test-reuse-body{display:flex;flex:1;flex-direction:column;gap:13px;padding:14px}
+.test-reuse-heading{display:grid;gap:2px;min-width:0}
+.test-reuse-heading>span{font-size:11px}
+.test-reuse-heading .mono{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.test-reuse-processed{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;font-size:12px}
+.test-reuse-processed span{color:var(--muted)}
+.test-reuse-processed time{font-weight:650}
+.test-reuse-badges{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start}
+.test-reuse-badges .pill{padding:4px 8px;font-size:11px}
+.test-table-summary{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#111c27;font-size:12px}
+.test-table-totals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.test-table-totals>div{display:grid;gap:2px}
+.test-table-totals strong{font-size:23px;line-height:1.1}
+.test-table-totals span{color:var(--muted);font-size:11px}
+.test-table-breakdown{display:grid;gap:5px;padding-top:8px;border-top:1px solid var(--line)}
+.test-table-breakdown>span{display:flex;justify-content:space-between;gap:12px}
+.test-reuse-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:auto}
+.test-reuse-actions .button,.test-reuse-actions button{font-size:12px;padding:8px 10px}
 </style>
 {% endblock %}

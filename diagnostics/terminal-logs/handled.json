@@ -22,5 +22,9 @@
   "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\diagnostics\\terminal-logs\\startup-20260824-100623-32332.log": {
     "handled_at": "2026-08-24T10:15:37.2392271+02:00",
     "reason": "Recognition GT heeft nu samples.sqlite3 met 891 samples aangemaakt"
+  },
+  "C:\\Users\\Jbeuk\\Documents\\GitHub\\IsalaOCR\\diagnostics\\terminal-logs\\startup-20261008-141454-38508.log": {
+    "handled_at": "2026-10-08T14:16:24.0415454+02:00",
+    "reason": "Lokale routes_documents-wijzigingen bewaard; main fast-forward naar 0627554 en lokale wijziging conflictvrij teruggezet; git pull opnieuw geslaagd."
   }
 }

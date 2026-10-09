@@ -126,6 +126,44 @@ def test_isolated_header_is_outside_three_data_columns() -> None:
     assert [cell.box for cell in repaired] == [cell.box for cell in saved]
 
 
+def test_saved_negative_header_does_not_leave_a_gap_in_data_column_indexes() -> None:
+    """An already-excluded header can still leave data indexed 0,2,3."""
+    saved = [
+        TableCell("t", "header", 0, -1, Box(20, 0, 40, 18), "", 0.9),
+        TableCell("t", "label", 1, 0, Box(0, 20, 20, 38), "", 0.9),
+        TableCell("t", "value", 1, 2, Box(20, 20, 40, 38), "", 0.9),
+        TableCell("t", "range", 1, 3, Box(40, 20, 65, 38), "", 0.9),
+        TableCell("t", "label-2", 2, 0, Box(0, 40, 20, 58), "", 0.9),
+        TableCell("t", "value-2", 2, 2, Box(20, 40, 40, 58), "", 0.9),
+        TableCell("t", "range-2", 2, 3, Box(40, 40, 65, 58), "", 0.9),
+    ]
+
+    normalized = normalize_table_column_layout(saved)
+
+    assert [cell.column_index for cell in normalized] == [-1, 0, 1, 2, 0, 1, 2]
+    assert [cell.box for cell in normalized] == [cell.box for cell in saved]
+
+
+def test_single_cell_title_over_value_column_is_kept_out_of_data_raster() -> None:
+    """A title covering most of one value cell is still a structural header."""
+    saved = [
+        TableCell("t", "title", 0, 1, Box(15, 0, 37, 14), "", 0.9),
+        TableCell("t", "header", 1, -1, Box(20, 15, 40, 28), "", 0.9),
+    ]
+    for row, y1 in ((2, 30), (3, 55)):
+        saved.extend([
+            TableCell("t", f"label-{row}", row, 0, Box(0, y1, 20, y1 + 20), "", 0.9),
+            TableCell("t", f"value-{row}", row, 2, Box(20, y1, 40, y1 + 20), "", 0.9),
+            TableCell("t", f"range-{row}", row, 3, Box(40, y1, 65, y1 + 20), "", 0.9),
+        ])
+
+    normalized = normalize_table_column_layout(saved)
+
+    assert [(cell.row_index, cell.column_index) for cell in normalized] == [
+        (0, -1), (1, -1), (2, 0), (2, 1), (2, 2), (3, 0), (3, 1), (3, 2),
+    ]
+
+
 def test_full_width_title_stays_outside_data_columns() -> None:
     boxes = [[5, 5, 549, 25]]
     for row in range(2):

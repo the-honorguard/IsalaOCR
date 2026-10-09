@@ -143,6 +143,57 @@ def test_suggest_mappings_with_workspace_excludes_skip_column(tmp_path: Path) ->
     assert "relation-keep" in relation_ids
 
 
+@pytest.mark.parametrize("suggest", [suggest_mappings, suggest_mappings_fast])
+def test_mapping_roles_use_compact_columns_after_an_excluded_header(
+    tmp_path: Path, suggest,
+) -> None:
+    """A raw column gap must not turn the configured value column into skip."""
+    workspace = resolve_project_workspace(tmp_path / "training" / "workspace")
+    database, _ = _seed(workspace)
+    cells = []
+    for row in range(3):
+        y1 = row * 25
+        cells.extend([
+            {"cell_id": f"label-{row}", "row_index": row, "column_index": 0,
+             "confidence": 0.95, "x1": 0, "y1": y1, "x2": 20, "y2": y1 + 20},
+            {"cell_id": f"value-{row}", "row_index": row, "column_index": 2,
+             "confidence": 0.95, "x1": 30, "y1": y1, "x2": 50, "y2": y1 + 20},
+            {"cell_id": f"range-{row}", "row_index": row, "column_index": 3,
+             "confidence": 0.95, "x1": 60, "y1": y1, "x2": 80, "y2": y1 + 20},
+        ])
+    cells.append({
+        "cell_id": "isolated-header", "row_index": 3, "column_index": -1,
+        "confidence": 0.95, "x1": 30, "y1": 75, "x2": 50, "y2": 95,
+    })
+    database.replace_localization_detection(
+        {
+            "source_id": SOURCE_ID, "image_width": 200, "image_height": 100,
+            "render_path": f"source_renders/{SOURCE_ID}.png", "detector_version": "test", "token_count": 5,
+        },
+        database.list_detection_candidates(SOURCE_ID),
+        [{"table_id": TABLE_ID, "x1": 0, "y1": 0, "x2": 80, "y2": 100,
+          "confidence": 0.95, "cells": cells}],
+    )
+    blocks = database.list_detected_blocks(SOURCE_ID)
+    relations = database.list_detected_relations(SOURCE_ID)
+    for relation in relations:
+        if relation["relation_id"] == "relation-keep":
+            relation["value_column_index"] = 2
+    database.replace_generic_detection(
+        {
+            "source_id": SOURCE_ID, "image_width": 200, "image_height": 100,
+            "render_path": f"source_renders/{SOURCE_ID}.png", "detector_version": "test", "token_count": 5,
+        },
+        blocks,
+        relations,
+    )
+
+    suggestions = suggest(database, SOURCE_ID, workspace=workspace)
+    relation_ids = {str(item["relation_id"]) for item in suggestions}
+    assert "relation-keep" in relation_ids
+    assert "relation-skip" not in relation_ids
+
+
 def test_unconfigured_panel_is_unaffected_by_table_studio_gate(tmp_path: Path) -> None:
     """A panel with no Table Studio configuration keeps its relations eligible."""
     workspace = resolve_project_workspace(tmp_path / "training" / "workspace")

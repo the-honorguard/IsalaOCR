@@ -281,6 +281,7 @@ def suggest_mappings(
     source_height = int(source.get("image_height") or 0)
     panel_by_id: dict[str, dict[str, Any]] = {}
     column_roles: dict[str, dict[str, str]] = {}
+    normalized_role_columns: dict[tuple[str, int, int], int] = {}
     block_unrecognized_panel = False
     if workspace is not None:
         panel_profile = load_panel_profile(workspace)
@@ -291,6 +292,8 @@ def suggest_mappings(
         }
         column_roles = table_studio_roles(workspace)
         block_unrecognized_panel = unrecognized_panel_policy(workspace) == "block"
+        if column_roles:
+            normalized_role_columns = _table_studio_column_indexes(database, source_id)
     feedback_examples = database.list_relation_feedback()
     feedback_by_relation = {
         str(relation["relation_id"]): evaluate_feedback(
@@ -339,6 +342,7 @@ def suggest_mappings(
         if workspace is not None and not relation_column_eligible(
             relation, panel_by_id=panel_by_id, column_roles=column_roles,
             block_when_panel_unrecognized=block_unrecognized_panel,
+            normalized_value_column_index=_role_column_index(relation, normalized_role_columns),
         ):
             continue
         eligible_relations.append(relation)
@@ -590,6 +594,59 @@ def _block_box(block: dict[str, Any]) -> Box:
     return Box(int(block["x1"]), int(block["y1"]), int(block["x2"]), int(block["y2"]))
 
 
+def _table_studio_column_indexes(database: TrainingDatabase, source_id: str) -> dict[tuple[str, int, int], int]:
+    """Map stored table-cell column indexes to the compact data raster.
+
+    Table Studio roles are saved against contiguous data columns. A detected
+    table can retain a gap in its stored indexes after header cells have
+    already been marked ``-1``; normalize its cells with the same helper used
+    by the comparison grid before applying those roles. Keep the stored
+    relation index untouched because it remains the key for resolving the
+    original Pipeline-A cell geometry during materialization.
+    """
+    geometry = database.list_detection_table_geometry(source_id)
+    cells_by_table: dict[str, list[dict[str, Any]]] = {}
+    for cell in geometry.get("cells") or []:
+        cells_by_table.setdefault(str(cell.get("table_id") or ""), []).append(cell)
+    if not cells_by_table:
+        return {}
+
+    from ..ocr.table_structure import TableCell, normalize_table_column_layout
+
+    result: dict[tuple[str, int, int], int] = {}
+    for table_id, rows in cells_by_table.items():
+        raw_cells = [
+            TableCell(
+                table_id=table_id,
+                cell_id=str(cell.get("cell_id") or ""),
+                row_index=int(cell.get("row_index") or 0),
+                column_index=int(cell.get("column_index") or 0),
+                box=Box(
+                    int(cell.get("x1") or 0), int(cell.get("y1") or 0),
+                    int(cell.get("x2") or 0), int(cell.get("y2") or 0),
+                ),
+                text="",
+                confidence=float(cell.get("confidence") or 0),
+            )
+            for cell in rows
+        ]
+        normalized = normalize_table_column_layout(raw_cells)
+        for raw, canonical in zip(raw_cells, normalized, strict=True):
+            result[(table_id, raw.row_index, raw.column_index)] = canonical.column_index
+    return result
+
+
+def _role_column_index(
+    relation: dict[str, Any], normalized_columns: dict[tuple[str, int, int], int],
+) -> int | None:
+    key = (
+        str(relation.get("table_id") or ""),
+        int(relation.get("row_index") or 0),
+        int(relation.get("value_column_index") or 0),
+    )
+    return normalized_columns.get(key)
+
+
 def _pipeline_a_geometry_match(
     database: TrainingDatabase,
     source_id: str,
@@ -659,10 +716,20 @@ def _pipeline_a_geometry_match(
             int(candidate["x1"]), int(candidate["y1"]),
             int(candidate["x2"]), int(candidate["y2"]),
         ).clamp(image_width, image_height)
-        score, coverage, iou = score_box(box)
-        if coverage < 0.62 and iou < 0.38:
-            continue
         source_kind = str(candidate.get("source_kind") or "")
+        score, coverage, iou = score_box(box)
+        # A detector may return a tight text-sized table cell while Pipeline B
+        # expands that same value to the shared column raster. In that case
+        # IoU and semantic-box coverage are small, but the original cell is
+        # almost wholly inside the semantic value box on the same row.
+        vertical_overlap = max(0, min(semantic_box.y2, box.y2) - max(semantic_box.y1, box.y1))
+        contained_table_cell = (
+            source_kind == "table_cell"
+            and _intersection_area(semantic_box, box) / _area(box) >= 0.85
+            and vertical_overlap / max(1, min(semantic_box.height, box.height)) >= 0.75
+        )
+        if coverage < 0.62 and iou < 0.38 and not contained_table_cell:
+            continue
         priority = 1 if source_kind == "trained_detector" else 0
         matches.append((
             score, priority, box,

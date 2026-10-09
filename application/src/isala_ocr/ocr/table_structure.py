@@ -359,6 +359,71 @@ def _cluster_rows(cell_boxes: Sequence[Box]) -> list[list[int]]:
     return [sorted(row, key=lambda idx: cell_boxes[idx].x1) for _, row in ordered_rows]
 
 
+def _split_stacked_cell_boxes(cell_boxes: Sequence[Box], tokens: Sequence[OCRToken]) -> list[Box]:
+    """Separate detector boxes that contain multiple actual table rows.
+
+    A tall box is only split when its OCR lies on distinct text lines and
+    ordinary-height cells in another column corroborate the row boundary.
+    This keeps a legitimate wrapped or spanning cell intact.
+    """
+    if not cell_boxes or not tokens:
+        return list(cell_boxes)
+    heights = sorted(max(1, box.height) for box in cell_boxes)
+    row_height = heights[len(heights) // 2]
+    assigned = _assign_tokens_to_cells(tokens, cell_boxes)
+    table_bottom = max(box.y2 for box in cell_boxes)
+    result: list[Box] = []
+    for index, box in enumerate(cell_boxes):
+        if box.height < row_height * 1.55:
+            result.append(box)
+            continue
+        in_cell = [token for token in assigned.get(index, ()) if token.box is not None]
+        centers = [_center(token.box)[1] for token in in_cell]
+        line_groups = _cluster_centers(centers, max(4.0, row_height * 0.30))
+        if not 2 <= len(line_groups) <= 3:
+            result.append(box)
+            continue
+        lines = sorted(
+            (
+                min(in_cell[token_index].box.y1 for token_index in group),
+                max(in_cell[token_index].box.y2 for token_index in group),
+                sum(centers[token_index] for token_index in group) / len(group),
+            )
+            for group in line_groups
+        )
+        if any(lower[2] - upper[2] < row_height * 0.60 for upper, lower in zip(lines, lines[1:])):
+            result.append(box)
+            continue
+        peers: list[Box] = []
+        for peer_index, peer in enumerate(cell_boxes):
+            if peer_index == index or peer.height > row_height * 1.45:
+                continue
+            horizontal_overlap = max(0, min(box.x2, peer.x2) - max(box.x1, peer.x1))
+            if horizontal_overlap > min(box.width, peer.width) * 0.20:
+                continue
+            if box.y1 < _center(peer)[1] < box.y2:
+                peers.append(peer)
+        supported = [
+            any(abs(_center(peer)[1] - center) <= row_height * 0.50 for peer in peers)
+            for _, _, center in lines
+        ]
+        # At the table's last row the detector may omit blank peer cells.
+        terminal_blank_row = box.y2 >= table_bottom - 2 and supported[0] and not any(supported[1:])
+        if not (all(supported) or terminal_blank_row):
+            result.append(box)
+            continue
+        boundaries = [
+            round((upper[1] + lower[0]) / 2)
+            for upper, lower in zip(lines, lines[1:])
+        ]
+        edges = [box.y1, *boundaries, box.y2]
+        if any(right - left < row_height * 0.45 for left, right in zip(edges, edges[1:])):
+            result.append(box)
+            continue
+        result.extend(Box(box.x1, top, box.x2, bottom) for top, bottom in zip(edges, edges[1:]))
+    return result
+
+
 def _remove_terminal_full_width_noise(
     cell_boxes: Sequence[Box], rows: Sequence[Sequence[int]],
 ) -> list[list[int]]:
@@ -436,7 +501,7 @@ def _leading_header_indices(
             center_x = (box.x1 + box.x2) / 2
             contained_in_data_column = any(
                 other.x1 <= center_x <= other.x2 and
-                max(0, min(box.x2, other.x2) - max(box.x1, other.x1)) / max(1, box.width) >= 0.8
+                max(0, min(box.x2, other.x2) - max(box.x1, other.x1)) / max(1, box.width) >= 0.70
                 for other in regular_boxes
             )
             if covered_anchors >= 2 or (left_is_distinct and contained_in_data_column):
@@ -484,6 +549,47 @@ def _merge_right_aligned_columns(
     return merged
 
 
+def _merge_contained_sparse_columns(
+    columns: Sequence[Sequence[int]], boxes: Sequence[Box], data_indices: Sequence[int],
+) -> list[list[int]]:
+    """Attach tight OCR-sized cells to the repeated full cell column around them.
+
+    PP-Structure sometimes returns a text-sized box in the first few rows,
+    then full-width cell boxes in the remaining rows. The small boxes must not
+    introduce extra data columns when they sit inside one established column.
+    """
+    groups = [list(column) for column in columns]
+    if len(groups) < 2:
+        return groups
+    coverage = [len(group) for group in groups]
+    robust_minimum = max(3, max(coverage) // 2)
+    robust = [index for index, count in enumerate(coverage) if count >= robust_minimum]
+    removed: set[int] = set()
+    for index, group in enumerate(groups):
+        if index in robust or not group:
+            continue
+        small_boxes = [boxes[data_indices[position]] for position in group]
+        matches: list[int] = []
+        for target in robust:
+            large_boxes = [boxes[data_indices[position]] for position in groups[target]]
+            left_edges = sorted(box.x1 for box in large_boxes)
+            right_edges = sorted(box.x2 for box in large_boxes)
+            widths = sorted(box.width for box in large_boxes)
+            left = left_edges[len(left_edges) // 2]
+            right = right_edges[len(right_edges) // 2]
+            typical_width = widths[len(widths) // 2]
+            if all(
+                small.width < typical_width * 0.60
+                and max(0, min(small.x2, right) - max(small.x1, left)) / max(1, small.width) >= 0.85
+                for small in small_boxes
+            ):
+                matches.append(target)
+        if len(matches) == 1:
+            groups[matches[0]].extend(group)
+            removed.add(index)
+    return [group for index, group in enumerate(groups) if index not in removed]
+
+
 def _global_column_layout(
     cell_boxes: Sequence[Box], rows: Sequence[Sequence[int]],
     *, header_indices: set[int] | None = None,
@@ -510,6 +616,7 @@ def _global_column_layout(
     columns = _cluster_centers(left_edges, tolerance)
     right_edges = [float(cell_boxes[index].x2) for index in data_indices]
     columns = _merge_right_aligned_columns(columns, right_edges, tolerance)
+    columns = _merge_contained_sparse_columns(columns, cell_boxes, data_indices)
     anchors = [
         sum(left_edges[index] for index in column) / len(column)
         for column in columns
@@ -546,9 +653,14 @@ def normalize_table_column_layout(cells: Sequence[TableCell]) -> list[TableCell]
         {index for index, cell in enumerate(cells) if cell.column_index < 0},
     )
     data_columns = sorted({cell.column_index for index, cell in enumerate(cells) if index not in headers})
-    header_columns = {cells[index].column_index for index in headers if cells[index].column_index >= 0}
-    renumber = bool(header_columns - set(data_columns))
-    column_map = {column: index for index, column in enumerate(data_columns)} if renumber else {}
+    # Saved runs can already mark an isolated header with column_index=-1
+    # while leaving the data cells numbered with a gap (for example 0,2,3).
+    # In that case header_columns is empty, so the old conditional renumbering
+    # preserved the gap and downstream per-column roles treated the true value
+    # column as the configured skip column. Data columns are positional in the
+    # raster; compact every observed non-header index while keeping headers at
+    # -1 and their geometry intact.
+    column_map = {column: index for index, column in enumerate(data_columns)}
     return [
         replace(cell, column_index=-1 if index in headers else column_map.get(cell.column_index, cell.column_index))
         for index, cell in enumerate(cells)
@@ -690,6 +802,8 @@ def parse_ppstructure_tables(
             continue
         if image_width is not None and image_height is not None:
             boxes = [box.clamp(image_width, image_height) for box in boxes]
+        internal_tokens = _tokens_from_table_ocr(raw)
+        boxes = _split_stacked_cell_boxes(boxes, internal_tokens or fallback_tokens)
         raw_rows = _cluster_rows(boxes)
         rows = _remove_terminal_full_width_noise(boxes, raw_rows)
         if len(rows) < 2 or max((len(row) for row in rows), default=0) < 2:
@@ -705,7 +819,6 @@ def parse_ppstructure_tables(
         # to PP-Structure OCR prevents otherwise empty cells when the full-page OCR
         # misses a region.
         primary_tokens = list(fallback_tokens)
-        internal_tokens = _tokens_from_table_ocr(raw)
         primary_by_cell = _assign_tokens_to_cells(primary_tokens, boxes)
         internal_by_cell = _assign_tokens_to_cells(internal_tokens, boxes)
 
@@ -929,19 +1042,8 @@ class PPStructureTableEngine:
         self._version = "unknown"
         self._load_error: Exception | None = None
 
-    def _load(self):
-        if self._pipeline is not None:
-            return self._pipeline
-        if self._load_error is not None:
-            raise RuntimeError("PP-StructureV3 initialization previously failed") from self._load_error
-        prepare_paddlex_runtime(self.settings)
-        try:
-            import paddleocr
-            from paddleocr import PPStructureV3
-        except Exception as exc:
-            self._load_error = exc
-            raise RuntimeError("PP-StructureV3 is unavailable in the installed PaddleOCR package") from exc
-        self._version = getattr(paddleocr, "__version__", "unknown")
+    def model_configuration(self) -> dict[str, Any]:
+        """Options that actually determine the underlying PP-Structure model."""
         kwargs: dict[str, Any] = {
             "use_doc_orientation_classify": False,
             "use_doc_unwarping": False,
@@ -968,8 +1070,30 @@ class PPStructureTableEngine:
             value = self.table_settings.get(config_key)
             if value:
                 kwargs[paddle_key] = value
+        return kwargs
+
+    def reuse_loaded_pipeline(self, other: PPStructureTableEngine) -> None:
+        """Share model weights while keeping stage-specific table settings."""
+        if self.model_configuration() != other.model_configuration():
+            raise ValueError("PP-Structure modelconfiguraties verschillen")
+        self._pipeline = other._load()
+        self._version = other._version
+
+    def _load(self):
+        if self._pipeline is not None:
+            return self._pipeline
+        if self._load_error is not None:
+            raise RuntimeError("PP-StructureV3 initialization previously failed") from self._load_error
+        prepare_paddlex_runtime(self.settings)
         try:
-            self._pipeline = PPStructureV3(**kwargs)
+            import paddleocr
+            from paddleocr import PPStructureV3
+        except Exception as exc:
+            self._load_error = exc
+            raise RuntimeError("PP-StructureV3 is unavailable in the installed PaddleOCR package") from exc
+        self._version = getattr(paddleocr, "__version__", "unknown")
+        try:
+            self._pipeline = PPStructureV3(**self.model_configuration())
         except Exception as exc:
             self._load_error = exc
             message = str(exc)

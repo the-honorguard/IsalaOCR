@@ -27,7 +27,7 @@ from .dynamic_locator import LOCATOR_VERSION, LocatedField, locate_fields
 from .header_normalization import load_header_aliases
 from .generic_detection import (
     GENERIC_DETECTOR_VERSION, GenericBlock, GenericRelation,
-    detect_generic_structure, integrate_table_regions,
+    detect_generic_structure, integrate_table_regions, normalize_text,
 )
 from .localization import (
     LOCALIZATION_CANDIDATE_VERSION, fuse_candidates, table_cell_candidates,
@@ -42,6 +42,38 @@ from .table_panels import load_panel_profile
 from .table_cell_training import active_table_cell_model, list_table_cell_models
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _warm_table_engine(
+    config: AppConfig, table_settings: dict, cache: dict[str, PPStructureTableEngine] | None,
+) -> PPStructureTableEngine:
+    """Reuse a loaded table model within one application-pipeline session."""
+    # The active *text* Recognition path is irrelevant to PP-Structure. It may
+    # be resolved later in a run and must not invalidate this table-model cache.
+    table_ocr_settings = {
+        name: config.ocr.get(name)
+        for name in ("device", "inference_engine", "model_root", "allow_downloads")
+    }
+    key = json.dumps({"ocr": table_ocr_settings, "table": table_settings}, sort_keys=True, default=str)
+    engine = cache.get(key) if cache is not None else None
+    if engine is None:
+        engine = PPStructureTableEngine(config.ocr, table_settings)
+        shared = next(
+            (candidate for candidate in cache.values()
+             if candidate.model_configuration() == engine.model_configuration()),
+            None,
+        ) if cache is not None else None
+        if shared is not None:
+            engine.reuse_loaded_pipeline(shared)
+            LOGGER.info("Reusing loaded PP-StructureV3 model bundle for another pipeline stage")
+        else:
+            LOGGER.info("Initializing PP-StructureV3 model bundle for this batch")
+            engine.warmup()
+        if cache is not None:
+            cache[key] = engine
+    else:
+        LOGGER.info("Reusing loaded PP-StructureV3 table engine")
+    return engine
 
 
 def _recognize_table_value_cells(
@@ -236,6 +268,7 @@ def _collect_localization_detections(
     table_model_id: str | None = None,
     source_id: str | None = None,
     region_only: bool = False,
+    table_engine_cache: dict[str, PPStructureTableEngine] | None = None,
 ) -> dict[str, object]:
     """Pipeline A: detect crop geometry only.
 
@@ -292,8 +325,7 @@ def _collect_localization_detections(
     table_engine_error = ""
     if bool(table_settings.get("enabled", True)):
         try:
-            table_engine = PPStructureTableEngine(config.ocr, table_settings)
-            table_engine.warmup()
+            table_engine = _warm_table_engine(config, table_settings, table_engine_cache)
         except Exception as exc:
             table_engine_error = f"{type(exc).__name__}: {exc}"
             if table_first:
@@ -663,15 +695,13 @@ def _apply_panel_identity_from_located_regions(
     region then have no ``table_id`` and fall back to a much weaker per-relation
     "nearest heading text" context guess.
 
-    This uses the already-computed, reliably symmetric region geometry from
-    Pipeline A (``localization_detections/<source_id>.json``, written earlier
-    in the same ``_run_application_pipeline`` call) together with Table/Panel
-    Setup's own configured zones (``table_panel_profile.json``). Both are
-    image-independent (normalized panel coordinates; a region detector that
-    does not depend on canonical per-image Ground Truth), so both apply
-    equally well to a brand-new deployment DICOM -- unlike
-    ``canonical_table_regions()``, which table-first mode uses and which does
-    require a reviewed training image.
+    This uses Pipeline A's located regions and their own OCR headings.
+    A heading can sit just above the detected table crop. Its text selects
+    the matching Panel Setup definition (name or configured keywords) even when that panel's
+    saved coordinates belong to an older report layout. For a region without
+    an unambiguous heading, the configured panel geometry remains a fallback.
+    Each region is resolved independently, so recognizing one table never
+    requires the other table to be recognized too.
 
     Every relation whose value block falls inside a region that resolves to a
     configured panel gets that panel's name written to ``context_text``,
@@ -695,6 +725,68 @@ def _apply_panel_identity_from_located_regions(
     if not panels:
         return relations
 
+    definitions = {
+        str(item.get("panel_id") or ""): item
+        for item in load_panel_profile(root).get("definitions", [])
+        if isinstance(item, dict)
+    }
+    panel_terms: dict[str, set[str]] = {}
+    for panel in panels:
+        panel_id = str(panel["panel_id"])
+        definition = definitions.get(panel_id, {})
+        terms = [str(panel["panel_name"]), *(str(hit) for hit in definition.get("hits", []))]
+        panel_terms[panel_id] = {term for value in terms if (term := normalize_text(value))}
+
+    def _panel_for_heading(text: str) -> dict[str, object] | None:
+        observed = normalize_text(text)
+        if not observed:
+            return None
+        words = f" {observed} "
+        compact = observed.replace(" ", "")
+        matches = []
+        for panel in panels:
+            for term in panel_terms[str(panel["panel_id"])]:
+                if f" {term} " in words or (" " in term and term.replace(" ", "") in compact):
+                    matches.append(panel)
+                    break
+        return matches[0] if len(matches) == 1 else None
+
+    def _heading_panel(region: dict[str, object]) -> dict[str, object] | None:
+        """Find this table's own side heading, including just above its crop."""
+        rx1, ry1 = int(region.get("x1") or 0), int(region.get("y1") or 0)
+        rx2, ry2 = int(region.get("x2") or 0), int(region.get("y2") or 0)
+        region_width = max(1, rx2 - rx1)
+        region_height = max(1, ry2 - ry1)
+        heading_distance = max(24, int(min(region_width, region_height) * 0.25))
+        header_depth = max(16, int(region_height * 0.10))
+        candidates: list[tuple[float, float, dict[str, object]]] = []
+        for block in blocks:
+            if block.block_type not in {"semantic", "token", "table_cell", "line"} or block.role not in {"header", "label", "line"}:
+                continue
+            panel = _panel_for_heading(block.text)
+            if panel is None:
+                continue
+            box = block.box
+            gap = ry1 - box.y2
+            if gap > heading_distance or box.y1 > ry1 + header_depth:
+                continue
+            overlap = max(0, min(rx2, box.x2) - max(rx1, box.x1))
+            overlap_ratio = overlap / max(1, min(region_width, box.width))
+            if overlap_ratio < 0.35:
+                continue
+            candidates.append((float(abs(gap)), -overlap_ratio, panel))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        best = candidates[0]
+        # Two equally close headings for different panels are ambiguous.
+        if any(
+            panel["panel_id"] != best[2]["panel_id"] and abs(distance - best[0]) <= 2
+            for distance, _, panel in candidates
+        ):
+            return None
+        return best[2]
+
     def _overlap_ratio(rx1: int, ry1: int, rx2: int, ry2: int, panel: dict[str, object]) -> float:
         px1, py1, px2, py2 = int(panel["x1"]), int(panel["y1"]), int(panel["x2"]), int(panel["y2"])
         intersection = max(0, min(rx2, px2) - max(rx1, px1)) * max(0, min(ry2, py2) - max(ry1, py1))
@@ -707,6 +799,10 @@ def _apply_panel_identity_from_located_regions(
     for region in located_regions:
         rx1, ry1 = int(region.get("x1") or 0), int(region.get("y1") or 0)
         rx2, ry2 = int(region.get("x2") or 0), int(region.get("y2") or 0)
+        heading_panel = _heading_panel(region)
+        if heading_panel is not None:
+            region_panels.append((rx1, ry1, rx2, ry2, str(heading_panel["panel_name"])))
+            continue
         best_panel = max(panels, key=lambda panel: _overlap_ratio(rx1, ry1, rx2, ry2, panel))
         if _overlap_ratio(rx1, ry1, rx2, ry2, best_panel) >= 0.50:
             region_panels.append((rx1, ry1, rx2, ry2, str(best_panel["panel_name"])))
@@ -736,6 +832,7 @@ def collect_mapping_detections(
     config: AppConfig,
     locator_engine: OCREngine,
     recognition_engine: OCREngine,
+    table_engine_cache: dict[str, PPStructureTableEngine] | None = None,
 ) -> dict[str, object]:
     """Pipeline B preparation: semantic OCR blocks and mapping relations.
 
@@ -762,7 +859,9 @@ def collect_mapping_detections(
         "Mapping preparation observed the %s gate before an early semantic preview: %s",
         strategy, gate,
     )
-    return _collect_mapping_detections(input_path, workspace, config, locator_engine, recognition_engine)
+    return _collect_mapping_detections(
+        input_path, workspace, config, locator_engine, recognition_engine, table_engine_cache,
+    )
 
 
 def _collect_mapping_detections(
@@ -771,6 +870,7 @@ def _collect_mapping_detections(
     config: AppConfig,
     locator_engine: OCREngine,
     recognition_engine: OCREngine,
+    table_engine_cache: dict[str, PPStructureTableEngine] | None = None,
 ) -> dict[str, object]:
     root = resolve_project_workspace(workspace)
     # This stage is also called directly by the application pipeline after it
@@ -812,8 +912,7 @@ def _collect_mapping_detections(
     table_engine_error = ""
     if bool(table_settings.get("enabled", True)):
         try:
-            table_engine = PPStructureTableEngine(config.ocr, table_settings)
-            table_engine.warmup()
+            table_engine = _warm_table_engine(config, table_settings, table_engine_cache)
         except Exception as exc:
             table_engine_error = f"{type(exc).__name__}: {exc}"
             LOGGER.exception("PP-StructureV3 table pipeline is unavailable; continuing with generic OCR relations")
@@ -1041,6 +1140,7 @@ def collect_samples(
     table_model_id: str | None = None,
     source_id: str | None = None,
     region_only: bool = False,
+    table_engine_cache: dict[str, PPStructureTableEngine] | None = None,
 ) -> dict[str, object]:
     flow = str(
         config.raw.get("training", {}).get("collection", {}).get("flow", "legacy_profile")
@@ -1049,7 +1149,8 @@ def collect_samples(
         if locator_engine is None:
             raise ValueError("Generic detection requires a full-page locator OCR engine")
         return _collect_localization_detections(
-            input_path, workspace, config, locator_engine, table_model_id, source_id, region_only
+            input_path, workspace, config, locator_engine, table_model_id, source_id, region_only,
+            table_engine_cache,
         )
 
     root = resolve_project_workspace(workspace)

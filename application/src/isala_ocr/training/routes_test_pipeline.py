@@ -32,14 +32,17 @@ from __future__ import annotations
 import hashlib
 import threading
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 import cv2
 from flask import Flask, abort, flash, redirect, render_template, request, url_for
 
 from ..image_io import load_input
 from .input_selection import input_file_source_id, input_files
+from .json_store import read_json, write_json_atomic
 from .projects import ProjectManager
 from .routes_documents import (
     _cells_stage_data, _datablok_stage_data, _identification_stage_data, _mapping_scope_stage_data,
@@ -62,6 +65,52 @@ RERUN_ERROR_MESSAGES = {
 
 RUNNING_JOB_STATUSES = {"pending", "running"}
 FAILED_JOB_STATUSES = {"failed", "error"}
+DISPLAY_TIMEZONE = ZoneInfo("Europe/Amsterdam")
+
+
+def _processed_at_label(value: object, fallback_mtime_ns: int) -> tuple[str, str]:
+    """Return an ISO timestamp and its Amsterdam wall-clock label."""
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00")) if value else None
+        if moment is None:
+            raise ValueError("missing timestamp")
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        if not fallback_mtime_ns:
+            return "", ""
+        moment = datetime.fromtimestamp(fallback_mtime_ns / 1_000_000_000, tz=timezone.utc)
+    return moment.isoformat(), moment.astimezone(DISPLAY_TIMEZONE).strftime("%d-%m-%Y %H:%M")
+
+
+def _table_mapping_summary(localization: dict[str, Any], output: dict[str, Any]) -> dict[str, Any]:
+    """Count final mapped values per detected table using their image coordinates."""
+    tables = [table for table in (localization.get("tables") or []) if isinstance(table, dict)]
+    tables.sort(key=lambda table: (float(table.get("x1") or 0), float(table.get("y1") or 0)))
+    counts = [0] * len(tables)
+    unassigned = 0
+    for measurement in (output.get("measurements") or {}).values():
+        if not isinstance(measurement, dict) or not measurement.get("mapping_id") or not measurement.get("raw_text"):
+            continue
+        roi = measurement.get("roi")
+        if not isinstance(roi, (list, tuple)) or len(roi) != 4:
+            unassigned += 1
+            continue
+        try:
+            x1, y1, x2, y2 = (float(value) for value in roi)
+            overlaps = [
+                max(0, min(x2, float(table["x2"])) - max(x1, float(table["x1"])))
+                * max(0, min(y2, float(table["y2"])) - max(y1, float(table["y1"])))
+                for table in tables
+            ]
+        except (KeyError, TypeError, ValueError):
+            unassigned += 1
+            continue
+        if overlaps and max(overlaps) > 0:
+            counts[overlaps.index(max(overlaps))] += 1
+        else:
+            unassigned += 1
+    return {"table_count": len(tables), "mapped_per_table": counts, "unassigned": unassigned}
 
 
 def _test_upload_destination(project_manager: ProjectManager, filename: str) -> Path:
@@ -98,6 +147,41 @@ def register_test_pipeline_routes(
     # _cached_differing_count()'s own docstring for why this exists.
     _differing_count_cache: dict[tuple[str, str], tuple[tuple[tuple[int, int], tuple[int, int]], int]] = {}
     _differing_count_cache_lock = threading.Lock()
+    _table_summary_cache: dict[str, tuple[tuple[tuple[int, int], tuple[int, int]], dict[str, Any]]] = {}
+    _table_summary_cache_lock = threading.Lock()
+
+    def _cached_table_summary(source_id: str) -> dict[str, Any]:
+        """Read one rerun's table counts and completion time only when files change."""
+        localization_path = workspace_root() / "localization_detections" / f"{source_id}.json"
+        output_path = workspace_root() / "extracted_output" / f"{source_id}.json"
+
+        def _fingerprint(path: Path) -> tuple[int, int]:
+            try:
+                stat = path.stat()
+            except OSError:
+                return (0, 0)
+            return (stat.st_mtime_ns, stat.st_size)
+
+        fingerprint = (_fingerprint(localization_path), _fingerprint(output_path))
+        with _table_summary_cache_lock:
+            cached = _table_summary_cache.get(source_id)
+            if cached is not None and cached[0] == fingerprint:
+                return cached[1]
+        result: dict[str, Any] = {"table_summary": None, "processed_at_iso": "", "processed_at_label": ""}
+        output: Any = None
+        if fingerprint[1] != (0, 0):
+            output = read_json(safe_workspace_file(Path("extracted_output") / f"{source_id}.json"), {})
+            if isinstance(output, dict):
+                result["processed_at_iso"], result["processed_at_label"] = _processed_at_label(
+                    output.get("generated_at"), fingerprint[1][0],
+                )
+        if fingerprint[0] != (0, 0) and isinstance(output, dict):
+            localization = read_json(safe_workspace_file(Path("localization_detections") / f"{source_id}.json"), {})
+            if isinstance(localization, dict):
+                result["table_summary"] = _table_mapping_summary(localization, output)
+        with _table_summary_cache_lock:
+            _table_summary_cache[source_id] = (fingerprint, result)
+        return result
 
     def _cached_differing_count(rerun_source_id: str, origin_source_id: str) -> int:
         """Field-by-field deviation count between a rerun and its origin, cached by file mtime.
@@ -169,73 +253,46 @@ def register_test_pipeline_routes(
             return set()
         return {path.stem for path in root.glob("*.png")}
 
-    def _start_rerun(source_id: str) -> dict[str, Any]:
-        """Reset any previous proefpagina run of ``source_id`` and queue a fresh one.
-
-        Returns ``{"error": None, "job_id": ..., "rerun_source_id": ...}`` on
-        success, or ``{"error": <key of RERUN_ERROR_MESSAGES>, "job_id": None,
-        "rerun_source_id": None}`` on failure. Shared by the single-row
-        "Testen"/"Opnieuw testen" route and the bulk "Geselecteerde opnieuw
-        testen" route so both apply the exact same reset-and-requeue
-        mechanics (see ``test_pipeline_rerun()``'s docstring for why the copy
-        must be byte-distinct from the original). Only *queues* the job
-        (``enqueue_job`` just writes a "pending" job file and returns
-        immediately) -- the worker that actually picks it up and drives it to
-        "running" runs out-of-process, so this call itself never blocks on
-        that.
-
-        Always resets first: any existing rerun of ``source_id`` (its
-        tracking entry plus extracted_output/generic_detections/renders/crops,
-        via ``forget_test_pipeline_source()``) is cleared before a fresh one
-        is queued, so clicking "Testen" again on an already-tested row
-        replaces its previous attempt instead of piling disposable artifacts
-        up alongside it -- a row only ever has its latest run on disk.
-        Harmless to call on a never-tested row (nothing to reset yet).
-
-        The job is told exactly which file to process via its own
-        ``options["input_file"]`` (a path relative to ``/input``, forwarded
-        all the way to ``run-application-pipeline.ps1``'s ``-InputFile``,
-        which resolves and passes it straight to the CLI instead of the
-        project's whole input directory). Earlier this wrote the same target
-        into the shared ``input_selection.json`` Inputselectie itself edits
-        -- but the worker only reads that file once this job's container
-        actually starts, which can be minutes after several reruns were
-        queued back to back; a later "Testen" click's write would silently
-        overwrite an earlier, still-queued job's target before it got read,
-        so that job processed the wrong image and its own rerun never got an
-        ``extracted_output``. Passing the file straight through the job's own
-        options removes the shared mutable state entirely, so queuing several
-        reruns in a row can no longer race.
-        """
+    def _prepare_rerun(source_id: str) -> dict[str, Any]:
+        """Create one byte-distinct DICOM copy for a new proefrun."""
         previous_rerun_source_id = latest_rerun_of_source(workspace_root(), source_id)
         if previous_rerun_source_id:
             forget_test_pipeline_source(workspace_root(), previous_rerun_source_id)
         input_root = Path(project_manager.active().input_path).resolve()
         original = find_input_file_by_source_id(input_root, source_id)
         if original is None:
-            return {"error": "not_found", "job_id": None, "rerun_source_id": None}
+            return {"error": "not_found"}
         try:
             destination = _test_upload_destination(project_manager, original.name)
         except ValueError:
-            return {"error": "invalid_path", "job_id": None, "rerun_source_id": None}
+            return {"error": "invalid_path"}
         try:
             duplicate_dicom_with_fresh_identity(original, destination)
         except (OSError, ValueError, RuntimeError):
-            return {"error": "copy_failed", "job_id": None, "rerun_source_id": None}
+            return {"error": "copy_failed"}
         relative_key = destination.relative_to(Path("/input").resolve()).as_posix()
-
         new_source_id = hashlib.sha256(destination.read_bytes()).hexdigest()[:24]
+        return {
+            "error": None, "origin_source_id": source_id, "source_id": new_source_id,
+            "input_file": relative_key, "input_file_path": destination,
+        }
+
+    def _start_rerun(source_id: str) -> dict[str, Any]:
+        """Queue one image; bulk submissions use the same preparation step."""
+        prepared = _prepare_rerun(source_id)
+        if prepared["error"]:
+            return {"error": prepared["error"], "job_id": None, "rerun_source_id": None}
         active_table_model = active_table_cell_model(workspace_root()) or {}
         job = enqueue_job("61", {
             "table_model_id": "active" if active_table_model else "generic-ppstructure",
             "mapping_profile_id": "",
-            "input_file": relative_key,
+            "input_file": prepared["input_file"],
         })
         record_test_pipeline_source(
-            workspace_root(), new_source_id, origin_source_id=source_id, job_id=str(job["job_id"]),
-            input_file_path=destination,
+            workspace_root(), prepared["source_id"], origin_source_id=source_id,
+            job_id=str(job["job_id"]), input_file_path=prepared["input_file_path"],
         )
-        return {"error": None, "job_id": str(job["job_id"]), "rerun_source_id": new_source_id}
+        return {"error": None, "job_id": str(job["job_id"]), "rerun_source_id": prepared["source_id"]}
 
     def _all_input_rows() -> list[dict[str, Any]]:
         """Every image the proefpagina list can act on -- not just already-trained ones.
@@ -326,8 +383,8 @@ def register_test_pipeline_routes(
     def test_pipeline():
         """List every input image with its current proefpagina-retest status.
 
-        Deliberately just this: a picker plus a status list, nothing else --
-        no upload form, no model chips, no inline datablok. Covers every
+        A picker plus a status list and compact table/mapping counts for
+        completed retests -- no upload form or inline datablok. Covers every
         image Inputselectie offers, not only ones the training pipeline
         already produced a datablok for (see ``_all_input_rows()``); each row
         is marked "Getraind" or "Nog niet getraind" so a retest with nothing
@@ -358,6 +415,9 @@ def register_test_pipeline_routes(
             compare_url = None
             running_job_id = None
             differing_count = 0
+            table_summary = None
+            processed_at_iso = ""
+            processed_at_label = ""
             reviewed = False
             if rerun_source_id:
                 has_output = rerun_source_id in extracted_output_ids
@@ -374,7 +434,12 @@ def register_test_pipeline_routes(
                     # recomputing this from scratch for every "getest" row on
                     # every page view was the single biggest contributor to a
                     # real ~24s page load.
-                    differing_count = _cached_differing_count(rerun_source_id, source_id)
+                    run_summary = _cached_table_summary(rerun_source_id)
+                    table_summary = run_summary["table_summary"]
+                    processed_at_iso = run_summary["processed_at_iso"]
+                    processed_at_label = run_summary["processed_at_label"]
+                    if row.get("trained"):
+                        differing_count = _cached_differing_count(rerun_source_id, source_id)
                     reviewed = rerun_source_id in sources_snapshot["reviewed_ids"]
                 elif job and str(job.get("status") or "") in RUNNING_JOB_STATUSES:
                     status = "running"
@@ -394,6 +459,9 @@ def register_test_pipeline_routes(
                 "compare_url": compare_url,
                 "running_job_id": running_job_id,
                 "differing_count": differing_count,
+                "table_summary": table_summary,
+                "processed_at_iso": processed_at_iso,
+                "processed_at_label": processed_at_label,
                 "reviewed": reviewed,
             })
 
@@ -474,22 +542,15 @@ def register_test_pipeline_routes(
 
     @app.post("/test-pipeline/geselecteerd-opnieuw-testen")
     def test_pipeline_rerun_selected():
-        """Reset + requeue a proefpagina run for exactly the checked rows.
-
-        The bulk equivalent of clicking "Testen"/"Opnieuw testen" on each
-        selected row by hand -- see ``_start_rerun()`` for the shared
-        reset-and-requeue mechanics -- so retesting a chosen subset no longer
-        needs one click per row. Only a row already "Bezig..." (a rerun
-        genuinely in flight, per the same check the list itself uses) is
-        skipped even if selected, so this never queues a second job on top of
-        one still running for the same image.
-        """
-        requested_ids = [str(item).strip() for item in request.form.getlist("source_ids") if str(item).strip()]
+        """Queue selected images in bounded batches with one model session each."""
+        requested_ids = list(dict.fromkeys(
+            str(item).strip() for item in request.form.getlist("source_ids") if str(item).strip()
+        ))
         if not requested_ids:
             flash("Geen afbeeldingen geselecteerd.", "info")
             return redirect(url_for("test_pipeline"))
         jobs = job_statuses(200, action_ids={"61"})  # see test_pipeline()'s comment on this call
-        started = 0
+        prepared: list[dict[str, Any]] = []
         for source_id in requested_ids:
             rerun_source_id = latest_rerun_of_source(workspace_root(), source_id)
             if rerun_source_id:
@@ -498,10 +559,31 @@ def register_test_pipeline_routes(
                 job = next((item for item in jobs if str(item.get("job_id") or "") == job_id), None)
                 if not has_output and job and str(job.get("status") or "") in RUNNING_JOB_STATUSES:
                     continue
-            if _start_rerun(source_id)["error"] is None:
-                started += 1
-        if started:
-            flash(f"{started} geselecteerde afbeelding(en) worden opnieuw getest.", "success")
+            item = _prepare_rerun(source_id)
+            if item["error"] is None:
+                prepared.append(item)
+        if prepared:
+            active_table_model = active_table_cell_model(workspace_root()) or {}
+            for offset in range(0, len(prepared), 20):
+                batch = prepared[offset:offset + 20]
+                batch_id = uuid.uuid4().hex
+                write_json_atomic(
+                    workspace_root() / "test_pipeline_batches" / f"{batch_id}.json",
+                    {"images": [
+                        {"input_file": item["input_file"], "source_id": item["source_id"]}
+                        for item in batch
+                    ]},
+                )
+                job = enqueue_job("61", {
+                    "table_model_id": "active" if active_table_model else "generic-ppstructure",
+                    "mapping_profile_id": "", "input_file": f"__batch__:{batch_id}",
+                })
+                for item in batch:
+                    record_test_pipeline_source(
+                        workspace_root(), item["source_id"], origin_source_id=item["origin_source_id"],
+                        job_id=str(job["job_id"]), input_file_path=item["input_file_path"],
+                    )
+            flash(f"{len(prepared)} geselecteerde afbeelding(en) worden in batches van maximaal 20 getest.", "success")
         else:
             flash("Geen van de geselecteerde afbeeldingen kon opnieuw getest worden (al bezig, of niet gevonden).", "info")
         return redirect(url_for("test_pipeline"))

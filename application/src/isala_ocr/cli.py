@@ -135,7 +135,14 @@ def _training_workspace(
     if configure_active_recognition:
         active_dir = str(config.raw.get("ocr", {}).get("active_recognition_model_dir", "/models/active-recognition"))
         active_path = Path(active_dir)
-        models_root = active_path.parent if active_path.name == "active-recognition" else Path("/models")
+        if active_path.name == "active-recognition":
+            # A session can resolve this workspace more than once. Recover
+            # the original models root from an already project-scoped path,
+            # rather than appending projects/<id> on every call.
+            parent = active_path.parent
+            models_root = parent.parent.parent if parent.parent.name == "projects" else parent
+        else:
+            models_root = Path("/models")
         config.raw.setdefault("ocr", {})["active_recognition_model_dir"] = str(
             project_active_recognition_dir(models_root, base)
         )
@@ -251,16 +258,72 @@ def _collect_mapping(args: argparse.Namespace) -> int:
     return 1 if manifest.get("failed_items") else 0
 
 
-def _run_application_pipeline(args: argparse.Namespace) -> int:
-    """Run one DICOM through active detection, mapping and value output."""
+class _ApplicationModelSession:
+    """Models retained for consecutive images in one collector process."""
+
+    def __init__(self, config: AppConfig, workspace: Path):
+        self.config = config
+        self.workspace = workspace
+        self.detection_strategy = str(
+            config.raw.get("training", {}).get("localization", {}).get("strategy") or "fusion"
+        )
+        self.recognition_engine = PaddleRecognitionEngine(config.ocr)
+        self.locator_engine = PaddleEngine(_locator_settings(config))
+        self.table_engines: dict = {}
+
+
+def _run_application_batch(args: argparse.Namespace) -> int:
+    """Process a bounded manifest sequentially, retaining one model session."""
     config = load_config(args.config)
     workspace = _mapping_workspace(config, args.workspace)
+    manifest_root = (workspace / "test_pipeline_batches").resolve()
+    manifest_path = Path(args.input_manifest).resolve()
+    if manifest_path.parent != manifest_root or manifest_path.suffix != ".json":
+        raise ValueError("Batchmanifest valt buiten de projectwerkruimte")
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entries = payload.get("images") if isinstance(payload, dict) else None
+    if not isinstance(entries, list) or not 1 <= len(entries) <= 20:
+        raise ValueError("Batchmanifest moet 1 tot 20 afbeeldingen bevatten")
+    session = _ApplicationModelSession(config, workspace)
+    failures = 0
+    input_root = Path("/input").resolve()
+    for index, entry in enumerate(entries, start=1):
+        try:
+            if not isinstance(entry, dict):
+                raise ValueError("Ongeldige afbeelding in batchmanifest")
+            relative = str(entry.get("input_file") or "")
+            source_id = str(entry.get("source_id") or "")
+            if len(source_id) != 24 or any(character not in "0123456789abcdef" for character in source_id):
+                raise ValueError("Ongeldige bron-ID in batchmanifest")
+            input_file = (input_root / relative).resolve()
+            # Clinical DICOM files often have no extension. The proefpagina
+            # preserves the source filename when it creates a rerun copy.
+            if input_root not in input_file.parents or input_file.suffix.lower() not in {"", ".dcm"}:
+                raise ValueError("Ongeldig DICOM-pad in batchmanifest")
+            single_args = argparse.Namespace(**vars(args))
+            single_args.input = str(input_file)
+            single_args.source_id = source_id
+            print(f"Batch {index}/{len(entries)}: {source_id}", flush=True)
+            _run_application_pipeline(single_args, session=session)
+        except Exception:
+            failures += 1
+            LOGGER.exception("Batchafbeelding %s/%s mislukt", index, len(entries))
+    print(json.dumps({"batch_total": len(entries), "batch_failed": failures}), flush=True)
+    return 1 if failures else 0
+
+
+def _run_application_pipeline(args: argparse.Namespace, *, session: _ApplicationModelSession | None = None) -> int:
+    """Run one DICOM through active detection, mapping and value output."""
+    if getattr(args, "input_manifest", None) and session is None:
+        return _run_application_batch(args)
+    config = session.config if session is not None else load_config(args.config)
+    workspace = session.workspace if session is not None else _mapping_workspace(config, args.workspace)
     input_path = Path(args.input)
     if not input_path.exists():
         raise FileNotFoundError(input_path)
-    if input_path.is_file() and input_path.suffix.lower() != ".dcm":
-        raise ValueError("Application pipeline accepts DICOM files only (.dcm)")
-    input_files = [item for item in _files(input_path) if item.suffix.lower() == ".dcm"]
+    if input_path.is_file() and input_path.suffix.lower() not in {"", ".dcm"}:
+        raise ValueError("Application pipeline accepts DICOM files only (.dcm or no extension)")
+    input_files = [item for item in _files(input_path) if item.suffix.lower() in {"", ".dcm"}]
     if input_path.is_dir():
         selection_path = workspace / "input_selection.json"
         selected = json.loads(selection_path.read_text(encoding="utf-8-sig")).get("selected", []) if selection_path.is_file() else []
@@ -278,16 +341,19 @@ def _run_application_pipeline(args: argparse.Namespace) -> int:
     if requested_source_id and requested_source_id != source_id:
         raise ValueError("Aangeboden source-id hoort niet bij het geselecteerde DICOM-bestand")
 
-    engine = PaddleRecognitionEngine(config.ocr)
+    if session is not None:
+        config.raw.setdefault("training", {}).setdefault("localization", {})["strategy"] = session.detection_strategy
+    engine = session.recognition_engine if session is not None else PaddleRecognitionEngine(config.ocr)
     # The generic_mapping dispatcher requires a locator engine even in
     # table-first mode.  Table-first keeps it out of Pipeline-A geometry, but
     # the same neutral OCR locator is still needed for the semantic mapping
     # stage that follows.
-    locator_engine = PaddleEngine(_locator_settings(config))
+    locator_engine = session.locator_engine if session is not None else PaddleEngine(_locator_settings(config))
     detection = collect_samples(
         input_path, workspace, config, engine,
         locator_engine=locator_engine, locator_mode="fixed",
         table_model_id=(args.table_model_id or "active"),
+        table_engine_cache=session.table_engines if session is not None else None,
     )
     if int(detection.get("failed_items") or 0) or int(detection.get("detected_sources") or 0) != 1:
         raise RuntimeError(f"DICOM-detectie niet volledig geslaagd: {detection}")
@@ -296,7 +362,10 @@ def _run_application_pipeline(args: argparse.Namespace) -> int:
     # The canonical-GT route remains the training/review path. For a new
     # deployment DICOM, mapping consumes active inference geometry instead.
     config.raw.setdefault("training", {}).setdefault("localization", {})["strategy"] = "fusion"
-    mapping = collect_mapping_detections(input_path, workspace, config, locator_engine, engine)
+    mapping = collect_mapping_detections(
+        input_path, workspace, config, locator_engine, engine,
+        table_engine_cache=session.table_engines if session is not None else None,
+    )
     if int(mapping.get("failed_items") or 0):
         raise RuntimeError(f"Mappingvoorbereiding niet volledig geslaagd: {mapping}")
 
@@ -939,6 +1008,7 @@ def build_parser() -> argparse.ArgumentParser:
     application_parser.add_argument("--workspace")
     application_parser.add_argument("--config", default="/app/config/app.yaml")
     application_parser.add_argument("--source-id")
+    application_parser.add_argument("--input-manifest", help="Batchmanifest onder test_pipeline_batches in de projectwerkruimte")
     application_parser.add_argument("--table-model-id", default="active")
     application_parser.add_argument("--mapping-profile-id", default="")
     application_parser.add_argument("--minimum-mapping-confidence", type=float, default=0.90)

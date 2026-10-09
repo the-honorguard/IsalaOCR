@@ -5,6 +5,8 @@ from typing import Any
 
 from .db import TrainingDatabase
 from .mapping import (
+    _role_column_index,
+    _table_studio_column_indexes,
     _context_score,
     _similarity,
 )
@@ -82,6 +84,7 @@ def suggest_mappings_fast(
         return []
     panel_by_id: dict[str, dict[str, Any]] = {}
     column_roles: dict[str, dict[str, str]] = {}
+    normalized_role_columns: dict[tuple[str, int, int], int] = {}
     block_unrecognized_panel = False
     if workspace is not None:
         panel_profile = load_panel_profile(workspace)
@@ -92,6 +95,8 @@ def suggest_mappings_fast(
         }
         column_roles = table_studio_roles(workspace)
         block_unrecognized_panel = unrecognized_panel_policy(workspace) == "block"
+        if column_roles:
+            normalized_role_columns = _table_studio_column_indexes(database, source_id)
 
     feedback_examples = database.list_relation_feedback()
     feedback_by_relation = {
@@ -144,6 +149,7 @@ def suggest_mappings_fast(
         if workspace is not None and not relation_column_eligible(
             relation, panel_by_id=panel_by_id, column_roles=column_roles,
             block_when_panel_unrecognized=block_unrecognized_panel,
+            normalized_value_column_index=_role_column_index(relation, normalized_role_columns),
         ):
             continue
         # The value cell is selected by the table relation (same row and
